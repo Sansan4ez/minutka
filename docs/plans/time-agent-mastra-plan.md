@@ -2,6 +2,7 @@
 
 > **Статус:** актуализировано после завершения Phase 1 (`phase-1-skeleton`).  
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
+> **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry.
 
 ---
@@ -247,6 +248,7 @@ Persona меняет тон, но не отменяет ограничений.
 
 ### Phase 2 — Онбординг, consent и профиль
 
+**Подробный план:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 **Цель:** сотрудник может быть зарегистрирован, принять privacy explanation, выбрать persona и получить первый ответ в выбранном стиле.
 
 Минимальный scope:
