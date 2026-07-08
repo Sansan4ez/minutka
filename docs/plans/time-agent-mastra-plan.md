@@ -4,6 +4,7 @@
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
+> **Подробный план Phase 3.5:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
 
@@ -410,6 +411,7 @@ Definition of Done:
 ### Phase 3.5 — Agent Manual Lite: бизнес-процессы как код
 
 **Статус:** следующий рекомендуемый этап перед Telegram shell.  
+**Подробный план:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
 **Цель:** оформить поведение `MinutkaAgent` как набор проверяемых бизнес-процессов под git и подключить их к `MinutkaContextBuilder` без тяжёлой PA/versioning-инфраструктуры.
 
 Почему здесь: Phase 1–3 уже дали backend, profile/consent, context, guardrails и insights. До Phase 4 ещё не закреплены Telegram handlers, поэтому сейчас дешевле всего вынести правила агента из монолитных инструкций в process manual.
