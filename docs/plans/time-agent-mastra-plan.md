@@ -3,6 +3,7 @@
 > **Статус:** актуализировано после завершения Phase 1 (`phase-1-skeleton`).  
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
+> **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry.
 
 ---
@@ -270,6 +271,7 @@ Definition of Done:
 
 ### Phase 3 — Контекст, guardrails и извлечение инсайтов
 
+**Подробный план:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 **Цель:** агент удерживает контекст дня, соблюдает границы тематики и сохраняет структурированные сигналы.
 
 Минимальный scope:
