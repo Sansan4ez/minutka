@@ -1,0 +1,76 @@
+import { afterAll, expect } from "vitest";
+import {
+  createInMemoryWorld,
+  type InMemoryWorld,
+} from "../../../src/application/in-memory-world.js";
+import type { DomainEvent } from "../../../src/domain/events.js";
+import type { AgentRunner } from "../../../src/application/minutka-service.js";
+import { CliDriver } from "./cli-driver.js";
+import { fixedNow } from "./fixtures.js";
+
+export type SpecMetadata = {
+  id: string;
+  userStory: string;
+  requirements: string[];
+  productParts: string[];
+  contracts: string[];
+  events: string[];
+  mastra: string[];
+  cli: string[];
+};
+
+const trackedWorlds: InMemoryWorld[] = [];
+const observedCliCommands = new Set<string>();
+const worldsBySpec = new WeakMap<SpecWorld, InMemoryWorld>();
+
+export function registerSpecMetadata(metadata: SpecMetadata) {
+  afterAll(() => {
+    const observedEvents = new Set<string>(
+      trackedWorlds.flatMap((w) => w.events.map((e) => e.type)),
+    );
+    const problems = [
+      ...metadata.cli
+        .filter((cmd) => !observedCliCommands.has(cmd))
+        .map((cmd) => `declared CLI command never invoked: "${cmd}"`),
+      ...metadata.events
+        .filter((evt) => !observedEvents.has(evt))
+        .map((evt) => `declared event never emitted: ${evt}`),
+    ];
+    if (problems.length > 0) {
+      throw new Error(
+        `${metadata.id} metadata mismatch:\n- ${problems.join("\n- ")}`,
+      );
+    }
+  });
+  return metadata;
+}
+
+export type SpecWorld = {
+  cli: CliDriver;
+};
+
+function getWorld(spec: SpecWorld): InMemoryWorld {
+  const world = worldsBySpec.get(spec);
+  if (!world) throw new Error("Spec world not registered");
+  return world;
+}
+
+export type ExpectedEvent = Partial<DomainEvent> & { type: DomainEvent["type"] };
+
+export function expectEvent(spec: SpecWorld, expected: ExpectedEvent | ExpectedEvent[]) {
+  const list = Array.isArray(expected) ? expected : [expected];
+  expect(getWorld(spec).events).toEqual(
+    expect.arrayContaining(list.map((e) => expect.objectContaining(e))),
+  );
+}
+
+export function createSpecWorld(agentRunner: AgentRunner): SpecWorld {
+  const world = createInMemoryWorld(() => fixedNow);
+  trackedWorlds.push(world);
+  const cli = new CliDriver(world, agentRunner, (cmd) =>
+    observedCliCommands.add(cmd),
+  );
+  const spec = { cli };
+  worldsBySpec.set(spec, world);
+  return spec;
+}

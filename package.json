@@ -1,0 +1,24 @@
+{
+  "name": "time-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "npm run specs",
+    "specs": "vitest run specs/executable --reporter=default --reporter=json --outputFile.json=docs/generated/spec-results.json",
+    "verify": "npm run typecheck && npm run specs",
+    "mastra:dev": "mastra dev"
+  },
+  "dependencies": {
+    "@mastra/core": "^1.49.0",
+    "commander": "^14.0.0",
+    "mastra": "^1.18.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  }
+}
