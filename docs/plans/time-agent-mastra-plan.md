@@ -259,17 +259,18 @@ Persona меняет тон, но не отменяет ограничений. 
 
 Перед использованием конкретного Mastra storage/memory API необходимо свериться с embedded docs установленного `@mastra/core`.
 
-### 5.4 Agent Manual loader / Resolver-lite
+### 5.4 Agent Manual loader / constrained router
 
-После Phase 3.5 `MinutkaContextBuilder` должен работать как лёгкий resolver:
+После Phase 3.5 `MinutkaContextBuilder` должен работать как file-first context builder:
 
-1. классифицирует обращение и состояние сотрудника;
-2. выбирает process ids из `docs/agent-manual/registry.json` / `processes/index.md`;
-3. добавляет `core.md` + выбранные process-файлы в контекст агента;
-4. возвращает `selectedProcessIds` для audit/specs;
-5. не использует LLM для routing, пока deterministic heuristics покрывают specs.
+1. загружает `docs/agent-manual/registry.json`, `core.md`, `processes/index.md` и process-файлы один раз при создании service/harness;
+2. добавляет mandatory process ids из application policy/lifecycle state;
+3. передаёт `processes/index.md`, runtime input, policy, profile и recent turns в constrained LLM-router для выбора optional process ids;
+4. валидирует router output по allow-list ids и `appliesTo`, отбрасывает invented ids;
+5. добавляет `core.md` + выбранные process-файлы в контекст агента;
+6. возвращает `selectedProcessIds` для audit/specs.
 
-Полный `sha256` match/fallback из `ecom1-process-architect` откладывается. На MVP dependency drift отслеживается git review и простыми manual checks.
+Regex/pattern routing не масштабируется на пересечения сценариев и multilingual input, поэтому semantic routing делается LLM-ом, но строго constrained: index-first prompt, JSON-only output, TypeScript validation и safe fallback на mandatory processes. Полный `sha256` match/fallback из `ecom1-process-architect` откладывается. На MVP dependency drift отслеживается git review и простыми manual checks.
 
 ---
 

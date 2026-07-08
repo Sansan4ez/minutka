@@ -9,7 +9,7 @@
 
 ## 1. Цель этапа
 
-Оформить поведение `MinutkaAgent` как небольшой, проверяемый и версионируемый через git **Agent Manual**: набор атомарных procedural business-process файлов, которые можно валидировать specs, выбирать deterministic routing-ом и подмешивать в динамический контекст агента.
+Оформить поведение `MinutkaAgent` как небольшой, проверяемый и версионируемый через git **Agent Manual**: набор атомарных procedural business-process файлов, которые можно валидировать specs, выбирать file-first constrained LLM-routing-ом и подмешивать в динамический контекст агента.
 
 После Phase 1–3 в проекте уже есть:
 
@@ -23,7 +23,7 @@
 
 Phase 3.5 должна вынести агентные правила из монолитных инструкций и разрозненных application heuristics в проверяемый manual, но **не должна** строить полноценную Process Architect/versioning/filesystem-runtime инфраструктуру.
 
-Ключевой результат: `MinutkaContextBuilder` становится лёгким resolver-ом, который выбирает process ids, работает с заранее загруженным `docs/agent-manual`, возвращает `selectedProcessIds` для audit/specs и добавляет `core.md` + выбранные process-файлы в `systemContext` агента. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
+Ключевой результат: `MinutkaContextBuilder` становится file-first context builder-ом: он работает с заранее загруженным `docs/agent-manual`, добавляет обязательные application-policy процессы, передаёт `processes/index.md` в constrained LLM-router для выбора optional process ids, возвращает `selectedProcessIds` для audit/specs и добавляет `core.md` + выбранные process-файлы в `systemContext` агента. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
 
 ---
 
@@ -49,15 +49,17 @@ Phase 3.5 должна вынести агентные правила из мо�
   - `## Privacy notes`
   - `## Anti-patterns`
   - `## Dependencies`
-- [ ] `registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; routing logic остаётся в TypeScript resolver, без JSON DSL/rules engine.
+- [ ] `registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; `processes/index.md` является file-first routing map, а TypeScript resolver только валидирует constrained LLM-router output и добавляет mandatory application-policy processes.
 - [ ] `processes/index.md` человекочитаемо описывает процессы и их границы.
 - [ ] Product scenarios из `docs/product/Final_Description.md`, `docs/product/virtual-simulation.md`, при необходимости `docs/product/dialogs-for-agent-minutka.md`, переписаны в procedural BP-формат без копирования больших фрагментов.
 - [ ] Добавлен application-level Agent Manual loader.
 - [ ] Loader валидирует существование файлов, обязательные секции, уникальность process ids, корректность paths и существование dependency paths; loader не перечитывает manual на каждый chat request.
-- [ ] `MinutkaContextBuilder` расширен до resolver-lite:
+- [ ] `MinutkaContextBuilder` расширен до file-first Agent Manual context builder:
   - [ ] собирает profile/persona context как раньше;
-  - [ ] выбирает process ids deterministic правилами;
   - [ ] всегда добавляет `core`;
+  - [ ] добавляет mandatory processes из application policy (`onboarding`, `workday_guardrails`, `insight_extraction`, `feedback`);
+  - [ ] вызывает constrained LLM-router для optional process ids на основе `processes/index.md`, runtime input, policy и recent turns;
+  - [ ] валидирует router output: только известные ids, только applicable `appliesTo`, без invented ids;
   - [ ] добавляет релевантные process-файлы;
   - [ ] возвращает `selectedProcessIds`;
   - [ ] возвращает/формирует manual context для agent prompt.
@@ -82,9 +84,9 @@ Phase 3.5 должна вынести агентные правила из мо�
 
 1. Markdown Agent Manual в `docs/agent-manual`.
 2. Author contract для написания business-process файлов.
-3. Registry/index для deterministic выбора процессов.
+3. Registry/index для file-first constrained LLM выбора optional процессов.
 4. Application-level loader и validator.
-5. Расширение `MinutkaContextBuilder` до resolver-lite.
+5. Расширение `MinutkaContextBuilder` до file-first context builder с constrained LLM-router boundary.
 6. Audit/debug exposure `selectedProcessIds`.
 7. Executable specs на валидность manual и routing процессов.
 8. Документирование виртуального namespace `/AGENTS.md`, `/docs`, `/proc`, `/bin` как контракта.
@@ -96,7 +98,7 @@ Phase 3.5 должна вынести агентные правила из мо�
 - Immutable `units/vNNNN` store.
 - Hash-based dependency matching или manifest hashes.
 - Process Architect LLM.
-- LLM-based process routing.
+- Unconstrained LLM process routing without `processes/index.md`, allow-list validation and executable specs.
 - MCP/filesystem runtime.
 - Реальные remote endpoints для `/proc` и `/bin`.
 - Telegram handlers и feedback buttons — Phase 4.
@@ -128,10 +130,12 @@ CLI/SDK/future Telegram
     3. load profile
     4. load recent turns
     5. evaluate WorkPolicy
-    6. MinutkaContextBuilder.resolve(input, profile, policy, recentTurns)
+    6. MinutkaContextBuilder.build(input, profile, policy, recentTurns)
        → uses preloaded AgentManual
+       → adds mandatory application-policy process ids
+       → constrained LLM-router reads processes/index.md and selects optional process ids
+       → validates selectedProcessIds against registry/appliesTo
        → profile/persona context
-       → selectedProcessIds
        → agentManualContext = core.md + selected process markdown
     7a. if blocked:
           build deterministic refusal response
@@ -274,7 +278,7 @@ Source of truth для базовых правил `MinutkaAgent`:
 }
 ```
 
-На Phase 3.5 **не добавляем `routingHints`** в registry. Registry описывает доступные процессы и их dependencies, а routing остаётся явным TypeScript-кодом в resolver-lite. Это снижает риск появления скрытого mini-DSL и дублирования правил между JSON и `WorkPolicy`.
+На Phase 3.5 **не добавляем `routingHints`** в registry. Registry описывает доступные процессы и их dependencies, а routing map живёт в `processes/index.md`. TypeScript-код не содержит растущий набор regex/pattern rules: он добавляет mandatory processes из application policy, вызывает constrained LLM-router для optional процессов и валидирует, что router вернул только известные/applicable ids. Это сохраняет file-first стиль без скрытого JSON DSL.
 
 ### 5.5 `processes/index.md`
 
@@ -459,7 +463,7 @@ Loader должен:
    - для `specs/...` должен существовать файл;
 7. возвращать понятные ошибки validation spec-у.
 
-### 7.4 Context builder / resolver-lite
+### 7.4 Context builder / constrained router
 
 Текущий `buildMinutkaProfileContext(profile)` оставить как building block, но добавить новый API:
 
@@ -481,17 +485,19 @@ export type BuiltMinutkaContext = {
 Предлагаемая функция:
 
 ```ts
-export function buildMinutkaContext(
+export async function buildMinutkaContext(
   input: BuildMinutkaContextInput,
-  deps?: { manual?: AgentManual },
-): BuiltMinutkaContext;
+  deps?: { manual?: AgentManual; router?: AgentManualRouter },
+): Promise<BuiltMinutkaContext>;
 ```
 
-`manual` лучше загрузить один раз при создании service/harness и передать resolver dependency в `MinutkaServiceDeps`. Если manual не передан, builder должен уметь работать в backward-compatible fallback режиме: вернуть profile-only `systemContext` и минимальный `selectedProcessIds` (`["core"]` только если core реально доступен; иначе `[]`). Это позволяет поэтапно интегрировать resolver без ломки существующих specs до Step 5.
+`manual` лучше загрузить один раз при создании service/harness и передать в `MinutkaServiceDeps`. `router` — async boundary, который в runtime реализован LLM-router-ом, а в specs заменяется mock-router-ом. Если manual не передан, builder должен уметь работать в backward-compatible fallback режиме: вернуть profile-only `systemContext` и пустой `selectedProcessIds`. Это позволяет поэтапно интегрировать manual без зависимости executable specs от внешнего LLM/API.
 
 ### 7.5 Routing rules для Phase 3.5
 
-Deterministic selection:
+Routing делится на mandatory и optional selection.
+
+Mandatory selection остаётся в application code, потому что это hard policy / lifecycle state, а не semantic interpretation:
 
 1. Всегда выбирать `core`, если manual доступен.
 2. Если `purpose = onboarding_first_response`:
@@ -499,24 +505,20 @@ Deterministic selection:
    - `consent_and_privacy`
 3. Если `policy.allowedForAgent = false`:
    - `workday_guardrails`
-   - если reason связан с privacy — `consent_and_privacy`
 4. Если `purpose = chat` и `policy.shouldExtractInsights = true`:
    - `insight_extraction`
-5. Если `policy.reason` указывает на вечернюю/рабочую рефлексию:
-   - `evening_reflection`
-   - `insight_extraction`
-6. Если текст содержит privacy/data/company/methodologist concerns:
-   - `consent_and_privacy`
-7. Если `purpose = feedback`:
+5. Если `purpose = feedback`:
    - `feedback`
 
-Главный routing signal для рабочих сценариев — уже вычисленный `WorkPolicyDecision`: `allowedForAgent`, `shouldExtractInsights`, `reason`. Resolver не должен заново полностью дублировать `WorkPolicy` keyword matching. Дополнительные keyword heuristics допустимы только как локальный fallback для того, чего сейчас нет в policy, например privacy/data/company/methodologist concerns или уточнение вечернего контекста.
+Optional selection делает constrained LLM-router:
 
-Минимальные secondary heuristics вечерней рефлексии:
+1. Получает `processes/index.md`, candidate process ids, current text, purpose, `WorkPolicyDecision`, profile и recent turns.
+2. Выбирает только ids из allow-list candidate ids.
+3. Возвращает строгий JSON `{ "selectedProcessIds": [...] }` без объяснений.
+4. TypeScript resolver фильтрует output: unknown ids, ids вне `appliesTo`, duplicate ids и invented ids отбрасываются.
+5. При ошибке router-а используется safe fallback: только mandatory process ids.
 
-- policy reason `workday_reflection` / `work_emotional_state` — основной сигнал;
-- или recentTurns содержит утренний plan/priority, а current text содержит blockers/outcome;
-- keyword fallback только если policy reason недостаточен: `не успел`, `не успела`, `весь день`, `вечер`, `итог`, `сегодня`, `устал`, `устала`, `звонк`, `созвон`, `встреч`, `заблокирован`, `мешало`.
+Router должен выбирать по смыслу и не зависеть от языка запроса. Это сознательно заменяет накопление regex/pattern heuristics, которые быстро начинают пересекаться и плохо масштабируются на multilingual input.
 
 ### 7.6 AgentRunContext changes
 
@@ -756,7 +758,7 @@ npm run specs -- specs/executable/agent-manual/SPEC-AGENT-MANUAL-001.spec.ts
 npx vitest run specs/executable/agent-manual/SPEC-AGENT-MANUAL-001.spec.ts
 ```
 
-### Step 4 — Добавить resolver-lite
+### Step 4 — Добавить constrained router
 
 1. Добавить `src/application/agent-manual-resolver.ts`.
 2. Вынести/расширить `minutka-context-builder.ts`:
@@ -778,7 +780,7 @@ npx vitest run specs/executable/agent-manual/SPEC-AGENT-MANUAL-001.spec.ts
 ```
 
 4. Дедуплицировать process ids: `core` не должен повторяться.
-5. Ограничить routing deterministic heuristics, без LLM.
+5. Ограничить routing constrained LLM-router-ом: index-first prompt, allow-list ids, JSON-only output, TypeScript validation и safe fallback на mandatory processes.
 
 ### Step 5 — Интегрировать resolver в `MinutkaService`
 
@@ -933,7 +935,7 @@ specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts
 | Manual станет ещё одним неиспользуемым docs-разделом | Обязательно подключить resolver к `MinutkaContextBuilder` и проверять `selectedProcessIds` executable spec-ами. |
 | Process-файлы станут длинными marketing docs | Author contract + validation sections + лимит ориентировочно 60–150 строк. |
 | Product scenarios будут скопированы целиком | Переписывать в procedural steps, а product docs указывать в `Dependencies`. |
-| Routing станет слишком умным и хрупким | Только deterministic heuristics, без LLM, без DSL/rules engine на Phase 3.5; для рабочих сценариев опираться на `WorkPolicyDecision.reason`, а не дублировать policy keywords в resolver. |
+| Routing станет слишком умным и хрупким | Не использовать свободный classifier. Использовать constrained LLM-router: `processes/index.md` как source of truth, allow-list candidate ids, JSON-only output, validation в TypeScript, safe fallback на mandatory processes. |
 | Hardcoded `MinutkaAgent.instructions` конфликтуют с manual | Сжать instructions до fallback и приоритета runtime system context. |
 | `selectedProcessIds` раскрывает лишнее пользователю | В specs/API можно считать это audit/debug metadata. Для Telegram Phase 4 не показывать пользователю, только логировать/использовать internally. |
 | Loader зависит от current working directory | Явно resolve paths от repo root; в specs запускать из root; при необходимости искать root по `package.json`. |
@@ -953,7 +955,7 @@ specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts
 3. Все process-файлы имеют одинаковый author contract.
 4. `registry.json` не расходится с `processes/index.md`.
 5. Loader падает с понятной ошибкой при сломанном process-файле.
-6. `MinutkaService.chat()` получает context не из старого profile-only builder, а из resolver-lite.
+6. `MinutkaService.chat()` получает context не из старого profile-only builder, а из file-first context builder с constrained router.
 7. Mock agent runner в specs видит `context.selectedProcessIds`.
 8. Guardrail path возвращает/audit-ит selected processes даже без agent call.
 9. Existing Phase 3 behavior сохранён: morning → evening context и no insight для post request.
