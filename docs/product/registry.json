@@ -1,0 +1,430 @@
+{
+  "currentStage": "3b",
+  "stages": ["1", "2", "3a", "3b", "4"],
+  "scenariosDoc": "docs/product/virtual-simulation.md",
+  "scopeNotes": {
+    "covers": "Stage 3B covers the text daily cycle, personal context, safe aggregates, employee weekly/final reporting, minimal automation map seed, privacy backbone behavior, schema-linked contracts, CLI-driven executable specs, Mastra wrappers, and generated traceability.",
+    "outOfScope": "Out of scope remains real Telegram delivery, real methodologist web panel, real LLM/STT provider calls, and production-grade database/encryption/KMS."
+  },
+  "productParts": [
+    { "id": "PP-FLOW", "title": "Program flow and invite management." },
+    { "id": "PP-ONBOARDING", "title": "Employee invite, consent, and onboarding." },
+    { "id": "PP-RUNTIME", "title": "Mastra-backed message processing runtime." },
+    { "id": "PP-PRIVACY", "title": "Privacy, consent, and methodologist boundary layer." },
+    { "id": "PP-CLI", "title": "CLI-driven executable specification surface." },
+    { "id": "PP-REPORTING", "title": "Reporting and automation map contour: signal candidates, safe aggregates, future reports." }
+  ],
+  "boundedContexts": ["employee", "privacy", "program-flow", "reporting"],
+  "userStories": [
+    {
+      "id": "US-FLOW-001",
+      "stage": "1",
+      "scenario": 1,
+      "story": "As a methodologist, I can create a program flow and generate an employee invite.",
+      "acceptance": [
+        "A methodologist creates a flow with client name and date range.",
+        "A methodologist generates an invite token for an employee role."
+      ]
+    },
+    {
+      "id": "US-ONBOARDING-001",
+      "stage": "1",
+      "scenario": 2,
+      "story": "As an employee, I can open an invite, accept consent, and complete onboarding.",
+      "acceptance": [
+        "The employee opens the invite and is connected to the flow.",
+        "The employee accepts a privacy version before personal context is created.",
+        "Completing onboarding emits `ParticipantOnboarded`."
+      ]
+    },
+    {
+      "id": "US-TOPIC-001",
+      "stage": "1",
+      "scenario": 5,
+      "story": "As an employee, I receive a soft refusal when I ask Minutka to produce out-of-scope work output.",
+      "acceptance": [
+        "A work-output request is rejected by a deterministic topic boundary.",
+        "The response redirects the employee back to learning and reflection.",
+        "No final work product is generated or exposed to the methodologist."
+      ]
+    },
+    {
+      "id": "US-AGGREGATION-001",
+      "stage": "2",
+      "scenario": 10,
+      "story": "As a methodologist, I see only safe aggregate signals for groups of at least 5 participants.",
+      "acceptance": [
+        "Aggregates for 5+ participants are visible.",
+        "Aggregates for 1-4 participants are hidden.",
+        "Raw messages and personal profile fields are never returned."
+      ]
+    },
+    {
+      "id": "US-DATA-DELETION-001",
+      "stage": "2",
+      "scenario": 13,
+      "story": "As an employee, I can delete my personal context and message history without asking the company.",
+      "acceptance": [
+        "The employee requests deletion through the CLI/API.",
+        "Personal context and message history disappear.",
+        "Safe non-identifying aggregates and audit events follow policy."
+      ]
+    },
+    {
+      "id": "US-ENGAGEMENT-001",
+      "stage": "2",
+      "scenario": 9,
+      "story": "As a methodologist, I see operational engagement labels without access to message content.",
+      "acceptance": [
+        "After 2 missed days status is `lagging`.",
+        "After 3 or more missed days status is `dropped_off`.",
+        "Message content, emotion and productivity do not influence the label."
+      ]
+    },
+    {
+      "id": "US-REMINDER-001",
+      "stage": "2",
+      "scenario": 9,
+      "story": "As a methodologist, I can initiate a soft reminder based on engagement state without seeing private messages.",
+      "acceptance": [
+        "The methodologist can request a reminder for `lagging` or `dropped_off` participants.",
+        "The reminder request payload contains no private content.",
+        "Telegram delivery remains out of scope."
+      ]
+    },
+    {
+      "id": "US-MORNING-001",
+      "stage": "3a",
+      "scenario": 3,
+      "story": "As an employee, I submit a morning text plan and receive a structured day plan without productivity scoring.",
+      "acceptance": [
+        "The morning plan is saved in employee-private daily context.",
+        "The response structures priorities and constraints without productivity or performance scoring.",
+        "The methodologist participant view cannot expose the plan text."
+      ]
+    },
+    {
+      "id": "US-MIDDAY-001",
+      "stage": "3a",
+      "scenario": 4,
+      "story": "As an employee, I submit a midday check-in and receive a soft adjustment to the current plan.",
+      "acceptance": [
+        "The midday check-in links to the same program day and morning plan when one exists.",
+        "The response suggests a practical, non-judgmental adjustment.",
+        "Daily content and emotional state stay out of the methodologist contour."
+      ]
+    },
+    {
+      "id": "US-EVENING-TEXT-001",
+      "stage": "3a",
+      "scenario": 6,
+      "story": "As an employee, I submit an evening text reflection that updates my private context and prepares safe aggregate signal candidates.",
+      "acceptance": [
+        "Evening text creates private personal observation proposals.",
+        "Evening text creates deterministic signal candidates without raw transcript or direct PII.",
+        "Methodologist/client views cannot see the message content or individual emotional state."
+      ]
+    },
+    {
+      "id": "US-PERSONAL-AREA-001",
+      "stage": "3a",
+      "scenario": 7,
+      "story": "As an employee, I can inspect and correct my personal context in the \"Me\" area.",
+      "acceptance": [
+        "The employee can read, correct, reject and delete personal observations.",
+        "Corrected context affects the next daily response.",
+        "Other employees and methodologist/client contours cannot access the private context."
+      ]
+    },
+    {
+      "id": "US-WEEKLY-001",
+      "stage": "3b",
+      "scenario": 8,
+      "story": "As an employee, I receive a weekly summary and confirm or reject proposed personal patterns.",
+      "acceptance": [
+        "The weekly summary uses cautious language and asks for confirmation.",
+        "The employee confirms or rejects patterns through explicit requester identity.",
+        "Rejected observations or patterns are not treated as confirmed facts."
+      ]
+    },
+    {
+      "id": "US-PERSONAL-REPORT-001",
+      "stage": "3b",
+      "scenario": 11,
+      "story": "As an employee, I receive a final personal report that remains private to me.",
+      "acceptance": [
+        "The final report is generated only for an explicitly matching employee requester.",
+        "The report does not compare the employee with peers or score performance.",
+        "Methodologist/client contours cannot fetch the personal report, and deleted or rejected facts are excluded."
+      ]
+    },
+    {
+      "id": "US-AUTOMATION-MAP-001",
+      "stage": "3b",
+      "scenario": 12,
+      "story": "As a methodologist, I prepare a minimal automation map draft from safe aggregate signals.",
+      "acceptance": [
+        "The draft uses only safe aggregates and hides groups below 5.",
+        "Automation map operations require explicit methodologist identity and role.",
+        "The methodologist can edit narrative without seeing raw personal data."
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "FR-FLOW-001",
+      "stage": "1",
+      "statement": "The system must let a methodologist create a program flow and invite a participant.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-ONBOARDING-001",
+      "stage": "1",
+      "statement": "The system must let an employee start onboarding, accept consent, and complete onboarding.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-RUNTIME-TOPIC-001",
+      "stage": "1",
+      "statement": "The runtime must classify and refuse out-of-scope work-output requests before content generation.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-CONSENT-001",
+      "stage": "1",
+      "statement": "The system must not create personal context before consent is accepted.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-METHODOL-001",
+      "stage": "1",
+      "statement": "The methodologist must not access transcript, personal profile, message content, or emotional state.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-PROVIDER-001",
+      "stage": "1",
+      "statement": "Provider calls must require privacy-boundary preparation. Structured data uses safe projections; free-text payloads are masked or excluded before any agent/provider path. Stage 1 uses fake deterministic provider behavior, but the runtime keeps the policy gate in front of any agent/provider path.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "FR-AGGREGATION-001",
+      "stage": "2",
+      "statement": "The system prepares safe aggregate signals for the methodologist/client contour.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-DATA-DELETION-001",
+      "stage": "2",
+      "statement": "The employee can request deletion of personal context and message history.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-ENGAGEMENT-001",
+      "stage": "2",
+      "statement": "The methodologist can see activity-derived participation labels.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-REMINDER-001",
+      "stage": "2",
+      "statement": "The methodologist can request a soft reminder for a participant using safe engagement state.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-AUDIT-001",
+      "stage": "2",
+      "statement": "Privacy-sensitive actions create audit events without raw private content.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-AGGREGATION-001",
+      "stage": "2",
+      "statement": "Groups with fewer than 5 participants are hidden from the methodologist/client contour.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-DELETION-001",
+      "stage": "2",
+      "statement": "Personal context and message history are deleted after an employee request.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-DELETION-AGGREGATES-001",
+      "stage": "2",
+      "statement": "Already-created anonymized aggregates may remain only if they cannot identify the employee.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-ENGAGEMENT-001",
+      "stage": "2",
+      "statement": "Engagement labels are based only on missed-day counts, not content, emotion or productivity evaluation.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-PII-MASKING-001",
+      "stage": "2",
+      "statement": "Free-text PII such as full names, phone numbers and common contact/network identifiers is masked or excluded before external provider calls. Structured fields are protected by schema-aware privacy projections rather than generic PII scanning.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-REMINDER-001",
+      "stage": "2",
+      "statement": "Reminder requests use engagement state and operational identifiers, not transcript, profile, emotional state or productivity inference.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-OUTPUT-GUARDRAIL-001",
+      "stage": "2",
+      "statement": "Aggregate signals and methodologist/client responses pass privacy output checks before persistence or return.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-AUDIT-001",
+      "stage": "2",
+      "statement": "Audit logs record sensitive actions without storing raw transcript or personal profile.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "FR-DAILY-INTERACTION-001",
+      "stage": "3a",
+      "statement": "The system captures text daily interactions with kind `morning`, `midday` or `evening_text`.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-DAILY-MORNING-001",
+      "stage": "3a",
+      "statement": "The system captures morning plan priorities, constraints and accepted plan state.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-DAILY-MIDDAY-001",
+      "stage": "3a",
+      "statement": "The system compares a midday check-in with the morning plan when available and proposes a safe adjustment.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-DAILY-EVENING-TEXT-001",
+      "stage": "3a",
+      "statement": "The system captures evening text reflection, creates personal observations and prepares aggregate candidates.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-PERSONAL-CONTEXT-001",
+      "stage": "3a",
+      "statement": "The employee can read and correct personal context used by future responses.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-SIGNAL-EXTRACTION-001",
+      "stage": "3a",
+      "statement": "The runtime extracts structured candidate signals from daily context before anonymization/aggregation.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-DAILY-NO-PRODUCTIVITY-SCORE-001",
+      "stage": "3a",
+      "statement": "Daily responses must not score employee productivity or performance.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-PERSONAL-CONTEXT-ACCESS-001",
+      "stage": "3a",
+      "statement": "Personal context is readable/editable by the same employee and AI runtime only, not by other employees or methodologist/client contours.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-SIGNAL-CANDIDATE-001",
+      "stage": "3a",
+      "statement": "Signal candidates cannot store raw transcript, exact personal task text, full name, phone or personal profile fields.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-DAILY-DELETION-COVERAGE-001",
+      "stage": "3a",
+      "statement": "The Stage 2 deletion path covers Stage 3A daily context, personal observations, private message history if stored and signal candidates.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "FR-EMPLOYEE-REPORT-001",
+      "stage": "3b",
+      "statement": "The system generates employee reports with `kind: weekly | final`.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-WEEKLY-SUMMARY-001",
+      "stage": "3b",
+      "statement": "The weekly summary proposes cautious personal patterns and records employee review decisions.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "FR-PERSONAL-REPORT-001",
+      "stage": "3b",
+      "statement": "The final personal report is generated from employee-private context and history for employee access only.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "FR-AUTOMATION-MAP-001",
+      "stage": "3b",
+      "statement": "The automation map seed is prepared from safe aggregate report data.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "FR-AUTOMATION-MAP-EDIT-001",
+      "stage": "3b",
+      "statement": "The methodologist can edit automation map narrative without accessing raw personal data.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-EMPLOYEE-REPORT-ACCESS-001",
+      "stage": "3b",
+      "statement": "Employee report operations require explicit requester/target binding and cannot default requester identity to the target employee.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-WEEKLY-PATTERN-CONFIRMATION-001",
+      "stage": "3b",
+      "statement": "Proposed weekly patterns are not treated as confirmed facts until employee review.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-PERSONAL-REPORT-001",
+      "stage": "3b",
+      "statement": "Final personal reports are never exposed to methodologist/client APIs.",
+      "verify": ["spec"]
+    },
+    {
+      "id": "PRIV-AUTOMATION-MAP-SOURCE-001",
+      "stage": "3b",
+      "statement": "Automation map output uses only safe aggregates and methodologist-authored narrative.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-AUTOMATION-MAP-ACCESS-001",
+      "stage": "3b",
+      "statement": "Automation map operations require methodologist role/identity binding and cannot be called through employee-private DTOs.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-AUTOMATION-MAP-OUTPUT-001",
+      "stage": "3b",
+      "statement": "Automation map output cannot include raw transcript, exact personal task, personal profile, full name, phone or individual emotional state.",
+      "verify": ["spec", "policy-test"]
+    },
+    {
+      "id": "PRIV-REPORT-DELETED-FACTS-001",
+      "stage": "3b",
+      "statement": "Deleted or rejected personal observations cannot reappear as confirmed facts in employee reports.",
+      "verify": ["spec", "policy-test"]
+    }
+  ],
+  "rules": {
+    "forbiddenOperationIds": ["submitEmployeeMessage"],
+    "contractCoverage": [
+      {
+        "operationId": "submitDailyInteraction",
+        "specs": ["SPEC-MORNING-001", "SPEC-MIDDAY-001", "SPEC-EVENING-TEXT-001", "SPEC-TOPIC-001"]
+      }
+    ]
+  }
+}

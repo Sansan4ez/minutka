@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "revision": "product-parts-index",
+  "layoutMetricVersion": 4,
+  "updated": "2026-07-05T00:10:05.902Z",
+  "nodes": {
+    "product-part:ai-agent-backend-runtime": {
+      "x": 0,
+      "y": 0
+    },
+    "product-part:data-storage-and-privacy-layer": {
+      "x": 0,
+      "y": 0
+    },
+    "product-part:methodologist-web-panel": {
+      "x": 0,
+      "y": 0
+    },
+    "product-part:telegram-bot-shell": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "layoutParams": {
+    "productParts": {
+      "ai-agent-backend-runtime": {
+        "columns": 3,
+        "targetAspectRatio": "landscape"
+      },
+      "data-storage-and-privacy-layer": {
+        "columns": 3,
+        "targetAspectRatio": "landscape"
+      },
+      "methodologist-web-panel": {
+        "columns": 3,
+        "targetAspectRatio": "landscape"
+      },
+      "telegram-bot-shell": {
+        "columns": 3,
+        "targetAspectRatio": "landscape"
+      }
+    },
+    "clusters": {}
+  }
+}
