@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AgentRunContext,
-  AgentRunner,
-  ChatInput,
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import {
+  MinutkaService,
+  type AgentRunContext,
+  type AgentRunner,
+  type ChatInput,
 } from "../../../src/application/minutka-service.js";
 import type { UserProfile } from "../../../src/domain/employee.js";
 import type {
@@ -282,6 +284,51 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr.join("\n")).toMatch(/explicitly accepted/i);
     expect(spec.world.consents).toHaveLength(0);
+  });
+
+  it("keeps consent explanation timestamp and first profile changedFields precise", async () => {
+    const timestamps = [
+      "2026-07-08T10:00:00.000Z",
+      "2026-07-08T10:01:00.000Z",
+      "2026-07-08T10:02:00.000Z",
+      "2026-07-08T10:03:00.000Z",
+    ];
+    let index = 0;
+    const world = createInMemoryWorld(() => timestamps[index++] ?? timestamps.at(-1)!);
+    const service = new MinutkaService(world, async () => "first response");
+
+    await service.openInvite({
+      inviteCode: "invite_timestamp",
+      employeeId: "emp_timestamp",
+    });
+    await service.acceptConsent({
+      employeeId: "emp_timestamp",
+      accepted: true,
+      source: "test",
+    });
+    await service.completeOnboarding({
+      employeeId: "emp_timestamp",
+      role: testProfile.role,
+      typicalTasks: ["встречи"],
+      persona: "support",
+      aiLevel: "beginner",
+    });
+
+    expect(world.consents[0]).toMatchObject({
+      acceptedAt: "2026-07-08T10:02:00.000Z",
+      explanationShownAt: "2026-07-08T10:01:00.000Z",
+    });
+    expect(
+      world.events.find((event) => event.type === "UserProfileUpdated"),
+    ).toMatchObject({
+      changedFields: [
+        "role",
+        "typicalTasks",
+        "persona",
+        "aiLevel",
+        "responseLength",
+      ],
+    });
   });
 
   it("rejects reopening invite for another employee", async () => {

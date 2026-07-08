@@ -158,7 +158,8 @@ export class MinutkaService {
       employeeId: input.employeeId,
       privacyVersion: currentPrivacyVersion,
       acceptedAt: timestamp,
-      explanationShownAt: timestamp,
+      explanationShownAt:
+        this.lastPrivacyExplanationShownAt(input.employeeId) ?? timestamp,
       source: input.source,
     };
     await this.profileStore.saveConsent(consent);
@@ -324,6 +325,17 @@ export class MinutkaService {
       throw new Error("typicalTasks must contain 1 to 7 non-empty tasks");
     }
   }
+
+  private lastPrivacyExplanationShownAt(employeeId: string) {
+    return [...this.world.events]
+      .reverse()
+      .find(
+        (event) =>
+          event.type === "PrivacyExplanationShown" &&
+          event.employeeId === employeeId &&
+          event.privacyVersion === currentPrivacyVersion,
+      )?.timestamp;
+  }
 }
 
 const trackedProfileFields = [
@@ -339,7 +351,9 @@ function getChangedFields(
   existing: UserProfile | undefined,
   next: UserProfile,
 ): string[] {
-  if (!existing) return [...trackedProfileFields];
+  if (!existing) {
+    return trackedProfileFields.filter((field) => next[field] !== undefined);
+  }
   return trackedProfileFields.filter(
     (field) => JSON.stringify(existing[field]) !== JSON.stringify(next[field]),
   );
