@@ -5,3 +5,7 @@ dist/
 .direnv/
 result
 docs/generated/
+.belief_map.sexp
+.belief_map_cache.json
+belief_map.sexp
+belief_map_cache.json
