@@ -16,89 +16,223 @@ export type ResolveAgentManualInput = {
   recentTurns?: ConversationTurn[];
 };
 
-export function resolveAgentManualSelection(
+export type AgentManualRouterInput = ResolveAgentManualInput & {
+  manual: AgentManual;
+  requiredProcessIds: AgentManualProcessId[];
+  candidateProcessIds: AgentManualProcessId[];
+  routingPrompt: string;
+};
+
+export type AgentManualRouter = (
+  input: AgentManualRouterInput,
+) => Promise<AgentManualProcessId[]>;
+
+export type AgentManualRouteModel = (prompt: string) => Promise<string>;
+
+export function createIndexFirstAgentManualRouter(
+  routeModel: AgentManualRouteModel,
+): AgentManualRouter {
+  return async (input) =>
+    parseRouterOutput(await routeModel(input.routingPrompt), input.candidateProcessIds);
+}
+
+export async function resolveAgentManualSelection(
   input: ResolveAgentManualInput,
   manual?: AgentManual,
-): AgentManualSelection {
+  router?: AgentManualRouter,
+): Promise<AgentManualSelection> {
   if (!manual) return { selectedProcessIds: [], manualContext: "" };
 
-  const selected: AgentManualProcessId[] = ["core"];
+  const requiredProcessIds = requiredProcessesFor(input);
+  const candidateProcessIds = manual.processes
+    .map((process) => process.id)
+    .filter((id) => !requiredProcessIds.includes(id))
+    .filter((id) => hasApplicableManualEntry(manual, id, input.purpose));
 
-  if (input.purpose === "onboarding_first_response") {
-    selected.push("onboarding", "consent_and_privacy");
-  }
+  const routedProcessIds = router
+    ? await safeRouteProcesses(router, {
+        ...input,
+        manual,
+        requiredProcessIds,
+        candidateProcessIds,
+        routingPrompt: buildRoutingPrompt(input, manual, requiredProcessIds, candidateProcessIds),
+      })
+    : [];
 
-  if (input.purpose === "feedback") {
-    selected.push("feedback");
-  }
+  const selectedProcessIds = dedupe([...requiredProcessIds, ...routedProcessIds]).filter(
+    (id) => hasApplicableManualEntry(manual, id, input.purpose),
+  );
 
-  if (input.policy?.allowedForAgent === false) {
-    selected.push("workday_guardrails");
-    if (hasPrivacyConcern(input.text) || input.policy.reason === "unknown") {
-      selected.push("consent_and_privacy");
-    }
-  }
-
-  if (input.purpose === "chat" && input.policy?.shouldExtractInsights === true) {
-    selected.push("insight_extraction");
-  }
-
-  if (shouldSelectEveningReflection(input)) {
-    selected.push("evening_reflection");
-    if (input.policy?.shouldExtractInsights === true) {
-      selected.push("insight_extraction");
-    }
-  }
-
-  if (hasPrivacyConcern(input.text)) {
-    selected.push("consent_and_privacy");
-  }
-
-  const selectedProcessIds = dedupe(selected).filter((id) => hasManualEntry(manual, id));
   return {
     selectedProcessIds,
     manualContext: renderManualContext(manual, selectedProcessIds),
   };
 }
 
-function shouldSelectEveningReflection(input: ResolveAgentManualInput) {
-  if (input.purpose !== "chat") return false;
-  if (
-    input.policy?.reason === "workday_reflection" ||
-    input.policy?.reason === "work_emotional_state"
-  ) {
-    return true;
+function requiredProcessesFor(input: ResolveAgentManualInput): AgentManualProcessId[] {
+  const required: AgentManualProcessId[] = ["core"];
+
+  if (input.purpose === "onboarding_first_response") {
+    required.push("onboarding", "consent_and_privacy");
   }
 
-  const text = normalize(input.text ?? "");
-  const hasMorningPlan = (input.recentTurns ?? []).some((turn) =>
-    includesAny(normalize(`${turn.userText}\n${turn.agentResponse}`), [
-      "утром",
-      "сегодня приоритет",
-      "приоритет",
-      "план",
-      "главным был",
-    ]),
-  );
-  return hasMorningPlan && includesAny(text, eveningFallbackPatterns);
+  if (input.purpose === "feedback") {
+    required.push("feedback");
+  }
+
+  if (input.policy?.allowedForAgent === false) {
+    required.push("workday_guardrails");
+  }
+
+  if (input.purpose === "chat" && input.policy?.shouldExtractInsights === true) {
+    required.push("insight_extraction");
+  }
+
+  return dedupe(required);
 }
 
-function hasPrivacyConcern(text?: string) {
-  const normalized = normalize(text ?? "");
-  return includesAny(normalized, [
-    "приват",
-    "конфиденц",
-    "персональн",
-    "личные данные",
-    "личные диалоги",
-    "компания увидит",
-    "компания видит",
-    "руководитель увидит",
-    "методолог увидит",
-    "что видит компания",
-    "данные",
-    "удалить данные",
-  ]);
+async function safeRouteProcesses(
+  router: AgentManualRouter,
+  input: AgentManualRouterInput,
+) {
+  try {
+    return filterRouterSelection(await router(input), input.candidateProcessIds);
+  } catch (error) {
+    console.warn(
+      "Agent Manual router failed; falling back to required processes only.",
+      error,
+    );
+    return [];
+  }
+}
+
+function buildRoutingPrompt(
+  input: ResolveAgentManualInput,
+  manual: AgentManual,
+  requiredProcessIds: AgentManualProcessId[],
+  candidateProcessIds: AgentManualProcessId[],
+) {
+  const processSummaries = manual.processes
+    .filter((process) => candidateProcessIds.includes(process.id))
+    .map((process) => {
+      const when = extractSectionPreview(process.content, "## When this process applies");
+      return `- ${process.id}: ${when}`;
+    })
+    .join("\n");
+  const recentTurns = (input.recentTurns ?? [])
+    .slice(-5)
+    .map(
+      (turn, index) =>
+        `${index + 1}. employee: ${compact(turn.userText)}\n   agent: ${compact(turn.agentResponse)}`,
+    )
+    .join("\n");
+  const profile = input.profile
+    ? [
+        `role: ${input.profile.role}`,
+        `typicalTasks: ${input.profile.typicalTasks.join(", ")}`,
+        `persona: ${input.profile.persona}`,
+        `aiLevel: ${input.profile.aiLevel}`,
+        `responseLength: ${input.profile.responseLength}`,
+      ].join("\n")
+    : "not available";
+  const policy = input.policy
+    ? JSON.stringify(input.policy, null, 2)
+    : "not available";
+
+  return [
+    "You are the constrained Agent Manual process router for Minutka.",
+    "Use the process index and process descriptions below to choose optional process files for the current request.",
+    "Return ONLY valid JSON with this shape: {\"selectedProcessIds\":[\"process_id\"]}.",
+    "Do not include explanations. Do not invent ids. Choose only from candidateProcessIds.",
+    "If the request does not clearly need an optional process, return an empty array.",
+    "Required process ids are already selected by application policy; do not repeat them unless unavoidable.",
+    "Language of the employee text is irrelevant; route by meaning, not keywords.",
+    "",
+    "# Process index",
+    manual.processIndex?.content.trim() ?? "Process index unavailable.",
+    "",
+    "# Candidate process ids",
+    JSON.stringify(candidateProcessIds),
+    "",
+    "# Required process ids already selected",
+    JSON.stringify(requiredProcessIds),
+    "",
+    "# Candidate process summaries",
+    processSummaries || "No optional candidates.",
+    "",
+    "# Runtime input",
+    `purpose: ${input.purpose}`,
+    `employeeText: ${input.text ?? ""}`,
+    "",
+    "# Work policy",
+    policy,
+    "",
+    "# Profile",
+    profile,
+    "",
+    "# Recent turns",
+    recentTurns || "none",
+  ].join("\n");
+}
+
+function parseRouterOutput(
+  output: string,
+  candidateProcessIds: AgentManualProcessId[],
+): AgentManualProcessId[] {
+  const parsed = parseFirstJsonValue(output);
+  const selected = Array.isArray(parsed)
+    ? parsed
+    : isRecord(parsed) && Array.isArray(parsed.selectedProcessIds)
+      ? parsed.selectedProcessIds
+      : [];
+  return filterRouterSelection(selected, candidateProcessIds);
+}
+
+function parseFirstJsonValue(output: string): unknown {
+  const trimmed = output.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+    if (fenced) {
+      try {
+        return JSON.parse(fenced);
+      } catch {
+        return undefined;
+      }
+    }
+    const objectStart = trimmed.indexOf("{");
+    const objectEnd = trimmed.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      try {
+        return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
+      } catch {
+        return undefined;
+      }
+    }
+    const arrayStart = trimmed.indexOf("[");
+    const arrayEnd = trimmed.lastIndexOf("]");
+    if (arrayStart >= 0 && arrayEnd > arrayStart) {
+      try {
+        return JSON.parse(trimmed.slice(arrayStart, arrayEnd + 1));
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+}
+
+function filterRouterSelection(
+  selected: unknown[],
+  candidateProcessIds: AgentManualProcessId[],
+) {
+  return dedupe(
+    selected.filter(
+      (id): id is AgentManualProcessId =>
+        typeof id === "string" && candidateProcessIds.includes(id as AgentManualProcessId),
+    ),
+  );
 }
 
 function renderManualContext(
@@ -123,35 +257,33 @@ function renderManualContext(
   return sections.join("\n\n---\n\n");
 }
 
-function hasManualEntry(manual: AgentManual, id: AgentManualProcessId) {
+function hasApplicableManualEntry(
+  manual: AgentManual,
+  id: AgentManualProcessId,
+  purpose: AgentManualPurpose,
+) {
   if (id === "core") return Boolean(manual.core.content);
-  return manual.processes.some((process) => process.id === id);
+  const process = manual.processes.find((candidate) => candidate.id === id);
+  return Boolean(process && (!process.appliesTo || process.appliesTo.includes(purpose)));
+}
+
+function extractSectionPreview(content: string, heading: string) {
+  const start = content.indexOf(heading);
+  if (start < 0) return compact(content);
+  const afterHeading = content.slice(start + heading.length);
+  const nextHeading = afterHeading.search(/\n##\s+/);
+  const section = nextHeading >= 0 ? afterHeading.slice(0, nextHeading) : afterHeading;
+  return compact(section);
+}
+
+function compact(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, 600);
 }
 
 function dedupe<T>(items: T[]) {
   return [...new Set(items)];
 }
 
-function normalize(text: string) {
-  return text.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").trim();
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
-
-function includesAny(text: string, patterns: string[]) {
-  return patterns.some((pattern) => text.includes(pattern));
-}
-
-const eveningFallbackPatterns = [
-  "не успел",
-  "не успела",
-  "весь день",
-  "вечер",
-  "итог",
-  "сегодня",
-  "устал",
-  "устала",
-  "звонк",
-  "созвон",
-  "встреч",
-  "заблокирован",
-  "мешало",
-];

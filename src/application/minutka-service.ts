@@ -15,13 +15,17 @@ import type { InMemoryWorld, ChatMessage } from "./in-memory-world.js";
 import { createInMemoryConversationMemory } from "./in-memory-conversation-memory.js";
 import { createInMemoryInsightStore } from "./in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "./in-memory-profile-store.js";
-import type { AgentManualProcessId } from "./agent-manual-types.js";
+import type {
+  AgentManualProcessId,
+  AgentManualPurpose,
+} from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
 import {
   buildMinutkaContext,
   createMinutkaContextBuilder,
   type MinutkaContextBuilderLike,
 } from "./minutka-context-builder.js";
+import type { AgentManualRouter } from "./agent-manual-resolver.js";
 import type {
   ConversationMemoryStore,
   ConversationTurn,
@@ -63,7 +67,7 @@ export type AgentMemoryContext = {
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
-  purpose: "chat" | "onboarding_first_response";
+  purpose: Exclude<AgentManualPurpose, "feedback">;
   memory?: AgentMemoryContext;
   policy?: WorkPolicyDecision;
   selectedProcessIds?: AgentManualProcessId[];
@@ -135,6 +139,7 @@ export type MinutkaServiceDeps = {
   insightExtractor?: InsightExtractor;
   workPolicy?: WorkPolicy;
   contextBuilder?: MinutkaContextBuilderLike;
+  agentManualRouter?: AgentManualRouter;
 };
 
 export class MinutkaService {
@@ -160,7 +165,8 @@ export class MinutkaService {
     this.insightExtractor =
       deps.insightExtractor ?? createDeterministicInsightExtractor(world);
     this.workPolicy = deps.workPolicy ?? createDefaultWorkPolicy();
-    this.contextBuilder = deps.contextBuilder ?? createDefaultContextBuilder();
+    this.contextBuilder =
+      deps.contextBuilder ?? createDefaultContextBuilder(deps.agentManualRouter);
   }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
@@ -307,7 +313,7 @@ export class MinutkaService {
       });
     }
 
-    const builtContext = this.contextBuilder.build({
+    const builtContext = await this.contextBuilder.build({
       purpose: "onboarding_first_response",
       text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.",
       profile,
@@ -360,7 +366,7 @@ export class MinutkaService {
       limit: 10,
     });
     const policy = this.workPolicy.evaluate({ ...input, profile });
-    const builtContext = this.contextBuilder.build({
+    const builtContext = await this.contextBuilder.build({
       purpose: "chat",
       text: input.text,
       profile,
@@ -502,10 +508,14 @@ const trackedProfileFields = [
   "preferredCheckinsPerDay",
 ] as const;
 
-function createDefaultContextBuilder() {
+function createDefaultContextBuilder(agentManualRouter?: AgentManualRouter) {
   try {
-    return createMinutkaContextBuilder(loadAgentManualFromDisk());
-  } catch {
+    return createMinutkaContextBuilder(loadAgentManualFromDisk(), agentManualRouter);
+  } catch (error) {
+    console.warn(
+      "Agent Manual is unavailable; falling back to profile-only Minutka context.",
+      error,
+    );
     return { build: buildMinutkaContext };
   }
 }

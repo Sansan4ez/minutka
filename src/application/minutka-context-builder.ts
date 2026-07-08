@@ -6,7 +6,10 @@ import type {
   AgentManualProcessId,
   AgentManualPurpose,
 } from "./agent-manual-types.js";
-import { resolveAgentManualSelection } from "./agent-manual-resolver.js";
+import {
+  resolveAgentManualSelection,
+  type AgentManualRouter,
+} from "./agent-manual-resolver.js";
 
 const personaLabels = {
   support: "Поддержка",
@@ -40,7 +43,7 @@ export type BuiltMinutkaContext = {
 };
 
 export type MinutkaContextBuilderLike = {
-  build(input: BuildMinutkaContextInput): BuiltMinutkaContext;
+  build(input: BuildMinutkaContextInput): Promise<BuiltMinutkaContext>;
 };
 
 export function buildMinutkaProfileContext(profile: UserProfile): string {
@@ -64,11 +67,15 @@ export function buildMinutkaProfileContext(profile: UserProfile): string {
   ].join("\n");
 }
 
-export function buildMinutkaContext(
+export async function buildMinutkaContext(
   input: BuildMinutkaContextInput,
-  deps: { manual?: AgentManual } = {},
-): BuiltMinutkaContext {
-  const manualSelection = resolveAgentManualSelection(input, deps.manual);
+  deps: { manual?: AgentManual; router?: AgentManualRouter } = {},
+): Promise<BuiltMinutkaContext> {
+  const manualSelection = await resolveAgentManualSelection(
+    input,
+    deps.manual,
+    deps.router,
+  );
   const sections = ["# Minutka runtime context"];
 
   if (manualSelection.manualContext) {
@@ -87,8 +94,9 @@ export function buildMinutkaContext(
 
 export function createMinutkaContextBuilder(
   manual?: AgentManual,
+  router?: AgentManualRouter,
 ): MinutkaContextBuilderLike {
   return {
-    build: (input) => buildMinutkaContext(input, { manual }),
+    build: (input) => buildMinutkaContext(input, { manual, router }),
   };
 }

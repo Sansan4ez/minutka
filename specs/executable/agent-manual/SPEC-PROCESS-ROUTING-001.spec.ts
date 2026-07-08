@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadAgentManualFromDisk } from "../../../src/application/agent-manual-loader.js";
+import type { AgentManualRouter } from "../../../src/application/agent-manual-resolver.js";
 import { buildMinutkaContext } from "../../../src/application/minutka-context-builder.js";
 import type {
   AgentRunContext,
@@ -39,7 +40,12 @@ registerSpecMetadata({
   ],
 });
 
-describe("SPEC-PROCESS-ROUTING-001: context resolver selects processes", () => {
+const noOptionalProcessRouter: AgentManualRouter = async () => [];
+
+const eveningReflectionRouter: AgentManualRouter = async (input) =>
+  input.text === eveningReflectionText ? ["evening_reflection"] : [];
+
+describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects processes", () => {
   it("selects core, onboarding and privacy for onboarding first response", async () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
@@ -70,7 +76,9 @@ describe("SPEC-PROCESS-ROUTING-001: context resolver selects processes", () => {
         : "Зафиксировал приоритет дня.";
     };
 
-    const spec = createSpecWorld(mockAgentRunner);
+    const spec = createSpecWorld(mockAgentRunner, {
+      deps: { agentManualRouter: eveningReflectionRouter },
+    });
     await onboardTestEmployee(spec, { persona: "efficiency" });
 
     await spec.cli.json<ChatResult>([
@@ -108,10 +116,13 @@ describe("SPEC-PROCESS-ROUTING-001: context resolver selects processes", () => {
 
   it("audits guardrail process for blocked chat without insight extraction", async () => {
     let chatCalls = 0;
-    const spec = createSpecWorld(async (_input, context) => {
-      if (context?.purpose === "chat") chatCalls++;
-      return "ok";
-    });
+    const spec = createSpecWorld(
+      async (_input, context) => {
+        if (context?.purpose === "chat") chatCalls++;
+        return "ok";
+      },
+      { deps: { agentManualRouter: noOptionalProcessRouter } },
+    );
     await onboardTestEmployee(spec);
 
     const result = await spec.cli.json<ChatResult>([
@@ -138,11 +149,92 @@ describe("SPEC-PROCESS-ROUTING-001: context resolver selects processes", () => {
     });
   });
 
-  it("prepares feedback routing through resolver API", () => {
+  it("does not route ordinary work data messages when constrained router returns no optional processes", async () => {
     const manual = loadAgentManualFromDisk();
-    const built = buildMinutkaContext(
+    const built = await buildMinutkaContext(
+      {
+        purpose: "chat",
+        text: "Нужно подготовить данные по продажам за квартал.",
+        policy: {
+          relevance: "work_related",
+          allowedForAgent: true,
+          shouldExtractInsights: false,
+          reason: "planning_or_prioritization",
+        },
+      },
+      { manual, router: noOptionalProcessRouter },
+    );
+
+    expect(built.selectedProcessIds).toEqual(["core"]);
+  });
+
+  it("routes privacy questions through constrained router, independent of request language", async () => {
+    const manual = loadAgentManualFromDisk();
+    let observedPrompt = "";
+    const privacyRouter: AgentManualRouter = async (input) => {
+      observedPrompt = input.routingPrompt;
+      expect(input.candidateProcessIds).toContain("consent_and_privacy");
+      return ["consent_and_privacy"];
+    };
+
+    const built = await buildMinutkaContext(
+      {
+        purpose: "chat",
+        text: "What data can my company see?",
+        policy: {
+          relevance: "work_related",
+          allowedForAgent: true,
+          shouldExtractInsights: false,
+          reason: "unknown",
+        },
+      },
+      { manual, router: privacyRouter },
+    );
+
+    expect(observedPrompt).toContain("# Process index");
+    expect(observedPrompt).toContain("consent_and_privacy");
+    expect(built.selectedProcessIds).toEqual(
+      expect.arrayContaining(["core", "consent_and_privacy"]),
+    );
+  });
+
+  it("does not route morning planning text as evening reflection when router does not select it", async () => {
+    const manual = loadAgentManualFromDisk();
+    const built = await buildMinutkaContext(
+      {
+        purpose: "chat",
+        text: "Сегодня в плане три встречи с клиентами.",
+        policy: {
+          relevance: "work_related",
+          allowedForAgent: true,
+          shouldExtractInsights: true,
+          reason: "planning_or_prioritization",
+        },
+        recentTurns: [
+          {
+            messageId: "msg_morning_plan",
+            employeeId: testEmployee.employeeId,
+            threadId: testEmployee.threadId,
+            userText: morningPlanText,
+            agentResponse: "Зафиксировал приоритет дня.",
+            timestamp: "2026-07-08T09:00:00.000Z",
+          },
+        ],
+      },
+      { manual, router: noOptionalProcessRouter },
+    );
+
+    expect(built.selectedProcessIds).toEqual(
+      expect.arrayContaining(["core", "insight_extraction"]),
+    );
+    expect(built.selectedProcessIds).not.toContain("evening_reflection");
+  });
+
+  it("prepares feedback routing through resolver API", async () => {
+    const manual = loadAgentManualFromDisk();
+    const built = await buildMinutkaContext(
       { purpose: "feedback", text: "👍" },
-      { manual },
+      { manual, router: noOptionalProcessRouter },
     );
 
     expect(built.selectedProcessIds).toEqual(["core", "feedback"]);

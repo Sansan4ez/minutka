@@ -64,7 +64,15 @@ export function loadAgentManualFromDisk(
       path: registry.core.path,
       content: readManualFile(repoRoot, registry.core.path, "core file"),
     },
-    processes: registry.processes.map((process) => ({
+    processIndex: {
+      path: "docs/agent-manual/processes/index.md",
+      content: readManualFile(
+        repoRoot,
+        "docs/agent-manual/processes/index.md",
+        "process index",
+      ),
+    },
+    processes: registry.processes.map((process) => ({ 
       id: assertProcessId(process.id),
       path: process.path,
       content: readManualFile(repoRoot, process.path, `process file ${process.id}`),
@@ -133,11 +141,11 @@ export function validateAgentManual(
     if (!ids.has(requiredId)) errors.push(`missing required process id: ${requiredId}`);
   }
 
-  const indexPath = "docs/agent-manual/processes/index.md";
+  const indexPath = manual.processIndex?.path ?? "docs/agent-manual/processes/index.md";
   if (!existsRepoPath(repoRoot, indexPath)) {
     errors.push(`missing process index: ${indexPath}`);
   } else {
-    const index = readFileSync(resolveRepoPath(repoRoot, indexPath), "utf8");
+    const index = manual.processIndex?.content ?? readFileSync(resolveRepoPath(repoRoot, indexPath), "utf8");
     for (const process of manual.processes) {
       if (!index.includes(`\`${process.id}\``)) {
         errors.push(`process index does not reference: ${process.id}`);
