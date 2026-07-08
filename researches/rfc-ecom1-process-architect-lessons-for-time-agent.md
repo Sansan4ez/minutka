@@ -222,6 +222,67 @@ Executor не читает всё подряд. Он обязан:
 
 Это снижает переполнение контекста, уменьшает противоречия в инструкциях и делает поведение агента более аудируемым.
 
+### 3.2.1. Принципы и алгоритм роутинга между бизнес-процессами
+
+В `ecom1-process-architect` важно различать два уровня роутинга.
+
+Первый уровень — **детерминированный routing версий instruction units**. Его выполняет Python Resolver до запуска Executor. Он не решает, нужен ли конкретному пользовательскому запросу `checkout`, `returns` или `discount`. Его задача — для каждого unit из `instructions/registry.json` выбрать подходящую версию и отрендерить её в `task_dir`.
+
+Алгоритм Resolver:
+
+1. Загрузить `instructions/registry.json`.
+2. Для каждого unit найти все active-версии `instructions/units/<unit_id>/vNNNN/`.
+3. Идти по версиям newest-first.
+4. Для каждой версии проверить machine-readable dependencies из `manifest.json` по `sha256` текущего snapshot мира.
+5. Если зависимости совпали — выбрать эту версию со статусом `matched`.
+6. Если совпадений нет — выбрать latest active как `stale_latest_fallback`.
+7. Для stale-unit добавить локальный `Heads-up` / attention diff: какие зависимости изменились и где посмотреть diff.
+8. В зависимости от `STALE_RESOLUTION` либо сразу запускать Executor с fallback-версией, либо ждать refresh от Process Architect.
+9. Записать audit-артефакт `instruction-selection.json`: выбранные units, версии, статусы, mismatches, attention.
+
+Второй уровень — **semantic routing пользовательской задачи между BP-файлами**. Его делает уже Executor внутри своей сессии. Core-инструкция заставляет его всегда начать с `business_processes/index.md`, а затем открыть только те process-файлы, которые соответствуют trigger-таблице.
+
+Упрощённо:
+
+```text
+CLAUDE.md / executor_core
+  → Read business_processes/index.md
+    → сопоставить task instruction с Trigger-таблицей
+      → открыть cross-cutting BP: identity_and_auth, refs, submission_terminal
+      → открыть 1–2 topic BP: checkout / returns / discount / availability / ...
+        → выполнить процесс через controlled runtime boundary
+```
+
+Главный router-файл — `bp_index`, который рендерится как `business_processes/index.md`. Его таблица имеет форму:
+
+```md
+| Trigger | Process file | Why it applies | Mutating |
+|---|---|---|---|
+| Any request, every trial | identity_and_auth.md | /bin/id is authoritative | — |
+| Building or checking refs | refs.md | citation safety | — |
+| Immediately before final submit | submission_terminal.md | terminal protocol | — |
+| Add item / checkout basket | checkout.md | checkout gate set | basket JSON edit, /bin/checkout |
+| Apply discount | discount.md | discount policy and /bin/discount | /bin/discount |
+```
+
+Принципы этого роутинга:
+
+- **Index-first.** Агент не должен угадывать процессы из памяти; сначала читается `index.md`.
+- **Narrowest process wins.** Выбирается самый узкий dedicated BP, а не общий документ.
+- **Cross-cutting BP всегда рядом.** Identity/auth, refs/evidence и terminal submission применяются вместе с topic BP.
+- **Routing не равен выполнению.** Выбор BP только открывает инструкцию; внутри неё всё равно есть gates: identity, ownership, state, request, actor-kind.
+- **Mutable path явно помечен.** Index показывает, какие процессы могут менять состояние и каким инструментом.
+- **Live workspace выше старого BP.** Если attention/diff показывает drift, Executor должен читать live source и доверять ему больше, чем устаревшему тексту процесса.
+- **Audit обязателен.** Выбор версий фиксируется в `instruction-selection.json`; выбранные runtime BP фактически восстанавливаются из последовательности `Read`/tool logs и task artifacts.
+
+Практический вывод для `time-agent`:
+
+- на MVP не нужен полный ECOM-style resolver версий и `vNNNN` store;
+- но нужен явный `processes/index.md` как карта routing-а;
+- в TypeScript можно делать deterministic `selectedProcessIds` заранее, а не заставлять LLM читать все BP;
+- при этом структура index-а должна остаться человеческой: `Trigger / User situation → Process file → Why → Mutating or outputs`;
+- audit `selectedProcessIds` в `ChatResult` — облегчённый аналог `instruction-selection.json`.
+
 ### 3.3. Детерминированный orchestrator + LLM только для рассуждения
 
 В репозитории жёстко разделены зоны ответственности:
