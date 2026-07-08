@@ -1,10 +1,11 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** актуализировано после завершения Phase 1 (`phase-1-skeleton`).  
+> **Статус:** актуализировано после завершения Phase 3 (`phase-3-context-insights`); следующий рекомендуемый шаг — Phase 3.5 Agent Manual Lite перед Telegram shell.  
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
-> **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry.
+> **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
+> **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
 
 ---
 
@@ -32,12 +33,15 @@ MVP проверяет три гипотезы:
 - **Сотрудник:** прямой пользователь Telegram-бота.
 - **Компания / руководство:** получает только агрегированную и обезличенную аналитику.
 - **Методолог:** оператор программы, управляет потоками и смотрит вовлечённость без доступа к личным диалогам.
+- **Бизнес-процесс агента:** не просто продуктовый сценарий, а атомарный procedural playbook для `MinutkaAgent`: когда применяется, какие входы читает, какие шаги выполняет, какие outputs/tools разрешены, какие privacy/anti-pattern правила соблюдает и от каких документов зависит.
+- **Agent Manual / business processes as code:** набор Markdown-файлов под git, из которых собирается динамический контекст агента. До отдельного решения versioning — обычный git, без `vNNNN/` store.
+- **Виртуальная Unix-like среда агента:** логическое рабочее пространство с ручками `/AGENTS.md`, `/docs`, `/proc`, `/bin`. В MVP это может быть локальная проекция поверх файлов, Application services и CLI; позже те же ручки могут стать remote endpoints.
 
 ---
 
 ## 3. Текущий технический baseline
 
-Phase 1 уже реализовала базовый каркас. Дальнейшие этапы должны расширять его без ломки слоёв.
+Phase 1–3 уже реализовали каркас, onboarding/profile/consent, context, guardrails и insight extraction. Дальнейшие этапы должны расширять baseline без ломки слоёв. Перед Telegram shell добавляется короткая Phase 3.5, чтобы оформить поведение агента как business-process manual, пока внешние каналы ещё не закрепили случайные решения.
 
 ### Runtime и tooling
 
@@ -82,6 +86,8 @@ Domain → Application → Server → SDK → CLI / Telegram
 | `client/cli` | Поверхность для executable specs и отладки. |
 | `mastra` | Agent, tools, memory/storage integration, runtime bridge. |
 | `telegram` / bot shell | Появляется на Telegram-этапе как отдельная внешняя поверхность, не заменяет SDK/CLI. |
+| `docs/agent-manual` | Версионируемый через git источник бизнес-процессов агента: core rules, process index, scenario playbooks, dependencies. |
+| virtual `/AGENTS.md` `/docs` `/proc` `/bin` | Логическая среда агента: локальные правила, политики, состояние и разрешённые операции; может материализоваться локально, через CLI или remote endpoints. |
 
 ---
 
@@ -124,13 +130,96 @@ Domain → Application → Server → SDK → CLI / Telegram
 - `employeeId` в коде считается псевдонимом; связь с внешними персональными данными должна быть отделена.
 - Шифрование, KMS, сложный audit и retention policy остаются вне раннего MVP, но структура не должна мешать их добавлению.
 
+### 4.4 Agent Manual: бизнес-процессы как код
+
+Поведение `MinutkaAgent` должно развиваться не как один разрастающийся system prompt, а как **Agent Manual** — набор небольших бизнес-процессов под git.
+
+Важно различать:
+
+- `docs/product/Final_Description.md` и `docs/product/virtual-simulation.md` уже содержат **продуктовые сценарии**: onboarding, утро, день, вечер, методолог, карта автоматизации, удаление данных.
+- Эти сценарии являются **источником требований**, но ещё не являются полноценными бизнес-процессами агента.
+- Бизнес-процесс агента — это procedural instruction file, который `MinutkaContextBuilder` может выбрать и передать агенту для конкретного обращения.
+
+Каждый process-файл должен соответствовать author contract:
+
+```md
+# Process name
+
+## When this process applies
+
+## Inputs
+
+## Process
+
+## Outputs
+
+## Privacy notes
+
+## Anti-patterns
+
+## Dependencies
+```
+
+Требования к бизнес-процессам:
+
+1. **Atomic.** Один файл — один класс поведения: onboarding, вечерняя рефлексия, guardrails, feedback, insight extraction и т.д.
+2. **Procedural.** Не маркетинговое описание, а конкретные шаги агента: что прочитать, что проверить, какой output/tool допустим.
+3. **Traceable.** В `Dependencies` указаны продуктовые документы/specs, на которых основан процесс.
+4. **Non-duplicating.** Общие privacy/security правила живут в `core.md` и `consent_and_privacy.md`; topic processes ссылаются на них, а не копируют.
+5. **Small.** Ориентир: 60–150 строк на процесс; если больше — split или ссылка на sibling process.
+6. **Git-versioned.** Пока достаточно обычного git: изменения в process-файлах проходят review, specs и коммит. `vNNNN/manifest/hash` store откладывается.
+
+Минимальная структура Phase 3.5:
+
+```text
+docs/agent-manual/
+  README.md
+  registry.json
+  author-contract.md
+  core.md
+  processes/
+    index.md
+    onboarding.md
+    consent_and_privacy.md
+    evening_reflection.md
+    workday_guardrails.md
+    insight_extraction.md
+    feedback.md
+```
+
+### 4.5 Виртуальная Unix-like среда агента
+
+Из `ecom1-process-architect` берём полезную модель: агент работает не с хаотичным набором контекста, а с изолированными верхнеуровневыми ручками:
+
+```text
+/AGENTS.md  # локальные правила агента и runtime-контракт
+/docs       # политики бизнеса, методология, продуктовые документы
+/proc       # текущее состояние: профиль, consent, thread context, insights, feedback
+/bin        # разрешённые операции/tools/use cases
+```
+
+Для `time-agent` это **логическое пространство**, а не обязательно реальные директории в корне репозитория.
+
+MVP-маппинг:
+
+| Ручка | MVP-реализация | Позже |
+|---|---|---|
+| `/AGENTS.md` | `docs/agent-manual/core.md` + выбранные process-файлы | materialized prompt/task workspace |
+| `/docs` | `docs/product/*`, `docs/plans/*`, `docs/agent-manual/*` | policy service / remote docs endpoint |
+| `/proc` | Application state: profile, consent, conversation memory, insights, feedback | storage-backed read models / remote runtime endpoint |
+| `/bin` | typed Application use cases и Mastra tools: `updateProfile`, `extractInsights`, `recordFeedback` | CLI commands, HTTP/RPC tools, MCP/remote endpoints |
+
+Да, эти ручки можно позже сделать remote endpoints. Важно, чтобы агент видел стабильный контракт, а реализация могла быть локальной, CLI-based или remote. Это хорошо стыкуется с нашим CLI: CLI может быть одновременно пользовательской debug-поверхностью и способом материализовать `/proc`/`/bin` для smoke/eval сценариев.
+
+Ограничение для MVP: не строить отдельный filesystem-runtime. Достаточно зафиксировать namespace в плане и реализовать его через `MinutkaContextBuilder`, Application services, SDK/CLI и audit artifacts.
+
 ---
 
 ## 5. Примитивы Mastra
 
 ### 5.1 Agent: `MinutkaAgent`
 
-Один агент с базовыми инструкциями и динамическим контекстом.
+Один агент с базовыми инструкциями, динамическим контекстом и выбранными process-файлами из `docs/agent-manual`.
 
 Базовые ограничения:
 
@@ -143,7 +232,7 @@ Domain → Application → Server → SDK → CLI / Telegram
 - Не контролирует, не оценивает, не давит.
 - Отвечает только в границах рабочего дня и связанного с работой состояния.
 
-Persona меняет тон, но не отменяет ограничений.
+Persona меняет тон, но не отменяет ограничений. Core privacy/guardrail правила должны жить в Agent Manual `core.md` и подмешиваться независимо от выбранной persona.
 
 ### 5.2 Tools
 
@@ -154,6 +243,7 @@ Persona меняет тон, но не отменяет ограничений.
 | `updateProfileTool` | Phase 2 | Создать/обновить профиль: роль, задачи, persona, AI level, предпочтения. |
 | `extractInsightsTool` | Phase 3 | Извлечь структурированные сигналы: категории задач, рутина, энергия/стресс, automation candidates. |
 | `recordFeedbackTool` или application use case | Phase 4 | Сохранить 👍/👌/👎 по ответу агента. Решение: tool или service зависит от реализации Telegram flow. |
+| `/bin`-style tool boundary | Phase 3.5+ | Документировать разрешённые операции агента как стабильные ручки: profile update, insight extraction, feedback, aggregation. Реализация остаётся typed TS use cases/tools. |
 
 Важно: executable specs не должны зависеть от реального LLM. Для проверки tool-побочных эффектов использовать mock-agent/mock-tool runner, а Mastra smoke проверять отдельно.
 
@@ -167,6 +257,18 @@ Persona меняет тон, но не отменяет ограничений.
 4. **Позже:** PostgreSQL, если потребуется мультипользовательская нагрузка и отчётность.
 
 Перед использованием конкретного Mastra storage/memory API необходимо свериться с embedded docs установленного `@mastra/core`.
+
+### 5.4 Agent Manual loader / Resolver-lite
+
+После Phase 3.5 `MinutkaContextBuilder` должен работать как лёгкий resolver:
+
+1. классифицирует обращение и состояние сотрудника;
+2. выбирает process ids из `docs/agent-manual/registry.json` / `processes/index.md`;
+3. добавляет `core.md` + выбранные process-файлы в контекст агента;
+4. возвращает `selectedProcessIds` для audit/specs;
+5. не использует LLM для routing, пока deterministic heuristics покрывают specs.
+
+Полный `sha256` match/fallback из `ecom1-process-architect` откладывается. На MVP dependency drift отслеживается git review и простыми manual checks.
 
 ---
 
@@ -201,6 +303,18 @@ Persona меняет тон, но не отменяет ограничений.
 - **When** он просит: «Напиши мне пост для соцсети».
 - **Then** агент мягко отказывает и возвращает разговор к теме рабочего дня.
 - **And** `extractInsightsTool` не создаёт рабочий insight из нерелевантного запроса.
+
+### `SPEC-AGENT-MANUAL-001` — agent manual валиден
+
+- **Given** `docs/agent-manual/registry.json`, `core.md` и process-файлы.
+- **When** manual loader читает Agent Manual.
+- **Then** все process paths существуют, обязательные секции присутствуют, dependencies ссылаются на существующие docs/specs, а process index не указывает на отсутствующие процессы.
+
+### `SPEC-PROCESS-ROUTING-001` — контекст выбирает правильные бизнес-процессы
+
+- **Given** сотрудник с профилем и разными типами сообщений.
+- **When** `MinutkaContextBuilder` строит контекст.
+- **Then** onboarding выбирает `onboarding` + `consent_and_privacy`, вечерняя рефлексия выбирает `evening_reflection` + `insight_extraction`, просьба написать рабочий материал выбирает `workday_guardrails`.
 
 ### `SPEC-FEEDBACK-001` — обратная связь по ответу
 
@@ -249,6 +363,8 @@ Persona меняет тон, но не отменяет ограничений.
 
 ### Phase 2 — Онбординг, consent и профиль
 
+**Статус:** ✅ завершено.  
+**Тег:** `phase-2-onboarding`.  
 **Подробный план:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 **Цель:** сотрудник может быть зарегистрирован, принять privacy explanation, выбрать persona и получить первый ответ в выбранном стиле.
 
@@ -271,6 +387,8 @@ Definition of Done:
 
 ### Phase 3 — Контекст, guardrails и извлечение инсайтов
 
+**Статус:** ✅ завершено.  
+**Тег:** `phase-3-context-insights`.  
 **Подробный план:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 **Цель:** агент удерживает контекст дня, соблюдает границы тематики и сохраняет структурированные сигналы.
 
@@ -289,6 +407,48 @@ Definition of Done:
 - Все предыдущие specs зелёные.
 - Коммит и тег `phase-3-context-insights`.
 
+### Phase 3.5 — Agent Manual Lite: бизнес-процессы как код
+
+**Статус:** следующий рекомендуемый этап перед Telegram shell.  
+**Цель:** оформить поведение `MinutkaAgent` как набор проверяемых бизнес-процессов под git и подключить их к `MinutkaContextBuilder` без тяжёлой PA/versioning-инфраструктуры.
+
+Почему здесь: Phase 1–3 уже дали backend, profile/consent, context, guardrails и insights. До Phase 4 ещё не закреплены Telegram handlers, поэтому сейчас дешевле всего вынести правила агента из монолитных инструкций в process manual.
+
+Минимальный scope:
+
+1. Создать `docs/agent-manual/README.md`, `registry.json`, `author-contract.md`, `core.md`.
+2. Создать первые process-файлы:
+   - `processes/index.md`
+   - `processes/onboarding.md`
+   - `processes/consent_and_privacy.md`
+   - `processes/evening_reflection.md`
+   - `processes/workday_guardrails.md`
+   - `processes/insight_extraction.md`
+   - `processes/feedback.md`
+3. Проверить текущие продуктовые сценарии из `docs/product/Final_Description.md` и `docs/product/virtual-simulation.md`: они являются источником требований, но должны быть переписаны в procedural BP-формат с секциями `When applies / Inputs / Process / Outputs / Privacy notes / Anti-patterns / Dependencies`.
+4. Добавить manual loader в application layer.
+5. Расширить `MinutkaContextBuilder`: возвращать `selectedProcessIds`, подмешивать `core.md` и выбранные process-файлы в prompt/context.
+6. Зафиксировать виртуальный namespace `/AGENTS.md` `/docs` `/proc` `/bin` как контракт Agent Manual, без отдельного filesystem-runtime.
+7. Добавить specs `SPEC-AGENT-MANUAL-001` и `SPEC-PROCESS-ROUTING-001`.
+
+Definition of Done:
+
+- Agent Manual создан и проходит validation spec.
+- Минимум 6 process-файлов соответствуют author contract.
+- `MinutkaContextBuilder` выбирает process ids для onboarding, evening reflection, guardrails и feedback.
+- Selected process ids доступны в response/audit для executable specs.
+- Все предыдущие specs остаются зелёными.
+- `npm run typecheck`, `npm run specs`, `nix run .#verify` проходят.
+- Коммит и тег `phase-3.5-agent-manual-lite`.
+
+Не входит в Phase 3.5:
+
+- immutable `units/vNNNN` store;
+- hash-based dependency matching;
+- Process Architect LLM;
+- MCP/filesystem runtime;
+- remote endpoints для `/proc` и `/bin`.
+
 ### Phase 4 — Telegram shell: текстовый MVP и feedback
 
 **Цель:** рабочий Telegram-бот с текстовым вводом, `/start`, onboarding entrypoint и feedback buttons.
@@ -298,8 +458,10 @@ Definition of Done:
 1. Добавить Telegram adapter (`telegraf`) и `.env.example` ключ `TELEGRAM_BOT_TOKEN` уже есть.
 2. Реализовать обработчики `/start`, текстовых сообщений, callback buttons 👍/👌/👎.
 3. Не помещать бизнес-логику в handlers: handlers вызывают SDK/Application API.
-4. Добавить `SPEC-FEEDBACK-001` через in-process Telegram adapter/mock update driver.
-5. Провести ручной smoke E2E в Telegram.
+4. Telegram flow использует уже подключённый Agent Manual: routing процессов остаётся в Application/ContextBuilder, не в handlers.
+5. Feedback flow опирается на `processes/feedback.md` и сохраняется через application use case/tool boundary.
+6. Добавить `SPEC-FEEDBACK-001` через in-process Telegram adapter/mock update driver.
+7. Провести ручной smoke E2E в Telegram.
 
 Definition of Done:
 
@@ -375,8 +537,12 @@ Scope уточняется отдельно. До этого этапа допу
 3. **Mastra docs-first.** Перед использованием Agent/Tool/Memory/Storage API читать embedded docs установленной версии.
 4. **Provider registry first.** Любая новая модель проверяется через provider registry.
 5. **Privacy by structure.** Сначала доменные типы и privacy-safe projections, потом отчёты.
-6. **Минимальные коммиты по фазам.** Каждый этап заканчивается зелёным `nix run .#verify` и тегом.
-7. **Не создавать `tests/unit`, `tests/contract`, `tests/integration` без отдельного решения.** Основной тестовый контур MVP — `specs/executable`.
+6. **Business processes as code.** Агентные правила оформляются как маленькие process-файлы в `docs/agent-manual`, проходят specs и review как код.
+7. **Сценарии ≠ бизнес-процессы.** Product scenarios в `docs/product/*` — источник требований; runtime BP должен быть procedural, атомарным и иметь dependencies.
+8. **Unix-like namespace как контракт.** `/AGENTS.md`, `/docs`, `/proc`, `/bin` — стабильные логические ручки агента; реализация может быть локальной, CLI или remote, но handlers не должны обходить Application layer.
+9. **Git-versioning first.** До отдельного решения достаточно стандартного git-versioning process-файлов; не вводить `vNNNN` store преждевременно.
+10. **Минимальные коммиты по фазам.** Каждый этап заканчивается зелёным `nix run .#verify` и тегом.
+11. **Не создавать `tests/unit`, `tests/contract`, `tests/integration` без отдельного решения.** Основной тестовый контур MVP — `specs/executable`.
 
 ---
 
@@ -384,6 +550,8 @@ Scope уточняется отдельно. До этого этапа допу
 
 - Шифрование данных, KMS, полноценный compliance audit log.
 - Веб-панель методолога и rich admin UI.
+- Полноценный Process Architect LLM, PA queue, conflict rebase, immutable instruction store и hash-based world drift detection.
+- Отдельный Unix/filesystem runtime для агента; в MVP достаточно логического namespace и typed Application boundaries.
 - CRM/календарь/таск-трекер интеграции.
 - Генерация рабочих материалов за сотрудника.
 - Мобильное приложение.
@@ -403,3 +571,7 @@ Scope уточняется отдельно. До этого этапа допу
 | Privacy нарушится при отчётах | Privacy projection и минимум 5 сотрудников проверяются executable spec. |
 | Storage выбор преждевременно усложнит MVP | Начать с interfaces + SQLite/in-memory adapters; PostgreSQL только при необходимости. |
 | Модель `openai/gpt-5.4-mini` станет недоступной | Stop-and-confirm: проверить registry и согласовать замену, не менять молча. |
+| Agent prompt разрастётся в монолит | Phase 3.5 Agent Manual Lite: core + process index + атомарные process-файлы. |
+| Product scenarios примут за готовые бизнес-процессы | Author contract: сценарии из `docs/product/*` переписываются в procedural BP с Inputs/Process/Outputs/Dependencies. |
+| Unix-like среда превратится в преждевременный runtime-фреймворк | Зафиксировать namespace как контракт, но реализовать через existing Application services/CLI; remote endpoints только позже. |
+| Agent Manual начнёт drift-ить от product docs | Пока git review + dependency секции + specs; hash matching/version store добавить только при реальной боли. |
