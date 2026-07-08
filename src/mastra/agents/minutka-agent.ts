@@ -1,5 +1,6 @@
 import { Agent } from "@mastra/core/agent";
-import { updateProfileTool } from "../tools/index.js";
+import { minutkaMemory } from "../memory.js";
+import { extractInsightsTool, updateProfileTool } from "../tools/index.js";
 
 export const minutkaAgent = new Agent({
   id: "minutka-agent",
@@ -27,7 +28,14 @@ export const minutkaAgent = new Agent({
 Профиль сотрудника обновляй только по явным ответам пользователя.
 Не меняй privacy consent и не записывай чувствительные данные,
 не нужные для рабочего контекста.
+
+Structured insights:
+- извлекай инсайты только из рабочих планов и рефлексий;
+- не извлекай инсайты из просьб написать пост, письмо, КП, презентацию или сделать web research;
+- не сохраняй ФИО, внешние IDs, username, телефон, email, личные детали и raw transcript;
+- labels/rationale должны быть короткими нормализованными рабочими сигналами.
   `.trim(),
   model: "openai/gpt-5.4-mini",
-  tools: { updateProfileTool },
+  memory: minutkaMemory,
+  tools: { updateProfileTool, extractInsightsTool },
 });

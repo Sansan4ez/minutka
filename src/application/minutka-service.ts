@@ -12,9 +12,29 @@ import {
   privacyExplanation,
 } from "../domain/privacy.js";
 import type { InMemoryWorld, ChatMessage } from "./in-memory-world.js";
+import { createInMemoryConversationMemory } from "./in-memory-conversation-memory.js";
+import { createInMemoryInsightStore } from "./in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "./in-memory-profile-store.js";
 import { buildMinutkaProfileContext } from "./minutka-context-builder.js";
+import type {
+  ConversationMemoryStore,
+  ConversationTurn,
+} from "./conversation-memory-store.js";
+import { createDeterministicInsightExtractor } from "./deterministic-insight-extractor.js";
+import type { InsightExtractor } from "./insight-extractor.js";
+import type { InsightStore } from "./insight-store.js";
 import type { ProfileStore } from "./profile-store.js";
+import {
+  buildWorkBoundaryResponse,
+  createDefaultWorkPolicy,
+  type WorkPolicy,
+} from "./work-policy.js";
+import type {
+  InsightKind,
+  StructuredInsight,
+  StructuredInsightDraft,
+} from "../domain/insights.js";
+import type { WorkPolicyDecision } from "../domain/work-policy.js";
 
 export type ChatInput = {
   employeeId: string;
@@ -27,10 +47,18 @@ export type ChatResult = {
   response: string;
 };
 
+export type AgentMemoryContext = {
+  resourceId: string;
+  threadId: string;
+  recentTurns: ConversationTurn[];
+};
+
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
   purpose: "chat" | "onboarding_first_response";
+  memory?: AgentMemoryContext;
+  policy?: WorkPolicyDecision;
 };
 
 /**
@@ -86,12 +114,43 @@ export type CompleteOnboardingResult = {
   firstResponse: string;
 };
 
+export type ListInsightsInput = {
+  employeeId?: string;
+  threadId?: string;
+  kind?: InsightKind;
+};
+
+export type MinutkaServiceDeps = {
+  profileStore?: ProfileStore;
+  conversationMemory?: ConversationMemoryStore;
+  insightStore?: InsightStore;
+  insightExtractor?: InsightExtractor;
+  workPolicy?: WorkPolicy;
+};
+
 export class MinutkaService {
+  private readonly profileStore: ProfileStore;
+  private readonly conversationMemory: ConversationMemoryStore;
+  private readonly insightStore: InsightStore;
+  private readonly insightExtractor: InsightExtractor;
+  private readonly workPolicy: WorkPolicy;
+
   constructor(
     private readonly world: InMemoryWorld,
     private readonly agentRunner: AgentRunner,
-    private readonly profileStore: ProfileStore = createInMemoryProfileStore(world),
-  ) {}
+    depsOrProfileStore: MinutkaServiceDeps | ProfileStore = {},
+  ) {
+    const deps = isProfileStore(depsOrProfileStore)
+      ? { profileStore: depsOrProfileStore }
+      : depsOrProfileStore;
+    this.profileStore = deps.profileStore ?? createInMemoryProfileStore(world);
+    this.conversationMemory =
+      deps.conversationMemory ?? createInMemoryConversationMemory(world);
+    this.insightStore = deps.insightStore ?? createInMemoryInsightStore(world);
+    this.insightExtractor =
+      deps.insightExtractor ?? createDeterministicInsightExtractor(world);
+    this.workPolicy = deps.workPolicy ?? createDefaultWorkPolicy();
+  }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
     if (!input.inviteCode.trim()) throw new Error("inviteCode is required");
@@ -275,16 +334,38 @@ export class MinutkaService {
     });
 
     const profile = await this.profileStore.getProfile(input.employeeId);
-    const response = await this.agentRunner(
-      input,
-      profile
-        ? {
-            profile,
-            systemContext: buildMinutkaProfileContext(profile),
-            purpose: "chat",
-          }
-        : { purpose: "chat" },
-    );
+    const recentTurns = await this.conversationMemory.getRecentTurns({
+      employeeId: input.employeeId,
+      threadId: input.threadId,
+      limit: 10,
+    });
+    const policy = this.workPolicy.evaluate({ ...input, profile });
+
+    let response: string;
+    if (!policy.allowedForAgent) {
+      response =
+        policy.refusalResponse ?? buildWorkBoundaryResponse(policy, profile);
+      this.world.events.push({
+        type: "WorkBoundaryApplied",
+        employeeId: input.employeeId,
+        threadId: input.threadId,
+        reason: policy.reason,
+        timestamp: this.world.now(),
+      });
+    } else {
+      response = await this.agentRunner(input, {
+        ...(profile
+          ? { profile, systemContext: buildMinutkaProfileContext(profile) }
+          : {}),
+        purpose: "chat",
+        memory: {
+          resourceId: input.employeeId,
+          threadId: input.threadId,
+          recentTurns,
+        },
+        policy,
+      });
+    }
 
     this.world.events.push({
       type: "ChatResponseGenerated",
@@ -304,12 +385,54 @@ export class MinutkaService {
     };
     this.world.messages.push(message);
 
+    if (policy.shouldExtractInsights) {
+      const extraction = await this.insightExtractor({
+        employeeId: input.employeeId,
+        threadId: input.threadId,
+        messageId,
+        text: input.text,
+        response,
+        profile,
+        recentTurns,
+        policy,
+      });
+      const insights = this.assignInsightIdsAndTimestamps(extraction.insights);
+      await this.insightStore.saveInsights(insights);
+      for (const insight of insights) {
+        this.world.events.push({
+          type: "InsightRecorded",
+          employeeId: insight.employeeId,
+          threadId: insight.threadId,
+          insightId: insight.id,
+          kind: insight.kind,
+          timestamp: insight.createdAt,
+        });
+      }
+    }
+
     return { messageId, response };
+  }
+
+  async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> {
+    return this.insightStore.listInsights(input);
   }
 
   private nextEmployeeId() {
     this.world.counters.participant++;
     return `emp_${this.world.counters.participant}`;
+  }
+
+  private assignInsightIdsAndTimestamps(
+    drafts: StructuredInsightDraft[],
+  ): StructuredInsight[] {
+    return drafts.map((draft) => {
+      this.world.counters.insight++;
+      return {
+        ...draft,
+        id: `ins_${this.world.counters.insight}`,
+        createdAt: this.world.now(),
+      } as StructuredInsight;
+    });
   }
 
   private async requireParticipant(employeeId: string) {
@@ -346,6 +469,13 @@ const trackedProfileFields = [
   "responseLength",
   "preferredCheckinsPerDay",
 ] as const;
+
+function isProfileStore(value: MinutkaServiceDeps | ProfileStore): value is ProfileStore {
+  return (
+    typeof (value as ProfileStore).getProfile === "function" &&
+    typeof (value as ProfileStore).saveProfile === "function"
+  );
+}
 
 function getChangedFields(
   existing: UserProfile | undefined,

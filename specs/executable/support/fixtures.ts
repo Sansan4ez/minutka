@@ -16,3 +16,11 @@ export const testProfile = {
   aiLevel: "intermediate" as const,
   responseLength: "short" as const,
 };
+
+export const morningPlanText =
+  "Сегодня приоритет — закрыть квартальный отчёт.";
+
+export const eveningReflectionText =
+  "Отчёт не успел, весь день на звонках.";
+
+export const outOfScopePostRequest = "Напиши мне пост для соцсети";

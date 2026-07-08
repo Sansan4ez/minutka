@@ -23,6 +23,14 @@ function parseResponseLength(value: string) {
   return value as "short" | "balanced" | "detailed";
 }
 
+function parseInsightKind(value: string) {
+  return value as
+    | "task_category"
+    | "routine_pattern"
+    | "energy_stress_marker"
+    | "automation_candidate";
+}
+
 export async function runMinutkaCli(
   client: MinutkaClient,
   argv: string[],
@@ -131,6 +139,27 @@ export async function runMinutkaCli(
             employeeId: options.employee,
             threadId: options.thread ?? options.employee,
             text: options.text,
+          });
+          stdout.push(JSON.stringify(result));
+        },
+      ),
+  );
+
+  employee.addCommand(
+    new Command("insights")
+      .option("--employee <employeeId>")
+      .option("--thread <threadId>")
+      .option("--kind <kind>", "Insight kind", parseInsightKind)
+      .action(
+        async (options: {
+          employee?: string;
+          thread?: string;
+          kind?: ReturnType<typeof parseInsightKind>;
+        }) => {
+          const result = await client.listInsights({
+            employeeId: options.employee,
+            threadId: options.thread,
+            kind: options.kind,
           });
           stdout.push(JSON.stringify(result));
         },

@@ -5,7 +5,10 @@ import {
 } from "../../../src/client/cli/minutka-cli.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createInProcessServer } from "../../../src/server/http/in-process-server.js";
-import type { AgentRunner } from "../../../src/application/minutka-service.js";
+import type {
+  AgentRunner,
+  MinutkaServiceDeps,
+} from "../../../src/application/minutka-service.js";
 
 export class CliDriver {
   private readonly client: MinutkaClient;
@@ -14,8 +17,11 @@ export class CliDriver {
     world: InMemoryWorld,
     agentRunner: AgentRunner,
     private readonly onCommand?: (commandPath: string) => void,
+    deps: MinutkaServiceDeps = {},
   ) {
-    this.client = new MinutkaClient(createInProcessServer(world, agentRunner));
+    this.client = new MinutkaClient(
+      createInProcessServer(world, agentRunner, deps),
+    );
   }
 
   async run(args: string[]): Promise<CliResult> {

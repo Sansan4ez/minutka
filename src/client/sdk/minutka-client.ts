@@ -35,6 +35,84 @@ const chatResponse = z.strictObject({
   response: z.string(),
 });
 
+const insightKind = z.enum([
+  "task_category",
+  "routine_pattern",
+  "energy_stress_marker",
+  "automation_candidate",
+]);
+const insightConfidence = z.enum(["low", "medium", "high"]);
+const insightBase = z.object({
+  id: z.string().min(1),
+  employeeId: z.string().min(1),
+  threadId: z.string().min(1),
+  sourceMessageId: z.string().min(1),
+  label: z.string().min(1),
+  confidence: insightConfidence,
+  createdAt: z.string().min(1),
+});
+const structuredInsight = z.discriminatedUnion("kind", [
+  insightBase.extend({
+    kind: z.literal("task_category"),
+    category: z.enum([
+      "planning",
+      "reporting",
+      "meetings",
+      "coordination",
+      "communication",
+      "admin",
+      "focus_work",
+      "unknown",
+    ]),
+  }),
+  insightBase.extend({
+    kind: z.literal("routine_pattern"),
+    patternType: z.enum([
+      "meeting_overload",
+      "context_switching",
+      "manual_reporting",
+      "coordination_overhead",
+      "waiting_for_input",
+      "unclear_priority",
+      "other",
+    ]),
+    interferesWith: z.string().min(1).optional(),
+  }),
+  insightBase.extend({
+    kind: z.literal("energy_stress_marker"),
+    marker: z.enum([
+      "overload",
+      "fatigue",
+      "frustration",
+      "focus_loss",
+      "blocked_progress",
+      "neutral",
+    ]),
+    intensity: z.enum(["low", "medium", "high"]),
+  }),
+  insightBase.extend({
+    kind: z.literal("automation_candidate"),
+    candidateType: z.enum([
+      "report_generation",
+      "meeting_reduction",
+      "async_status_update",
+      "task_routing",
+      "template_or_checklist",
+      "data_entry_reduction",
+      "other",
+    ]),
+    rationale: z.string().min(1),
+  }),
+]);
+
+const listInsightsRequest = z.strictObject({
+  employeeId: z.string().min(1).optional(),
+  threadId: z.string().min(1).optional(),
+  kind: insightKind.optional(),
+});
+
+const listInsightsResponse = z.array(structuredInsight);
+
 const openInviteRequest = z.strictObject({
   inviteCode: z.string().min(1),
   employeeId: z.string().min(1).optional(),
@@ -131,9 +209,16 @@ export class MinutkaClient {
     const result = await this.api.getProfile(validated);
     return validate(userProfile, result, "getProfile response");
   }
+
+  async listInsights(input: z.input<typeof listInsightsRequest>) {
+    const validated = validate(listInsightsRequest, input, "listInsights request");
+    const result = await this.api.listInsights(validated);
+    return validate(listInsightsResponse, result, "listInsights response");
+  }
 }
 
 export type OpenInviteResult = z.infer<typeof openInviteResponse>;
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponse>;
 export type CompleteOnboardingResult = z.infer<typeof completeOnboardingResponse>;
 export type UserProfileResult = z.infer<typeof userProfile>;
+export type StructuredInsightResult = z.infer<typeof structuredInsight>;

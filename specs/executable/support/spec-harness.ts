@@ -4,7 +4,10 @@ import {
   type InMemoryWorld,
 } from "../../../src/application/in-memory-world.js";
 import type { DomainEvent } from "../../../src/domain/events.js";
-import type { AgentRunner } from "../../../src/application/minutka-service.js";
+import type {
+  AgentRunner,
+  MinutkaServiceDeps,
+} from "../../../src/application/minutka-service.js";
 import type { UserProfile } from "../../../src/domain/employee.js";
 import { CliDriver } from "./cli-driver.js";
 import { fixedNow } from "./fixtures.js";
@@ -73,11 +76,21 @@ export function expectProfile(
   );
 }
 
-export function createSpecWorld(agentRunner: AgentRunner): SpecWorld {
+export type CreateSpecWorldOptions = {
+  deps?: Partial<MinutkaServiceDeps>;
+};
+
+export function createSpecWorld(
+  agentRunner: AgentRunner,
+  options: CreateSpecWorldOptions = {},
+): SpecWorld {
   const world = createInMemoryWorld(() => fixedNow);
   trackedWorlds.push(world);
-  const cli = new CliDriver(world, agentRunner, (cmd) =>
-    observedCliCommands.add(cmd),
+  const cli = new CliDriver(
+    world,
+    agentRunner,
+    (cmd) => observedCliCommands.add(cmd),
+    options.deps,
   );
   return { cli, world };
 }

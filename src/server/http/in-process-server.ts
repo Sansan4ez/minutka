@@ -6,6 +6,8 @@ import {
   type AgentRunner,
   type ChatInput,
   type CompleteOnboardingInput,
+  type ListInsightsInput,
+  type MinutkaServiceDeps,
   type OpenInviteInput,
 } from "../../application/minutka-service.js";
 import type { ProfileStore } from "../../application/profile-store.js";
@@ -15,9 +17,9 @@ export type MinutkaApi = ReturnType<typeof createInProcessServer>;
 export function createInProcessServer(
   world: InMemoryWorld,
   agentRunner: AgentRunner,
-  profileStore: ProfileStore = createInMemoryProfileStore(world),
+  depsOrProfileStore: MinutkaServiceDeps | ProfileStore = createInMemoryProfileStore(world),
 ) {
-  const service = new MinutkaService(world, agentRunner, profileStore);
+  const service = new MinutkaService(world, agentRunner, depsOrProfileStore);
 
   return {
     chat(input: ChatInput) {
@@ -34,6 +36,9 @@ export function createInProcessServer(
     },
     getProfile(input: { employeeId: string }) {
       return service.getProfile(input);
+    },
+    listInsights(input: ListInsightsInput) {
+      return service.listInsights(input);
     },
   };
 }

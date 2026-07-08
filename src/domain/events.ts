@@ -1,4 +1,6 @@
 import type { Persona } from "./employee.js";
+import type { InsightKind } from "./insights.js";
+import type { WorkPolicyReason } from "./work-policy.js";
 
 export type ChatMessageReceived = {
   type: "ChatMessageReceived";
@@ -51,6 +53,23 @@ export type OnboardingCompleted = {
   timestamp: string;
 };
 
+export type WorkBoundaryApplied = {
+  type: "WorkBoundaryApplied";
+  employeeId: string;
+  threadId: string;
+  reason: WorkPolicyReason;
+  timestamp: string;
+};
+
+export type InsightRecorded = {
+  type: "InsightRecorded";
+  employeeId: string;
+  threadId: string;
+  insightId: string;
+  kind: InsightKind;
+  timestamp: string;
+};
+
 export type DomainEvent =
   | ChatMessageReceived
   | ChatResponseGenerated
@@ -58,4 +77,6 @@ export type DomainEvent =
   | PrivacyExplanationShown
   | ConsentAccepted
   | UserProfileUpdated
-  | OnboardingCompleted;
+  | OnboardingCompleted
+  | WorkBoundaryApplied
+  | InsightRecorded;

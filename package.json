@@ -6,12 +6,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "npm run specs",
-    "specs": "vitest run specs/executable --reporter=default --reporter=json --outputFile.json=docs/generated/spec-results.json",
+    "specs": "vitest run specs/executable --exclude='.direnv/**' --reporter=default --reporter=json --outputFile.json=docs/generated/spec-results.json",
     "verify": "npm run typecheck && npm run specs",
     "mastra:dev": "mastra dev"
   },
   "dependencies": {
     "@mastra/core": "^1.49.0",
+    "@mastra/libsql": "^1.15.1",
+    "@mastra/memory": "^1.22.2",
     "commander": "^14.0.0",
     "mastra": "^1.18.0",
     "zod": "^4.1.13"

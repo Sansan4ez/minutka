@@ -1,0 +1,194 @@
+import { describe, expect, it } from "vitest";
+import type { AgentRunner, ChatResult } from "../../../src/application/minutka-service.js";
+import type { StructuredInsightResult } from "../../../src/client/sdk/minutka-client.js";
+import {
+  createSpecWorld,
+  expectEvent,
+  registerSpecMetadata,
+} from "../support/spec-harness.js";
+import {
+  outOfScopePostRequest,
+  testEmployee,
+  testProfile,
+} from "../support/fixtures.js";
+import { onboardTestEmployee } from "../support/onboarding-helper.js";
+
+registerSpecMetadata({
+  id: "SPEC-GUARDRAILS-001",
+  userStory: "US-GUARDRAILS-001",
+  requirements: ["FR-GUARDRAILS-001", "FR-INSIGHTS-PRIVACY-001"],
+  productParts: [
+    "ai-agent-backend-runtime",
+    "data-storage-and-privacy-layer",
+  ],
+  contracts: ["chat", "listInsights"],
+  events: [
+    "ChatMessageReceived",
+    "WorkBoundaryApplied",
+    "ChatResponseGenerated",
+  ],
+  mastra: ["minutkaAgent", "extractInsightsTool"],
+  cli: [
+    "employee open-invite",
+    "employee accept-consent",
+    "employee complete-onboarding",
+    "employee chat",
+    "employee insights",
+  ],
+});
+
+describe("SPEC-GUARDRAILS-001: work boundary before insights", () => {
+  it("Mastra agent and extractInsightsTool stay importable", async () => {
+    const { minutkaAgent } = await import(
+      "../../../src/mastra/agents/minutka-agent.js"
+    );
+    const { extractInsightsTool } = await import(
+      "../../../src/mastra/tools/extract-insights-tool.js"
+    );
+
+    expect(minutkaAgent).toBeDefined();
+    expect(extractInsightsTool).toBeDefined();
+  });
+
+  it("softly refuses post generation, does not call agent and saves no insights", async () => {
+    let agentCalls = 0;
+    const mockAgentRunner: AgentRunner = async (_input, context) => {
+      if (context?.purpose === "chat") agentCalls++;
+      return "ok";
+    };
+    const spec = createSpecWorld(mockAgentRunner);
+    await onboardTestEmployee(spec, { persona: "efficiency" });
+
+    const result = await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_guardrails_1",
+      "--text",
+      outOfScopePostRequest,
+    ]);
+
+    expect(result.response).toMatch(/не пишу посты|не могу писать посты/i);
+    expect(result.response).toMatch(/рабочий день|приоритет|что мешает|следующий шаг/i);
+    expect(agentCalls).toBe(0);
+
+    expectEvent(spec, [
+      { type: "ChatMessageReceived", employeeId: testEmployee.employeeId },
+      {
+        type: "WorkBoundaryApplied",
+        employeeId: testEmployee.employeeId,
+        threadId: "thread_guardrails_1",
+        reason: "content_generation_request",
+      },
+      { type: "ChatResponseGenerated", employeeId: testEmployee.employeeId },
+    ]);
+
+    const insights = await spec.cli.json<StructuredInsightResult[]>([
+      "employee",
+      "insights",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_guardrails_1",
+    ]);
+    expect(insights).toEqual([]);
+  });
+
+  it("does not extract insights for ambiguous short text", async () => {
+    let chatCalls = 0;
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatCalls++;
+      return "Понял. Если хочешь, разложим рабочий день.";
+    });
+    await onboardTestEmployee(spec);
+
+    await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_ambiguous_1",
+      "--text",
+      "ну такое",
+    ]);
+
+    expect(chatCalls).toBe(1);
+    const insights = await spec.cli.json<StructuredInsightResult[]>([
+      "employee",
+      "insights",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_ambiguous_1",
+    ]);
+    expect(insights).toEqual([]);
+  });
+
+  it("still allows work reflection and records insights", async () => {
+    let chatCalls = 0;
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatCalls++;
+      return "Вижу перегруз встречами и заблокированный отчёт.";
+    });
+    await onboardTestEmployee(spec);
+
+    await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_work_1",
+      "--text",
+      "Сегодня весь день были встречи, не успел отчёт",
+    ]);
+
+    expect(chatCalls).toBe(1);
+    const insights = await spec.cli.json<StructuredInsightResult[]>([
+      "employee",
+      "insights",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_work_1",
+    ]);
+    expect(insights.length).toBeGreaterThan(0);
+    expect(insights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "energy_stress_marker" }),
+        expect.objectContaining({ kind: "task_category" }),
+      ]),
+    );
+  });
+
+  it("keeps the same boundary with warmer support persona", async () => {
+    let chatCalls = 0;
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatCalls++;
+      return "ok";
+    });
+    await onboardTestEmployee(spec, {
+      ...testProfile,
+      persona: "support",
+      responseLength: "balanced",
+    });
+
+    const result = await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_support_guardrail_1",
+      "--text",
+      outOfScopePostRequest,
+    ]);
+
+    expect(chatCalls).toBe(0);
+    expect(result.response).toContain("бережно");
+    expect(result.response).toMatch(/рабочий день|что важно|маленького шага/i);
+  });
+});

@@ -10,6 +10,12 @@ import { minutkaAgent } from "./agents/minutka-agent.js";
 export const runMinutkaAgent: AgentRunner = async (input, context) => {
   const result = await minutkaAgent.generate(input.text, {
     system: context?.systemContext,
+    memory: context?.memory
+      ? {
+          resource: context.memory.resourceId,
+          thread: context.memory.threadId,
+        }
+      : undefined,
   });
   return result.text ?? "";
 };
