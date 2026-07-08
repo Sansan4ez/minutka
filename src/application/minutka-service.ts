@@ -15,7 +15,13 @@ import type { InMemoryWorld, ChatMessage } from "./in-memory-world.js";
 import { createInMemoryConversationMemory } from "./in-memory-conversation-memory.js";
 import { createInMemoryInsightStore } from "./in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "./in-memory-profile-store.js";
-import { buildMinutkaProfileContext } from "./minutka-context-builder.js";
+import type { AgentManualProcessId } from "./agent-manual-types.js";
+import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
+import {
+  buildMinutkaContext,
+  createMinutkaContextBuilder,
+  type MinutkaContextBuilderLike,
+} from "./minutka-context-builder.js";
 import type {
   ConversationMemoryStore,
   ConversationTurn,
@@ -45,6 +51,7 @@ export type ChatInput = {
 export type ChatResult = {
   messageId: string;
   response: string;
+  selectedProcessIds: AgentManualProcessId[];
 };
 
 export type AgentMemoryContext = {
@@ -59,6 +66,7 @@ export type AgentRunContext = {
   purpose: "chat" | "onboarding_first_response";
   memory?: AgentMemoryContext;
   policy?: WorkPolicyDecision;
+  selectedProcessIds?: AgentManualProcessId[];
 };
 
 /**
@@ -126,6 +134,7 @@ export type MinutkaServiceDeps = {
   insightStore?: InsightStore;
   insightExtractor?: InsightExtractor;
   workPolicy?: WorkPolicy;
+  contextBuilder?: MinutkaContextBuilderLike;
 };
 
 export class MinutkaService {
@@ -134,6 +143,7 @@ export class MinutkaService {
   private readonly insightStore: InsightStore;
   private readonly insightExtractor: InsightExtractor;
   private readonly workPolicy: WorkPolicy;
+  private readonly contextBuilder: MinutkaContextBuilderLike;
 
   constructor(
     private readonly world: InMemoryWorld,
@@ -150,6 +160,7 @@ export class MinutkaService {
     this.insightExtractor =
       deps.insightExtractor ?? createDeterministicInsightExtractor(world);
     this.workPolicy = deps.workPolicy ?? createDefaultWorkPolicy();
+    this.contextBuilder = deps.contextBuilder ?? createDefaultContextBuilder();
   }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
@@ -296,14 +307,23 @@ export class MinutkaService {
       });
     }
 
-    const systemContext = buildMinutkaProfileContext(profile);
+    const builtContext = this.contextBuilder.build({
+      purpose: "onboarding_first_response",
+      text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.",
+      profile,
+    });
     const firstResponse = await this.agentRunner(
       {
         employeeId: input.employeeId,
         threadId: input.employeeId,
         text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.",
       },
-      { profile, systemContext, purpose: "onboarding_first_response" },
+      {
+        profile,
+        systemContext: builtContext.systemContext,
+        selectedProcessIds: builtContext.selectedProcessIds,
+        purpose: "onboarding_first_response",
+      },
     );
 
     return {
@@ -340,6 +360,13 @@ export class MinutkaService {
       limit: 10,
     });
     const policy = this.workPolicy.evaluate({ ...input, profile });
+    const builtContext = this.contextBuilder.build({
+      purpose: "chat",
+      text: input.text,
+      profile,
+      policy,
+      recentTurns,
+    });
 
     let response: string;
     if (!policy.allowedForAgent) {
@@ -350,13 +377,14 @@ export class MinutkaService {
         employeeId: input.employeeId,
         threadId: input.threadId,
         reason: policy.reason,
+        selectedProcessIds: builtContext.selectedProcessIds,
         timestamp: this.world.now(),
       });
     } else {
       response = await this.agentRunner(input, {
-        ...(profile
-          ? { profile, systemContext: buildMinutkaProfileContext(profile) }
-          : {}),
+        ...(profile ? { profile } : {}),
+        systemContext: builtContext.systemContext,
+        selectedProcessIds: builtContext.selectedProcessIds,
         purpose: "chat",
         memory: {
           resourceId: input.employeeId,
@@ -410,7 +438,11 @@ export class MinutkaService {
       }
     }
 
-    return { messageId, response };
+    return {
+      messageId,
+      response,
+      selectedProcessIds: builtContext.selectedProcessIds,
+    };
   }
 
   async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> {
@@ -469,6 +501,14 @@ const trackedProfileFields = [
   "responseLength",
   "preferredCheckinsPerDay",
 ] as const;
+
+function createDefaultContextBuilder() {
+  try {
+    return createMinutkaContextBuilder(loadAgentManualFromDisk());
+  } catch {
+    return { build: buildMinutkaContext };
+  }
+}
 
 function isProfileStore(value: MinutkaServiceDeps | ProfileStore): value is ProfileStore {
   return (

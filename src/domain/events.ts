@@ -58,6 +58,7 @@ export type WorkBoundaryApplied = {
   employeeId: string;
   threadId: string;
   reason: WorkPolicyReason;
+  selectedProcessIds?: string[];
   timestamp: string;
 };
 

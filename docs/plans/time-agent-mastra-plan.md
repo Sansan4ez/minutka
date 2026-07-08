@@ -1,6 +1,6 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** актуализировано после завершения Phase 3 (`phase-3-context-insights`); следующий рекомендуемый шаг — Phase 3.5 Agent Manual Lite перед Telegram shell.  
+> **Статус:** актуализировано после завершения Phase 3.5 (`phase-3.5-agent-manual-lite`); следующий рекомендуемый шаг — Phase 4 Telegram shell и feedback.  
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
@@ -410,7 +410,7 @@ Definition of Done:
 
 ### Phase 3.5 — Agent Manual Lite: бизнес-процессы как код
 
-**Статус:** следующий рекомендуемый этап перед Telegram shell.  
+**Статус:** ✅ завершено.  
 **Подробный план:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
 **Цель:** оформить поведение `MinutkaAgent` как набор проверяемых бизнес-процессов под git и подключить их к `MinutkaContextBuilder` без тяжёлой PA/versioning-инфраструктуры.
 

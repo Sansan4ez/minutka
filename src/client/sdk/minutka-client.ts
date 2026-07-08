@@ -6,6 +6,15 @@ const persona = z.enum(["support", "efficiency"], {
 });
 const aiLevel = z.enum(["beginner", "intermediate", "advanced"]);
 const responseLength = z.enum(["short", "balanced", "detailed"]);
+const agentManualProcessId = z.enum([
+  "core",
+  "onboarding",
+  "consent_and_privacy",
+  "evening_reflection",
+  "workday_guardrails",
+  "insight_extraction",
+  "feedback",
+]);
 const onboardingStatus = z.enum([
   "invite_opened",
   "consent_accepted",
@@ -33,6 +42,7 @@ const chatRequest = z.strictObject({
 const chatResponse = z.strictObject({
   messageId: z.string(),
   response: z.string(),
+  selectedProcessIds: z.array(agentManualProcessId),
 });
 
 const insightKind = z.enum([
@@ -219,6 +229,7 @@ export class MinutkaClient {
 
 export type OpenInviteResult = z.infer<typeof openInviteResponse>;
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponse>;
+export type ChatResult = z.infer<typeof chatResponse>;
 export type CompleteOnboardingResult = z.infer<typeof completeOnboardingResponse>;
 export type UserProfileResult = z.infer<typeof userProfile>;
 export type StructuredInsightResult = z.infer<typeof structuredInsight>;
