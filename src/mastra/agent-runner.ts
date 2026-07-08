@@ -7,7 +7,9 @@ import { minutkaAgent } from "./agents/minutka-agent.js";
  * В executable specs этот runner не используется —
  * спеки инжектируют mock-runner, чтобы не зависеть от LLM/API-ключа.
  */
-export const runMinutkaAgent: AgentRunner = async (input) => {
-  const result = await minutkaAgent.generate(input.text);
+export const runMinutkaAgent: AgentRunner = async (input, context) => {
+  const result = await minutkaAgent.generate(input.text, {
+    system: context?.systemContext,
+  });
   return result.text ?? "";
 };

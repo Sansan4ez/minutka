@@ -1,4 +1,5 @@
 import { Agent } from "@mastra/core/agent";
+import { updateProfileTool } from "../tools/index.js";
 
 export const minutkaAgent = new Agent({
   id: "minutka-agent",
@@ -22,6 +23,11 @@ export const minutkaAgent = new Agent({
 Отвечаешь только на темы рабочего дня и связанного с работой эмоционального состояния.
 Если пользователь просит что-то за рамками — мягко отказывай
 и возвращай разговор к теме рабочего дня.
+
+Профиль сотрудника обновляй только по явным ответам пользователя.
+Не меняй privacy consent и не записывай чувствительные данные,
+не нужные для рабочего контекста.
   `.trim(),
   model: "openai/gpt-5.4-mini",
+  tools: { updateProfileTool },
 });

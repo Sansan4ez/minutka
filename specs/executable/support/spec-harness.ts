@@ -5,6 +5,7 @@ import {
 } from "../../../src/application/in-memory-world.js";
 import type { DomainEvent } from "../../../src/domain/events.js";
 import type { AgentRunner } from "../../../src/application/minutka-service.js";
+import type { UserProfile } from "../../../src/domain/employee.js";
 import { CliDriver } from "./cli-driver.js";
 import { fixedNow } from "./fixtures.js";
 
@@ -21,7 +22,6 @@ export type SpecMetadata = {
 
 const trackedWorlds: InMemoryWorld[] = [];
 const observedCliCommands = new Set<string>();
-const worldsBySpec = new WeakMap<SpecWorld, InMemoryWorld>();
 
 export function registerSpecMetadata(metadata: SpecMetadata) {
   afterAll(() => {
@@ -47,12 +47,11 @@ export function registerSpecMetadata(metadata: SpecMetadata) {
 
 export type SpecWorld = {
   cli: CliDriver;
+  world: InMemoryWorld;
 };
 
 function getWorld(spec: SpecWorld): InMemoryWorld {
-  const world = worldsBySpec.get(spec);
-  if (!world) throw new Error("Spec world not registered");
-  return world;
+  return spec.world;
 }
 
 export type ExpectedEvent = Partial<DomainEvent> & { type: DomainEvent["type"] };
@@ -64,13 +63,21 @@ export function expectEvent(spec: SpecWorld, expected: ExpectedEvent | ExpectedE
   );
 }
 
+export function expectProfile(
+  spec: SpecWorld,
+  employeeId: string,
+  expected: Partial<UserProfile>,
+) {
+  expect(getWorld(spec).profiles).toContainEqual(
+    expect.objectContaining({ employeeId, ...expected }),
+  );
+}
+
 export function createSpecWorld(agentRunner: AgentRunner): SpecWorld {
   const world = createInMemoryWorld(() => fixedNow);
   trackedWorlds.push(world);
   const cli = new CliDriver(world, agentRunner, (cmd) =>
     observedCliCommands.add(cmd),
   );
-  const spec = { cli };
-  worldsBySpec.set(spec, world);
-  return spec;
+  return { cli, world };
 }

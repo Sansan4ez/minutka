@@ -1,3 +1,4 @@
+import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { DomainEvent } from "../domain/events.js";
 
 export type ChatMessage = {
@@ -12,7 +13,10 @@ export type ChatMessage = {
 export type InMemoryWorld = {
   messages: ChatMessage[];
   events: DomainEvent[];
-  counters: { message: number };
+  participants: Participant[];
+  consents: Consent[];
+  profiles: UserProfile[];
+  counters: { message: number; participant: number };
   now: () => string;
 };
 
@@ -22,7 +26,10 @@ export function createInMemoryWorld(
   return {
     messages: [],
     events: [],
-    counters: { message: 0 },
+    participants: [],
+    consents: [],
+    profiles: [],
+    counters: { message: 0, participant: 0 },
     now,
   };
 }
