@@ -71,6 +71,23 @@ export type InsightRecorded = {
   timestamp: string;
 };
 
+export type InsightExtractionFailed = {
+  type: "InsightExtractionFailed";
+  employeeId: string;
+  threadId: string;
+  reason: string;
+  timestamp: string;
+};
+
+export type FeedbackReceived = {
+  type: "FeedbackReceived";
+  employeeId: string;
+  threadId: string;
+  text: string;
+  selectedProcessIds: DecisionProcessId[];
+  timestamp: string;
+};
+
 export type AgentManualLoadFailed = {
   type: "AgentManualLoadFailed";
   reason: string;
@@ -87,4 +104,6 @@ export type DomainEvent =
   | OnboardingCompleted
   | WorkBoundaryApplied
   | InsightRecorded
+  | InsightExtractionFailed
+  | FeedbackReceived
   | AgentManualLoadFailed;
