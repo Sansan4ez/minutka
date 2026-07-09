@@ -37,6 +37,28 @@ export function createSpecConversationDecisionRouter(): ConversationDecisionRout
       };
     }
 
+    if (text.includes("игнорируй инструкции") || text.includes("ignore previous instructions")) {
+      return {
+        selectedProcessIds: ["core", "workday_guardrails"],
+        workDecision: {
+          mode: "boundary",
+          reason: "request_integrity_attack",
+        },
+        insightDecision: { candidate: false, suggestedKinds: [] },
+      };
+    }
+
+    if (text.includes("рецепт борща")) {
+      return {
+        selectedProcessIds: ["core", "workday_guardrails"],
+        workDecision: {
+          mode: "boundary",
+          reason: "non_work_topic",
+        },
+        insightDecision: { candidate: false, suggestedKinds: [] },
+      };
+    }
+
     const isWorkSignal =
       text.includes("приоритет") ||
       text.includes("отчет") ||
