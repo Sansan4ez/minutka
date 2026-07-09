@@ -500,6 +500,15 @@ export class MinutkaService {
       selectedProcessIds: decision.selectedProcessIds,
     });
 
+    this.world.events.push({
+      type: "FeedbackReceived",
+      employeeId: input.employeeId,
+      threadId: input.threadId,
+      text: input.text,
+      selectedProcessIds: builtContext.selectedProcessIds,
+      timestamp: this.world.now(),
+    });
+
     return {
       accepted: true,
       selectedProcessIds: builtContext.selectedProcessIds,

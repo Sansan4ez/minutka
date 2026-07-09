@@ -10,6 +10,7 @@ import type {
 } from "../../../src/application/minutka-service.js";
 import {
   createSpecWorld,
+  expectEvent,
   registerSpecMetadata,
 } from "../support/spec-harness.js";
 import {
@@ -30,7 +31,7 @@ registerSpecMetadata({
   ],
   productParts: ["ai-agent-backend-runtime"],
   contracts: ["chat", "completeOnboarding", "contextBuilder", "submitFeedback"],
-  events: ["ChatMessageReceived", "WorkBoundaryApplied", "ChatResponseGenerated"],
+  events: ["ChatMessageReceived", "WorkBoundaryApplied", "ChatResponseGenerated", "FeedbackReceived"],
   mastra: [],
   cli: [
     "employee open-invite",
@@ -236,5 +237,12 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
 
     expect(result).toMatchObject({ accepted: true });
     expect(result.selectedProcessIds).toEqual(["core", "feedback"]);
+    expectEvent(spec, {
+      type: "FeedbackReceived",
+      employeeId: testEmployee.employeeId,
+      threadId: testEmployee.threadId,
+      text: "👍",
+      selectedProcessIds: ["core", "feedback"],
+    });
   });
 });
