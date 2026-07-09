@@ -1,4 +1,4 @@
-# Этап 3.5: Agent Manual Lite — бизнес-процессы как код
+# Этап 3.5: Agent Vault — бизнес-процессы как код
 
 > **Родительский план:** [time-agent-mastra-plan.md](./time-agent-mastra-plan.md)  
 > **Предыдущий этап:** [phase-3-context-guardrails-insights.md](./phase-3-context-guardrails-insights.md)  
@@ -9,7 +9,7 @@
 
 ## 1. Цель этапа
 
-Оформить поведение `MinutkaAgent` как небольшой, проверяемый и версионируемый через git **Agent Manual**: набор атомарных procedural business-process файлов, которые можно валидировать specs, выбирать file-first constrained LLM-routing-ом и подмешивать в динамический контекст агента.
+Оформить поведение `MinutkaAgent` как небольшой, проверяемый и версионируемый через git **Agent Vault**: набор атомарных procedural business-process файлов, которые можно валидировать specs, выбирать file-first constrained LLM-routing-ом и подмешивать в динамический контекст агента.
 
 После Phase 1–3 в проекте уже есть:
 
@@ -23,17 +23,17 @@
 
 Phase 3.5 должна вынести агентные правила из монолитных инструкций и разрозненных application heuristics в проверяемый manual, но **не должна** строить полноценную Process Architect/versioning/filesystem-runtime инфраструктуру.
 
-Ключевой результат: `MinutkaService.chat()` переходит на SO-CoT constrained process decision plane. Decision router получает `processes/index.md`, runtime input, profile и recent turns, возвращает strict JSON (`selectedProcessIds`, `workDecision`, `insightDecision`), а TypeScript только валидирует и механически исполняет решение. `MinutkaContextBuilder` становится file-first context builder-ом: он работает с заранее загруженным `docs/agent-manual`, добавляет `core.md` + выбранные process-файлы в `systemContext` агента и возвращает `selectedProcessIds` для audit/specs. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
+Ключевой результат: `MinutkaService.chat()` переходит на SO-CoT constrained process decision plane. Decision router получает `processes/index.md`, runtime input, profile и recent turns, возвращает strict JSON (`selectedProcessIds`, `workDecision`, `insightDecision`), а TypeScript только валидирует и механически исполняет решение. `MinutkaContextBuilder` становится file-first context builder-ом: он работает с заранее загруженным `vault`, добавляет `AGENTS.md` + выбранные process-файлы в `systemContext` агента и возвращает `selectedProcessIds` для audit/specs. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
 
 ---
 
 ## 2. Definition of Done
 
-- [ ] Создана структура `docs/agent-manual/`:
-  - [ ] `README.md`
-  - [ ] `registry.json`
-  - [ ] `author-contract.md`
-  - [ ] `core.md`
+- [ ] Создана структура `vault/`:
+  - [ ] `docs/architecture/agent-vault.md`
+  - [ ] `processes/registry.json`
+  - [ ] `docs/architecture/process-authoring.md`
+  - [ ] `AGENTS.md`
   - [ ] `processes/index.md`
   - [ ] `processes/onboarding.md`
   - [ ] `processes/consent_and_privacy.md`
@@ -49,12 +49,12 @@ Phase 3.5 должна вынести агентные правила из мо�
   - `## Privacy notes`
   - `## Anti-patterns`
   - `## Dependencies`
-- [ ] `registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; `processes/index.md` является file-first routing map с колонками `When to select`, `Why it applies`, `Mutating`, а TypeScript только валидирует constrained decision-router output.
+- [ ] `processes/registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; `processes/index.md` является file-first routing map с колонками `When to select`, `Why it applies`, `Mutating`, а TypeScript только валидирует constrained decision-router output.
 - [ ] `processes/index.md` человекочитаемо описывает процессы и их границы.
 - [ ] Product scenarios из `docs/product/Final_Description.md`, `docs/product/virtual-simulation.md`, при необходимости `docs/product/dialogs-for-agent-minutka.md`, переписаны в procedural BP-формат без копирования больших фрагментов.
-- [ ] Добавлен application-level Agent Manual loader.
+- [ ] Добавлен application-level Agent Vault loader.
 - [ ] Loader валидирует существование файлов, обязательные секции, уникальность process ids, корректность paths и существование dependency paths; loader не перечитывает manual на каждый chat request.
-- [ ] `MinutkaContextBuilder` расширен до file-first Agent Manual context builder:
+- [ ] `MinutkaContextBuilder` расширен до file-first Agent Vault context builder:
   - [ ] собирает profile/persona context как раньше;
   - [ ] всегда добавляет `core`;
   - [ ] принимает selected process ids от SO-CoT conversation decision router;
@@ -62,10 +62,10 @@ Phase 3.5 должна вынести агентные правила из мо�
   - [ ] валидирует router output: только известные ids, только applicable `appliesTo`, без invented ids;
   - [ ] добавляет релевантные process-файлы;
   - [ ] возвращает `selectedProcessIds`;
-  - [ ] возвращает/формирует manual context для agent prompt.
+  - [ ] возвращает/формирует vault context для agent prompt.
 - [ ] `AgentRunContext` содержит `selectedProcessIds` и, при необходимости, `agentManualContext` / расширенный `systemContext`.
 - [ ] `ChatResult` или audit/debug metadata содержит `selectedProcessIds` так, чтобы executable specs могли их проверить без чтения приватного prompt целиком.
-- [ ] Onboarding first response также использует Agent Manual resolver, как минимум `core`, `onboarding`, `consent_and_privacy`.
+- [ ] Onboarding first response также использует Agent Vault resolver, как минимум `core`, `onboarding`, `consent_and_privacy`.
 - [ ] Guardrail refusal path использует/аудирует `workday_guardrails`, даже если agent runner не вызывается.
 - [ ] Добавлена и проходит `SPEC-AGENT-MANUAL-001`.
 - [ ] Добавлена и проходит `SPEC-PROCESS-ROUTING-001`.
@@ -82,7 +82,7 @@ Phase 3.5 должна вынести агентные правила из мо�
 
 ### Входит
 
-1. Markdown Agent Manual в `docs/agent-manual`.
+1. Markdown Agent Vault в `vault`.
 2. Author contract для написания business-process файлов.
 3. Registry/index для file-first constrained LLM выбора optional процессов.
 4. Application-level loader и validator.
@@ -119,7 +119,7 @@ Domain → Application → Server → SDK → CLI / future Telegram
          Mastra runtime bridge
 ```
 
-Agent Manual — это **application/runtime context source**, а не отдельный продуктовый слой и не replacement для domain/application logic.
+Agent Vault — это **application/runtime context source**, а не отдельный продуктовый слой и не replacement для domain/application logic.
 
 ### 4.1 Chat flow после Phase 3.5
 
@@ -138,7 +138,7 @@ CLI/SDK/future Telegram
     6. MinutkaContextBuilder.build(input, profile, selectedProcessIds)
        → uses preloaded AgentManual
        → profile/persona context
-       → agentManualContext = core.md + selected process markdown
+       → agentManualContext = AGENTS.md + selected process markdown
     7a. if workDecision.mode = boundary:
           build boundary response from the selected business process decision
           emit WorkBoundaryApplied with selectedProcessIds/debug metadata
@@ -155,7 +155,7 @@ CLI/SDK/future Telegram
 ```text
 completeOnboarding(input)
   → save profile/participant
-  → resolve manual context for purpose = onboarding_first_response
+  → resolve vault context for purpose = onboarding_first_response
      selected: core + onboarding + consent_and_privacy
   → agentRunner(..., AgentRunContext)
   → return firstResponse
@@ -165,17 +165,15 @@ completeOnboarding(input)
 
 ---
 
-## 5. Agent Manual структура
+## 5. Agent Vault структура
 
-Создать:
+Создать runtime vault и developer docs:
 
 ```text
-docs/agent-manual/
-  README.md
-  registry.json
-  author-contract.md
-  core.md
+vault/
+  AGENTS.md
   processes/
+    registry.json
     index.md
     onboarding.md
     consent_and_privacy.md
@@ -183,25 +181,45 @@ docs/agent-manual/
     workday_guardrails.md
     insight_extraction.md
     feedback.md
+  docs/
+    README.md
+    product-boundary.md
+    methodology.md
+    privacy-boundary.md
+  bin/
+    README.md
+    route-conversation-decision.md
+    update-profile.md
+    extract-insights.md
+    record-feedback.md
+  proc/
+    README.md
+    schemas/
+  run/
+    README.md
+
+docs/architecture/
+  agent-vault.md
+  process-authoring.md
 ```
 
-### 5.1 `README.md`
+### 5.1 `docs/architecture/agent-vault.md`
 
 Назначение:
 
-- объясняет, что Agent Manual — runtime-инструкции для `MinutkaAgent`, а не продуктовая документация;
+- объясняет, что Agent Vault — runtime workspace для `MinutkaAgent`, а не обычная продуктовая документация;
 - фиксирует принцип business processes as code;
-- описывает связь с `docs/product/*`;
-- описывает lifecycle изменения manual:
+- описывает связь с ecom VFS pattern;
+- описывает lifecycle изменения vault:
   1. изменить/добавить process-файл;
-  2. обновить `registry.json` и `processes/index.md`;
+  2. обновить `vault/processes/registry.json` и `vault/processes/index.md`;
   3. обновить/добавить executable spec;
   4. запустить `npm run verify`;
   5. commit/review через git.
 
-### 5.2 `author-contract.md`
+### 5.2 `docs/architecture/process-authoring.md`
 
-Зафиксировать обязательный contract:
+Зафиксировать обязательный process authoring contract:
 
 ```md
 # Process name
@@ -225,7 +243,7 @@ docs/agent-manual/
 
 - один файл — один атомарный класс поведения;
 - писать procedural instructions, не маркетинговое описание;
-- common privacy и product boundary правила не копировать, а ссылаться на `core.md` и `consent_and_privacy.md`;
+- common privacy и product boundary правила не копировать, а ссылаться на `AGENTS.md` и `consent_and_privacy.md`;
 - `Dependencies` должны указывать существующие файлы в репозитории; это могут быть docs, specs или source contracts, например:
   - `docs/product/Final_Description.md#scenario-1-employee-joins-the-program`
   - `docs/product/virtual-simulation.md#scenario-6-evening-voice-reflection`
@@ -233,7 +251,7 @@ docs/agent-manual/
   - `specs/executable/context/SPEC-CONTEXT-001.spec.ts`
 - не хранить secrets, PII, реальные Telegram IDs или raw employee transcripts.
 
-### 5.3 `core.md`
+### 5.3 `AGENTS.md`
 
 Source of truth для базовых правил `MinutkaAgent`:
 
@@ -253,22 +271,22 @@ Source of truth для базовых правил `MinutkaAgent`:
 
 Важно: `/AGENTS.md`, `/docs`, `/proc`, `/bin` в Phase 3.5 — логические ручки, не реальные root-директории и не filesystem runtime.
 
-### 5.4 `registry.json`
+### 5.4 `processes/registry.json`
 
 Предлагаемый минимальный формат:
 
 ```json
 {
   "version": 1,
-  "manualId": "minutka-agent-manual-lite",
+  "vaultId": "minutka-agent-vault",
   "core": {
     "id": "core",
-    "path": "docs/agent-manual/core.md"
+    "path": "vault/AGENTS.md"
   },
   "processes": [
     {
       "id": "onboarding",
-      "path": "docs/agent-manual/processes/onboarding.md",
+      "path": "vault/processes/onboarding.md",
       "appliesTo": ["onboarding_first_response"],
       "dependencies": [
         "docs/product/Final_Description.md",
@@ -431,7 +449,7 @@ export type AgentManualProcess = {
 
 export type AgentManual = {
   version: number;
-  manualId: string;
+  vaultId: string;
   core: { id: "core"; path: string; content: string };
   processes: AgentManualProcess[];
 };
@@ -455,8 +473,8 @@ export type AgentManualLoader = {
 
 Loader должен:
 
-1. читать `docs/agent-manual/registry.json`;
-2. читать `core.md` и process-файлы;
+1. читать `vault/processes/registry.json`;
+2. читать `AGENTS.md` и process-файлы;
 3. проверять уникальность ids;
 4. проверять существование path;
 5. проверять обязательные Markdown секции;
@@ -564,31 +582,34 @@ processAudit: { selectedProcessIds: AgentManualProcessId[] }
 
 ---
 
-## 8. Virtual Unix-like namespace contract
+## 8. Agent vault namespace contract
 
-В Phase 3.5 нужно зафиксировать namespace в docs, но не реализовывать отдельный runtime.
+В Phase 3.5 нужно зафиксировать namespace как vault contract. Static runtime files живут в `vault/`; mutable state остаётся в application storage и проецируется в `/proc`/`/run`.
 
 ### 8.1 Mapping
 
 | Handle | Phase 3.5 implementation | Notes |
 |---|---|---|
-| `/AGENTS.md` | `docs/agent-manual/core.md` + selected process files | prompt/context source |
-| `/docs` | `docs/product/*`, `docs/plans/*`, `docs/agent-manual/*` | requirements and policies |
-| `/proc` | application state: profile, consent, recent turns, policy, insights | not a filesystem |
-| `/bin` | typed use cases/tools: chat, profile update, insight extraction, future feedback | not shell commands |
+| `/AGENTS.md` | `vault/AGENTS.md` | root runtime instructions |
+| `/processes` | `vault/processes/*` | process index, registry and BP files |
+| `/docs` | `vault/docs/*` | active runtime-facing product/methodology/boundary docs |
+| `/proc` | application state projection: profile, consent, recent turns, conversation decision, insights, feedback | schemas in `vault/proc/schemas`; not raw git state |
+| `/bin` | typed use cases/tools with `vault/bin/*.md` manifests | not shell commands |
+| `/run` | domain events/audit projection | contract in `vault/run/README.md` |
 
 ### 8.2 Правила
 
 - Telegram/CLI handlers не должны напрямую выбирать process files — routing живёт в Application/ContextBuilder.
-- Agent Manual не должен читать storage самостоятельно.
+- Agent Vault не должен читать storage самостоятельно.
 - `/proc` materialization для prompt — только через sanitized context builder.
 - `/bin` operations — только typed application services/tools, не произвольные shell commands.
+- Raw employee state must not be committed under `vault/proc`; only schemas/contracts live there.
 
 ---
 
 ## 9. Executable specs
 
-### 9.1 `SPEC-AGENT-MANUAL-001` — agent manual валиден
+### 9.1 `SPEC-AGENT-MANUAL-001` — agent vault валиден
 
 Файл:
 
@@ -601,25 +622,25 @@ Metadata:
 - `requirements`: `FR-AGENT-MANUAL-001`, `FR-PROCESS-CONTRACT-001`, `FR-PRIVACY-BOUNDARY-001`
 - `productParts`: `ai-agent-backend-runtime`, `data-storage-and-privacy-layer`
 - `contracts`: `agentManualLoader`
-- `docs`: `docs/agent-manual/registry.json`, `docs/agent-manual/core.md`
+- `docs`: `vault/processes/registry.json`, `vault/AGENTS.md`
 
 Scenario:
 
 ```gherkin
-Given docs/agent-manual/registry.json, core.md and process files
-When manual loader reads Agent Manual
+Given vault/processes/registry.json, AGENTS.md and process files
+When vault loader reads Agent Vault
 Then every registered path exists
-And every process has required author-contract sections
+And every process has required process-authoring sections
 And every process id is unique
 And dependencies point to existing repository files
 And process index does not reference missing process ids
-And core.md documents /AGENTS.md /docs /proc /bin namespace
+And AGENTS.md documents /AGENTS.md /processes /docs /proc /bin /run namespace
 ```
 
 Checks:
 
 - `registry.version === 1`;
-- `manualId` exists;
+- `manualId` / vault identifier exists;
 - core path exists;
 - at least 6 process files excluding core;
 - required process ids present:
@@ -706,19 +727,19 @@ npm run verify
 
 Ожидаемо: все Phase 1–3 specs зелёные до изменений.
 
-### Step 1 — Создать Agent Manual docs
+### Step 1 — Создать Agent Vault docs
 
-1. Создать `docs/agent-manual/README.md`.
-2. Создать `docs/agent-manual/author-contract.md`.
-3. Создать `docs/agent-manual/core.md`.
-4. Создать `docs/agent-manual/processes/*.md`.
-5. Создать `docs/agent-manual/processes/index.md`.
-6. Создать `docs/agent-manual/registry.json`.
+1. Создать `docs/architecture/agent-vault.md`.
+2. Создать `docs/architecture/process-authoring.md`.
+3. Создать `vault/AGENTS.md`.
+4. Создать `vault/processes/*.md`.
+5. Создать `vault/processes/index.md`.
+6. Создать `vault/processes/registry.json`.
 
 Проверить вручную:
 
 ```bash
-find docs/agent-manual -maxdepth 3 -type f | sort
+find vault -maxdepth 3 -type f | sort
 ```
 
 ### Step 2 — Добавить loader и validation logic
@@ -761,15 +782,15 @@ npx vitest run specs/executable/agent-manual/SPEC-AGENT-MANUAL-001.spec.ts
 2. Вынести/расширить `minutka-context-builder.ts`:
    - сохранить `buildMinutkaProfileContext(profile)` для совместимости;
    - добавить `buildMinutkaContext(...)` или class `MinutkaContextBuilder`.
-3. Убедиться, что результирующий `systemContext` содержит секции в стабильном порядке, где Agent Manual/core идёт раньше профиля, чтобы базовые boundaries имели больший приоритет:
+3. Убедиться, что результирующий `systemContext` содержит секции в стабильном порядке, где Agent Vault/core идёт раньше профиля, чтобы базовые boundaries имели больший приоритет:
 
 ```text
 # Minutka runtime context
 
-## Agent Manual: core
-<core.md>
+## Agent Vault: core
+<AGENTS.md>
 
-## Agent Manual process: onboarding
+## Agent Vault process: onboarding
 <process markdown>
 
 ## Profile context
@@ -823,9 +844,9 @@ const systemContext = buildMinutkaProfileContext(profile);
 Минимальный безопасный вариант:
 
 - оставить `src/mastra/agents/minutka-agent.ts` с кратким fallback:
-  - “Ты Минутка… следуй system context / Agent Manual в runtime instructions”;
+  - “Ты Минутка… следуй system context / Agent Vault в runtime instructions”;
   - сохранить запреты как safety fallback, но не раздувать;
-- основные подробные правила теперь в `docs/agent-manual/core.md`.
+- основные подробные правила теперь в `vault/AGENTS.md`.
 
 Не нужно на Phase 3.5 читать manual внутри `minutka-agent.ts`: manual должен приходить через `system` от application context builder.
 
@@ -869,8 +890,8 @@ nix run .#verify
 
 ```bash
 git status
-git add docs/agent-manual specs/executable/agent-manual src docs/plans
-git commit -m "Implement phase 3.5 agent manual lite"
+git add vault specs/executable/agent-manual src docs/plans
+git commit -m "Implement phase 3.5 agent vault lite"
 git tag phase-3.5-agent-manual-lite
 ```
 
@@ -882,17 +903,17 @@ git tag phase-3.5-agent-manual-lite
 
 ```text
 docs/plans/time-agent-mastra-plan.md
-docs/agent-manual/README.md
-docs/agent-manual/registry.json
-docs/agent-manual/author-contract.md
-docs/agent-manual/core.md
-docs/agent-manual/processes/index.md
-docs/agent-manual/processes/onboarding.md
-docs/agent-manual/processes/consent_and_privacy.md
-docs/agent-manual/processes/evening_reflection.md
-docs/agent-manual/processes/workday_guardrails.md
-docs/agent-manual/processes/insight_extraction.md
-docs/agent-manual/processes/feedback.md
+docs/architecture/agent-vault.md
+vault/processes/registry.json
+docs/architecture/process-authoring.md
+vault/AGENTS.md
+vault/processes/index.md
+vault/processes/onboarding.md
+vault/processes/consent_and_privacy.md
+vault/processes/evening_reflection.md
+vault/processes/workday_guardrails.md
+vault/processes/insight_extraction.md
+vault/processes/feedback.md
 ```
 
 ### Source
@@ -936,7 +957,7 @@ specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts
 | Hardcoded `MinutkaAgent.instructions` конфликтуют с manual | Сжать instructions до fallback и приоритета runtime system context. |
 | `selectedProcessIds` раскрывает лишнее пользователю | В specs/API можно считать это audit/debug metadata. Для Telegram Phase 4 не показывать пользователю, только логировать/использовать internally. |
 | Loader зависит от current working directory | Явно resolve paths от repo root; в specs запускать из root; при необходимости искать root по `package.json`. |
-| Agent Manual временно не сконфигурирован в части specs/harness | Builder должен иметь backward-compatible fallback: profile-only context и пустой/minimal process audit до полной интеграции Step 5. |
+| Agent Vault временно не сконфигурирован в части specs/harness | Builder должен иметь backward-compatible fallback: profile-only context и пустой/minimal process audit до полной интеграции Step 5. |
 | `systemContext` разрастётся из-за core + нескольких process-файлов | Держать process-файлы короткими, предупреждать о файлах >~200 строк, в routing выбирать только релевантные процессы; при необходимости добавить size assertion позже. |
 | Dependency anchor validation усложнит этап | На Phase 3.5 проверять существование файла до `#anchor`; точные anchors можно оставить на будущую доработку. |
 | Feedback process есть, use case ещё нет | Документировать process и проверить resolver purpose `feedback`; реализация сохранения feedback — Phase 4. |
@@ -947,10 +968,10 @@ specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts
 
 Перед закрытием этапа ревьюер должен увидеть:
 
-1. `docs/agent-manual` существует и читается как самостоятельный manual.
-2. В `core.md` явно описаны границы роли Минутки и virtual namespace.
+1. `vault` существует и читается как самостоятельный manual.
+2. В `AGENTS.md` явно описаны границы роли Минутки и virtual namespace.
 3. Все process-файлы имеют одинаковый author contract.
-4. `registry.json` не расходится с `processes/index.md`.
+4. `processes/registry.json` не расходится с `processes/index.md`.
 5. Loader падает с понятной ошибкой при сломанном process-файле.
 6. `MinutkaService.chat()` получает context не из старого profile-only builder, а из file-first context builder с constrained router.
 7. Mock agent runner в specs видит `context.selectedProcessIds`.
@@ -964,9 +985,9 @@ specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts
 
 Если этап хочется разбить на несколько маленьких коммитов:
 
-1. `Add agent manual documentation skeleton`
-   - только `docs/agent-manual/*`.
-2. `Add agent manual loader and validation spec`
+1. `Add agent vault documentation skeleton`
+   - только `vault/*`.
+2. `Add agent vault loader and validation spec`
    - loader + `SPEC-AGENT-MANUAL-001`.
 3. `Wire process resolver into Minutka context`
    - resolver/context builder/service/API schema.
