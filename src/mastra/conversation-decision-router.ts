@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
 import type { InsightKind } from "../domain/insights.js";
+import { compact, parseFirstJsonValue } from "../shared/llm-output.js";
 import { conversationDecisionAgent } from "./agents/conversation-decision-agent.js";
 
 const processId = z.enum([
@@ -115,34 +116,10 @@ function buildDecisionPrompt(input: Parameters<ConversationDecisionRouter>[0]) {
   ].join("\n");
 }
 
-function parseFirstJsonValue(output: string): unknown {
-  const trimmed = output.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-    if (fenced) return parseFirstJsonValue(fenced);
-    const objectStart = trimmed.indexOf("{");
-    const objectEnd = trimmed.lastIndexOf("}");
-    if (objectStart >= 0 && objectEnd > objectStart) {
-      try {
-        return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
-  }
-}
-
 function preview(content: string) {
   const start = content.indexOf("## When this process applies");
   const source = start >= 0 ? content.slice(start) : content;
   return compact(source).slice(0, 500);
-}
-
-function compact(text: string) {
-  return text.replace(/\s+/g, " ").trim().slice(0, 700);
 }
 
 export type RuntimeInsightKind = InsightKind;

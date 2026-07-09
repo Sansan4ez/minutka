@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { InsightExtractor } from "../application/insight-extractor.js";
+import { compact, parseFirstJsonValue } from "../shared/llm-output.js";
 import { insightExtractorAgent } from "./agents/insight-extractor-agent.js";
 
 const insightBase = z.object({
@@ -117,26 +118,3 @@ function buildExtractionPrompt(input: Parameters<InsightExtractor>[0]) {
   ].join("\n");
 }
 
-function parseFirstJsonValue(output: string): unknown {
-  const trimmed = output.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-    if (fenced) return parseFirstJsonValue(fenced);
-    const objectStart = trimmed.indexOf("{");
-    const objectEnd = trimmed.lastIndexOf("}");
-    if (objectStart >= 0 && objectEnd > objectStart) {
-      try {
-        return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
-  }
-}
-
-function compact(text: string) {
-  return text.replace(/\s+/g, " ").trim().slice(0, 700);
-}

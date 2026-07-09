@@ -1,3 +1,4 @@
+import { compact, parseFirstJsonValue } from "../shared/llm-output.js";
 import type { ConversationTurn } from "./conversation-memory-store.js";
 import type { UserProfile } from "../domain/employee.js";
 import type {
@@ -171,41 +172,6 @@ function parseRouterOutput(
   return filterRouterSelection(selected, candidateProcessIds);
 }
 
-function parseFirstJsonValue(output: string): unknown {
-  const trimmed = output.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-    if (fenced) {
-      try {
-        return JSON.parse(fenced);
-      } catch {
-        return undefined;
-      }
-    }
-    const objectStart = trimmed.indexOf("{");
-    const objectEnd = trimmed.lastIndexOf("}");
-    if (objectStart >= 0 && objectEnd > objectStart) {
-      try {
-        return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
-      } catch {
-        return undefined;
-      }
-    }
-    const arrayStart = trimmed.indexOf("[");
-    const arrayEnd = trimmed.lastIndexOf("]");
-    if (arrayStart >= 0 && arrayEnd > arrayStart) {
-      try {
-        return JSON.parse(trimmed.slice(arrayStart, arrayEnd + 1));
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
-  }
-}
-
 function filterRouterSelection(
   selected: unknown[],
   candidateProcessIds: AgentManualProcessId[],
@@ -252,15 +218,11 @@ function hasApplicableManualEntry(
 
 function extractSectionPreview(content: string, heading: string) {
   const start = content.indexOf(heading);
-  if (start < 0) return compact(content);
+  if (start < 0) return compact(content, 600);
   const afterHeading = content.slice(start + heading.length);
   const nextHeading = afterHeading.search(/\n##\s+/);
   const section = nextHeading >= 0 ? afterHeading.slice(0, nextHeading) : afterHeading;
-  return compact(section);
-}
-
-function compact(text: string) {
-  return text.replace(/\s+/g, " ").trim().slice(0, 600);
+  return compact(section, 600);
 }
 
 function dedupe<T>(items: T[]) {
