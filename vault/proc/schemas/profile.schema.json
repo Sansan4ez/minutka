@@ -9,7 +9,7 @@
     "typicalTasks": { "type": "array", "items": { "type": "string" } },
     "persona": { "enum": ["support", "efficiency"] },
     "aiLevel": { "enum": ["beginner", "intermediate", "advanced"] },
-    "responseLength": { "enum": ["short", "medium"] }
+    "responseLength": { "enum": ["short", "balanced", "detailed"] }
   },
   "additionalProperties": false
 }

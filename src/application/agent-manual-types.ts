@@ -1,11 +1,6 @@
-export type AgentManualProcessId =
-  | "core"
-  | "onboarding"
-  | "consent_and_privacy"
-  | "evening_reflection"
-  | "workday_guardrails"
-  | "insight_extraction"
-  | "feedback";
+import type { DecisionProcessId } from "../domain/conversation-decision.js";
+
+export type AgentManualProcessId = DecisionProcessId;
 
 export type AgentManualPurpose =
   | "chat"

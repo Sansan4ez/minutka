@@ -1,6 +1,6 @@
 import type { Persona } from "./employee.js";
 import type { InsightKind } from "./insights.js";
-import type { ConversationBoundaryReason } from "./conversation-decision.js";
+import type { ConversationBoundaryReason, DecisionProcessId } from "./conversation-decision.js";
 
 export type ChatMessageReceived = {
   type: "ChatMessageReceived";
@@ -58,7 +58,7 @@ export type WorkBoundaryApplied = {
   employeeId: string;
   threadId: string;
   reason: ConversationBoundaryReason;
-  selectedProcessIds?: string[];
+  selectedProcessIds?: DecisionProcessId[];
   timestamp: string;
 };
 
