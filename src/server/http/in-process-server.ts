@@ -9,6 +9,7 @@ import {
   type ListInsightsInput,
   type MinutkaServiceDeps,
   type OpenInviteInput,
+  type SubmitFeedbackInput,
 } from "../../application/minutka-service.js";
 import type { ProfileStore } from "../../application/profile-store.js";
 
@@ -39,6 +40,9 @@ export function createInProcessServer(
     },
     listInsights(input: ListInsightsInput) {
       return service.listInsights(input);
+    },
+    submitFeedback(input: SubmitFeedbackInput) {
+      return service.submitFeedback(input);
     },
   };
 }

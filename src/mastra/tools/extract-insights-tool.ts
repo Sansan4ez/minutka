@@ -1,6 +1,5 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { extractInsightDraftsDeterministically } from "../../application/deterministic-insight-extractor.js";
 
 const insightSummary = z.object({
   kind: z.enum([
@@ -16,7 +15,7 @@ const insightSummary = z.object({
 export const extractInsightsTool = createTool({
   id: "extract-insights-tool",
   description:
-    "Extract privacy-safe structured workday signals from an explicitly work-related Minutka reflection.",
+    "Deprecated runtime primitive placeholder. Structured insight extraction is handled by the constrained insightExtractorAgent service boundary.",
   inputSchema: z.object({
     employeeId: z.string().min(1),
     threadId: z.string().min(1),
@@ -26,14 +25,7 @@ export const extractInsightsTool = createTool({
   outputSchema: z.object({
     insights: z.array(insightSummary),
   }),
-  execute: async (input) => {
-    const insights = extractInsightDraftsDeterministically(input);
-    return {
-      insights: insights.map(({ kind, label, confidence }) => ({
-        kind,
-        label,
-        confidence,
-      })),
-    };
-  },
+  execute: async () => ({
+    insights: [],
+  }),
 });

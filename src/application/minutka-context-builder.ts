@@ -1,5 +1,4 @@
 import type { UserProfile } from "../domain/employee.js";
-import type { WorkPolicyDecision } from "../domain/work-policy.js";
 import type { ConversationTurn } from "./conversation-memory-store.js";
 import type {
   AgentManual,
@@ -7,6 +6,7 @@ import type {
   AgentManualPurpose,
 } from "./agent-manual-types.js";
 import {
+  renderManualContext,
   resolveAgentManualSelection,
   type AgentManualRouter,
 } from "./agent-manual-resolver.js";
@@ -33,8 +33,8 @@ export type BuildMinutkaContextInput = {
   purpose: AgentManualPurpose;
   text?: string;
   profile?: UserProfile;
-  policy?: WorkPolicyDecision;
   recentTurns?: ConversationTurn[];
+  selectedProcessIds?: AgentManualProcessId[];
 };
 
 export type BuiltMinutkaContext = {
@@ -71,11 +71,12 @@ export async function buildMinutkaContext(
   input: BuildMinutkaContextInput,
   deps: { manual?: AgentManual; router?: AgentManualRouter } = {},
 ): Promise<BuiltMinutkaContext> {
-  const manualSelection = await resolveAgentManualSelection(
-    input,
-    deps.manual,
-    deps.router,
-  );
+  const manualSelection = input.selectedProcessIds && deps.manual
+    ? {
+        selectedProcessIds: input.selectedProcessIds,
+        manualContext: renderManualContext(deps.manual, input.selectedProcessIds),
+      }
+    : await resolveAgentManualSelection(input, deps.manual, deps.router);
   const sections = ["# Minutka runtime context"];
 
   if (manualSelection.manualContext) {

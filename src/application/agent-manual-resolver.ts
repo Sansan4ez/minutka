@@ -1,6 +1,5 @@
 import type { ConversationTurn } from "./conversation-memory-store.js";
 import type { UserProfile } from "../domain/employee.js";
-import type { WorkPolicyDecision } from "../domain/work-policy.js";
 import type {
   AgentManual,
   AgentManualProcessId,
@@ -12,7 +11,6 @@ export type ResolveAgentManualInput = {
   purpose: AgentManualPurpose;
   text?: string;
   profile?: UserProfile;
-  policy?: WorkPolicyDecision;
   recentTurns?: ConversationTurn[];
 };
 
@@ -80,14 +78,6 @@ function requiredProcessesFor(input: ResolveAgentManualInput): AgentManualProces
     required.push("feedback");
   }
 
-  if (input.policy?.allowedForAgent === false) {
-    required.push("workday_guardrails");
-  }
-
-  if (input.purpose === "chat" && input.policy?.shouldExtractInsights === true) {
-    required.push("insight_extraction");
-  }
-
   return dedupe(required);
 }
 
@@ -135,17 +125,13 @@ function buildRoutingPrompt(
         `responseLength: ${input.profile.responseLength}`,
       ].join("\n")
     : "not available";
-  const policy = input.policy
-    ? JSON.stringify(input.policy, null, 2)
-    : "not available";
-
   return [
     "You are the constrained Agent Manual process router for Minutka.",
     "Use the process index and process descriptions below to choose optional process files for the current request.",
     "Return ONLY valid JSON with this shape: {\"selectedProcessIds\":[\"process_id\"]}.",
     "Do not include explanations. Do not invent ids. Choose only from candidateProcessIds.",
     "If the request does not clearly need an optional process, return an empty array.",
-    "Required process ids are already selected by application policy; do not repeat them unless unavoidable.",
+    "Lifecycle-required process ids are already selected by application code; do not repeat them unless unavoidable.",
     "Language of the employee text is irrelevant; route by meaning, not keywords.",
     "",
     "# Process index",
@@ -163,9 +149,6 @@ function buildRoutingPrompt(
     "# Runtime input",
     `purpose: ${input.purpose}`,
     `employeeText: ${input.text ?? ""}`,
-    "",
-    "# Work policy",
-    policy,
     "",
     "# Profile",
     profile,
@@ -235,7 +218,7 @@ function filterRouterSelection(
   );
 }
 
-function renderManualContext(
+export function renderManualContext(
   manual: AgentManual,
   selectedProcessIds: AgentManualProcessId[],
 ) {

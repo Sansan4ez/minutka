@@ -45,6 +45,17 @@ const chatResponse = z.strictObject({
   selectedProcessIds: z.array(agentManualProcessId),
 });
 
+const submitFeedbackRequest = z.strictObject({
+  employeeId: z.string().min(1),
+  threadId: z.string().min(1),
+  text: z.string().min(1),
+});
+
+const submitFeedbackResponse = z.strictObject({
+  accepted: z.literal(true),
+  selectedProcessIds: z.array(agentManualProcessId),
+});
+
 const insightKind = z.enum([
   "task_category",
   "routine_pattern",
@@ -225,11 +236,18 @@ export class MinutkaClient {
     const result = await this.api.listInsights(validated);
     return validate(listInsightsResponse, result, "listInsights response");
   }
+
+  async submitFeedback(input: z.input<typeof submitFeedbackRequest>) {
+    const validated = validate(submitFeedbackRequest, input, "submitFeedback request");
+    const result = await this.api.submitFeedback(validated);
+    return validate(submitFeedbackResponse, result, "submitFeedback response");
+  }
 }
 
 export type OpenInviteResult = z.infer<typeof openInviteResponse>;
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponse>;
 export type ChatResult = z.infer<typeof chatResponse>;
 export type CompleteOnboardingResult = z.infer<typeof completeOnboardingResponse>;
+export type SubmitFeedbackResult = z.infer<typeof submitFeedbackResponse>;
 export type UserProfileResult = z.infer<typeof userProfile>;
 export type StructuredInsightResult = z.infer<typeof structuredInsight>;

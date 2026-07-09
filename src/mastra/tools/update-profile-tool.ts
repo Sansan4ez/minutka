@@ -4,7 +4,7 @@ import { z } from "zod";
 export const updateProfileTool = createTool({
   id: "update-profile-tool",
   description:
-    "Create or update a Minutka employee profile after explicit onboarding answers. Does not change privacy consent.",
+    "Report requested Minutka profile changes. Persistent profile updates are handled by the application onboarding flow, not by this runtime tool.",
   inputSchema: z.object({
     employeeId: z.string().min(1),
     role: z.string().min(1).optional(),
@@ -17,8 +17,8 @@ export const updateProfileTool = createTool({
     updated: z.boolean(),
     changedFields: z.array(z.string()),
   }),
-  execute: async (input) => ({
-    updated: true,
-    changedFields: Object.keys(input).filter((key) => key !== "employeeId"),
+  execute: async () => ({
+    updated: false,
+    changedFields: [],
   }),
 });

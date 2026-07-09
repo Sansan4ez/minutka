@@ -1,6 +1,6 @@
 import type { UserProfile } from "../domain/employee.js";
 import type { StructuredInsightDraft } from "../domain/insights.js";
-import type { WorkPolicyDecision } from "../domain/work-policy.js";
+import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { ConversationTurn } from "./conversation-memory-store.js";
 
 export type InsightExtractionInput = {
@@ -11,7 +11,7 @@ export type InsightExtractionInput = {
   response: string;
   profile?: UserProfile;
   recentTurns: ConversationTurn[];
-  policy: WorkPolicyDecision;
+  decision: ConversationDecision;
 };
 
 export type InsightExtractionResult = {

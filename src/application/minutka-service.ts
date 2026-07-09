@@ -16,12 +16,12 @@ import { createInMemoryConversationMemory } from "./in-memory-conversation-memor
 import { createInMemoryInsightStore } from "./in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "./in-memory-profile-store.js";
 import type {
+  AgentManual,
   AgentManualProcessId,
   AgentManualPurpose,
 } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
 import {
-  buildMinutkaContext,
   createMinutkaContextBuilder,
   type MinutkaContextBuilderLike,
 } from "./minutka-context-builder.js";
@@ -30,21 +30,20 @@ import type {
   ConversationMemoryStore,
   ConversationTurn,
 } from "./conversation-memory-store.js";
-import { createDeterministicInsightExtractor } from "./deterministic-insight-extractor.js";
 import type { InsightExtractor } from "./insight-extractor.js";
 import type { InsightStore } from "./insight-store.js";
 import type { ProfileStore } from "./profile-store.js";
 import {
-  buildWorkBoundaryResponse,
-  createDefaultWorkPolicy,
-  type WorkPolicy,
-} from "./work-policy.js";
+  buildBoundaryResponse,
+  sanitizeConversationDecision,
+  type ConversationDecisionRouter,
+} from "./conversation-decision-router.js";
 import type {
   InsightKind,
   StructuredInsight,
   StructuredInsightDraft,
 } from "../domain/insights.js";
-import type { WorkPolicyDecision } from "../domain/work-policy.js";
+import type { ConversationDecision } from "../domain/conversation-decision.js";
 
 export type ChatInput = {
   employeeId: string;
@@ -67,9 +66,9 @@ export type AgentMemoryContext = {
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
-  purpose: Exclude<AgentManualPurpose, "feedback">;
+  purpose: AgentManualPurpose;
   memory?: AgentMemoryContext;
-  policy?: WorkPolicyDecision;
+  decision?: ConversationDecision;
   selectedProcessIds?: AgentManualProcessId[];
 };
 
@@ -132,23 +131,35 @@ export type ListInsightsInput = {
   kind?: InsightKind;
 };
 
+export type SubmitFeedbackInput = {
+  employeeId: string;
+  threadId: string;
+  text: string;
+};
+
+export type SubmitFeedbackResult = {
+  accepted: true;
+  selectedProcessIds: AgentManualProcessId[];
+};
+
 export type MinutkaServiceDeps = {
   profileStore?: ProfileStore;
   conversationMemory?: ConversationMemoryStore;
   insightStore?: InsightStore;
   insightExtractor?: InsightExtractor;
-  workPolicy?: WorkPolicy;
   contextBuilder?: MinutkaContextBuilderLike;
   agentManualRouter?: AgentManualRouter;
+  conversationDecisionRouter?: ConversationDecisionRouter;
 };
 
 export class MinutkaService {
   private readonly profileStore: ProfileStore;
   private readonly conversationMemory: ConversationMemoryStore;
   private readonly insightStore: InsightStore;
-  private readonly insightExtractor: InsightExtractor;
-  private readonly workPolicy: WorkPolicy;
+  private readonly insightExtractor?: InsightExtractor;
   private readonly contextBuilder: MinutkaContextBuilderLike;
+  private readonly conversationDecisionRouter?: ConversationDecisionRouter;
+  private readonly manual: AgentManual;
 
   constructor(
     private readonly world: InMemoryWorld,
@@ -162,11 +173,11 @@ export class MinutkaService {
     this.conversationMemory =
       deps.conversationMemory ?? createInMemoryConversationMemory(world);
     this.insightStore = deps.insightStore ?? createInMemoryInsightStore(world);
-    this.insightExtractor =
-      deps.insightExtractor ?? createDeterministicInsightExtractor(world);
-    this.workPolicy = deps.workPolicy ?? createDefaultWorkPolicy();
+    this.insightExtractor = deps.insightExtractor;
+    this.manual = loadRequiredAgentManual(world);
+    this.conversationDecisionRouter = deps.conversationDecisionRouter;
     this.contextBuilder =
-      deps.contextBuilder ?? createDefaultContextBuilder(deps.agentManualRouter);
+      deps.contextBuilder ?? createDefaultContextBuilder(this.manual, deps.agentManualRouter);
   }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
@@ -365,24 +376,34 @@ export class MinutkaService {
       threadId: input.threadId,
       limit: 10,
     });
-    const policy = this.workPolicy.evaluate({ ...input, profile });
+    const decisionRouter = this.requireConversationDecisionRouter();
+    const decision = sanitizeConversationDecision(
+      await decisionRouter({
+        purpose: "chat",
+        text: input.text,
+        profile,
+        recentTurns,
+        manual: this.manual,
+      }),
+      this.manual,
+      "chat",
+    );
     const builtContext = await this.contextBuilder.build({
       purpose: "chat",
       text: input.text,
       profile,
-      policy,
       recentTurns,
+      selectedProcessIds: decision.selectedProcessIds,
     });
 
     let response: string;
-    if (!policy.allowedForAgent) {
-      response =
-        policy.refusalResponse ?? buildWorkBoundaryResponse(policy, profile);
+    if (decision.workDecision.mode === "boundary") {
+      response = buildBoundaryResponse(decision.workDecision, profile);
       this.world.events.push({
         type: "WorkBoundaryApplied",
         employeeId: input.employeeId,
         threadId: input.threadId,
-        reason: policy.reason,
+        reason: decision.workDecision.reason,
         selectedProcessIds: builtContext.selectedProcessIds,
         timestamp: this.world.now(),
       });
@@ -397,7 +418,7 @@ export class MinutkaService {
           threadId: input.threadId,
           recentTurns,
         },
-        policy,
+        decision,
       });
     }
 
@@ -419,8 +440,9 @@ export class MinutkaService {
     };
     this.world.messages.push(message);
 
-    if (policy.shouldExtractInsights) {
-      const extraction = await this.insightExtractor({
+    if (decision.insightDecision.candidate) {
+      const insightExtractor = this.requireInsightExtractor();
+      const extraction = await insightExtractor({
         employeeId: input.employeeId,
         threadId: input.threadId,
         messageId,
@@ -428,7 +450,7 @@ export class MinutkaService {
         response,
         profile,
         recentTurns,
-        policy,
+        decision,
       });
       const insights = this.assignInsightIdsAndTimestamps(extraction.insights);
       await this.insightStore.saveInsights(insights);
@@ -455,6 +477,23 @@ export class MinutkaService {
     return this.insightStore.listInsights(input);
   }
 
+  async submitFeedback(
+    input: SubmitFeedbackInput,
+  ): Promise<SubmitFeedbackResult> {
+    await this.requireParticipant(input.employeeId);
+    const profile = await this.profileStore.getProfile(input.employeeId);
+    const builtContext = await this.contextBuilder.build({
+      purpose: "feedback",
+      text: input.text,
+      profile,
+    });
+
+    return {
+      accepted: true,
+      selectedProcessIds: builtContext.selectedProcessIds,
+    };
+  }
+
   private nextEmployeeId() {
     this.world.counters.participant++;
     return `emp_${this.world.counters.participant}`;
@@ -477,6 +516,20 @@ export class MinutkaService {
     const participant = await this.profileStore.getParticipant(employeeId);
     if (!participant) throw new Error("participant not found");
     return participant;
+  }
+
+  private requireConversationDecisionRouter() {
+    if (!this.conversationDecisionRouter) {
+      throw new Error("conversationDecisionRouter is required for chat");
+    }
+    return this.conversationDecisionRouter;
+  }
+
+  private requireInsightExtractor() {
+    if (!this.insightExtractor) {
+      throw new Error("insightExtractor is required when decision enables insight extraction");
+    }
+    return this.insightExtractor;
   }
 
   private validateProfileInput(input: CompleteOnboardingInput) {
@@ -508,15 +561,23 @@ const trackedProfileFields = [
   "preferredCheckinsPerDay",
 ] as const;
 
-function createDefaultContextBuilder(agentManualRouter?: AgentManualRouter) {
+function createDefaultContextBuilder(
+  manual: AgentManual,
+  agentManualRouter?: AgentManualRouter,
+) {
+  return createMinutkaContextBuilder(manual, agentManualRouter);
+}
+
+function loadRequiredAgentManual(world: InMemoryWorld) {
   try {
-    return createMinutkaContextBuilder(loadAgentManualFromDisk(), agentManualRouter);
+    return loadAgentManualFromDisk();
   } catch (error) {
-    console.warn(
-      "Agent Manual is unavailable; falling back to profile-only Minutka context.",
-      error,
-    );
-    return { build: buildMinutkaContext };
+    world.events.push({
+      type: "AgentManualLoadFailed",
+      reason: error instanceof Error ? error.message : String(error),
+      timestamp: world.now(),
+    });
+    throw error;
   }
 }
 

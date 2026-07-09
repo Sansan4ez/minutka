@@ -11,24 +11,46 @@ function collect(value: string, previous: string[]) {
   return [...previous, value];
 }
 
+function parseChoice<const T extends readonly string[]>(
+  value: string,
+  choices: T,
+  label: string,
+): T[number] {
+  if (choices.includes(value)) return value;
+  throw new Error(`${label} must be one of: ${choices.join(", ")}`);
+}
+
 function parsePersona(value: string) {
-  return value as "support" | "efficiency";
+  return parseChoice(value, ["support", "efficiency"] as const, "persona");
 }
 
 function parseAiLevel(value: string) {
-  return value as "beginner" | "intermediate" | "advanced";
+  return parseChoice(
+    value,
+    ["beginner", "intermediate", "advanced"] as const,
+    "ai-level",
+  );
 }
 
 function parseResponseLength(value: string) {
-  return value as "short" | "balanced" | "detailed";
+  return parseChoice(
+    value,
+    ["short", "balanced", "detailed"] as const,
+    "response-length",
+  );
 }
 
 function parseInsightKind(value: string) {
-  return value as
-    | "task_category"
-    | "routine_pattern"
-    | "energy_stress_marker"
-    | "automation_candidate";
+  return parseChoice(
+    value,
+    [
+      "task_category",
+      "routine_pattern",
+      "energy_stress_marker",
+      "automation_candidate",
+    ] as const,
+    "kind",
+  );
 }
 
 export async function runMinutkaCli(
@@ -160,6 +182,23 @@ export async function runMinutkaCli(
             employeeId: options.employee,
             threadId: options.thread,
             kind: options.kind,
+          });
+          stdout.push(JSON.stringify(result));
+        },
+      ),
+  );
+
+  employee.addCommand(
+    new Command("feedback")
+      .requiredOption("--employee <employeeId>")
+      .option("--thread <threadId>", "Thread ID (defaults to employeeId)")
+      .requiredOption("--text <text>")
+      .action(
+        async (options: { employee: string; thread?: string; text: string }) => {
+          const result = await client.submitFeedback({
+            employeeId: options.employee,
+            threadId: options.thread ?? options.employee,
+            text: options.text,
           });
           stdout.push(JSON.stringify(result));
         },
