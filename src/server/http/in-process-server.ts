@@ -1,5 +1,6 @@
 import type { InMemoryWorld } from "../../application/in-memory-world.js";
 import { createInMemoryProfileStore } from "../../application/in-memory-profile-store.js";
+import { createMastraMinutkaServiceDeps } from "../../mastra/runtime-deps.js";
 import {
   MinutkaService,
   type AcceptConsentInput,
@@ -18,9 +19,17 @@ export type MinutkaApi = ReturnType<typeof createInProcessServer>;
 export function createInProcessServer(
   world: InMemoryWorld,
   agentRunner: AgentRunner,
-  depsOrProfileStore: MinutkaServiceDeps | ProfileStore = createInMemoryProfileStore(world),
+  depsOrProfileStore?: MinutkaServiceDeps | ProfileStore,
 ) {
-  const service = new MinutkaService(world, agentRunner, depsOrProfileStore);
+  const defaultDeps = createMastraMinutkaServiceDeps({
+    profileStore: createInMemoryProfileStore(world),
+  });
+  const deps = depsOrProfileStore
+    ? isProfileStore(depsOrProfileStore)
+      ? { ...defaultDeps, profileStore: depsOrProfileStore }
+      : { ...defaultDeps, ...depsOrProfileStore }
+    : defaultDeps;
+  const service = new MinutkaService(world, agentRunner, deps);
 
   return {
     chat(input: ChatInput) {
@@ -45,4 +54,11 @@ export function createInProcessServer(
       return service.submitFeedback(input);
     },
   };
+}
+
+function isProfileStore(value: MinutkaServiceDeps | ProfileStore): value is ProfileStore {
+  return (
+    typeof (value as ProfileStore).getProfile === "function" &&
+    typeof (value as ProfileStore).saveProfile === "function"
+  );
 }
