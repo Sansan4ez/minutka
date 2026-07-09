@@ -5,6 +5,7 @@
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 > **Подробный план Phase 3.5:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
+> **Подробный план Phase 4:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
 
@@ -258,7 +259,7 @@ Persona меняет тон, но не отменяет ограничений. 
 |---|---:|---|
 | `updateProfileTool` | Phase 2 | Создать/обновить профиль: роль, задачи, persona, AI level, предпочтения. |
 | `extractInsightsTool` | Phase 3 | Извлечь структурированные сигналы: категории задач, рутина, энергия/стресс, automation candidates. |
-| `recordFeedbackTool` или application use case | Phase 4 | Сохранить 👍/👌/👎 по ответу агента. Решение: tool или service зависит от реализации Telegram flow. |
+| `recordFeedbackTool` или application use case | Phase 4 | Сохранить structured 👍/👌/👎 по конкретному ответу агента через typed application use case; Telegram shell только передаёт rating/targetMessageId, без transport metadata в domain. |
 | `/bin`-style tool boundary | Phase 3.5+ | Документировать разрешённые операции агента как стабильные ручки: profile update, insight extraction, feedback, aggregation. Реализация остаётся typed TS use cases/tools. |
 
 Важно: executable specs не должны зависеть от реального LLM. Для проверки tool-побочных эффектов использовать mock-agent/mock-tool runner, а Mastra smoke проверять отдельно.
@@ -335,11 +336,14 @@ Persona меняет тон, но не отменяет ограничений. 
 - **When** `MinutkaService.chat()` вызывает injected conversation decision router.
 - **Then** onboarding выбирает `onboarding` + `consent_and_privacy`, вечерняя рефлексия выбирает `evening_reflection` + `insight_extraction`, просьба написать рабочий материал выбирает `workday_guardrails`, а application layer только валидирует и исполняет решение.
 
-### `SPEC-FEEDBACK-001` — обратная связь по ответу
+### `SPEC-FEEDBACK-001` — Telegram feedback по ответу
 
-- **Given** агент дал ответ на сообщение сотрудника.
-- **When** сотрудник нажимает 👍/👌/👎.
-- **Then** оценка сохраняется и привязывается к ответу, сотруднику, thread и timestamp.
+- **Given** сотрудник прошёл onboarding/profile и связан с Telegram chat через `/start <inviteCode>`.
+- **When** он отправляет текст в Telegram и получает ответ агента с кнопками 👍/👌/👎.
+- **And** сотрудник нажимает одну из feedback-кнопок.
+- **Then** Telegram shell через SDK/Application сохраняет structured feedback с `feedbackId`, `employeeId`, `threadId`, `targetMessageId`, `rating`, `source = telegram` и timestamp.
+- **And** `FeedbackReceived` audit event не содержит Telegram `chatId`, `userId`, callback id или transport metadata.
+- **And** spec проходит через in-process Telegram adapter/mock update driver без реального Telegram token/API.
 
 ### `SPEC-VOICE-001` — голосовое сообщение как эквивалент текста
 
@@ -470,6 +474,7 @@ Definition of Done:
 
 ### Phase 4 — Telegram shell: текстовый MVP и feedback
 
+**Подробный план:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
 **Цель:** рабочий Telegram-бот с текстовым вводом, `/start`, onboarding entrypoint и feedback buttons.
 
 Минимальный scope:

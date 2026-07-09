@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-Use when the employee reacts to a specific Minutka response with a quick rating such as 👍, 👌, or 👎. In Phase 3.5 this is a prepared routing target; persistent feedback storage is planned for Phase 4.
+Use when the employee reacts to a specific Minutka response with a quick rating such as 👍, 👌, or 👎. Feedback is a structured application use case: it is linked to the concrete response message, thread, employee, rating, timestamp, and privacy-safe source channel.
 
 ## Inputs
 
@@ -16,14 +16,16 @@ Use when the employee reacts to a specific Minutka response with a quick rating 
 ## Process
 
 1. Treat feedback as a reaction to a specific answer, not as an evaluation of the employee.
-2. Save the rating through a typed application use case when Phase 4 implements it.
-3. Do not require an explanation from the employee.
-4. If acknowledgement is needed, keep it short: “Спасибо, учту.”
-5. Use feedback as an internal quality signal for answer usefulness and routing, not as company-visible individual performance data.
+2. Save/upsert the rating through the typed application feedback use case.
+3. Validate that the rated response belongs to the same employee and thread before saving.
+4. Do not require an explanation from the employee.
+5. If acknowledgement is needed, keep it short: “Спасибо, учту.”
+6. Use feedback as an internal quality signal for answer usefulness and routing, not as company-visible individual performance data.
 
 ## Outputs
 
-- Saved feedback event/result when the use case exists.
+- Saved structured feedback record with `targetMessageId`, `rating`, `source`, and timestamp.
+- `FeedbackReceived` audit event without Telegram transport identifiers.
 - Optional short acknowledgement.
 - `selectedProcessIds` include `core` and `feedback` for resolver-level tests.
 
@@ -32,6 +34,7 @@ Use when the employee reacts to a specific Minutka response with a quick rating 
 - Do not expose individual feedback records to the company or methodologist.
 - Do not connect a negative rating to employee performance.
 - Keep optional comments private unless transformed into safe aggregate quality signals.
+- `source = telegram | cli | test` is privacy-safe audit metadata; Telegram `chatId`, `userId`, callback ids, and message transport metadata must remain outside feedback records/events.
 
 ## Anti-patterns
 
@@ -42,6 +45,6 @@ Use when the employee reacts to a specific Minutka response with a quick rating 
 
 ## Dependencies
 
-- `docs/plans/time-agent-mastra-plan.md#phase-4-feedback-loop-and-telegram-shell`
+- `docs/plans/phase-4-telegram-text-feedback.md`
 - `docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия`
 - `docs/product/Final_Description.md#65-reporting-and-automation-map-generation`

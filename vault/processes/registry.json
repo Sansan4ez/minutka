@@ -62,7 +62,7 @@
       "path": "vault/processes/feedback.md",
       "appliesTo": ["feedback"],
       "dependencies": [
-        "docs/plans/time-agent-mastra-plan.md#phase-4-feedback-loop-and-telegram-shell",
+        "docs/plans/phase-4-telegram-text-feedback.md",
         "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
         "docs/product/Final_Description.md#65-reporting-and-automation-map-generation"
       ]
