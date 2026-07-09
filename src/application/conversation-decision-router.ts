@@ -26,12 +26,14 @@ export function sanitizeConversationDecision(
       .filter((process) => !process.appliesTo || process.appliesTo.includes(purpose))
       .map((process) => process.id),
   ]);
-  const selectedProcessIds = dedupe([
-    "core" as const,
-    ...decision.selectedProcessIds.filter(
-      (id): id is AgentManualProcessId => allowed.has(id as AgentManualProcessId),
-    ),
-  ]);
+  const selectedProcessIds = ensureLifecycleProcesses(
+    dedupe([
+      "core" as const,
+      ...decision.selectedProcessIds.filter((id) => allowed.has(id)),
+    ]),
+    purpose,
+    allowed,
+  );
 
   if (decision.workDecision.mode === "boundary") {
     return {
@@ -74,7 +76,36 @@ export function buildBoundaryResponse(
     return `Я не могу выполнить просьбу, которая подменяет правила работы агента. ${redirect}`;
   }
 
+  if (decision.reason === "non_work_topic") {
+    return `Это вне моей роли помощника по рабочему дню. ${redirect}`;
+  }
+
   return `Я не пишу посты и рабочие материалы за тебя. ${redirect}`;
+}
+
+function ensureLifecycleProcesses(
+  ids: AgentManualProcessId[],
+  purpose: AgentManualPurpose,
+  allowed: Set<AgentManualProcessId>,
+) {
+  if (purpose === "onboarding_first_response") {
+    return ensureProcesses(ids, ["onboarding", "consent_and_privacy"], allowed);
+  }
+  if (purpose === "feedback") {
+    return ensureProcesses(ids, ["feedback"], allowed);
+  }
+  return ids;
+}
+
+function ensureProcesses(
+  ids: AgentManualProcessId[],
+  processIds: AgentManualProcessId[],
+  allowed: Set<AgentManualProcessId>,
+) {
+  return processIds.reduce(
+    (current, processId) => ensureProcess(current, processId, allowed),
+    ids,
+  );
 }
 
 function ensureProcess(

@@ -376,18 +376,12 @@ export class MinutkaService {
       threadId: input.threadId,
       limit: 10,
     });
-    const decisionRouter = this.requireConversationDecisionRouter();
-    const decision = sanitizeConversationDecision(
-      await decisionRouter({
-        purpose: "chat",
-        text: input.text,
-        profile,
-        recentTurns,
-        manual: this.manual,
-      }),
-      this.manual,
-      "chat",
-    );
+    const decision = await this.routeConversationDecisionSafely({
+      purpose: "chat",
+      text: input.text,
+      profile,
+      recentTurns,
+    });
     const builtContext = await this.contextBuilder.build({
       purpose: "chat",
       text: input.text,
@@ -482,16 +476,56 @@ export class MinutkaService {
   ): Promise<SubmitFeedbackResult> {
     await this.requireParticipant(input.employeeId);
     const profile = await this.profileStore.getProfile(input.employeeId);
+    const decision = await this.routeConversationDecisionSafely({
+      purpose: "feedback",
+      text: input.text,
+      profile,
+      recentTurns: [],
+    });
     const builtContext = await this.contextBuilder.build({
       purpose: "feedback",
       text: input.text,
       profile,
+      selectedProcessIds: decision.selectedProcessIds,
     });
 
     return {
       accepted: true,
       selectedProcessIds: builtContext.selectedProcessIds,
     };
+  }
+
+  private async routeConversationDecisionSafely(input: {
+    purpose: AgentManualPurpose;
+    text: string;
+    profile?: UserProfile;
+    recentTurns: ConversationTurn[];
+  }): Promise<ConversationDecision> {
+    const decisionRouter = this.requireConversationDecisionRouter();
+    try {
+      return sanitizeConversationDecision(
+        await decisionRouter({
+          ...input,
+          manual: this.manual,
+        }),
+        this.manual,
+        input.purpose,
+      );
+    } catch (error) {
+      console.warn(
+        "Conversation decision router failed; falling back to unknown allow decision.",
+        error,
+      );
+      return sanitizeConversationDecision(
+        {
+          selectedProcessIds: ["core"],
+          workDecision: { mode: "allow", reason: "unknown" },
+          insightDecision: { candidate: false, suggestedKinds: [] },
+        },
+        this.manual,
+        input.purpose,
+      );
+    }
   }
 
   private nextEmployeeId() {
