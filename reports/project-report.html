@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Agent — Интерактивный отчёт о проекте «Минутка»</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232736;
+    --border: #2e3348;
+    --text: #e2e4ed;
+    --text2: #9ca0b8;
+    --accent: #6c7aff;
+    --accent2: #8b5cf6;
+    --green: #34d399;
+    --green-bg: rgba(52, 211, 153, .12);
+    --yellow: #fbbf24;
+    --yellow-bg: rgba(251, 191, 36, .10);
+    --red: #f87171;
+    --red-bg: rgba(248, 113, 113, .10);
+    --cyan: #22d3ee;
+    --pink: #f472b6;
+    --gradient: linear-gradient(135deg, #6c7aff 0%, #8b5cf6 50%, #f472b6 100%);
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,.35);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ========== HEADER ========== */
+  .hero {
+    background: linear-gradient(160deg, #151827 0%, #1e1446 50%, #0f1117 100%);
+    padding: 60px 32px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(108,122,255,.15) 0%, transparent 70%);
+    top: -200px; left: 50%; transform: translateX(-50%);
+  }
+  .hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    background: var(--gradient);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .hero .subtitle {
+    font-size: 1.15rem;
+    color: var(--text2);
+    max-width: 700px;
+    margin: 0 auto 28px;
+    position: relative;
+  }
+  .hero-stats {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .hero-stat {
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 28px;
+    min-width: 140px;
+    backdrop-filter: blur(8px);
+    transition: transform .2s, border-color .2s;
+  }
+  .hero-stat:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .hero-stat .num {
+    font-size: 2rem; font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-stat .label { font-size: .82rem; color: var(--text2); margin-top: 2px; }
+
+  /* ========== NAV TABS ========== */
+  .nav-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15,17,23,.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-bar::-webkit-scrollbar { display: none; }
+  .nav-tab {
+    padding: 14px 20px;
+    font-size: .88rem;
+    color: var(--text2);
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color .2s, border-color .2s;
+    user-select: none;
+    background: none; border-top: none; border-left: none; border-right: none;
+    font-family: inherit;
+  }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  /* ========== SEARCH ========== */
+  .search-bar {
+    max-width: 1200px; margin: 24px auto 0; padding: 0 24px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 14px 20px 14px 48px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: .95rem;
+    outline: none;
+    transition: border-color .2s;
+    font-family: inherit;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-wrap { position: relative; }
+  .search-icon {
+    position: absolute;
+    left: 16px; top: 50%; transform: translateY(-50%);
+    color: var(--text2);
+    pointer-events: none;
+  }
+
+  /* ========== CONTAINER ========== */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 28px 24px 64px;
+  }
+
+  /* ========== SECTIONS ========== */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .section-title {
+    font-size: 1.6rem; font-weight: 700; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section-title .icon { font-size: 1.4rem; }
+
+  /* ========== CARDS ========== */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+    transition: border-color .25s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card h3 {
+    font-size: 1.15rem; font-weight: 600; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card p, .card li { color: var(--text2); font-size: .93rem; line-height: 1.7; }
+  .card ul { padding-left: 20px; }
+  .card li { margin-bottom: 4px; }
+
+  /* ========== TAGS ========== */
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .tag {
+    background: rgba(108,122,255,.12);
+    color: var(--accent);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: .78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .2s;
+    border: none; font-family: inherit;
+  }
+  .tag:hover { background: rgba(108,122,255,.25); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.yellow { background: var(--yellow-bg); color: var(--yellow); }
+  .tag.pink { background: rgba(244,114,182,.12); color: var(--pink); }
+  .tag.cyan { background: rgba(34,211,238,.12); color: var(--cyan); }
+  .tag.purple { background: rgba(139,92,246,.14); color: var(--accent2); }
+
+  /* ========== TOGGLE SWITCH ========== */
+  .toggle-group {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .toggle-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text2);
+    cursor: pointer;
+    font-size: .85rem;
+    transition: all .2s;
+    font-family: inherit;
+  }
+  .toggle-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  /* ========== ACCORDION ========== */
+  .accordion-item { margin-bottom: 8px; }
+  .accordion-header {
+    width: 100%;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: .95rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background .2s, border-color .2s;
+    font-family: inherit;
+    text-align: left;
+  }
+  .accordion-header:hover { border-color: var(--accent); }
+  .accordion-header .arrow {
+    transition: transform .25s;
+    font-size: .8rem;
+    color: var(--text2);
+  }
+  .accordion-header.open .arrow { transform: rotate(180deg); }
+  .accordion-body {
+    max-height: 0; overflow: hidden;
+    transition: max-height .35s ease-out;
+    padding: 0 20px;
+    background: var(--surface2);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .accordion-body.open {
+    max-height: 2000px;
+    padding: 16px 20px;
+    border: 1px solid var(--border); border-top: none;
+  }
+  .accordion-body p, .accordion-body li { color: var(--text2); font-size: .9rem; }
+
+  /* ========== TABLE ========== */
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: .88rem;
+  }
+  th, td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--text2); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .5px; }
+  td { color: var(--text); }
+  tr:hover td { background: rgba(108,122,255,.04); }
+
+  /* ========== CODE BLOCKS ========== */
+  .code-block {
+    background: #0d0f16;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: .84rem;
+    color: #c8cce0;
+    overflow-x: auto;
+    margin: 12px 0;
+    position: relative;
+    white-space: pre;
+    line-height: 1.6;
+  }
+  .code-block .copy-btn {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text2);
+    padding: 4px 10px;
+    font-size: .75rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .2s;
+    font-family: inherit;
+  }
+  .code-block:hover .copy-btn { opacity: 1; }
+  .code-block .copy-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .kw { color: #c792ea; }
+  .str { color: #c3e88d; }
+  .cm { color: #546e7a; }
+  .fn { color: #82aaff; }
+  .num { color: #f78c6c; }
+  .tp { color: #ffcb6b; }
+
+  /* ========== CHECKLIST ========== */
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: background .15s;
+    cursor: pointer;
+    color: var(--text);
+    font-size: .92rem;
+    user-select: none;
+  }
+  .checklist li:hover { background: rgba(255,255,255,.04); }
+  .checklist input[type="checkbox"] {
+    width: 18px; height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .checklist li.checked { color: var(--text2); text-decoration: line-through; }
+
+  /* ========== PROGRESS BAR ========== */
+  .progress-bar-wrap { margin: 16px 0; }
+  .progress-label {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: .85rem; margin-bottom: 6px;
+  }
+  .progress-label .name { color: var(--text); font-weight: 500; }
+  .progress-label .pct { color: var(--accent); font-weight: 700; }
+  .progress-track {
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width .6s ease-out;
+  }
+  .progress-fill.blue { background: var(--gradient); }
+  .progress-fill.green { background: var(--green); }
+
+  /* ========== GRID ========== */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .hero-stats { gap: 12px; }
+    .hero-stat { min-width: 100px; padding: 12px 16px; }
+  }
+
+  /* ========== PROCESS FLOW ========== */
+  .flow {
+    display: flex; align-items: center; gap: 0;
+    overflow-x: auto; padding: 20px 0;
+    scrollbar-width: thin;
+  }
+  .flow-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    min-width: 160px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: border-color .2s, transform .2s;
+    cursor: default;
+  }
+  .flow-step:hover { border-color: var(--accent); transform: translateY(-3px); }
+  .flow-step .step-icon { font-size: 1.8rem; margin-bottom: 6px; }
+  .flow-step .step-title { font-size: .88rem; font-weight: 600; }
+  .flow-step .step-sub { font-size: .78rem; color: var(--text2); margin-top: 4px; }
+  .flow-arrow {
+    color: var(--accent);
+    font-size: 1.6rem;
+    flex-shrink: 0;
+    padding: 0 4px;
+  }
+
+  /* ========== TIMELINE ========== */
+  .timeline { position: relative; padding-left: 32px; }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 12px; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .timeline-item { position: relative; margin-bottom: 24px; }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -24px; top: 6px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--bg);
+  }
+  .timeline-item.done::before { background: var(--green); border-color: var(--green); }
+  .timeline-item.current::before { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .timeline-item h4 { font-size: .95rem; font-weight: 600; }
+  .timeline-item p { font-size: .85rem; color: var(--text2); margin-top: 4px; }
+  .timeline-item .phase-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: .72rem;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .phase-done { background: var(--green-bg); color: var(--green); }
+  .phase-next { background: var(--yellow-bg); color: var(--yellow); }
+  .phase-future { background: rgba(255,255,255,.06); color: var(--text2); }
+
+  /* ========== DONUT CHART ========== */
+  .chart-container {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 20px 0;
+  }
+  .donut-chart { position: relative; width: 200px; height: 200px; }
+  .donut-chart svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .donut-chart circle {
+    fill: none;
+    stroke-width: 28;
+    stroke-linecap: round;
+    transition: stroke-dashoffset .8s ease;
+  }
+  .donut-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .donut-center .big { font-size: 1.8rem; font-weight: 800; color: var(--green); }
+  .donut-center .small { font-size: .75rem; color: var(--text2); }
+  .chart-legend { list-style: none; }
+  .chart-legend li {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+    font-size: .88rem;
+    color: var(--text);
+  }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* ========== BAR CHART ========== */
+  .bar-chart { padding: 10px 0; }
+  .bar-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  }
+  .bar-label { width: 130px; font-size: .84rem; color: var(--text2); text-align: right; flex-shrink: 0; }
+  .bar-track {
+    flex: 1; height: 24px;
+    background: var(--surface2);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width .8s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: #fff;
+    min-width: fit-content;
+  }
+
+  /* ========== NOTIFICATION PILL ========== */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: .82rem;
+    font-weight: 500;
+  }
+  .pill.success { background: var(--green-bg); color: var(--green); }
+  .pill.warning { background: var(--yellow-bg); color: var(--yellow); }
+  .pill.info { background: rgba(34,211,238,.12); color: var(--cyan); }
+
+  /* ========== MODAL / TOOLTIP ========== */
+  .tooltip-trigger { position: relative; cursor: help; border-bottom: 1px dashed var(--text2); }
+  .tooltip-trigger:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 130%; left: 50%; transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: .8rem;
+    color: var(--text);
+    white-space: nowrap;
+    z-index: 10;
+    box-shadow: var(--shadow);
+  }
+
+  .footer {
+    text-align: center;
+    padding: 32px;
+    color: var(--text2);
+    font-size: .82rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* animations */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  .section.active .card, .section.active .timeline-item, .section.active .accordion-item {
+    animation: fadeIn .4s ease both;
+  }
+  .section.active .card:nth-child(2) { animation-delay: .05s; }
+  .section.active .card:nth-child(3) { animation-delay: .1s; }
+  .section.active .card:nth-child(4) { animation-delay: .15s; }
+
+  /* custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* filter highlight */
+  .highlight { background: rgba(108,122,255,.2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ===== HERO ===== -->
+<header class="hero">
+  <h1>⏱ Минутка — Time Agent</h1>
+  <p class="subtitle">AI-партнёр для осмысленного рабочего дня сотрудника.<br>Слушает, отражает, замечает закономерности, помогает работать эффективнее.</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="num">36</div><div class="label">TypeScript файлов</div></div>
+    <div class="hero-stat"><div class="num">28</div><div class="label">тестов пройдено</div></div>
+    <div class="hero-stat"><div class="num">6</div><div class="label">бизнес-процессов</div></div>
+    <div class="hero-stat"><div class="num">4/8</div><div class="label">фаз завершено</div></div>
+    <div class="hero-stat"><div class="num">0</div><div class="label">ошибок в тестах</div></div>
+  </div>
+</header>
+
+<!-- ===== NAVIGATION ===== -->
+<nav class="nav-bar" id="navBar">
+  <button class="nav-tab active" data-tab="overview">🏠 Обзор</button>
+  <button class="nav-tab" data-tab="architecture">🏗 Архитектура</button>
+  <button class="nav-tab" data-tab="processes">⚙️ Процессы</button>
+  <button class="nav-tab" data-tab="roadmap">🗺 Roadmap</button>
+  <button class="nav-tab" data-tab="tests">✅ Тесты</button>
+  <button class="nav-tab" data-tab="codebase">📁 Код</button>
+  <button class="nav-tab" data-tab="privacy">🔒 Приватность</button>
+  <button class="nav-tab" data-tab="commands">💻 Команды</button>
+</nav>
+
+<!-- ===== SEARCH ===== -->
+<div class="search-bar">
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchInput" placeholder="Поиск по отчёту… (например: приватность, Mastra, онбординг, persona)">
+  </div>
+</div>
+
+<div class="container" id="content">
+
+<!-- ============================================================ -->
+<!-- SECTION: OVERVIEW -->
+<!-- ============================================================ -->
+<div class="section active" id="sec-overview">
+  <h2 class="section-title"><span class="icon">🏠</span> Обзор проекта</h2>
+
+  <div class="card">
+    <h3>📋 Что такое «Минутка»?</h3>
+    <p><strong>«Минутка»</strong> — AI-партнёр для сотрудников в рамках корпоративной программы обучения AI от команды «Алгоритм». В течение двухнедельного цикла сотрудник общается с Минуткой через <strong>Telegram</strong>: планирует день утром, при желании сверяется днём, рефлексирует вечером — и получает персонализированную обратную связь о паттернах работы, энергии и фокусе.</p>
+    <div class="tags">
+      <span class="tag">B2B</span>
+      <span class="tag green">Telegram Bot</span>
+      <span class="tag purple">AI Agent</span>
+      <span class="tag cyan">Mastra Framework</span>
+      <span class="tag pink">TypeScript</span>
+      <span class="tag yellow">Privacy-First</span>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>👤 Для сотрудника</h3>
+      <ul>
+        <li>Заботливый AI-дневник рабочего дня</li>
+        <li>Утреннее планирование и вечерний разбор</li>
+        <li>Обнаружение паттернов: рутина, стресс, энергия</li>
+        <li>Персональный отчёт за 2 недели</li>
+        <li>Выбор персоны общения: «Поддержка» или «Эффективность»</li>
+        <li>Полный контроль над своими данными</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🏢 Для компании</h3>
+      <ul>
+        <li>Обезличенная карта автоматизации</li>
+        <li>Топ повторяющихся задач — кандидаты на автоматизацию</li>
+        <li>Распределение времени по категориям</li>
+        <li>Сигналы стресса и нагрузки (агрегированно)</li>
+        <li>Рекомендации: 30 / 60 / 90 дней</li>
+        <li>Без доступа к личным данным и диалогам</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎯 Три гипотезы MVP</h3>
+    <div style="margin-top:12px">
+      <div class="progress-bar-wrap">
+        <div class="progress-label"><span class="name">1. AI удерживает рабочий контекст и даёт полезную обратную связь</span><span class="pct pill info">Проверяется</span></div>
+        <div class="progress-track"><div class="progress-fill blue" style="width:65%"></div></div>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-label"><span class="name">2. Персоны влияют на вовлечённость</span><span class="pct pill info">Проверяется</span></div>
+        <div class="progress-track"><div class="progress-fill blue" style="width:50%"></div></div>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-label"><span class="name">3. Из рефлексий извлекаются зоны рутины privacy-safe</span><span class="pct pill info">Проверяется</span></div>
+        <div class="progress-track"><div class="progress-fill blue" style="width:60%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📞 Двухнедельный цикл — ежедневные касания</h3>
+    <div class="flow">
+      <div class="flow-step"><div class="step-icon">🌅</div><div class="step-title">Утро</div><div class="step-sub">Планирование дня</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">☀️</div><div class="step-title">День</div><div class="step-sub">Опц. сверка</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">🌙</div><div class="step-title">Вечер</div><div class="step-sub">Голосовая рефлексия</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">🧠</div><div class="step-title">AI-обработка</div><div class="step-sub">Парсинг + паттерны</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">💬</div><div class="step-title">Ответ</div><div class="step-sub">Отражение + совет</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">📊</div><div class="step-title">Инсайты</div><div class="step-sub">Обезличенные сигналы</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: ARCHITECTURE -->
+<!-- ============================================================ -->
+<div class="section" id="sec-architecture">
+  <h2 class="section-title"><span class="icon">🏗</span> Архитектура</h2>
+
+  <div class="card">
+    <h3>🧱 Слои приложения</h3>
+    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="cm">// Layered architecture</span>
+
+<span class="tp">Domain</span> → <span class="tp">Application</span> → <span class="tp">Server</span> → <span class="tp">SDK</span> → <span class="tp">CLI</span> / <span class="tp">Telegram</span>
+                ↓
+         <span class="tp">Mastra runtime bridge</span>
+</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Слой</th><th>Ответственность</th></tr></thead>
+        <tbody>
+          <tr><td><strong>domain</strong></td><td>Типы домена, события, privacy-safe идентификаторы</td></tr>
+          <tr><td><strong>application</strong></td><td>Use cases и бизнес-логика: chat, onboarding, feedback, insights</td></tr>
+          <tr><td><strong>server/http</strong></td><td>API-surface; сначала in-process, позже можно заменить транспорт</td></tr>
+          <tr><td><strong>client/sdk</strong></td><td>Типизированный клиент + Zod validation</td></tr>
+          <tr><td><strong>client/cli</strong></td><td>Поверхность для executable specs и отладки</td></tr>
+          <tr><td><strong>mastra</strong></td><td>Agent, tools, memory/storage, runtime bridge</td></tr>
+          <tr><td><strong>docs/agent-manual</strong></td><td>Git-версионируемый источник бизнес-процессов агента</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🖥 Виртуальное пространство агента (Unix-like namespace)</h3>
+    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="str">/AGENTS.md</span>  → core rules + selected process files
+<span class="str">/docs</span>       → product docs, plans, policy docs, specs
+<span class="str">/proc</span>       → sanitized state: profile, consent, thread context, insights
+<span class="str">/bin</span>        → typed application use cases and tools
+</div>
+    <p style="margin-top:10px; color:var(--text2); font-size:.88rem">Логическое пространство, а не реальные директории. В MVP реализовано через <code>MinutkaContextBuilder</code>, Application services и CLI.</p>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>📦 Product Parts</h3>
+      <ul class="checklist" id="partsList">
+        <li><input type="checkbox" checked disabled> <span><strong>Telegram Bot Shell</strong> — вход для сотрудника</span></li>
+        <li><input type="checkbox" checked disabled> <span><strong>AI Agent Backend Runtime</strong> — ядро AI-диалога</span></li>
+        <li><input type="checkbox" disabled> <span><strong>Methodologist Web Panel</strong> — панель оператора</span></li>
+        <li><input type="checkbox" checked disabled> <span><strong>Data Storage & Privacy Layer</strong> — хранение и приватность</span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🔧 Технологический стек</h3>
+      <div class="tags" style="margin-top:4px">
+        <span class="tag pink">TypeScript 5.9</span>
+        <span class="tag cyan">Node.js 22</span>
+        <span class="tag purple">Mastra Framework</span>
+        <span class="tag">ESM Modules</span>
+        <span class="tag green">Vitest</span>
+        <span class="tag yellow">Zod 4</span>
+        <span class="tag">Commander</span>
+        <span class="tag pink">Nix Flake</span>
+        <span class="tag cyan">openai/gpt-5.4-mini</span>
+        <span class="tag">LibSQL</span>
+      </div>
+      <div style="margin-top:16px; font-size:.88rem; color:var(--text2)">
+        <p>📐 <strong>Strict mode:</strong> TypeScript strict + ESM + ES2022</p>
+        <p>🧪 <strong>Тестирование:</strong> Vitest с executable specs, без unit/integration split</p>
+        <p>🔄 <strong>CI:</strong> <code>nix run .#verify</code> = typecheck + specs</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🤖 Mastra-примитивы</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Примитив</th><th>Реализация</th><th>Назначение</th></tr></thead>
+        <tbody>
+          <tr><td><strong>MinutkaAgent</strong></td><td>Один shared агент</td><td>AI-диалог с динамическим контекстом и process-файлами</td></tr>
+          <tr><td><strong>updateProfileTool</strong></td><td>Phase 2 ✅</td><td>Создание/обновление профиля: роль, задачи, persona</td></tr>
+          <tr><td><strong>extractInsightsTool</strong></td><td>Phase 3 ✅</td><td>Извлечение сигналов: рутина, стресс, automation candidates</td></tr>
+          <tr><td><strong>AgentRunner</strong></td><td>Runtime bridge</td><td>Mock-runner для specs без LLM/API</td></tr>
+          <tr><td><strong>ConversationMemory</strong></td><td>@mastra/memory</td><td>resourceId + threadId для контекста</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: PROCESSES -->
+<!-- ============================================================ -->
+<div class="section" id="sec-processes">
+  <h2 class="section-title"><span class="icon">⚙️</span> Бизнес-процессы агента (Agent Manual)</h2>
+
+  <div class="card">
+    <h3>📖 Концепция Agent Manual</h3>
+    <p>Поведение <code>MinutkaAgent</code> управляется не одним гигантским system prompt, а набором <strong>атомарных бизнес-процессов</strong> в Markdown под git. Каждый процесс — procedural playbook с чёткими секциями: когда применяется, входы, шаги, выходы, privacy-ноты и anti-patterns.</p>
+    <p style="margin-top:8px">Маршрутизация: <strong>SO-CoT Constrained Decision Router</strong> выбирает процессы по смыслу, а не по ключевым словам.</p>
+  </div>
+
+  <div class="toggle-group" id="processFilter">
+    <button class="toggle-btn active" data-filter="all">Все</button>
+    <button class="toggle-btn" data-filter="mutating">Мутирующие</button>
+    <button class="toggle-btn" data-filter="readonly">Только чтение</button>
+  </div>
+
+  <div id="processCards">
+    <div class="accordion-item" data-mutating="false">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>🚀 <strong>onboarding</strong> — Первый ответ после создания профиля</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Первый ответ после завершения профиля и принятия consent.</p>
+        <p><strong>Что делает:</strong> Подтверждает получение профиля, объясняет роль Минутки, приглашает к первому действию. Применяет выбранную персону.</p>
+        <p><strong>Anti-patterns:</strong> длинные курсы по AI, давление на участие, оценка продуктивности.</p>
+        <div class="tags"><span class="tag green">readonly</span><span class="tag">Phase 3.5</span></div>
+      </div>
+    </div>
+    <div class="accordion-item" data-mutating="false">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>🔐 <strong>consent_and_privacy</strong> — Приватность и согласие</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Вопросы о приватности, данных компании, методологе, удалении данных.</p>
+        <p><strong>Что делает:</strong> Отвечает на вопросы о видимости данных. Отделён от guardrails и insight extraction.</p>
+        <p><strong>Anti-patterns:</strong> смешивание privacy-ответа с рабочей рефлексией.</p>
+        <div class="tags"><span class="tag green">readonly</span><span class="tag">Phase 3.5</span></div>
+      </div>
+    </div>
+    <div class="accordion-item" data-mutating="false">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>🌙 <strong>evening_reflection</strong> — Вечерняя рефлексия</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Разбор дня: итоги, блокеры, встречи/звонки, усталость, сравнение с утренним планом.</p>
+        <p><strong>Что делает:</strong> Ищет утренний план в контексте. Отражает факты без оценки. Называет 1–2 паттерна: перегруз звонками, context switching, blocked progress. Предлагает один шаг на завтра.</p>
+        <p><strong>Anti-patterns:</strong> «Ты не выполнил план», «Твоя продуктивность низкая», лекции по тайм-менеджменту.</p>
+        <div class="tags"><span class="tag green">readonly</span><span class="tag">Phase 3.5</span></div>
+      </div>
+    </div>
+    <div class="accordion-item" data-mutating="false">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>🛡 <strong>workday_guardrails</strong> — Границы тематики</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Запрос на написание контента, ресерч, обучение AI, нерелевантная тема или попытка обхода ограничений.</p>
+        <p><strong>Что делает:</strong> Мягко отказывает и возвращает к рабочей тематике. Основной агент не вызывается.</p>
+        <p><strong>Anti-patterns:</strong> жёсткий отказ, копирование правил из system prompt, скрытое разрешение нерелевантного запроса.</p>
+        <div class="tags"><span class="tag green">readonly</span><span class="tag">Phase 3.5</span></div>
+      </div>
+    </div>
+    <div class="accordion-item" data-mutating="true">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>🔬 <strong>insight_extraction</strong> — Извлечение инсайтов</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Decision router отмечает сообщение как insight candidate после substantive workday reflection.</p>
+        <p><strong>Что делает:</strong> Извлекает структурированные сигналы: категории задач, рутина, энергия/стресс, automation candidates. Сохраняет privacy-safe insights.</p>
+        <p><strong>Мутации:</strong> <span class="pill warning">⚡ persists structured insights</span></p>
+        <div class="tags"><span class="tag yellow">mutating</span><span class="tag">Phase 3.5</span></div>
+      </div>
+    </div>
+    <div class="accordion-item" data-mutating="false">
+      <button class="accordion-header" onclick="toggleAccordion(this)">
+        <span>👍 <strong>feedback</strong> — Обратная связь по ответу</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="accordion-body">
+        <p><strong>Когда:</strong> Сотрудник оценивает ответ: 👍/👌/👎.</p>
+        <p><strong>Что делает:</strong> Обрабатывает оценку предыдущего ответа, не текущий рабочий контент.</p>
+        <p><strong>Будущее:</strong> Запись feedback для дообучения модели.</p>
+        <div class="tags"><span class="tag green">readonly (future mutation)</span><span class="tag">Phase 4</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <h3>🔄 Routing Flow</h3>
+    <div class="flow">
+      <div class="flow-step"><div class="step-icon">💬</div><div class="step-title">Сообщение</div><div class="step-sub">от сотрудника</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step" style="border-color:var(--accent)"><div class="step-icon">🧠</div><div class="step-title">SO-CoT Router</div><div class="step-sub">выбор процессов</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">✅</div><div class="step-title">TS Validation</div><div class="step-sub">allow-list ids</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">📄</div><div class="step-title">Context Builder</div><div class="step-sub">core + processes</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">🤖</div><div class="step-title">MinutkaAgent</div><div class="step-sub">генерация ответа</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-icon">📊</div><div class="step-title">Insights?</div><div class="step-sub">если candidate</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: ROADMAP -->
+<!-- ============================================================ -->
+<div class="section" id="sec-roadmap">
+  <h2 class="section-title"><span class="icon">🗺</span> Roadmap</h2>
+
+  <div class="card">
+    <h3>📈 Общий прогресс</h3>
+    <div class="progress-bar-wrap">
+      <div class="progress-label"><span class="name">Фазы реализации</span><span class="pct">50%</span></div>
+      <div class="progress-track"><div class="progress-fill green" style="width:50%"></div></div>
+    </div>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-item done">
+      <h4>Phase 1 — Скелет и test harness <span class="phase-tag phase-done">✅ Готово</span></h4>
+      <p>Nix + Node 22, TypeScript/ESM, слои domain → CLI, MinutkaAgent с openai/gpt-5.4-mini, AgentRunner bridge, SPEC-SKELETON-001.</p>
+    </div>
+    <div class="timeline-item done">
+      <h4>Phase 2 — Онбординг, consent и профиль <span class="phase-tag phase-done">✅ Готово</span></h4>
+      <p>Participant, Consent, UserProfile, onboarding flow, updateProfileTool, динамический prompt для persona и AI level, SPEC-ONBOARDING-001.</p>
+    </div>
+    <div class="timeline-item done">
+      <h4>Phase 3 — Контекст, guardrails и инсайты <span class="phase-tag phase-done">✅ Готово</span></h4>
+      <p>Mastra Memory для resourceId + threadId, domain types для insights, context retention, topic boundaries, SPEC-CONTEXT-001 и SPEC-GUARDRAILS-001.</p>
+    </div>
+    <div class="timeline-item done">
+      <h4>Phase 3.5 — Agent Manual Lite <span class="phase-tag phase-done">✅ Готово</span></h4>
+      <p>Agent Manual: core.md + 6 process-файлов, registry.json, author-contract, SO-CoT decision router, SPEC-AGENT-MANUAL-001 и SPEC-PROCESS-ROUTING-001.</p>
+    </div>
+    <div class="timeline-item current">
+      <h4>Phase 4 — Telegram shell и feedback <span class="phase-tag phase-next">🔜 Следующий</span></h4>
+      <p>Telegram-бот (telegraf), /start, текстовые сообщения, callback buttons 👍/👌/👎, feedback flow, SPEC-FEEDBACK-001.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Phase 5 — Голосовые и STT boundary <span class="phase-tag phase-future">Будущее</span></h4>
+      <p>Voice message handler, STT boundary/interface, mock STT для specs, SPEC-VOICE-001.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Phase 6 — Карта автоматизации <span class="phase-tag phase-future">Будущее</span></h4>
+      <p>Aggregation service, privacy projection (≥5 сотрудников), Markdown report, SPEC-AUTOMATION-MAP-001.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Phase 7 — Расписание и ежедневные касания <span class="phase-tag phase-future">Будущее</span></h4>
+      <p>Scheduler (node-cron), timezone, утренние/дневные/вечерние промпты, idempotency.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Phase 8 — Панель методолога <span class="phase-tag phase-future">Будущее</span></h4>
+      <p>Web-панель для методолога: потоки, вовлечённость, напоминания, отчёты.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: TESTS -->
+<!-- ============================================================ -->
+<div class="section" id="sec-tests">
+  <h2 class="section-title"><span class="icon">✅</span> Тесты (Executable Specs)</h2>
+
+  <div class="card">
+    <h3>📊 Результаты тестирования</h3>
+    <div class="chart-container">
+      <div class="donut-chart">
+        <svg viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="86" stroke="#232736" />
+          <circle cx="100" cy="100" r="86" stroke="var(--green)"
+                  stroke-dasharray="540.35" stroke-dashoffset="0" />
+        </svg>
+        <div class="donut-center">
+          <div class="big">28/28</div>
+          <div class="small">тестов пройдено</div>
+        </div>
+      </div>
+      <ul class="chart-legend">
+        <li><span class="legend-dot" style="background:var(--green)"></span> Passed — 28</li>
+        <li><span class="legend-dot" style="background:var(--red)"></span> Failed — 0</li>
+        <li><span class="legend-dot" style="background:var(--yellow)"></span> Pending — 0</li>
+        <li><span class="legend-dot" style="background:var(--text2)"></span> Suites — 12/12 ✅</li>
+      </ul>
+    </div>
+    <div style="text-align:center; margin-top:8px"><span class="pill success">🎉 Все тесты пройдены!</span></div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Spec Suites</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Spec</th><th>Тесты</th><th>Статус</th><th>Что проверяет</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>SPEC-SKELETON-001</strong></td>
+            <td>3</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>Smoke import, CLI → SDK → Server → Service → AgentRunner</td>
+          </tr>
+          <tr>
+            <td><strong>SPEC-ONBOARDING-001</strong></td>
+            <td>7</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>Consent, профиль, persona, onboarding flow, reject unknown persona</td>
+          </tr>
+          <tr>
+            <td><strong>SPEC-CONTEXT-001</strong></td>
+            <td>2</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>Mastra Memory import, утренний план → вечерний контекст + insights</td>
+          </tr>
+          <tr>
+            <td><strong>SPEC-GUARDRAILS-001</strong></td>
+            <td>7</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>Отказ на пост, ambiguous text, AI training, work reflection + persona</td>
+          </tr>
+          <tr>
+            <td><strong>SPEC-AGENT-MANUAL-001</strong></td>
+            <td>2</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>Registry, core, process files, author contract, namespace sync</td>
+          </tr>
+          <tr>
+            <td><strong>SPEC-PROCESS-ROUTING-001</strong></td>
+            <td>7</td>
+            <td><span class="pill success">✅ Pass</span></td>
+            <td>SO-CoT routing: onboarding, evening, guardrails, privacy, feedback</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🧪 Принцип: Specs без внешних API</h3>
+    <p>Все executable specs работают через <strong>mock runners и tools</strong> — без реального LLM, Telegram API или STT. Это обеспечивает детерминированные, быстрые и надёжные тесты.</p>
+    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="cm">// Пример: SO-CoT router с injected fake</span>
+<span class="kw">const</span> fakeRouter = <span class="fn">createScriptedRouter</span>({
+  selectedProcessIds: [<span class="str">'evening_reflection'</span>, <span class="str">'insight_extraction'</span>],
+  workDecision: { mode: <span class="str">'allow'</span> },
+  insightDecision: { candidate: <span class="kw">true</span> },
+});
+
+<span class="kw">const</span> result = <span class="kw">await</span> service.<span class="fn">chat</span>({
+  employeeId: <span class="str">'emp-01'</span>,
+  text: <span class="str">'День был на звонках, отчёт не успел'</span>,
+  router: fakeRouter,
+});</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: CODEBASE -->
+<!-- ============================================================ -->
+<div class="section" id="sec-codebase">
+  <h2 class="section-title"><span class="icon">📁</span> Кодовая база</h2>
+
+  <div class="card">
+    <h3>📊 Статистика кодовой базы</h3>
+    <div class="bar-chart">
+      <div class="bar-row">
+        <span class="bar-label">application/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:48%; background:var(--accent)">14 файлов</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">mastra/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:38%; background:var(--accent2)">11 файлов</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">domain/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:17%; background:var(--pink)">5 файлов</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">client/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:10%; background:var(--green)">3 файла</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">server/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:7%; background:var(--cyan)">1 файл</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">specs/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:38%; background:var(--yellow)">11 файлов</div></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">docs/</span>
+        <div class="bar-track"><div class="bar-fill" style="width:86%; background:rgba(255,255,255,.15)">25 файлов (.md)</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>🏛 Domain Layer</h3>
+      <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="str">src/domain/</span>
+├── <span class="fn">conversation-decision.ts</span>  <span class="cm">// routing types</span>
+├── <span class="fn">employee.ts</span>               <span class="cm">// Employee, Profile</span>
+├── <span class="fn">events.ts</span>                 <span class="cm">// domain events</span>
+├── <span class="fn">insights.ts</span>               <span class="cm">// insight types</span>
+└── <span class="fn">privacy.ts</span>                <span class="cm">// privacy contracts</span></div>
+    </div>
+    <div class="card">
+      <h3>🤖 Mastra Layer</h3>
+      <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="str">src/mastra/</span>
+├── <span class="fn">agents/</span>
+│   ├── <span class="fn">minutka-agent.ts</span>
+│   ├── <span class="fn">conversation-decision-agent.ts</span>
+│   └── <span class="fn">insight-extractor-agent.ts</span>
+├── <span class="fn">tools/</span>
+│   ├── <span class="fn">extract-insights-tool.ts</span>
+│   └── <span class="fn">update-profile-tool.ts</span>
+├── <span class="fn">memory.ts</span>
+├── <span class="fn">runtime-deps.ts</span>
+└── <span class="fn">index.ts</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🔗 Зависимости проекта</h3>
+    <div class="grid-2">
+      <div>
+        <h4 style="font-size:.88rem; color:var(--accent); margin-bottom:8px">Production</h4>
+        <div class="tags">
+          <span class="tag cyan">@mastra/core ^1.49</span>
+          <span class="tag cyan">@mastra/memory ^1.22</span>
+          <span class="tag cyan">@mastra/libsql ^1.15</span>
+          <span class="tag">mastra ^1.18</span>
+          <span class="tag">commander ^14</span>
+          <span class="tag yellow">zod ^4.1</span>
+        </div>
+      </div>
+      <div>
+        <h4 style="font-size:.88rem; color:var(--pink); margin-bottom:8px">Dev</h4>
+        <div class="tags">
+          <span class="tag pink">typescript ^5.9</span>
+          <span class="tag green">vitest ^4.0</span>
+          <span class="tag">@types/node ^24.10</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: PRIVACY -->
+<!-- ============================================================ -->
+<div class="section" id="sec-privacy">
+  <h2 class="section-title"><span class="icon">🔒</span> Приватность и границы</h2>
+
+  <div class="card" style="border-color: var(--green)">
+    <h3>🛡 Ключевые принципы</h3>
+    <ul class="checklist" id="privacyChecklist">
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Диалог сотрудника = личный контекст, не доступен компании</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Компания получает только обезличенные агрегаты</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Минимальная группа для аналитики: ≥5 сотрудников</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> ФИО и телефон маскируются до отправки в AI-провайдеры</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Методолог НЕ видит транскрипты, задачи и эмоции отдельных людей</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Сотрудник может удалить все свои данные одним действием</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Raw transcripts не сохраняются в insights</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Privacy-safe employeeId (псевдоним, не PII)</li>
+    </ul>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>🟢 Что видит сотрудник</h3>
+      <ul>
+        <li>Свой полный диалог с Минуткой</li>
+        <li>Свой портрет и профиль (раздел «Я»)</li>
+        <li>Персональные недельные и финальные отчёты</li>
+        <li>Выбранная персона и настройки</li>
+        <li>Кнопка удаления всех данных</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🔴 Что НЕ видят компания и методолог</h3>
+      <ul>
+        <li>❌ Транскрипты голосовых сообщений</li>
+        <li>❌ Конкретные задачи отдельных людей</li>
+        <li>❌ Эмоциональное состояние конкретного сотрудника</li>
+        <li>❌ Имена в ответах и рефлексиях</li>
+        <li>❌ Срезы меньше 5 человек</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🧱 Архитектурные границы данных</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Граница</th><th>Описание</th><th>Как обеспечивается</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Employee ↔ Company</strong></td><td>Личные данные vs. агрегаты</td><td>Разные storage projections, domain types</td></tr>
+          <tr><td><strong>Methodologist access</strong></td><td>Видит только engagement статусы</td><td>API не предоставляет personal endpoints</td></tr>
+          <tr><td><strong>Backend ↔ AI Provider</strong></td><td>PII маскируется перед отправкой</td><td>Privacy preparation step</td></tr>
+          <tr><td><strong>Telegram ↔ Backend</strong></td><td>Shell ≠ бизнес-логика</td><td>Handlers → SDK → Application API</td></tr>
+          <tr><td><strong>Topic boundary</strong></td><td>Только рабочий день + work emotions</td><td>Workday guardrails process</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: COMMANDS -->
+<!-- ============================================================ -->
+<div class="section" id="sec-commands">
+  <h2 class="section-title"><span class="icon">💻</span> Команды и CLI</h2>
+
+  <div class="card">
+    <h3>🚀 Быстрый старт</h3>
+    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="cm"># Клонирование и настройка</span>
+$ git clone &lt;repo&gt; time-agent
+$ <span class="kw">cd</span> time-agent
+
+<span class="cm"># Nix dev environment</span>
+$ direnv allow          <span class="cm"># или: nix develop</span>
+$ npm install
+
+<span class="cm"># Настройка переменных окружения</span>
+$ cp .env.example .env  <span class="cm"># заполнить OPENAI_API_KEY, TELEGRAM_BOT_TOKEN</span></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>🧪 Тестирование</h3>
+      <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="cm"># Проверка типов</span>
+$ npm run <span class="fn">typecheck</span>
+
+<span class="cm"># Запуск executable specs</span>
+$ npm run <span class="fn">specs</span>
+
+<span class="cm"># Полная верификация</span>
+$ npm run <span class="fn">verify</span>
+<span class="cm"># или через Nix:</span>
+$ nix run <span class="fn">.#verify</span></div>
+    </div>
+    <div class="card">
+      <h3>🤖 Mastra Dev</h3>
+      <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="cm"># Запуск Mastra dev server</span>
+$ npm run <span class="fn">mastra:dev</span>
+
+<span class="cm"># Vitest в watch mode</span>
+$ npx vitest <span class="fn">--watch</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📜 Скрипты из package.json</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Команда</th><th>Описание</th></tr></thead>
+        <tbody>
+          <tr><td><code>npm run typecheck</code></td><td>TypeScript проверка типов без эмиссии (tsc --noEmit)</td></tr>
+          <tr><td><code>npm run specs</code></td><td>Vitest: executable specs + JSON output в docs/generated/</td></tr>
+          <tr><td><code>npm run test</code></td><td>Алиас для specs</td></tr>
+          <tr><td><code>npm run verify</code></td><td>typecheck + specs последовательно</td></tr>
+          <tr><td><code>npm run mastra:dev</code></td><td>Запуск Mastra dev server</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🔧 Инженерные правила проекта</h3>
+    <ul class="checklist" id="rulesChecklist">
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Не ломать слои: Telegram handler не бизнес-слой</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Specs без внешних API: LLM/Telegram мокируются</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Mastra docs-first: сверяться с embedded docs перед API</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Provider registry first: проверять модель перед использованием</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Privacy by structure: сначала domain types, потом отчёты</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Business processes as code: process-файлы в git</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Минимальные коммиты по фазам: зелёный verify → тег</li>
+      <li onclick="toggleCheck(this)"><input type="checkbox"> Unix-like namespace как контракт агента</li>
+    </ul>
+  </div>
+</div>
+
+</div><!-- /.container -->
+
+<footer class="footer">
+  <p>Time Agent — Проект «Минутка» • Сгенерировано 09.07.2026 • Версия 0.1.0 • 21 коммит</p>
+  <p style="margin-top:4px; font-size:.75rem;">TypeScript · Mastra · Vitest · Node.js 22 · Nix</p>
+</footer>
+
+<script>
+// ===== TAB NAVIGATION =====
+const tabs = document.querySelectorAll('.nav-tab');
+const sections = document.querySelectorAll('.section');
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.tab;
+    tabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    sections.forEach(s => {
+      s.classList.remove('active');
+      if (s.id === 'sec-' + target) s.classList.add('active');
+    });
+    window.scrollTo({ top: document.querySelector('.nav-bar').offsetTop, behavior: 'smooth' });
+  });
+});
+
+// ===== ACCORDION =====
+function toggleAccordion(header) {
+  const body = header.nextElementSibling;
+  const isOpen = header.classList.contains('open');
+  // close all in same container
+  header.parentElement.parentElement.querySelectorAll('.accordion-header.open').forEach(h => {
+    if (h !== header) { h.classList.remove('open'); h.nextElementSibling.classList.remove('open'); }
+  });
+  header.classList.toggle('open', !isOpen);
+  body.classList.toggle('open', !isOpen);
+}
+
+// ===== CHECKLIST =====
+function toggleCheck(li) {
+  const cb = li.querySelector('input[type="checkbox"]');
+  if (cb.disabled) return;
+  cb.checked = !cb.checked;
+  li.classList.toggle('checked', cb.checked);
+}
+
+// ===== COPY CODE =====
+function copyCode(btn) {
+  const code = btn.parentElement.textContent.replace('Copy', '').trim();
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = '✓ Copied';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+// ===== SEARCH =====
+const searchInput = document.getElementById('searchInput');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  if (!q) {
+    document.querySelectorAll('.card, .accordion-item, .timeline-item, tr').forEach(el => el.style.display = '');
+    document.querySelectorAll('.highlight').forEach(el => {
+      el.outerHTML = el.textContent;
+    });
+    return;
+  }
+  // Show all sections for search
+  sections.forEach(s => s.classList.add('active'));
+  tabs.forEach(t => t.classList.remove('active'));
+
+  // Filter cards
+  document.querySelectorAll('.card, .accordion-item, .timeline-item').forEach(el => {
+    const text = el.textContent.toLowerCase();
+    el.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+
+// ===== PROCESS FILTER =====
+document.getElementById('processFilter').addEventListener('click', e => {
+  if (!e.target.classList.contains('toggle-btn')) return;
+  document.querySelectorAll('#processFilter .toggle-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  const filter = e.target.dataset.filter;
+  document.querySelectorAll('#processCards .accordion-item').forEach(item => {
+    const mut = item.dataset.mutating === 'true';
+    if (filter === 'all') item.style.display = '';
+    else if (filter === 'mutating') item.style.display = mut ? '' : 'none';
+    else item.style.display = !mut ? '' : 'none';
+  });
+});
+
+// ===== ANIMATE ON SCROLL =====
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) e.target.style.opacity = 1;
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.card, .timeline-item').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
