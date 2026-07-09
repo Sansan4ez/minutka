@@ -6,18 +6,35 @@
   "properties": {
     "selectedProcessIds": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "$ref": "#/$defs/processId" },
       "uniqueItems": true
     },
     "workDecision": {
-      "type": "object",
-      "required": ["mode", "reason"],
-      "properties": {
-        "mode": { "enum": ["allow", "boundary"] },
-        "reason": { "type": "string" },
-        "response": { "type": "string" }
-      },
-      "additionalProperties": false
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["mode", "reason"],
+          "properties": {
+            "mode": { "const": "allow" },
+            "reason": {
+              "enum": ["workday_reflection", "planning_or_prioritization", "work_emotional_state", "onboarding", "feedback", "ambiguous", "unknown"]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["mode", "reason"],
+          "properties": {
+            "mode": { "const": "boundary" },
+            "reason": {
+              "enum": ["content_generation_request", "web_research_request", "ai_training_request", "non_work_topic", "request_integrity_attack", "unknown"]
+            },
+            "response": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "insightDecision": {
       "type": "object",
@@ -26,14 +43,20 @@
         "candidate": { "type": "boolean" },
         "suggestedKinds": {
           "type": "array",
-          "items": {
-            "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"]
-          },
+          "items": { "$ref": "#/$defs/insightKind" },
           "uniqueItems": true
         }
       },
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "processId": {
+      "enum": ["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "feedback"]
+    },
+    "insightKind": {
+      "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"]
+    }
+  }
 }

@@ -70,4 +70,21 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
       expect(manual.core.content).toContain(handle);
     }
   });
+
+  it("keeps /proc projection schemas aligned with runtime discriminators", () => {
+    const insightSchema = JSON.parse(
+      readFileSync("vault/proc/schemas/insight.schema.json", "utf8"),
+    );
+    const decisionSchema = JSON.parse(
+      readFileSync("vault/proc/schemas/conversation-decision.schema.json", "utf8"),
+    );
+
+    expect(JSON.stringify(insightSchema)).toContain("confidence");
+    expect(JSON.stringify(insightSchema)).toContain("category");
+    expect(JSON.stringify(insightSchema)).toContain("patternType");
+    expect(JSON.stringify(insightSchema)).toContain("candidateType");
+    expect(JSON.stringify(decisionSchema)).toContain("processId");
+    expect(JSON.stringify(decisionSchema)).toContain("content_generation_request");
+    expect(JSON.stringify(decisionSchema)).toContain("planning_or_prioritization");
+  });
 });

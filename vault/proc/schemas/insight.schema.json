@@ -1,17 +1,88 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "StructuredInsightProjection",
-  "type": "object",
-  "required": ["id", "employeeId", "threadId", "sourceMessageId", "kind", "label", "rationale", "createdAt"],
-  "properties": {
-    "id": { "type": "string" },
-    "employeeId": { "type": "string" },
-    "threadId": { "type": "string" },
-    "sourceMessageId": { "type": "string" },
-    "kind": { "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"] },
-    "label": { "type": "string" },
-    "rationale": { "type": "string" },
-    "createdAt": { "type": "string" }
-  },
-  "additionalProperties": false
+  "oneOf": [
+    {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["kind", "category"],
+          "properties": {
+            "kind": { "const": "task_category" },
+            "category": {
+              "enum": ["planning", "reporting", "meetings", "coordination", "communication", "admin", "focus_work", "unknown"]
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["kind", "patternType"],
+          "properties": {
+            "kind": { "const": "routine_pattern" },
+            "patternType": {
+              "enum": ["meeting_overload", "context_switching", "manual_reporting", "coordination_overhead", "waiting_for_input", "unclear_priority", "other"]
+            },
+            "interferesWith": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["kind", "marker", "intensity"],
+          "properties": {
+            "kind": { "const": "energy_stress_marker" },
+            "marker": { "enum": ["overload", "fatigue", "frustration", "focus_loss", "blocked_progress", "neutral"] },
+            "intensity": { "enum": ["low", "medium", "high"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["kind", "candidateType", "rationale"],
+          "properties": {
+            "kind": { "const": "automation_candidate" },
+            "candidateType": {
+              "enum": ["report_generation", "meeting_reduction", "async_status_update", "task_routing", "template_or_checklist", "data_entry_reduction", "other"]
+            },
+            "rationale": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["id", "employeeId", "threadId", "sourceMessageId", "kind", "label", "confidence", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "employeeId": { "type": "string", "minLength": 1 },
+        "threadId": { "type": "string", "minLength": 1 },
+        "sourceMessageId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"] },
+        "label": { "type": "string", "minLength": 1 },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "createdAt": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    }
+  }
 }
