@@ -38,6 +38,8 @@ registerSpecMetadata({
     "extractInsightsTool",
     "runMinutkaAgent",
     "routeAgentManualProcesses",
+    "routeConversationDecision",
+    "extractInsightsWithAgent",
   ],
   cli: [
     "employee open-invite",
@@ -63,12 +65,20 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     const { routeAgentManualProcesses } = await import(
       "../../../src/mastra/agent-manual-router.js"
     );
+    const { routeConversationDecision } = await import(
+      "../../../src/mastra/conversation-decision-router.js"
+    );
+    const { extractInsightsWithAgent } = await import(
+      "../../../src/mastra/insight-extractor.js"
+    );
 
     expect(minutkaAgent).toBeDefined();
     expect(minutkaMemory).toBeDefined();
     expect(extractInsightsTool).toBeDefined();
     expect(runMinutkaAgent).toBeDefined();
     expect(routeAgentManualProcesses).toBeDefined();
+    expect(routeConversationDecision).toBeDefined();
+    expect(extractInsightsWithAgent).toBeDefined();
   });
 
   it("uses morning plan in evening reflection and records privacy-safe insights", async () => {

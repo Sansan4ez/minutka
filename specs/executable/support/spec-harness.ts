@@ -11,6 +11,7 @@ import type {
 import type { UserProfile } from "../../../src/domain/employee.js";
 import { CliDriver } from "./cli-driver.js";
 import { fixedNow } from "./fixtures.js";
+import { createDefaultSpecDeps } from "./scripted-deps.js";
 
 export type SpecMetadata = {
   id: string;
@@ -90,7 +91,7 @@ export function createSpecWorld(
     world,
     agentRunner,
     (cmd) => observedCliCommands.add(cmd),
-    options.deps,
+    createDefaultSpecDeps(options.deps),
   );
   return { cli, world };
 }

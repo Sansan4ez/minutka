@@ -29,7 +29,7 @@ registerSpecMetadata({
     "FR-GUARDRAILS-001",
   ],
   productParts: ["ai-agent-backend-runtime"],
-  contracts: ["chat", "completeOnboarding", "contextBuilder"],
+  contracts: ["chat", "completeOnboarding", "contextBuilder", "submitFeedback"],
   events: ["ChatMessageReceived", "WorkBoundaryApplied", "ChatResponseGenerated"],
   mastra: [],
   cli: [
@@ -37,6 +37,7 @@ registerSpecMetadata({
     "employee accept-consent",
     "employee complete-onboarding",
     "employee chat",
+    "employee feedback",
   ],
 });
 
@@ -155,12 +156,6 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects proc
       {
         purpose: "chat",
         text: "Нужно подготовить данные по продажам за квартал.",
-        policy: {
-          relevance: "work_related",
-          allowedForAgent: true,
-          shouldExtractInsights: false,
-          reason: "planning_or_prioritization",
-        },
       },
       { manual, router: noOptionalProcessRouter },
     );
@@ -181,12 +176,6 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects proc
       {
         purpose: "chat",
         text: "What data can my company see?",
-        policy: {
-          relevance: "work_related",
-          allowedForAgent: true,
-          shouldExtractInsights: false,
-          reason: "unknown",
-        },
       },
       { manual, router: privacyRouter },
     );
@@ -204,12 +193,7 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects proc
       {
         purpose: "chat",
         text: "Сегодня в плане три встречи с клиентами.",
-        policy: {
-          relevance: "work_related",
-          allowedForAgent: true,
-          shouldExtractInsights: true,
-          reason: "planning_or_prioritization",
-        },
+        selectedProcessIds: ["core", "insight_extraction"],
         recentTurns: [
           {
             messageId: "msg_morning_plan",
@@ -230,14 +214,27 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects proc
     expect(built.selectedProcessIds).not.toContain("evening_reflection");
   });
 
-  it("prepares feedback routing through resolver API", async () => {
-    const manual = loadAgentManualFromDisk();
-    const built = await buildMinutkaContext(
-      { purpose: "feedback", text: "👍" },
-      { manual, router: noOptionalProcessRouter },
-    );
+  it("routes feedback through the service boundary", async () => {
+    const spec = createSpecWorld(async () => "ok", {
+      deps: { agentManualRouter: noOptionalProcessRouter },
+    });
+    await onboardTestEmployee(spec);
 
-    expect(built.selectedProcessIds).toEqual(["core", "feedback"]);
-    expect(built.systemContext).toContain("## Agent Manual process: feedback");
+    const result = await spec.cli.json<{
+      accepted: true;
+      selectedProcessIds: string[];
+    }>([
+      "employee",
+      "feedback",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      testEmployee.threadId,
+      "--text",
+      "👍",
+    ]);
+
+    expect(result).toMatchObject({ accepted: true });
+    expect(result.selectedProcessIds).toEqual(["core", "feedback"]);
   });
 });

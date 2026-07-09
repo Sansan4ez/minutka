@@ -127,6 +127,61 @@ describe("SPEC-GUARDRAILS-001: work boundary before insights", () => {
     expect(insights).toEqual([]);
   });
 
+  it("does not treat broad word fragments as work reflections", async () => {
+    let chatCalls = 0;
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatCalls++;
+      return "Понял. Если это про рабочий день, можем разложить подробнее.";
+    });
+    await onboardTestEmployee(spec);
+
+    await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_broad_fragment_1",
+      "--text",
+      "Планирую перестановку рабочего стола дома.",
+    ]);
+
+    expect(chatCalls).toBe(1);
+    const insights = await spec.cli.json<StructuredInsightResult[]>([
+      "employee",
+      "insights",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_broad_fragment_1",
+    ]);
+    expect(insights).toEqual([]);
+  });
+
+  it("returns a semantically correct boundary for AI training requests", async () => {
+    let chatCalls = 0;
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatCalls++;
+      return "ok";
+    });
+    await onboardTestEmployee(spec, { persona: "support" });
+
+    const result = await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_ai_training_1",
+      "--text",
+      "Научи пользоваться ChatGPT",
+    ]);
+
+    expect(chatCalls).toBe(0);
+    expect(result.response).toMatch(/не обучаю|chatgpt|нейросет/i);
+    expect(result.response).not.toMatch(/не пишу посты/i);
+  });
+
   it("still allows work reflection and records insights", async () => {
     let chatCalls = 0;
     const spec = createSpecWorld(async (_input, context) => {
