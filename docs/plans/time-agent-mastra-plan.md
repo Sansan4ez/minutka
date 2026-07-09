@@ -259,18 +259,20 @@ Persona меняет тон, но не отменяет ограничений. 
 
 Перед использованием конкретного Mastra storage/memory API необходимо свериться с embedded docs установленного `@mastra/core`.
 
-### 5.4 Agent Manual loader / constrained router
+### 5.4 Agent Manual loader / SO-CoT constrained decision plane
 
-После Phase 3.5 `MinutkaContextBuilder` должен работать как file-first context builder:
+После актуализации Phase 3.5 `MinutkaService.chat()` работает через единый process-driven decision plane:
 
 1. загружает `docs/agent-manual/registry.json`, `core.md`, `processes/index.md` и process-файлы один раз при создании service/harness;
-2. добавляет mandatory process ids из application policy/lifecycle state;
-3. передаёт `processes/index.md`, runtime input, policy, profile и recent turns в constrained LLM-router для выбора optional process ids;
-4. валидирует router output по allow-list ids и `appliesTo`, отбрасывает invented ids;
-5. добавляет `core.md` + выбранные process-файлы в контекст агента;
-6. возвращает `selectedProcessIds` для audit/specs.
+2. передаёт `processes/index.md`, runtime input, profile и recent turns в SO-CoT constrained conversation decision router;
+3. router возвращает strict JSON: `selectedProcessIds`, `workDecision`, `insightDecision`;
+4. TypeScript валидирует router output по allow-list ids и `appliesTo`, отбрасывает invented ids и механически исполняет решение;
+5. если `workDecision.mode = boundary`, основной `MinutkaAgent` не вызывается, а приложение возвращает boundary response и audit event;
+6. если `workDecision.mode = allow`, `MinutkaContextBuilder` добавляет `core.md` + выбранные process-файлы в контекст агента;
+7. если `insightDecision.candidate = true`, после ответа запускается constrained insight extractor boundary;
+8. `selectedProcessIds` возвращаются для audit/specs.
 
-Regex/pattern routing не масштабируется на пересечения сценариев и multilingual input, поэтому semantic routing делается LLM-ом, но строго constrained: index-first prompt, JSON-only output, TypeScript validation и safe fallback на mandatory processes. Полный `sha256` match/fallback из `ecom1-process-architect` откладывается. На MVP dependency drift отслеживается git review и простыми manual checks.
+`Workday guardrails` и `insight extraction` теперь являются обычными business-process files, а не скрытым deterministic `WorkPolicy`/keyword-кодом. Regex/pattern routing не масштабируется на пересечения сценариев и multilingual input, поэтому semantic routing делается LLM-ом, но строго constrained: index-first prompt, JSON-only output, TypeScript validation и executable specs с injected fake routers/extractors. Полный `sha256` match/fallback из `ecom1-process-architect` откладывается. На MVP dependency drift отслеживается git review и manual validation.
 
 ---
 
@@ -303,8 +305,8 @@ Regex/pattern routing не масштабируется на пересечен�
 
 - **Given** сотрудник с профилем.
 - **When** он просит: «Напиши мне пост для соцсети».
-- **Then** агент мягко отказывает и возвращает разговор к теме рабочего дня.
-- **And** `extractInsightsTool` не создаёт рабочий insight из нерелевантного запроса.
+- **Then** SO-CoT decision router выбирает `workday_guardrails`, агент мягко отказывает и возвращает разговор к теме рабочего дня.
+- **And** constrained insight extractor не запускается для нерелевантного запроса.
 
 ### `SPEC-AGENT-MANUAL-001` — agent manual валиден
 
@@ -312,11 +314,11 @@ Regex/pattern routing не масштабируется на пересечен�
 - **When** manual loader читает Agent Manual.
 - **Then** все process paths существуют, обязательные секции присутствуют, dependencies ссылаются на существующие docs/specs, а process index не указывает на отсутствующие процессы.
 
-### `SPEC-PROCESS-ROUTING-001` — контекст выбирает правильные бизнес-процессы
+### `SPEC-PROCESS-ROUTING-001` — SO-CoT decision router выбирает бизнес-процессы
 
 - **Given** сотрудник с профилем и разными типами сообщений.
-- **When** `MinutkaContextBuilder` строит контекст.
-- **Then** onboarding выбирает `onboarding` + `consent_and_privacy`, вечерняя рефлексия выбирает `evening_reflection` + `insight_extraction`, просьба написать рабочий материал выбирает `workday_guardrails`.
+- **When** `MinutkaService.chat()` вызывает injected conversation decision router.
+- **Then** onboarding выбирает `onboarding` + `consent_and_privacy`, вечерняя рефлексия выбирает `evening_reflection` + `insight_extraction`, просьба написать рабочий материал выбирает `workday_guardrails`, а application layer только валидирует и исполняет решение.
 
 ### `SPEC-FEEDBACK-001` — обратная связь по ответу
 
@@ -397,10 +399,9 @@ Definition of Done:
 Минимальный scope:
 
 1. Подключить/обернуть Mastra Memory для `resourceId` + `threadId`.
-2. Реализовать `extractInsightsTool` или deterministic extractor boundary с mock для specs.
-3. Добавить domain types для insights: task category, routine pattern, energy/stress marker, automation candidate.
-4. Добавить guardrail/policy слой перед insight extraction.
-5. Написать `SPEC-CONTEXT-001` и `SPEC-GUARDRAILS-001`.
+2. Добавить domain types для insights: task category, routine pattern, energy/stress marker, automation candidate.
+3. Добавить executable specs для context, guardrails и insight storage.
+4. Исторически Phase 3 начиналась с deterministic guardrail/extractor MVP, но после Phase 3.5 эти решения заменяются SO-CoT constrained process decision router и constrained insight extractor.
 
 Definition of Done:
 

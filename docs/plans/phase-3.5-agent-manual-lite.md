@@ -17,13 +17,13 @@
 - профиль, consent и persona;
 - `MinutkaContextBuilder` для динамического profile/persona context;
 - conversation memory boundary и Mastra Memory runtime bridge;
-- deterministic `WorkPolicy` / guardrails;
+- исторический deterministic guardrail/extractor MVP Phase 3, который в этой фазе заменяется SO-CoT constrained process decision plane;
 - `InsightExtractor` boundary и structured insights;
 - executable specs `SPEC-SKELETON-001`, `SPEC-ONBOARDING-001`, `SPEC-CONTEXT-001`, `SPEC-GUARDRAILS-001`.
 
 Phase 3.5 должна вынести агентные правила из монолитных инструкций и разрозненных application heuristics в проверяемый manual, но **не должна** строить полноценную Process Architect/versioning/filesystem-runtime инфраструктуру.
 
-Ключевой результат: `MinutkaContextBuilder` становится file-first context builder-ом: он работает с заранее загруженным `docs/agent-manual`, добавляет обязательные application-policy процессы, передаёт `processes/index.md` в constrained LLM-router для выбора optional process ids, возвращает `selectedProcessIds` для audit/specs и добавляет `core.md` + выбранные process-файлы в `systemContext` агента. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
+Ключевой результат: `MinutkaService.chat()` переходит на SO-CoT constrained process decision plane. Decision router получает `processes/index.md`, runtime input, profile и recent turns, возвращает strict JSON (`selectedProcessIds`, `workDecision`, `insightDecision`), а TypeScript только валидирует и механически исполняет решение. `MinutkaContextBuilder` становится file-first context builder-ом: он работает с заранее загруженным `docs/agent-manual`, добавляет `core.md` + выбранные process-файлы в `systemContext` агента и возвращает `selectedProcessIds` для audit/specs. Manual читается loader-ом на startup / при создании spec harness, а не с диска на каждый chat request.
 
 ---
 
@@ -49,7 +49,7 @@ Phase 3.5 должна вынести агентные правила из мо�
   - `## Privacy notes`
   - `## Anti-patterns`
   - `## Dependencies`
-- [ ] `registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; `processes/index.md` является file-first routing map, а TypeScript resolver только валидирует constrained LLM-router output и добавляет mandatory application-policy processes.
+- [ ] `registry.json` содержит machine-readable список процессов, paths, `appliesTo` и dependencies; `processes/index.md` является file-first routing map с колонками `When to select`, `Why it applies`, `Mutating`, а TypeScript только валидирует constrained decision-router output.
 - [ ] `processes/index.md` человекочитаемо описывает процессы и их границы.
 - [ ] Product scenarios из `docs/product/Final_Description.md`, `docs/product/virtual-simulation.md`, при необходимости `docs/product/dialogs-for-agent-minutka.md`, переписаны в procedural BP-формат без копирования больших фрагментов.
 - [ ] Добавлен application-level Agent Manual loader.
@@ -57,8 +57,8 @@ Phase 3.5 должна вынести агентные правила из мо�
 - [ ] `MinutkaContextBuilder` расширен до file-first Agent Manual context builder:
   - [ ] собирает profile/persona context как раньше;
   - [ ] всегда добавляет `core`;
-  - [ ] добавляет mandatory processes из application policy (`onboarding`, `workday_guardrails`, `insight_extraction`, `feedback`);
-  - [ ] вызывает constrained LLM-router для optional process ids на основе `processes/index.md`, runtime input, policy и recent turns;
+  - [ ] принимает selected process ids от SO-CoT conversation decision router;
+  - [ ] не содержит hidden deterministic WorkPolicy/keyword routing;
   - [ ] валидирует router output: только известные ids, только applicable `appliesTo`, без invented ids;
   - [ ] добавляет релевантные process-файлы;
   - [ ] возвращает `selectedProcessIds`;
@@ -90,6 +90,8 @@ Phase 3.5 должна вынести агентные правила из мо�
 6. Audit/debug exposure `selectedProcessIds`.
 7. Executable specs на валидность manual и routing процессов.
 8. Документирование виртуального namespace `/AGENTS.md`, `/docs`, `/proc`, `/bin` как контракта.
+9. Добавление `ConversationDecisionRouter` как async/injectable boundary: runtime = constrained LLM agent, specs = scripted fake router.
+10. Добавление constrained insight extractor boundary: runtime = LLM JSON extractor, specs = scripted fake extractor.
 9. Минимальная синхронизация `MinutkaAgent.instructions` с manual: базовые правила можно оставить как fallback, но source of truth для runtime context должен быть manual.
 10. Feedback process как документ и routing target, даже если полноценное сохранение feedback будет реализовано в Phase 4.
 
@@ -129,21 +131,21 @@ CLI/SDK/future Telegram
     2. emit ChatMessageReceived
     3. load profile
     4. load recent turns
-    5. evaluate WorkPolicy
-    6. MinutkaContextBuilder.build(input, profile, policy, recentTurns)
+    5. call ConversationDecisionRouter(input, profile, recentTurns, AgentManual)
+       → SO-CoT constrained LLM reads processes/index.md
+       → returns strict JSON: selectedProcessIds, workDecision, insightDecision
+       → TypeScript validates selectedProcessIds against registry/appliesTo
+    6. MinutkaContextBuilder.build(input, profile, selectedProcessIds)
        → uses preloaded AgentManual
-       → adds mandatory application-policy process ids
-       → constrained LLM-router reads processes/index.md and selects optional process ids
-       → validates selectedProcessIds against registry/appliesTo
        → profile/persona context
        → agentManualContext = core.md + selected process markdown
-    7a. if blocked:
-          build deterministic refusal response
+    7a. if workDecision.mode = boundary:
+          build boundary response from the selected business process decision
           emit WorkBoundaryApplied with selectedProcessIds/debug metadata
-    7b. if allowed:
+    7b. if workDecision.mode = allow:
           call AgentRunner(input, AgentRunContext)
     8. save message/turn
-    9. if policy.shouldExtractInsights: call InsightExtractor
+    9. if insightDecision.candidate: call constrained InsightExtractor
     10. save insights and emit InsightRecorded
     11. return ChatResult with selectedProcessIds
 ```
@@ -278,20 +280,20 @@ Source of truth для базовых правил `MinutkaAgent`:
 }
 ```
 
-На Phase 3.5 **не добавляем `routingHints`** в registry. Registry описывает доступные процессы и их dependencies, а routing map живёт в `processes/index.md`. TypeScript-код не содержит растущий набор regex/pattern rules: он добавляет mandatory processes из application policy, вызывает constrained LLM-router для optional процессов и валидирует, что router вернул только известные/applicable ids. Это сохраняет file-first стиль без скрытого JSON DSL.
+На Phase 3.5 **не добавляем `routingHints`** в registry. Registry описывает доступные процессы и их dependencies, а routing map живёт в `processes/index.md`. TypeScript-код не содержит растущий набор regex/pattern rules и не выбирает `workday_guardrails`/`insight_extraction` через hidden WorkPolicy. Он вызывает SO-CoT constrained decision router и валидирует, что router вернул только известные/applicable ids. Это сохраняет file-first стиль без скрытого JSON DSL.
 
 ### 5.5 `processes/index.md`
 
 Человекочитаемый индекс:
 
-| Process id | Когда выбирать | Основные dependencies |
-|---|---|---|
-| `onboarding` | Первый ответ после заполнения профиля | `SPEC-ONBOARDING-001`, product onboarding scenarios |
-| `consent_and_privacy` | Онбординг, privacy questions, любые ответы с privacy boundary | privacy docs/product scenarios |
-| `evening_reflection` | Вечерняя рефлексия, сравнение с morning plan, blockers | `SPEC-CONTEXT-001` |
-| `workday_guardrails` | Out-of-scope requests, content generation/web research/AI training boundaries | `SPEC-GUARDRAILS-001` |
-| `insight_extraction` | Когда `policy.shouldExtractInsights = true` | Phase 3 insights model/specs |
-| `feedback` | После ответа агента, быстрые реакции 👍/👌/👎 | future `SPEC-FEEDBACK-001` |
+| Process id | Когда выбирать | Why it applies | Mutating |
+|---|---|---|---|
+| `onboarding` | Первый ответ после заполнения профиля | Establishes initial relationship and persona after profile save | Profile already saved |
+| `consent_and_privacy` | Privacy/company/methodologist/data questions | Keeps privacy explanation separate from work-scope and insight logic | No; future external privacy contour |
+| `evening_reflection` | Вечерняя рефлексия, comparison with morning plan, blockers | Applies workday reflection process over thread context | No |
+| `workday_guardrails` | Out-of-scope requests, content generation/web research/AI training/request-integrity boundaries | Business-scope boundary and soft refusal process | Audit event only |
+| `insight_extraction` | Decision marks an allowed turn as an insight candidate | Structured business-signal extraction process | Yes: persists insights |
+| `feedback` | После ответа агента, быстрые реакции 👍/👌/👎 | Previous-answer quality signal | Future feedback record |
 
 ---
 
@@ -334,14 +336,14 @@ Purpose: вечерняя рефлексия и связь с контексто
 Обязательно описать:
 
 - когда применяется: сообщения про итог дня, «не успел», blockers, звонки/встречи, усталость, сравнение с планом;
-- inputs: profile, persona, recentTurns, morning plan, current text, policy decision;
+- inputs: profile, persona, recentTurns, morning plan, current text, conversation decision;
 - process:
   1. найти в recent turns утренний план/приоритет;
   2. отразить факт без оценки;
   3. назвать 1–2 паттерна осторожным языком;
   4. предложить маленький следующий шаг на завтра;
   5. не делать performance judgement;
-- outputs: concise reflection response, possible insight extraction trigger;
+- outputs: concise reflection response, compatible with later insight extraction when selected by decision router;
 - dependencies: `SPEC-CONTEXT-001`, product evening reflection scenario.
 
 ### 6.4 `workday_guardrails.md`
@@ -356,7 +358,7 @@ Purpose: границы тематики и роли.
   2. мягко отказаться;
   3. вернуть разговор к рабочему дню: приоритеты, blockers, следующий шаг;
   4. не извлекать insights из out-of-scope запроса;
-- outputs: refusal response; `shouldExtractInsights = false`;
+- outputs: refusal response; `insightDecision.candidate = false`;
 - anti-patterns: всё равно написать пост/письмо/КП, спорить с пользователем, стыдить;
 - dependencies: `SPEC-GUARDRAILS-001`, product scenario “in-the-moment help”.
 
@@ -366,7 +368,7 @@ Purpose: правила создания structured insights.
 
 Обязательно описать:
 
-- applies only when `policy.shouldExtractInsights = true`;
+- applies only when the conversation decision selected `insight_extraction` and `insightDecision.candidate = true`;
 - kinds: `task_category`, `routine_pattern`, `energy_stress_marker`, `automation_candidate`;
 - не хранить raw transcript, ФИО, Telegram ID, email, phone, внешние IDs;
 - labels/rationale должны быть короткими нормализованными рабочими сигналами;
@@ -472,8 +474,8 @@ export type BuildMinutkaContextInput = {
   purpose: "chat" | "onboarding_first_response" | "feedback";
   text?: string;
   profile?: UserProfile;
-  policy?: WorkPolicyDecision;
   recentTurns?: ConversationTurn[];
+  selectedProcessIds?: AgentManualProcessId[];
 };
 
 export type BuiltMinutkaContext = {
@@ -491,32 +493,27 @@ export async function buildMinutkaContext(
 ): Promise<BuiltMinutkaContext>;
 ```
 
-`manual` лучше загрузить один раз при создании service/harness и передать в `MinutkaServiceDeps`. `router` — async boundary, который в runtime реализован LLM-router-ом, а в specs заменяется mock-router-ом. Если manual не передан, builder должен уметь работать в backward-compatible fallback режиме: вернуть profile-only `systemContext` и пустой `selectedProcessIds`. Это позволяет поэтапно интегрировать manual без зависимости executable specs от внешнего LLM/API.
+`manual` загружается один раз при создании service/harness. Для chat selected process ids приходят из `ConversationDecisionRouter`; для onboarding/feedback lifecycle-required процессы выбираются resolver-ом. Manual не является optional fallback: если он недоступен, service пишет audit event и падает, потому что бизнес-процессы являются source of truth.
 
-### 7.5 Routing rules для Phase 3.5
+### 7.5 SO-CoT decision router rules для Phase 3.5
 
-Routing делится на mandatory и optional selection.
+Routing, work-scope decision и insight applicability объединены в один constrained decision boundary.
 
-Mandatory selection остаётся в application code, потому что это hard policy / lifecycle state, а не semantic interpretation:
+1. Router получает `processes/index.md`, candidate process ids, current text, purpose, profile и recent turns.
+2. Router выбирает только ids из allow-list candidate ids.
+3. Router возвращает строгий JSON:
 
-1. Всегда выбирать `core`, если manual доступен.
-2. Если `purpose = onboarding_first_response`:
-   - `onboarding`
-   - `consent_and_privacy`
-3. Если `policy.allowedForAgent = false`:
-   - `workday_guardrails`
-4. Если `purpose = chat` и `policy.shouldExtractInsights = true`:
-   - `insight_extraction`
-5. Если `purpose = feedback`:
-   - `feedback`
+```json
+{
+  "selectedProcessIds": ["core"],
+  "workDecision": { "mode": "allow", "reason": "workday_reflection" },
+  "insightDecision": { "candidate": true, "suggestedKinds": ["task_category"] }
+}
+```
 
-Optional selection делает constrained LLM-router:
-
-1. Получает `processes/index.md`, candidate process ids, current text, purpose, `WorkPolicyDecision`, profile и recent turns.
-2. Выбирает только ids из allow-list candidate ids.
-3. Возвращает строгий JSON `{ "selectedProcessIds": [...] }` без объяснений.
-4. TypeScript resolver фильтрует output: unknown ids, ids вне `appliesTo`, duplicate ids и invented ids отбрасываются.
-5. При ошибке router-а используется safe fallback: только mandatory process ids.
+4. TypeScript validator фильтрует output: unknown ids, ids вне `appliesTo`, duplicate ids и invented ids отбрасываются.
+5. Если `workDecision.mode = boundary`, application не вызывает main agent и не запускает extractor.
+6. Если `insightDecision.candidate = true`, application запускает constrained insight extractor после ответа.
 
 Router должен выбирать по смыслу и не зависеть от языка запроса. Это сознательно заменяет накопление regex/pattern heuristics, которые быстро начинают пересекаться и плохо масштабируются на multilingual input.
 
@@ -528,9 +525,9 @@ Router должен выбирать по смыслу и не зависеть 
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
-  purpose: "chat" | "onboarding_first_response";
+  purpose: "chat" | "onboarding_first_response" | "feedback";
   memory?: AgentMemoryContext;
-  policy?: WorkPolicyDecision;
+  decision?: ConversationDecision;
   selectedProcessIds?: AgentManualProcessId[];
 };
 ```

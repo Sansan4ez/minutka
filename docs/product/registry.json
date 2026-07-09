@@ -43,7 +43,7 @@
       "scenario": 5,
       "story": "As an employee, I receive a soft refusal when I ask Minutka to produce out-of-scope work output.",
       "acceptance": [
-        "A work-output request is rejected by a deterministic topic boundary.",
+        "A work-output request is rejected by the selected work-scope boundary process.",
         "The response redirects the employee back to learning and reflection.",
         "No final work product is generated or exposed to the methodologist."
       ]
@@ -121,7 +121,7 @@
       "story": "As an employee, I submit an evening text reflection that updates my private context and prepares safe aggregate signal candidates.",
       "acceptance": [
         "Evening text creates private personal observation proposals.",
-        "Evening text creates deterministic signal candidates without raw transcript or direct PII.",
+        "Evening text creates structured business-signal candidates without raw transcript.",
         "Methodologist/client views cannot see the message content or individual emotional state."
       ]
     },

@@ -1,5 +1,6 @@
 # Этап 3: Контекст, guardrails и извлечение инсайтов — подробный план
 
+> **Статус:** исторический план Phase 3. Deterministic `WorkPolicy`/keyword extractor, описанные ниже как MVP-шаг, superseded после Phase 3.5: текущая архитектура использует SO-CoT constrained conversation decision router и business-process markdown files для `workday_guardrails` и `insight_extraction`.  
 > **Родительский план:** [time-agent-mastra-plan.md](./time-agent-mastra-plan.md)  
 > **Предыдущий этап:** [phase-2-onboarding-consent-profile.md](./phase-2-onboarding-consent-profile.md)  
 > **Стартовый тег:** `phase-2-onboarding`  
