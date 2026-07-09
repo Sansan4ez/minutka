@@ -435,28 +435,39 @@ export class MinutkaService {
     this.world.messages.push(message);
 
     if (decision.insightDecision.candidate) {
-      const insightExtractor = this.requireInsightExtractor();
-      const extraction = await insightExtractor({
-        employeeId: input.employeeId,
-        threadId: input.threadId,
-        messageId,
-        text: input.text,
-        response,
-        profile,
-        recentTurns,
-        decision,
-      });
-      const insights = this.assignInsightIdsAndTimestamps(extraction.insights);
-      await this.insightStore.saveInsights(insights);
-      for (const insight of insights) {
-        this.world.events.push({
-          type: "InsightRecorded",
-          employeeId: insight.employeeId,
-          threadId: insight.threadId,
-          insightId: insight.id,
-          kind: insight.kind,
-          timestamp: insight.createdAt,
+      try {
+        const insightExtractor = this.requireInsightExtractor();
+        const extraction = await insightExtractor({
+          employeeId: input.employeeId,
+          threadId: input.threadId,
+          messageId,
+          text: input.text,
+          response,
+          profile,
+          recentTurns,
+          decision,
         });
+        const insights = this.assignInsightIdsAndTimestamps(extraction.insights);
+        await this.insightStore.saveInsights(insights);
+        for (const insight of insights) {
+          this.world.events.push({
+            type: "InsightRecorded",
+            employeeId: insight.employeeId,
+            threadId: insight.threadId,
+            insightId: insight.id,
+            kind: insight.kind,
+            timestamp: insight.createdAt,
+          });
+        }
+      } catch (error) {
+        this.world.events.push({
+          type: "InsightExtractionFailed",
+          employeeId: input.employeeId,
+          threadId: input.threadId,
+          reason: error instanceof Error ? error.message : String(error),
+          timestamp: this.world.now(),
+        });
+        console.warn("Insight extraction failed; returning chat response without insights.", error);
       }
     }
 
@@ -513,13 +524,13 @@ export class MinutkaService {
       );
     } catch (error) {
       console.warn(
-        "Conversation decision router failed; falling back to unknown allow decision.",
+        "Conversation decision router failed; applying fail-closed work boundary.",
         error,
       );
       return sanitizeConversationDecision(
         {
-          selectedProcessIds: ["core"],
-          workDecision: { mode: "allow", reason: "unknown" },
+          selectedProcessIds: ["core", "workday_guardrails"],
+          workDecision: { mode: "boundary", reason: "unknown" },
           insightDecision: { candidate: false, suggestedKinds: [] },
         },
         this.manual,

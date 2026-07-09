@@ -80,6 +80,10 @@ export function buildBoundaryResponse(
     return `Это вне моей роли помощника по рабочему дню. ${redirect}`;
   }
 
+  if (decision.reason === "unknown") {
+    return `Сейчас я не могу надёжно определить границы запроса, поэтому не буду отвечать по содержанию. ${redirect}`;
+  }
+
   return `Я не пишу посты и рабочие материалы за тебя. ${redirect}`;
 }
 
