@@ -1,4 +1,4 @@
-# Agent Manual process index
+# Agent Vault process index
 
 This index is the file-first routing map for Minutka business processes. It follows the `ecom1-process-architect` pattern: each row explains **when** to select a process, **why** it applies, and whether the process owns a state-changing side effect.
 

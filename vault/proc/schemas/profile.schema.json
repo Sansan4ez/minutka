@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MinutkaProfileProjection",
+  "type": "object",
+  "required": ["employeeId", "role", "typicalTasks", "persona", "aiLevel", "responseLength"],
+  "properties": {
+    "employeeId": { "type": "string" },
+    "role": { "type": "string" },
+    "typicalTasks": { "type": "array", "items": { "type": "string" } },
+    "persona": { "enum": ["support", "efficiency"] },
+    "aiLevel": { "enum": ["beginner", "intermediate", "advanced"] },
+    "responseLength": { "enum": ["short", "medium"] }
+  },
+  "additionalProperties": false
+}

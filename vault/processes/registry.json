@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "manualId": "minutka-agent-manual-lite",
+  "manualId": "minutka-agent-vault",
   "core": {
     "id": "core",
-    "path": "docs/agent-manual/core.md"
+    "path": "vault/AGENTS.md"
   },
   "processes": [
     {
       "id": "onboarding",
-      "path": "docs/agent-manual/processes/onboarding.md",
+      "path": "vault/processes/onboarding.md",
       "appliesTo": ["onboarding_first_response"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-1-employee-joins-the-program",
@@ -18,7 +18,7 @@
     },
     {
       "id": "consent_and_privacy",
-      "path": "docs/agent-manual/processes/consent_and_privacy.md",
+      "path": "vault/processes/consent_and_privacy.md",
       "appliesTo": ["onboarding_first_response", "chat"],
       "dependencies": [
         "docs/product/Final_Description.md#44-data-and-privacy-requirements",
@@ -29,7 +29,7 @@
     },
     {
       "id": "evening_reflection",
-      "path": "docs/agent-manual/processes/evening_reflection.md",
+      "path": "vault/processes/evening_reflection.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-5-employee-completes-evening-reflection",
@@ -39,7 +39,7 @@
     },
     {
       "id": "workday_guardrails",
-      "path": "docs/agent-manual/processes/workday_guardrails.md",
+      "path": "vault/processes/workday_guardrails.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-6-employee-asks-for-in-the-moment-help",
@@ -49,7 +49,7 @@
     },
     {
       "id": "insight_extraction",
-      "path": "docs/agent-manual/processes/insight_extraction.md",
+      "path": "vault/processes/insight_extraction.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "src/domain/insights.ts",
@@ -59,7 +59,7 @@
     },
     {
       "id": "feedback",
-      "path": "docs/agent-manual/processes/feedback.md",
+      "path": "vault/processes/feedback.md",
       "appliesTo": ["feedback"],
       "dependencies": [
         "docs/plans/time-agent-mastra-plan.md#phase-4-feedback-loop-and-telegram-shell",

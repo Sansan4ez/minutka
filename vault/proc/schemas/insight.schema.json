@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StructuredInsightProjection",
+  "type": "object",
+  "required": ["id", "employeeId", "threadId", "sourceMessageId", "kind", "label", "rationale", "createdAt"],
+  "properties": {
+    "id": { "type": "string" },
+    "employeeId": { "type": "string" },
+    "threadId": { "type": "string" },
+    "sourceMessageId": { "type": "string" },
+    "kind": { "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"] },
+    "label": { "type": "string" },
+    "rationale": { "type": "string" },
+    "createdAt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -46,10 +46,10 @@ export function loadAgentManualFromDisk(
   options: LoadAgentManualOptions = {},
 ): AgentManual {
   const repoRoot = findRepoRoot(options.repoRoot ?? process.cwd());
-  const registryPath = options.registryPath ?? "docs/agent-manual/registry.json";
+  const registryPath = options.registryPath ?? "vault/processes/registry.json";
   const absoluteRegistryPath = resolveRepoPath(repoRoot, registryPath);
   if (!existsSync(absoluteRegistryPath)) {
-    throw new Error(`missing agent manual registry: ${registryPath}`);
+    throw new Error(`missing agent vault registry: ${registryPath}`);
   }
 
   const registry = JSON.parse(
@@ -65,10 +65,10 @@ export function loadAgentManualFromDisk(
       content: readManualFile(repoRoot, registry.core.path, "core file"),
     },
     processIndex: {
-      path: "docs/agent-manual/processes/index.md",
+      path: "vault/processes/index.md",
       content: readManualFile(
         repoRoot,
-        "docs/agent-manual/processes/index.md",
+        "vault/processes/index.md",
         "process index",
       ),
     },
@@ -83,7 +83,7 @@ export function loadAgentManualFromDisk(
 
   const validation = validateAgentManual(manual, repoRoot);
   if (!validation.ok) {
-    throw new Error(`agent manual validation failed:\n- ${validation.errors.join("\n- ")}`);
+    throw new Error(`agent vault validation failed:\n- ${validation.errors.join("\n- ")}`);
   }
   return manual;
 }
@@ -141,7 +141,7 @@ export function validateAgentManual(
     if (!ids.has(requiredId)) errors.push(`missing required process id: ${requiredId}`);
   }
 
-  const indexPath = manual.processIndex?.path ?? "docs/agent-manual/processes/index.md";
+  const indexPath = manual.processIndex?.path ?? "vault/processes/index.md";
   if (!existsRepoPath(repoRoot, indexPath)) {
     errors.push(`missing process index: ${indexPath}`);
   } else {
@@ -153,9 +153,9 @@ export function validateAgentManual(
     }
   }
 
-  for (const handle of ["/AGENTS.md", "/docs", "/proc", "/bin"]) {
+  for (const handle of ["/AGENTS.md", "/processes", "/docs", "/proc", "/bin", "/run"]) {
     if (!manual.core.content.includes(handle)) {
-      errors.push(`core.md missing virtual namespace handle: ${handle}`);
+      errors.push(`AGENTS.md missing vault namespace handle: ${handle}`);
     }
   }
 
@@ -188,7 +188,7 @@ function existsRepoPath(repoRoot: string, path: string) {
 
 function assertProcessId(id: string): AgentManualProcess["id"] {
   if (id === "core" || !agentManualProcessIds.includes(id as AgentManualProcessId)) {
-    throw new Error(`unknown agent manual process id: ${id}`);
+    throw new Error(`unknown agent vault process id: ${id}`);
   }
   return id as AgentManualProcess["id"];
 }
@@ -197,7 +197,7 @@ function assertPurpose(purpose: string): AgentManualPurpose {
   if (["chat", "onboarding_first_response", "feedback"].includes(purpose)) {
     return purpose as AgentManualPurpose;
   }
-  throw new Error(`unknown agent manual appliesTo purpose: ${purpose}`);
+  throw new Error(`unknown agent vault appliesTo purpose: ${purpose}`);
 }
 
 function containsPlaceholder(content: string) {

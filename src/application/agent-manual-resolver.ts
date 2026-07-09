@@ -89,7 +89,7 @@ async function safeRouteProcesses(
     return filterRouterSelection(await router(input), input.candidateProcessIds);
   } catch (error) {
     console.warn(
-      "Agent Manual router failed; falling back to required processes only.",
+      "Agent Vault router failed; falling back to required processes only.",
       error,
     );
     return [];
@@ -126,7 +126,7 @@ function buildRoutingPrompt(
       ].join("\n")
     : "not available";
   return [
-    "You are the constrained Agent Manual process router for Minutka.",
+    "You are the constrained Agent Vault process router for Minutka.",
     "Use the process index and process descriptions below to choose optional process files for the current request.",
     "Return ONLY valid JSON with this shape: {\"selectedProcessIds\":[\"process_id\"]}.",
     "Do not include explanations. Do not invent ids. Choose only from candidateProcessIds.",
@@ -224,7 +224,7 @@ export function renderManualContext(
 ) {
   const sections: string[] = [];
   if (selectedProcessIds.includes("core")) {
-    sections.push(["## Agent Manual: core", manual.core.content.trim()].join("\n\n"));
+    sections.push(["## Agent Vault: /AGENTS.md", manual.core.content.trim()].join("\n\n"));
   }
 
   for (const processId of selectedProcessIds) {
@@ -232,7 +232,7 @@ export function renderManualContext(
     const process = manual.processes.find((candidate) => candidate.id === processId);
     if (process) {
       sections.push(
-        [`## Agent Manual process: ${process.id}`, process.content.trim()].join("\n\n"),
+        [`## Agent Vault process: ${process.id}`, process.content.trim()].join("\n\n"),
       );
     }
   }

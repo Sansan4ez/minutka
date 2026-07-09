@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FeedbackProjection",
+  "type": "object",
+  "required": ["employeeId", "threadId", "targetMessageId", "rating", "createdAt"],
+  "properties": {
+    "employeeId": { "type": "string" },
+    "threadId": { "type": "string" },
+    "targetMessageId": { "type": "string" },
+    "rating": { "enum": ["positive", "neutral", "negative"] },
+    "comment": { "type": "string" },
+    "createdAt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

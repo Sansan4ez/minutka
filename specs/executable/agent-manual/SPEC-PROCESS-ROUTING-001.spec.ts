@@ -46,7 +46,7 @@ const noOptionalProcessRouter: AgentManualRouter = async () => [];
 const eveningReflectionRouter: AgentManualRouter = async (input) =>
   input.text === eveningReflectionText ? ["evening_reflection"] : [];
 
-describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects processes", () => {
+describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects processes", () => {
   it("selects core, onboarding and privacy for onboarding first response", async () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
@@ -64,7 +64,7 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Manual router selects proc
       expect.arrayContaining(["core", "onboarding", "consent_and_privacy"]),
     );
     expect(onboardingRun?.context?.systemContext).toContain(
-      "## Agent Manual process: onboarding",
+      "## Agent Vault process: onboarding",
     );
   });
 

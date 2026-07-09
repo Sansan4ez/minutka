@@ -25,16 +25,16 @@ registerSpecMetadata({
   cli: [],
 });
 
-describe("SPEC-AGENT-MANUAL-001: agent manual is valid", () => {
-  it("loads registry, core and process files with required author contract", () => {
+describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
+  it("loads registry, AGENTS.md and process files with required author contract", () => {
     const manual = loadAgentManualFromDisk();
     const validation = validateAgentManual(manual);
 
     expect(validation.errors).toEqual([]);
     expect(validation.ok).toBe(true);
     expect(manual.version).toBe(1);
-    expect(manual.manualId).toBe("minutka-agent-manual-lite");
-    expect(manual.core.path).toBe("docs/agent-manual/core.md");
+    expect(manual.manualId).toBe("minutka-agent-vault");
+    expect(manual.core.path).toBe("vault/AGENTS.md");
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
@@ -58,7 +58,7 @@ describe("SPEC-AGENT-MANUAL-001: agent manual is valid", () => {
   it("keeps process index and virtual namespace contract in sync", () => {
     const manual = loadAgentManualFromDisk();
     const processIndex = readFileSync(
-      "docs/agent-manual/processes/index.md",
+      "vault/processes/index.md",
       "utf8",
     );
 
@@ -66,7 +66,7 @@ describe("SPEC-AGENT-MANUAL-001: agent manual is valid", () => {
       expect(processIndex).toContain(`\`${process.id}\``);
     }
 
-    for (const handle of ["/AGENTS.md", "/docs", "/proc", "/bin"]) {
+    for (const handle of ["/AGENTS.md", "/processes", "/docs", "/proc", "/bin", "/run"]) {
       expect(manual.core.content).toContain(handle);
     }
   });
