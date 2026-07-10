@@ -33,7 +33,7 @@ export class TelegramDriver {
     const server = createInProcessServer(world, agentRunner, createDefaultSpecDeps(deps));
     const client = new MinutkaClient(server);
     const sessionStore = createInMemoryTelegramSessionStore();
-    
+
     const self = this;
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
@@ -48,11 +48,19 @@ export class TelegramDriver {
   }
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> {
-    await this.shell.handleStart(input.chatId, input.inviteCode, input.userId);
+    await this.shell.handleStart(
+      input.chatId,
+      input.inviteCode,
+      input.userId ?? this.defaultUserId(input.chatId),
+    );
   }
 
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> {
-    await this.shell.handleText(input.chatId, input.text, input.userId);
+    await this.shell.handleText(
+      input.chatId,
+      input.text,
+      input.userId ?? this.defaultUserId(input.chatId),
+    );
   }
 
   async clickFeedback(input: {
@@ -62,7 +70,12 @@ export class TelegramDriver {
     targetMessageId: string;
   }): Promise<void> {
     const callbackData = encodeFeedbackCallbackData(input.rating, input.targetMessageId);
-    await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, callbackData, input.userId);
+    await this.shell.handleCallback(
+      input.chatId,
+      `cb_${Date.now()}`,
+      callbackData,
+      input.userId ?? this.defaultUserId(input.chatId),
+    );
   }
 
   async clickCallback(input: {
@@ -70,7 +83,12 @@ export class TelegramDriver {
     userId?: string;
     callbackData: string;
   }): Promise<void> {
-    await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, input.callbackData, input.userId);
+    await this.shell.handleCallback(
+      input.chatId,
+      `cb_${Date.now()}`,
+      input.callbackData,
+      input.userId ?? this.defaultUserId(input.chatId),
+    );
   }
 
   sentMessages(): SentMessage[] {
@@ -84,5 +102,9 @@ export class TelegramDriver {
   clear() {
     this.sent.length = 0;
     this.callbacks.length = 0;
+  }
+
+  private defaultUserId(chatId: string): string {
+    return `user_${chatId}`;
   }
 }

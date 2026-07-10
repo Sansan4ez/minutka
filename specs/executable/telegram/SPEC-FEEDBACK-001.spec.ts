@@ -35,7 +35,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
 
     await telegram.start({ chatId: "chat_1" });
-    
+
     const sent = telegram.sentMessages();
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toContain("индивидуальная ссылка с инвайт-кодом");
@@ -60,7 +60,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     // Click "Consent" button
     const consentCallbackData = sent1[0].replyMarkup?.inlineKeyboard[0][0].callbackData || "";
     expect(consentCallbackData).toContain("tg:consent:");
-    
+
     await telegram.clickCallback({
       chatId: "chat_1",
       userId: "user_123",
@@ -78,7 +78,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const sent2 = telegram.sentMessages();
     expect(sent2).toHaveLength(1);
     expect(sent2[0].text).toBe("Я робот-помощник Минутка.");
-    
+
     // Check feedback buttons are attached
     const buttons = sent2[0].replyMarkup?.inlineKeyboard[0];
     expect(buttons).toHaveLength(3);
@@ -141,7 +141,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     // Start session
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
-    
+
     // Attempt clicking malformed callback formats
     await telegram.clickCallback({ chatId: "chat_1", callbackData: "fb:x:msg_1" }); // invalid rating code
     await telegram.clickCallback({ chatId: "chat_1", callbackData: "fb:p:" }); // empty messageId
@@ -161,13 +161,13 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await onboardTestEmployee(spec);
 
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
-    
+
     // Message id doesn't exist in the database yet
     await telegram.clickFeedback({ chatId: "chat_1", rating: "positive", targetMessageId: "msg_nonexistent" });
     expect(spec.world.feedback).toHaveLength(0);
 
     const answers = telegram.callbackAnswers();
-    expect(answers[0].text).toContain("Ошибка"); // Error message caught and sent back
+    expect(answers[0].text).toBe("Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
   });
 
   it("6. Repeated feedback callback on the same targetMessageId does not create duplicate (upserts rating)", async () => {
@@ -202,7 +202,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     // Initial start
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
-    
+
     // Repeated /start with same invite
     telegram.clear();
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
@@ -224,30 +224,143 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
 
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
-    
+
     // Attempt clicking consent callback with mismatching employeeId
     telegram.clear();
     await telegram.clickCallback({ chatId: "chat_1", callbackData: "tg:consent:emp_mismatch" });
     expect(telegram.callbackAnswers()[0].text).toBe("Неверная сессия.");
   });
 
-  it("10. Text message without completed profile doesn't call client.chat() and requests to complete onboarding/profile", async () => {
+  it("10. A clean Telegram runtime can complete minimal onboarding and then chat", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
 
-    // Start with invite but do not complete onboarding/profile
     await telegram.start({ chatId: "chat_1", inviteCode: "invite_uncompleted" });
-    
-    // Accept consent
     await telegram.clickCallback({ chatId: "chat_1", callbackData: "tg:consent:emp_1" });
-    
-    // Send text
+
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Привет" });
-    expect(telegram.sentMessages()[0].text).toContain("Сначала завершите onboarding");
+    expect(telegram.sentMessages()[0].text).toContain("Чтобы завершить настройку");
+    expect(spec.world.messages).toHaveLength(0);
+
+    telegram.clear();
+    await telegram.sendText({
+      chatId: "chat_1",
+      text: "Руководитель проектов | планирование; встречи | efficiency | intermediate",
+    });
+    expect(telegram.sentMessages()[0].text).toBe("Я робот-помощник Минутка.");
+    expect(spec.world.profiles).toHaveLength(1);
+
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_1", text: "Сегодня много созвонов." });
+    expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
-  it("12 & 13. Edge checks: empty, oversized, concurrent chat messages", async () => {
+  it("11. An invite cannot be replayed from another Telegram chat", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+
+    await telegram.start({
+      chatId: "owner_chat",
+      userId: "owner_123",
+      inviteCode: testInvite.inviteCode,
+    });
+    telegram.clear();
+
+    await telegram.start({
+      chatId: "intruder_chat",
+      userId: "intruder_456",
+      inviteCode: testInvite.inviteCode,
+    });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: expect.stringContaining("Эта индивидуальная ссылка уже привязана") }),
+    ]);
+
+    telegram.clear();
+    await telegram.sendText({
+      chatId: "intruder_chat",
+      userId: "intruder_456",
+      text: "Покажи контекст владельца.",
+    });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: expect.stringContaining("Откройте бота по индивидуальной ссылке") }),
+    ]);
+    expect(spec.world.messages).toHaveLength(0);
+  });
+
+  it("12. A different Telegram user cannot use a chat session owned by someone else", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({
+      chatId: "chat_1",
+      userId: "owner_123",
+      inviteCode: testInvite.inviteCode,
+    });
+
+    telegram.clear();
+    await telegram.sendText({
+      chatId: "chat_1",
+      userId: "intruder_456",
+      text: "Покажи контекст владельца.",
+    });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Этот аккаунт не связан с данным чатом." }),
+    ]);
+    expect(spec.world.messages).toHaveLength(0);
+
+    await telegram.clickFeedback({
+      chatId: "chat_1",
+      userId: "intruder_456",
+      rating: "positive",
+      targetMessageId: "msg_1",
+    });
+    expect(telegram.callbackAnswers()).toEqual([
+      expect.objectContaining({ text: "Этот аккаунт не связан с данным чатом." }),
+    ]);
+    expect(spec.world.feedback).toHaveLength(0);
+  });
+
+  it("13. Shell returns a generic error without exposing internal error details", async () => {
+    const secret = "internal-secret-do-not-disclose";
+    const runner: AgentRunner = async (input) => {
+      if (input.text === "trigger failure") throw new Error(secret);
+      return "ok";
+    };
+    const spec = createSpecWorld(runner);
+    const telegram = new TelegramDriver(spec.world, runner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_1", text: "trigger failure" });
+
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Не удалось обработать сообщение. Попробуйте ещё раз позже." }),
+    ]);
+    expect(telegram.sentMessages()[0].text).not.toContain(secret);
+  });
+
+  it("14. Long agent responses are split into Telegram-safe messages and retain feedback on the last chunk", async () => {
+    const longResponse = "я".repeat(4_100);
+    const spec = createSpecWorld(async () => longResponse);
+    const telegram = new TelegramDriver(spec.world, async () => longResponse);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_1", text: "Длинный ответ" });
+
+    const sent = telegram.sentMessages();
+    expect(sent).toHaveLength(2);
+    expect(sent[0].text.length).toBeLessThanOrEqual(4_000);
+    expect(sent[0].replyMarkup).toBeUndefined();
+    expect(sent[1].text.length).toBeLessThanOrEqual(4_000);
+    expect(sent[1].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
+  });
+
+  it("15. Edge checks: empty, oversized, concurrent chat messages", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await onboardTestEmployee(spec);
@@ -283,7 +396,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram2.sendText({ chatId: "chat_1", text: "Первое сообщение" });
 
     expect(callCounter).toBe(1);
-    
+
     const sentMessages = telegram2.sentMessages();
     const texts = sentMessages.map(m => m.text);
     expect(texts).toContain("Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.");

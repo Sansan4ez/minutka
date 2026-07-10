@@ -404,11 +404,11 @@ Telegram deep link обычно приходит как:
 
 1. `/start <inviteCode>` → `openInvite`, показать privacy explanation и inline button `✅ Принимаю`.
 2. callback `tg:consent:<employeeId>` → `acceptConsent({ source: "telegram" })`.
-3. После consent бот просит отправить одну строку с ролью и задачами в простом формате или предлагает временный default для smoke.
+3. После consent бот просит отправить одну строку с ролью и задачами в простом формате и вызывает существующий `completeOnboarding()` через SDK.
 
-Чтобы не раздувать Phase 4, рекомендуется **не делать многошаговую анкету**. Для ручного smoke можно заранее создать профиль через CLI, а Telegram `/start` только связывает chat с `employeeId`. В specs обязательно покрыть уже готового участника: это проверяет shell/chat/feedback без увязания в onboarding FSM.
+Чтобы не раздувать Phase 4, не делать многошаговую анкету: после consent shell принимает один формат `роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced`. Это делает ручной Telegram smoke достижимым из чистого runtime без отдельного CLI/API процесса.
 
-Итого рекомендуемое решение: **Phase 4 реализует `/start` + session binding + consent acknowledgement, но полноценное заполнение профиля оставляет существующим CLI/API**. Это соответствует формулировке общего плана: `/start`, onboarding entrypoint, а не полный Telegram onboarding wizard.
+Итого Phase 4 реализует `/start` + session binding + consent acknowledgement + минимальное заполнение профиля через существующий application use case; сложный Telegram onboarding wizard остаётся за рамками этапа.
 
 ---
 
@@ -741,8 +741,8 @@ npm run typecheck
 TELEGRAM_BOT_TOKEN=... OPENAI_API_KEY=... npm run telegram:dev
 ```
 
-3. Подготовить профиль через CLI/API или fixture command.
-4. Открыть bot через `/start <inviteCode>`.
+3. Открыть bot через `/start <inviteCode>`.
+4. Подтвердить consent и отправить профиль в формате `Руководитель проектов | планирование; встречи | efficiency | intermediate`.
 5. Отправить текст: `Сегодня хочу закрыть квартальный отчёт`.
 6. Убедиться, что пришёл ответ и кнопки 👍/👌/👎.
 7. Нажать 👍.

@@ -3,7 +3,10 @@ import { createInMemoryWorld } from "../application/in-memory-world.js";
 import { createInProcessServer } from "../server/http/in-process-server.js";
 import { MinutkaClient } from "../client/sdk/minutka-client.js";
 import { createInMemoryTelegramSessionStore } from "./in-memory-telegram-session-store.js";
-import { createTelegramShell } from "./telegram-shell.js";
+import {
+  createTelegramShell,
+  maxTelegramMessageCharacters,
+} from "./telegram-shell.js";
 import { createTelegrafBot } from "./telegraf-runtime.js";
 import { runMinutkaAgent } from "../mastra/agent-runner.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
@@ -42,6 +45,9 @@ async function main() {
 
   const replyPort: TelegramReplyPort = {
     async sendMessage(chatId, text, options) {
+      if (Array.from(text).length > maxTelegramMessageCharacters) {
+        throw new Error("Telegram message exceeds the 4096-character limit");
+      }
       if (!activeBot) throw new Error("Bot not running");
       let replyMarkup = undefined;
       if (options?.replyMarkup?.inlineKeyboard) {
@@ -58,7 +64,7 @@ async function main() {
     },
     async answerCallbackQuery(callbackQueryId, text) {
       if (!activeBot) throw new Error("Bot not running");
-      await activeBot.telegram.answerCbQuery(callbackQueryId, text);
+      await activeBot.telegram.answerCbQuery(callbackQueryId, text?.slice(0, 200));
     },
   };
 

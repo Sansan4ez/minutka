@@ -13,6 +13,11 @@ export function createTelegrafBot(deps: {
   });
 
   bot.start(async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
+      return;
+    }
+
     const chatId = String(ctx.chat.id);
     const userId = ctx.from ? String(ctx.from.id) : undefined;
     const text = ctx.message.text || "";
@@ -23,6 +28,11 @@ export function createTelegrafBot(deps: {
   });
 
   bot.on("text", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
+      return;
+    }
+
     const chatId = String(ctx.chat.id);
     const userId = ctx.from ? String(ctx.from.id) : undefined;
     const text = ctx.message.text;
@@ -31,6 +41,11 @@ export function createTelegrafBot(deps: {
   });
 
   bot.on("callback_query", async (ctx) => {
+    if (ctx.chat && ctx.chat.type !== "private") {
+      await ctx.answerCbQuery("Для защиты конфиденциальности бот работает только в личном чате.");
+      return;
+    }
+
     const chatId = ctx.chat ? String(ctx.chat.id) : "";
     const userId = ctx.from ? String(ctx.from.id) : undefined;
     const callbackQueryId = ctx.callbackQuery.id;

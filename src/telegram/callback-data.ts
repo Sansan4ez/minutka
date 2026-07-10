@@ -33,7 +33,7 @@ export function encodeFeedbackCallbackData(rating: FeedbackRating, targetMessage
   }
 
   const payload = `fb:${code}:${targetMessageId}`;
-  if (payload.length > 64) {
+  if (Buffer.byteLength(payload, "utf8") > 64) {
     throw new Error("Callback payload exceeds 64 bytes");
   }
   return payload;
@@ -45,14 +45,14 @@ export type DecodedFeedback = {
 };
 
 export function decodeFeedbackCallbackData(data: string): DecodedFeedback | undefined {
-  if (data.length > 64) {
+  if (Buffer.byteLength(data, "utf8") > 64) {
     return undefined;
   }
   // Format: fb:p|n|d:<targetMessageId>
   if (!data.startsWith("fb:")) {
     return undefined;
   }
-  
+
   // Find second colon
   const secondColonIndex = data.indexOf(":", 3);
   if (secondColonIndex === -1) {
