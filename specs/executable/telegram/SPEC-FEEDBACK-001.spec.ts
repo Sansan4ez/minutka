@@ -253,6 +253,45 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(event.transport).toBeUndefined();
   });
 
+  it("3b. Consent callback gates chat and feedback even for an already onboarded employee", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+
+    await telegram.start({
+      chatId: "chat_1",
+      userId: "user_123",
+      inviteCode: testInvite.inviteCode,
+    });
+    telegram.clear();
+
+    await telegram.sendText({
+      chatId: "chat_1",
+      userId: "user_123",
+      text: "Покажи мой контекст.",
+    });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({
+        text: "Сначала подтвердите согласие с политикой конфиденциальности.",
+      }),
+    ]);
+    expect(spec.world.messages).toHaveLength(0);
+
+    telegram.clear();
+    await telegram.clickFeedback({
+      chatId: "chat_1",
+      userId: "user_123",
+      rating: "positive",
+      targetMessageId: "msg_1",
+    });
+    expect(telegram.callbackAnswers()).toEqual([
+      expect.objectContaining({
+        text: "Сначала подтвердите согласие с политикой конфиденциальности.",
+      }),
+    ]);
+    expect(spec.world.feedback).toHaveLength(0);
+  });
+
   it("4. Malformed feedback callback data does not submit feedback", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
@@ -280,6 +319,10 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await onboardTestEmployee(spec);
 
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    telegram.clear();
 
     // Message id doesn't exist in the database yet
     await telegram.clickFeedback({ chatId: "chat_1", rating: "positive", targetMessageId: "msg_nonexistent" });
@@ -348,6 +391,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await onboardTestEmployee(spec);
 
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Какая сегодня погода?" });
 
@@ -567,6 +613,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const telegram = new TelegramDriver(spec.world, runner);
     await onboardTestEmployee(spec);
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "trigger failure" });
@@ -583,6 +632,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const telegram = new TelegramDriver(spec.world, async () => longResponse);
     await onboardTestEmployee(spec);
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Длинный ответ" });
@@ -600,6 +652,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await onboardTestEmployee(spec);
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
 
     // Empty text
     telegram.clear();
@@ -623,9 +678,13 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const spec2 = createSpecWorld(concurrentAgentRunner);
     const telegram2 = new TelegramDriver(spec2.world, concurrentAgentRunner);
     await onboardTestEmployee(spec2);
-    // Reset call counter after onboarding since onboarding also triggers agentRunner
+    // Reset call counter and driver output after onboarding since onboarding triggers agentRunner.
     callCounter = 0;
+    telegram2.clear();
     await telegram2.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData2 = telegram2.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram2.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData2! });
 
     telegram2.clear();
     await telegram2.sendText({ chatId: "chat_1", text: "Первое сообщение" });
@@ -648,6 +707,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await onboardTestEmployee(spec3);
     parallelCallCounter = 0;
     await telegram3.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData3 = telegram3.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
+      .callbackData;
+    await telegram3.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData3! });
 
     telegram3.clear();
     await Promise.all([

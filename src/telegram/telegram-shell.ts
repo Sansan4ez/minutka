@@ -150,9 +150,6 @@ export function createTelegramShell(deps: {
           employeeId: inviteResult.employeeId,
           threadId: inviteResult.employeeId,
           inviteCode,
-          ...(inviteResult.status !== "invite_opened"
-            ? { consentAcceptedAt: timestamp }
-            : {}),
           createdAt: timestamp,
           updatedAt: timestamp,
         });
@@ -220,15 +217,16 @@ export function createTelegramShell(deps: {
           return;
         }
 
+        if (!session.consentAcceptedAt) {
+          await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+          return;
+        }
+
         // A completed profile means this is an ordinary chat message.
         try {
           await client.getProfile({ employeeId: session.employeeId });
         } catch (error) {
           if (!isProfileNotFoundError(error)) throw error;
-          if (!session.consentAcceptedAt) {
-            await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-            return;
-          }
 
           const profile = parseOnboardingProfile(trimmed);
           if (!profile) {
@@ -346,6 +344,13 @@ export function createTelegramShell(deps: {
           }
           if (!isSessionOwner(session, userId)) {
             await replyPort.answerCallbackQuery(callbackQueryId, "Этот аккаунт не связан с данным чатом.");
+            return;
+          }
+          if (!session.consentAcceptedAt) {
+            await replyPort.answerCallbackQuery(
+              callbackQueryId,
+              "Сначала подтвердите согласие с политикой конфиденциальности.",
+            );
             return;
           }
 
