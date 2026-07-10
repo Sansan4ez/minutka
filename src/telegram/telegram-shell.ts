@@ -58,9 +58,33 @@ function isProfileNotFoundError(error: unknown): boolean {
   return error instanceof Error && error.message === "profile not found";
 }
 
+function isInviteNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message === "invite not found";
+}
+
 function logShellError(operation: string, error: unknown): void {
   const kind = error instanceof Error ? error.name : "UnknownError";
   console.error(`Telegram shell ${operation} failed (${kind}).`);
+}
+
+async function sendConsentPrompt(
+  replyPort: TelegramReplyPort,
+  chatId: string,
+  employeeId: string,
+  privacyExplanation: string,
+): Promise<void> {
+  await replyPort.sendMessage(chatId, privacyExplanation, {
+    replyMarkup: {
+      inlineKeyboard: [
+        [
+          {
+            text: "✅ Принимаю",
+            callbackData: `tg:consent:${employeeId}`,
+          },
+        ],
+      ],
+    },
+  });
 }
 
 export function createTelegramShell(deps: {
@@ -86,15 +110,24 @@ export function createTelegramShell(deps: {
             return;
           }
 
-          if (inviteCode) {
-            if (inviteCode === existingSession.inviteCode) {
-              await replyPort.sendMessage(chatId, "Вы уже зарегистрированы и этот чат связан с вашим профилем.");
-              return;
-            } else {
-              await replyPort.sendMessage(chatId, "Этот чат уже привязан к другому пользователю. Смена привязки не поддерживается.");
-              return;
-            }
+          if (inviteCode && inviteCode !== existingSession.inviteCode) {
+            await replyPort.sendMessage(chatId, "Этот чат уже привязан к другому пользователю. Смена привязки не поддерживается.");
+            return;
           }
+
+          if (!existingSession.consentAcceptedAt) {
+            const inviteResult = await client.openInvite({
+              inviteCode: existingSession.inviteCode ?? "",
+            });
+            await sendConsentPrompt(
+              replyPort,
+              chatId,
+              existingSession.employeeId,
+              inviteResult.privacyExplanation,
+            );
+            return;
+          }
+
           await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
           return;
         }
@@ -117,6 +150,9 @@ export function createTelegramShell(deps: {
           employeeId: inviteResult.employeeId,
           threadId: inviteResult.employeeId,
           inviteCode,
+          ...(inviteResult.status !== "invite_opened"
+            ? { consentAcceptedAt: timestamp }
+            : {}),
           createdAt: timestamp,
           updatedAt: timestamp,
         });
@@ -132,19 +168,20 @@ export function createTelegramShell(deps: {
           return;
         }
 
-        await replyPort.sendMessage(chatId, inviteResult.privacyExplanation, {
-          replyMarkup: {
-            inlineKeyboard: [
-              [
-                {
-                  text: "✅ Принимаю",
-                  callbackData: `tg:consent:${inviteResult.employeeId}`,
-                },
-              ],
-            ],
-          },
-        });
+        await sendConsentPrompt(
+          replyPort,
+          chatId,
+          inviteResult.employeeId,
+          inviteResult.privacyExplanation,
+        );
       } catch (error) {
+        if (isInviteNotFoundError(error)) {
+          await replyPort.sendMessage(
+            chatId,
+            "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой.",
+          );
+          return;
+        }
         logShellError("/start", error);
         await replyPort.sendMessage(
           chatId,

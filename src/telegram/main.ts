@@ -11,6 +11,7 @@ import { createTelegrafBot } from "./telegraf-runtime.js";
 import { runMinutkaAgent } from "../mastra/agent-runner.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { Telegraf } from "telegraf";
+import { parseInviteSeeds } from "./invite-seeds.js";
 
 // Load .env manually if it exists to avoid external dependencies
 if (existsSync(".env")) {
@@ -70,6 +71,12 @@ async function main() {
 
   const server = createInProcessServer(world, runMinutkaAgent);
   const client = new MinutkaClient(server);
+  for (const seed of parseInviteSeeds(process.env.TELEGRAM_INVITES)) {
+    const issued = await client.issueInvite(seed);
+    if (!issued.created) {
+      throw new Error(`Invite already exists: ${seed.inviteCode}`);
+    }
+  }
   const shell = createTelegramShell({ client, sessionStore, replyPort });
 
   activeBot = createTelegrafBot({ token, shell });

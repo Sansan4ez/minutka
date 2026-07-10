@@ -24,11 +24,12 @@ export class TelegramDriver {
   private readonly shell: ReturnType<typeof createTelegramShell>;
   private readonly sent: SentMessage[] = [];
   private readonly callbacks: CallbackAnswer[] = [];
+  private failNextSend = false;
 
   constructor(
     world: InMemoryWorld,
     agentRunner: AgentRunner,
-    deps: MinutkaServiceDeps = {}
+    deps: MinutkaServiceDeps = {},
   ) {
     const server = createInProcessServer(world, agentRunner, createDefaultSpecDeps(deps));
     const client = new MinutkaClient(server);
@@ -37,6 +38,10 @@ export class TelegramDriver {
     const self = this;
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
+        if (self.failNextSend) {
+          self.failNextSend = false;
+          throw new Error("simulated Telegram delivery failure");
+        }
         self.sent.push({ chatId, text, replyMarkup: options?.replyMarkup });
       },
       async answerCallbackQuery(callbackQueryId, text) {
@@ -89,6 +94,10 @@ export class TelegramDriver {
       input.callbackData,
       input.userId ?? this.defaultUserId(input.chatId),
     );
+  }
+
+  failNextMessageDelivery(): void {
+    this.failNextSend = true;
   }
 
   sentMessages(): SentMessage[] {

@@ -5,6 +5,7 @@ import { testEmployee, testInvite } from "../support/fixtures.js";
 import type { AgentRunner } from "../../../src/application/minutka-service.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { decodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
+import { parseInviteSeeds } from "../../../src/telegram/invite-seeds.js";
 
 registerSpecMetadata({
   id: "SPEC-FEEDBACK-001",
@@ -30,6 +31,16 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     return "Я робот-помощник Минутка.";
   };
 
+  it("0. Invite bootstrap parser accepts unique employeeId:inviteCode pairs only", () => {
+    expect(parseInviteSeeds("emp_1:invite_a,emp_2:invite_b")).toEqual([
+      { employeeId: "emp_1", inviteCode: "invite_a" },
+      { employeeId: "emp_2", inviteCode: "invite_b" },
+    ]);
+    expect(() => parseInviteSeeds("emp_1:invite_a,emp_1:invite_b")).toThrow(/duplicate employeeIds/);
+    expect(() => parseInviteSeeds("emp_1:invite_a,emp_2:invite_a")).toThrow(/duplicate inviteCodes/);
+    expect(() => parseInviteSeeds("not-a-pair")).toThrow(/employeeId:inviteCode/);
+  });
+
   it("1. /start without invite code returns welcome message and does not register session", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
@@ -42,9 +53,58 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.participants).toHaveLength(0);
   });
 
-  it("1b. Concurrent /start calls can claim an invite only once", async () => {
+  it("1b. Unknown deep-link invite cannot create a participant or session", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+
+    await telegram.start({
+      chatId: "intruder_chat",
+      userId: "intruder_456",
+      inviteCode: "made_up_invite",
+    });
+
+    expect(spec.world.participants).toHaveLength(0);
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: expect.stringContaining("ссылка недействительна") }),
+    ]);
+  });
+
+  it("1bb. Issuing an existing invite is idempotent for its original employee", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+
+    const first = await spec.cli.json<{ created: boolean; status: string }>([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_idempotent",
+      "--employee",
+      "emp_idempotent",
+    ]);
+    const repeated = await spec.cli.json<{ created: boolean; status: string }>([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_idempotent",
+      "--employee",
+      "emp_idempotent",
+    ]);
+
+    expect(first).toMatchObject({ created: true, status: "invite_issued" });
+    expect(repeated).toMatchObject({ created: false, status: "invite_issued" });
+    expect(spec.world.participants).toHaveLength(1);
+  });
+
+  it("1c. Concurrent /start calls can claim a pre-issued invite only once", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_parallel",
+      "--employee",
+      "emp_parallel",
+    ]);
 
     await Promise.all([
       telegram.start({
@@ -283,6 +343,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     // Initial start
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
 
     // Repeated /start with same invite
     telegram.clear();
@@ -315,9 +377,19 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
   it("10. A clean Telegram runtime can complete minimal onboarding and then chat", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_uncompleted",
+      "--employee",
+      "emp_uncompleted",
+    ]);
 
     await telegram.start({ chatId: "chat_1", inviteCode: "invite_uncompleted" });
-    await telegram.clickCallback({ chatId: "chat_1", callbackData: "tg:consent:emp_1" });
+    const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    expect(consentCallback).toBe("tg:consent:emp_uncompleted");
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallback! });
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Привет" });
@@ -335,6 +407,57 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Сегодня много созвонов." });
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
+  });
+
+  it("10b. Repeated consent callback is idempotent under concurrent delivery", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_consent_parallel",
+      "--employee",
+      "emp_consent_parallel",
+    ]);
+    await telegram.start({ chatId: "chat_1", inviteCode: "invite_consent_parallel" });
+    const callbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    expect(callbackData).toBe("tg:consent:emp_consent_parallel");
+
+    await Promise.all([
+      telegram.clickCallback({ chatId: "chat_1", callbackData: callbackData! }),
+      telegram.clickCallback({ chatId: "chat_1", callbackData: callbackData! }),
+    ]);
+
+    expect(spec.world.consents).toHaveLength(1);
+    expect(spec.world.events.filter((event) => event.type === "ConsentAccepted")).toHaveLength(1);
+  });
+
+  it("10c. Repeating /start resumes consent after the first delivery fails", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_retry",
+      "--employee",
+      "emp_retry",
+    ]);
+
+    telegram.failNextMessageDelivery();
+    await telegram.start({ chatId: "chat_1", inviteCode: "invite_retry" });
+    telegram.clear();
+
+    await telegram.start({ chatId: "chat_1", inviteCode: "invite_retry" });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({
+        text: expect.stringContaining("Минутка хранит"),
+        replyMarkup: expect.objectContaining({
+          inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_retry" })]],
+        }),
+      }),
+    ]);
   });
 
   it("11. An invite cannot be replayed from another Telegram chat", async () => {

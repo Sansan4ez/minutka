@@ -376,9 +376,12 @@ Telegram deep link обычно приходит как:
 /start invite_abc
 ```
 
+Перед выдачей ссылки trusted/admin boundary должен создать invite для известного privacy-safe `employeeId`. Публичный Telegram `/start` только открывает уже выданный код и никогда не создаёт participant по произвольному payload.
+
 Минимальный flow:
 
 ```text
+issueInvite(employeeId, inviteCode)
 /start <inviteCode>
   → client.openInvite({ inviteCode })
   → save TelegramSession(chatId, userId, employeeId, threadId = employeeId)
@@ -738,15 +741,17 @@ npm run typecheck
 2. Запустить:
 
 ```bash
-TELEGRAM_BOT_TOKEN=... OPENAI_API_KEY=... npm run telegram:dev
+TELEGRAM_BOT_TOKEN=... OPENAI_API_KEY=... \
+TELEGRAM_INVITES=emp_1:invite_abc npm run telegram:dev
 ```
 
-3. Открыть bot через `/start <inviteCode>`.
-4. Подтвердить consent и отправить профиль в формате `Руководитель проектов | планирование; встречи | efficiency | intermediate`.
-5. Отправить текст: `Сегодня хочу закрыть квартальный отчёт`.
-6. Убедиться, что пришёл ответ и кнопки 👍/👌/👎.
-7. Нажать 👍.
-8. Убедиться в callback acknowledgement и логах feedback.
+3. Выпустить invite заранее: в текущем in-memory runtime указать соответствующую пару `employeeId:inviteCode` в `TELEGRAM_INVITES`; произвольный `/start` payload не создаёт participant.
+4. Открыть bot через `/start <inviteCode>`.
+5. Подтвердить consent и отправить профиль в формате `Руководитель проектов | планирование; встречи | efficiency | intermediate`.
+6. Отправить текст: `Сегодня хочу закрыть квартальный отчёт`.
+7. Убедиться, что пришёл ответ и кнопки 👍/👌/👎.
+8. Нажать 👍.
+9. Убедиться в callback acknowledgement и логах feedback.
 
 ### Step 7 — Final verification
 
