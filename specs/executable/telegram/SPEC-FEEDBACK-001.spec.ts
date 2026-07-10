@@ -94,6 +94,37 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.participants).toHaveLength(1);
   });
 
+  it("1bc. An employee cannot have more than one active invite", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_primary",
+      "--employee",
+      "emp_single_invite",
+    ]);
+
+    await expect(
+      spec.cli.json([
+        "employee",
+        "issue-invite",
+        "--invite",
+        "invite_secondary",
+        "--employee",
+        "emp_single_invite",
+      ]),
+    ).rejects.toThrow(/employee already has an active invite/);
+
+    expect(spec.world.participants).toEqual([
+      expect.objectContaining({
+        employeeId: "emp_single_invite",
+        inviteCode: "invite_primary",
+      }),
+    ]);
+  });
+
   it("1c. Concurrent /start calls can claim a pre-issued invite only once", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

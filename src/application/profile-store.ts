@@ -19,8 +19,8 @@ export type ProfileStore = {
   saveParticipant(participant: Participant): Promise<void>;
   /**
    * Atomically creates this invite's participant when absent, otherwise returns
-   * its existing participant. Persistent adapters must enforce inviteCode
-   * uniqueness in the same storage operation.
+   * its existing participant. Persistent adapters must enforce both inviteCode
+   * and employeeId uniqueness in the same storage operation.
    */
   claimParticipantByInvite(participant: Participant): Promise<ClaimParticipantByInviteResult>;
   /**

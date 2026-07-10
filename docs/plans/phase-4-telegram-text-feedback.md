@@ -376,7 +376,7 @@ Telegram deep link обычно приходит как:
 /start invite_abc
 ```
 
-Перед выдачей ссылки trusted/admin boundary должен создать invite для известного privacy-safe `employeeId`. Публичный Telegram `/start` только открывает уже выданный код и никогда не создаёт participant по произвольному payload.
+Перед выдачей ссылки trusted/admin boundary должен создать invite для известного privacy-safe `employeeId`. У сотрудника может быть только один активный invite: повторный выпуск того же кода идемпотентен, а выпуск другого кода требует отдельного revoke/replace flow. Публичный Telegram `/start` только открывает уже выданный код и никогда не создаёт participant по произвольному payload.
 
 Минимальный flow:
 

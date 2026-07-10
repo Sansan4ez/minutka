@@ -226,6 +226,9 @@ export class MinutkaService {
     if (claimed.participant.employeeId !== employeeId) {
       throw new Error("invite already belongs to another employee");
     }
+    if (claimed.participant.inviteCode !== inviteCode) {
+      throw new Error("employee already has an active invite");
+    }
 
     return {
       employeeId: claimed.participant.employeeId,
