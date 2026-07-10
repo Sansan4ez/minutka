@@ -168,18 +168,21 @@ export function createTelegramShell(deps: {
         await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.");
         return;
       }
-
-      const session = await sessionStore.getByChatId(chatId);
-      if (!session) {
-        await replyPort.sendMessage(chatId, "Откройте бота по индивидуальной ссылке /start <code>");
-        return;
-      }
-      if (!isSessionOwner(session, userId)) {
-        await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
-        return;
-      }
+      // Claim the per-chat slot before any await so concurrently delivered updates
+      // cannot both pass the guard while session/profile lookups are pending.
+      inFlightChatIds.add(chatId);
 
       try {
+        const session = await sessionStore.getByChatId(chatId);
+        if (!session) {
+          await replyPort.sendMessage(chatId, "Откройте бота по индивидуальной ссылке /start <code>");
+          return;
+        }
+        if (!isSessionOwner(session, userId)) {
+          await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
+          return;
+        }
+
         // A completed profile means this is an ordinary chat message.
         try {
           await client.getProfile({ employeeId: session.employeeId });
@@ -210,8 +213,6 @@ export function createTelegramShell(deps: {
           }
           return;
         }
-
-        inFlightChatIds.add(chatId);
 
         const chatResult = await client.chat({
           employeeId: session.employeeId,

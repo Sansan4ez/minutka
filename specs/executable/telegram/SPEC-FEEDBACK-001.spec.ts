@@ -481,5 +481,30 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const sentMessages = telegram2.sentMessages();
     const texts = sentMessages.map(m => m.text);
     expect(texts).toContain("Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.");
+
+    // Concurrent external updates must be locked before asynchronous session/profile lookups.
+    let parallelCallCounter = 0;
+    const parallelRunner: AgentRunner = async () => {
+      parallelCallCounter++;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return "Ответ";
+    };
+    const spec3 = createSpecWorld(parallelRunner);
+    const telegram3 = new TelegramDriver(spec3.world, parallelRunner);
+    await onboardTestEmployee(spec3);
+    parallelCallCounter = 0;
+    await telegram3.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
+
+    telegram3.clear();
+    await Promise.all([
+      telegram3.sendText({ chatId: "chat_1", text: "Первое параллельное сообщение" }),
+      telegram3.sendText({ chatId: "chat_1", text: "Второе параллельное сообщение" }),
+    ]);
+
+    expect(parallelCallCounter).toBe(1);
+    expect(spec3.world.messages).toHaveLength(1);
+    expect(telegram3.sentMessages().map((message) => message.text)).toContain(
+      "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.",
+    );
   });
 });
