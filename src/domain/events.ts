@@ -1,6 +1,7 @@
 import type { Persona } from "./employee.js";
 import type { InsightKind } from "./insights.js";
 import type { ConversationBoundaryReason, DecisionProcessId } from "./conversation-decision.js";
+import type { FeedbackRating, FeedbackSource } from "./feedback.js";
 
 export type ChatMessageReceived = {
   type: "ChatMessageReceived";
@@ -81,9 +82,12 @@ export type InsightExtractionFailed = {
 
 export type FeedbackReceived = {
   type: "FeedbackReceived";
+  feedbackId: string;
   employeeId: string;
   threadId: string;
-  text: string;
+  targetMessageId: string;
+  rating: FeedbackRating;
+  source: FeedbackSource;
   selectedProcessIds: DecisionProcessId[];
   timestamp: string;
 };

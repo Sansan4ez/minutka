@@ -1,6 +1,7 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { DomainEvent } from "../domain/events.js";
 import type { StructuredInsight } from "../domain/insights.js";
+import type { FeedbackRecord } from "../domain/feedback.js";
 
 export type ChatMessage = {
   id: string;
@@ -18,7 +19,8 @@ export type InMemoryWorld = {
   consents: Consent[];
   profiles: UserProfile[];
   insights: StructuredInsight[];
-  counters: { message: number; participant: number; insight: number };
+  feedback: FeedbackRecord[];
+  counters: { message: number; participant: number; insight: number; feedback: number };
   now: () => string;
 };
 
@@ -32,7 +34,8 @@ export function createInMemoryWorld(
     consents: [],
     profiles: [],
     insights: [],
-    counters: { message: 0, participant: 0, insight: 0 },
+    feedback: [],
+    counters: { message: 0, participant: 0, insight: 0, feedback: 0 },
     now,
   };
 }
