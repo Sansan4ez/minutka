@@ -192,13 +192,19 @@ export async function runMinutkaCli(
     new Command("feedback")
       .requiredOption("--employee <employeeId>")
       .option("--thread <threadId>", "Thread ID (defaults to employeeId)")
-      .requiredOption("--text <text>")
+      .requiredOption("--target-message <targetMessageId>")
+      .requiredOption("--rating <rating>")
       .action(
-        async (options: { employee: string; thread?: string; text: string }) => {
+        async (options: { employee: string; thread?: string; targetMessage: string; rating: string }) => {
+          if (options.rating !== "positive" && options.rating !== "neutral" && options.rating !== "negative") {
+            throw new Error("rating must be positive, neutral, or negative");
+          }
           const result = await client.submitFeedback({
             employeeId: options.employee,
             threadId: options.thread ?? options.employee,
-            text: options.text,
+            targetMessageId: options.targetMessage,
+            rating: options.rating,
+            source: "cli",
           });
           stdout.push(JSON.stringify(result));
         },

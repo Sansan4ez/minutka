@@ -48,11 +48,14 @@ const chatResponse = z.strictObject({
 const submitFeedbackRequest = z.strictObject({
   employeeId: z.string().min(1),
   threadId: z.string().min(1),
-  text: z.string().min(1),
+  targetMessageId: z.string().min(1),
+  rating: z.enum(["positive", "neutral", "negative"]),
+  source: z.enum(["telegram", "cli", "test"]),
 });
 
 const submitFeedbackResponse = z.strictObject({
   accepted: z.literal(true),
+  feedbackId: z.string().min(1),
   selectedProcessIds: z.array(agentManualProcessId),
 });
 

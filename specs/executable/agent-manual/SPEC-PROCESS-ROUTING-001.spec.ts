@@ -221,8 +221,24 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
     });
     await onboardTestEmployee(spec);
 
+    const chatResult = await spec.cli.json<{
+      messageId: string;
+      response: string;
+      selectedProcessIds: string[];
+    }>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      testEmployee.threadId,
+      "--text",
+      "Привет",
+    ]);
+
     const result = await spec.cli.json<{
       accepted: true;
+      feedbackId: string;
       selectedProcessIds: string[];
     }>([
       "employee",
@@ -231,17 +247,23 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
       testEmployee.employeeId,
       "--thread",
       testEmployee.threadId,
-      "--text",
-      "👍",
+      "--target-message",
+      chatResult.messageId,
+      "--rating",
+      "positive",
     ]);
 
     expect(result).toMatchObject({ accepted: true });
+    expect(result.feedbackId).toBeDefined();
     expect(result.selectedProcessIds).toEqual(["core", "feedback"]);
     expectEvent(spec, {
       type: "FeedbackReceived",
+      feedbackId: result.feedbackId,
       employeeId: testEmployee.employeeId,
       threadId: testEmployee.threadId,
-      text: "👍",
+      targetMessageId: chatResult.messageId,
+      rating: "positive",
+      source: "cli",
       selectedProcessIds: ["core", "feedback"],
     });
   });

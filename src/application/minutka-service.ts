@@ -44,6 +44,11 @@ import type {
   StructuredInsightDraft,
 } from "../domain/insights.js";
 import type { ConversationDecision } from "../domain/conversation-decision.js";
+import type { FeedbackRating, FeedbackSource } from "../domain/feedback.js";
+import type { FeedbackStore } from "./feedback-store.js";
+import { createInMemoryFeedbackStore } from "./in-memory-feedback-store.js";
+import type { MessageStore } from "./message-store.js";
+import { createInMemoryMessageStore } from "./in-memory-message-store.js";
 
 export type ChatInput = {
   employeeId: string;
@@ -134,11 +139,14 @@ export type ListInsightsInput = {
 export type SubmitFeedbackInput = {
   employeeId: string;
   threadId: string;
-  text: string;
+  targetMessageId: string;
+  rating: FeedbackRating;
+  source: FeedbackSource;
 };
 
 export type SubmitFeedbackResult = {
   accepted: true;
+  feedbackId: string;
   selectedProcessIds: AgentManualProcessId[];
 };
 
@@ -150,6 +158,8 @@ export type MinutkaServiceDeps = {
   contextBuilder?: MinutkaContextBuilderLike;
   agentManualRouter?: AgentManualRouter;
   conversationDecisionRouter?: ConversationDecisionRouter;
+  feedbackStore?: FeedbackStore;
+  messageStore?: MessageStore;
 };
 
 export class MinutkaService {
@@ -159,6 +169,8 @@ export class MinutkaService {
   private readonly insightExtractor?: InsightExtractor;
   private readonly contextBuilder: MinutkaContextBuilderLike;
   private readonly conversationDecisionRouter?: ConversationDecisionRouter;
+  private readonly feedbackStore: FeedbackStore;
+  private readonly messageStore: MessageStore;
   private readonly manual: AgentManual;
 
   constructor(
@@ -174,6 +186,8 @@ export class MinutkaService {
       deps.conversationMemory ?? createInMemoryConversationMemory(world);
     this.insightStore = deps.insightStore ?? createInMemoryInsightStore(world);
     this.insightExtractor = deps.insightExtractor;
+    this.feedbackStore = deps.feedbackStore ?? createInMemoryFeedbackStore(world);
+    this.messageStore = deps.messageStore ?? createInMemoryMessageStore(world);
     this.manual = loadRequiredAgentManual(world);
     this.conversationDecisionRouter = deps.conversationDecisionRouter;
     this.contextBuilder =
@@ -486,31 +500,52 @@ export class MinutkaService {
     input: SubmitFeedbackInput,
   ): Promise<SubmitFeedbackResult> {
     await this.requireParticipant(input.employeeId);
+    const message = await this.messageStore.getMessageById({
+      messageId: input.targetMessageId,
+      employeeId: input.employeeId,
+      threadId: input.threadId,
+    });
+    if (!message) {
+      throw new Error(`Message not found or mismatch: ${input.targetMessageId}`);
+    }
+
     const profile = await this.profileStore.getProfile(input.employeeId);
     const decision = await this.routeConversationDecisionSafely({
       purpose: "feedback",
-      text: input.text,
+      text: "[structured-feedback]",
       profile,
       recentTurns: [],
     });
     const builtContext = await this.contextBuilder.build({
       purpose: "feedback",
-      text: input.text,
+      text: "[structured-feedback]",
       profile,
       selectedProcessIds: decision.selectedProcessIds,
     });
 
-    this.world.events.push({
-      type: "FeedbackReceived",
+    const saved = await this.feedbackStore.saveFeedback({
       employeeId: input.employeeId,
       threadId: input.threadId,
-      text: input.text,
+      targetMessageId: input.targetMessageId,
+      rating: input.rating,
+      source: input.source,
+    });
+
+    this.world.events.push({
+      type: "FeedbackReceived",
+      feedbackId: saved.id,
+      employeeId: input.employeeId,
+      threadId: input.threadId,
+      targetMessageId: input.targetMessageId,
+      rating: input.rating,
+      source: input.source,
       selectedProcessIds: builtContext.selectedProcessIds,
       timestamp: this.world.now(),
     });
 
     return {
       accepted: true,
+      feedbackId: saved.id,
       selectedProcessIds: builtContext.selectedProcessIds,
     };
   }
