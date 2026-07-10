@@ -1,6 +1,6 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** завершена Phase 4 (`phase-4-telegram-text-feedback`); следующий рекомендуемый шаг — Phase 5 Голосовые сообщения и STT boundary.  
+> **Статус:** Phase 4 реализована и проходит автоматические проверки; до завершения остаются ручной Telegram smoke E2E и тег `phase-4-telegram-text-feedback`.
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
@@ -494,12 +494,12 @@ Definition of Done:
 6. Добавить `SPEC-FEEDBACK-001` через in-process Telegram adapter/mock update driver.
 7. Провести ручной smoke E2E в Telegram.
 
-Definition of Done:
+Текущий статус:
 
-- [x] Text Telegram flow работает вручную.
-- [x] Feedback сохраняется и связан с ответом (внедрена валидация targetMessageId через MessageStore и upsert-логика в FeedbackStore).
-- [x] Specs зелёные без реального Telegram/API (реализован `TelegramDriver` и `SPEC-FEEDBACK-001`).
-- [x] Коммит и тег `phase-4-telegram-text-feedback`.
+- [x] Реализован text Telegram flow и feedback, связанный с ответом (`targetMessageId` валидируется через `MessageStore`; `FeedbackStore` делает upsert).
+- [x] Specs зелёные без реального Telegram/API (`TelegramDriver`, `SPEC-FEEDBACK-001`).
+- [ ] Провести ручной Telegram smoke E2E.
+- [ ] После smoke создать тег `phase-4-telegram-text-feedback`.
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
