@@ -42,6 +42,34 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.participants).toHaveLength(0);
   });
 
+  it("1b. Concurrent /start calls can claim an invite only once", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+
+    await Promise.all([
+      telegram.start({
+        chatId: "owner_chat",
+        userId: "owner_123",
+        inviteCode: "invite_parallel",
+      }),
+      telegram.start({
+        chatId: "intruder_chat",
+        userId: "intruder_456",
+        inviteCode: "invite_parallel",
+      }),
+    ]);
+
+    expect(spec.world.participants).toHaveLength(1);
+    expect(
+      telegram.sentMessages().filter((message) => message.replyMarkup),
+    ).toHaveLength(1);
+    expect(telegram.sentMessages()).toContainEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("уже привязана к другому Telegram-аккаунту"),
+      }),
+    );
+  });
+
   it("2 & 3. Happy path: onboarding, chat, feedback buttons, click callback, and event check", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
@@ -168,6 +196,59 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     const answers = telegram.callbackAnswers();
     expect(answers[0].text).toBe("Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
+
+    const otherEmployeeId = "emp_other";
+    const otherThreadId = "thread_other";
+    await spec.cli.json([
+      "employee",
+      "open-invite",
+      "--invite",
+      "invite_other",
+      "--employee",
+      otherEmployeeId,
+    ]);
+    await spec.cli.json([
+      "employee",
+      "accept-consent",
+      "--employee",
+      otherEmployeeId,
+      "--yes",
+    ]);
+    await spec.cli.json([
+      "employee",
+      "complete-onboarding",
+      "--employee",
+      otherEmployeeId,
+      "--role",
+      "Аналитик",
+      "--task",
+      "Отчёты",
+      "--persona",
+      "support",
+      "--ai-level",
+      "beginner",
+    ]);
+    const otherChat = await spec.cli.json<{ messageId: string }>([
+      "employee",
+      "chat",
+      "--employee",
+      otherEmployeeId,
+      "--thread",
+      otherThreadId,
+      "--text",
+      "Сообщение другого сотрудника",
+    ]);
+
+    await telegram.clickFeedback({
+      chatId: "chat_1",
+      rating: "positive",
+      targetMessageId: otherChat.messageId,
+    });
+
+    expect(spec.world.feedback).toHaveLength(0);
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe(
+      "Не удалось сохранить отзыв. Попробуйте ещё раз позже.",
+    );
   });
 
   it("6. Repeated feedback callback on the same targetMessageId does not create duplicate (upserts rating)", async () => {

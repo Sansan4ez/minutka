@@ -200,26 +200,31 @@ export class MinutkaService {
     let participant = await this.profileStore.getParticipantByInvite(
       input.inviteCode,
     );
-
-    if (participant && input.employeeId && participant.employeeId !== input.employeeId) {
-      throw new Error("invite already belongs to another employee");
-    }
+    let inviteOpenedAt: string | undefined;
 
     if (!participant) {
       const timestamp = this.world.now();
-      participant = {
+      const claimed = await this.profileStore.claimParticipantByInvite({
         employeeId: input.employeeId ?? this.nextEmployeeId(),
         inviteCode: input.inviteCode,
         status: "invite_opened",
         createdAt: timestamp,
         updatedAt: timestamp,
-      } satisfies Participant;
-      await this.profileStore.saveParticipant(participant);
+      });
+      participant = claimed.participant;
+      inviteOpenedAt = claimed.created ? timestamp : undefined;
+    }
+
+    if (input.employeeId && participant.employeeId !== input.employeeId) {
+      throw new Error("invite already belongs to another employee");
+    }
+
+    if (inviteOpenedAt) {
       this.world.events.push({
         type: "InviteOpened",
         employeeId: participant.employeeId,
         inviteCode: participant.inviteCode,
-        timestamp,
+        timestamp: inviteOpenedAt,
       });
     }
 

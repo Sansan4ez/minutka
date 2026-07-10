@@ -14,6 +14,16 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
       upsertByEmployeeId(world.participants, participant);
     },
 
+    async claimParticipantByInvite(participant: Participant) {
+      const existing = world.participants.find(
+        (candidate) => candidate.inviteCode === participant.inviteCode,
+      );
+      if (existing) return { participant: existing, created: false };
+
+      world.participants.push(participant);
+      return { participant, created: true };
+    },
+
     async getParticipant(employeeId: string) {
       return world.participants.find((p) => p.employeeId === employeeId);
     },
