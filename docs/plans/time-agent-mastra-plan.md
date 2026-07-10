@@ -1,6 +1,6 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** актуализировано после завершения Phase 3.5 (`phase-3.5-agent-manual-lite`); следующий рекомендуемый шаг — Phase 4 Telegram shell и feedback.  
+> **Статус:** завершена Phase 4 (`phase-4-telegram-text-feedback`); следующий рекомендуемый шаг — Phase 5 Голосовые сообщения и STT boundary.  
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
@@ -77,7 +77,7 @@ Domain → Application → Server → SDK → CLI / Telegram
              Mastra runtime bridge
 ```
 
-Назначение слоёв:
+### Назначение слоёв
 
 | Слой | Ответственность |
 |---|---|
@@ -90,6 +90,13 @@ Domain → Application → Server → SDK → CLI / Telegram
 | `telegram` / bot shell | Появляется на Telegram-этапе как отдельная внешняя поверхность, не заменяет SDK/CLI. |
 | `vault` | Версионируемый через git runtime workspace Минутки: `AGENTS.md`, business processes, active docs, tool manifests, state projection schemas. |
 | virtual `/AGENTS.md` `/processes` `/docs` `/proc` `/bin` `/run` | Логическая среда агента: локальные правила, процессы, активные документы, sanitized state, разрешённые операции и audit traces. |
+
+### Обоснование разделения слоев
+
+Инфраструктурный фреймворк Mastra (`src/mastra/`) является внешней деталью реализации для интеграции с LLM и агентами, аналогично веб-серверу или ORM. Выделение слоев `domain` и `application` решает три важные инженерные задачи:
+1. **Независимость от фреймворка и сторонних API:** Если API Mastra изменится или мы решим мигрировать на другой фреймворк (например, Vercel AI SDK или LangChain), ядро системы в `domain` и юзкейсы в `application` останутся нетронутыми.
+2. **Локальное тестирование без затрат на токены:** Благодаря изоляции от Mastra, в тестах (`vitest` specs) мы подменяем `AgentRunner` легким моком, что позволяет запускать тесты мгновенно и без реальных вызовов к API OpenAI.
+3. **Множественность внешних каналов (CLI / Telegram):** Все внешние точки входа (клиентское CLI-приложение, Telegram-бот, HTTP-сервер) вызывают единые типизированные интерфейсы слоя `application`, который при необходимости координирует работу агентов в `mastra`.
 
 ---
 
@@ -489,10 +496,10 @@ Definition of Done:
 
 Definition of Done:
 
-- Text Telegram flow работает вручную.
-- Feedback сохраняется и связан с ответом.
-- Specs зелёные без реального Telegram/API.
-- Коммит и тег `phase-4-telegram-text-feedback`.
+- [x] Text Telegram flow работает вручную.
+- [x] Feedback сохраняется и связан с ответом (внедрена валидация targetMessageId через MessageStore и upsert-логика в FeedbackStore).
+- [x] Specs зелёные без реального Telegram/API (реализован `TelegramDriver` и `SPEC-FEEDBACK-001`).
+- [x] Коммит и тег `phase-4-telegram-text-feedback`.
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
