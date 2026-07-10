@@ -7,6 +7,7 @@ import {
   type AgentRunner,
   type ChatInput,
   type CompleteOnboardingInput,
+  type IssueInviteInput,
   type ListInsightsInput,
   type MinutkaServiceDeps,
   type OpenInviteInput,
@@ -34,6 +35,9 @@ export function createInProcessServer(
   return {
     chat(input: ChatInput) {
       return service.chat(input);
+    },
+    issueInvite(input: IssueInviteInput) {
+      return service.issueInvite(input);
     },
     openInvite(input: OpenInviteInput) {
       return service.openInvite(input);

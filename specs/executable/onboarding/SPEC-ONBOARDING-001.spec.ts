@@ -297,10 +297,11 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     const world = createInMemoryWorld(() => timestamps[index++] ?? timestamps.at(-1)!);
     const service = new MinutkaService(world, async () => "first response");
 
-    await service.openInvite({
+    await service.issueInvite({
       inviteCode: "invite_timestamp",
       employeeId: "emp_timestamp",
     });
+    await service.openInvite({ inviteCode: "invite_timestamp" });
     await service.acceptConsent({
       employeeId: "emp_timestamp",
       accepted: true,
@@ -315,8 +316,8 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     });
 
     expect(world.consents[0]).toMatchObject({
-      acceptedAt: "2026-07-08T10:02:00.000Z",
-      explanationShownAt: "2026-07-08T10:01:00.000Z",
+      acceptedAt: "2026-07-08T10:03:00.000Z",
+      explanationShownAt: "2026-07-08T10:02:00.000Z",
     });
     expect(
       world.events.find((event) => event.type === "UserProfileUpdated"),
@@ -336,7 +337,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
 
     await spec.cli.json([
       "employee",
-      "open-invite",
+      "issue-invite",
       "--invite",
       "invite_busy",
       "--employee",
@@ -346,7 +347,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     await expect(
       spec.cli.json([
         "employee",
-        "open-invite",
+        "issue-invite",
         "--invite",
         "invite_busy",
         "--employee",

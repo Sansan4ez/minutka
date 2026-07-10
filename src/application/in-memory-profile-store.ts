@@ -24,6 +24,26 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
       return { participant, created: true };
     },
 
+    async openParticipantByInvite(inviteCode: string, openedAt: string) {
+      const index = world.participants.findIndex(
+        (participant) => participant.inviteCode === inviteCode,
+      );
+      if (index === -1) return undefined;
+
+      const participant = world.participants[index];
+      if (participant.status !== "invite_issued") {
+        return { participant, opened: false };
+      }
+
+      const opened = {
+        ...participant,
+        status: "invite_opened" as const,
+        updatedAt: openedAt,
+      };
+      world.participants[index] = opened;
+      return { participant: opened, opened: true };
+    },
+
     async getParticipant(employeeId: string) {
       return world.participants.find((p) => p.employeeId === employeeId);
     },
@@ -32,8 +52,14 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
       return world.participants.find((p) => p.inviteCode === inviteCode);
     },
 
-    async saveConsent(consent: Consent) {
-      upsertByEmployeeId(world.consents, consent);
+    async claimConsent(consent: Consent) {
+      const existing = world.consents.find(
+        (candidate) => candidate.employeeId === consent.employeeId,
+      );
+      if (existing) return { consent: existing, created: false };
+
+      world.consents.push(consent);
+      return { consent, created: true };
     },
 
     async getConsent(employeeId: string) {

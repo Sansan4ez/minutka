@@ -72,18 +72,32 @@ export async function runMinutkaCli(
   const employee = new Command("employee").description("Employee commands");
 
   employee.addCommand(
+    new Command("issue-invite")
+      .requiredOption("--invite <inviteCode>")
+      .requiredOption("--employee <employeeId>")
+      .action(async (options: { invite: string; employee: string }) => {
+        const result = await client.issueInvite({
+          inviteCode: options.invite,
+          employeeId: options.employee,
+        });
+        stdout.push(JSON.stringify(result));
+      }),
+  );
+
+  employee.addCommand(
     new Command("open-invite")
       .requiredOption("--invite <inviteCode>")
-      .option("--employee <employeeId>")
-      .action(
-        async (options: { invite: string; employee?: string }) => {
-          const result = await client.openInvite({
+      .option("--employee <employeeId>", "Issue this invite for an employee before opening it")
+      .action(async (options: { invite: string; employee?: string }) => {
+        if (options.employee) {
+          await client.issueInvite({
             inviteCode: options.invite,
             employeeId: options.employee,
           });
-          stdout.push(JSON.stringify(result));
-        },
-      ),
+        }
+        const result = await client.openInvite({ inviteCode: options.invite });
+        stdout.push(JSON.stringify(result));
+      }),
   );
 
   employee.addCommand(

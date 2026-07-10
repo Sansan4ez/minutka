@@ -1,6 +1,5 @@
 import type {
   AiLevel,
-  Consent,
   OnboardingStatus,
   Participant,
   Persona,
@@ -88,9 +87,20 @@ export type AgentRunner = (
   context?: AgentRunContext,
 ) => Promise<string>;
 
+export type IssueInviteInput = {
+  employeeId: string;
+  inviteCode: string;
+};
+
+export type IssueInviteResult = {
+  employeeId: string;
+  inviteCode: string;
+  status: OnboardingStatus;
+  created: boolean;
+};
+
 export type OpenInviteInput = {
   inviteCode: string;
-  employeeId?: string;
 };
 
 export type OpenInviteResult = {
@@ -194,45 +204,65 @@ export class MinutkaService {
       deps.contextBuilder ?? createDefaultContextBuilder(this.manual, deps.agentManualRouter);
   }
 
-  async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
-    if (!input.inviteCode.trim()) throw new Error("inviteCode is required");
+  /**
+   * Creates a pre-issued invite for a known employee. This is deliberately a
+   * separate administrative operation: public channels may only open a code
+   * that has already been issued.
+   */
+  async issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
+    const inviteCode = input.inviteCode.trim();
+    const employeeId = input.employeeId.trim();
+    if (!inviteCode) throw new Error("inviteCode is required");
+    if (!employeeId) throw new Error("employeeId is required");
 
-    let participant = await this.profileStore.getParticipantByInvite(
-      input.inviteCode,
-    );
-    let inviteOpenedAt: string | undefined;
-
-    if (!participant) {
-      const timestamp = this.world.now();
-      const claimed = await this.profileStore.claimParticipantByInvite({
-        employeeId: input.employeeId ?? this.nextEmployeeId(),
-        inviteCode: input.inviteCode,
-        status: "invite_opened",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      participant = claimed.participant;
-      inviteOpenedAt = claimed.created ? timestamp : undefined;
-    }
-
-    if (input.employeeId && participant.employeeId !== input.employeeId) {
+    const timestamp = this.world.now();
+    const claimed = await this.profileStore.claimParticipantByInvite({
+      employeeId,
+      inviteCode,
+      status: "invite_issued",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    if (claimed.participant.employeeId !== employeeId) {
       throw new Error("invite already belongs to another employee");
     }
 
-    if (inviteOpenedAt) {
+    return {
+      employeeId: claimed.participant.employeeId,
+      inviteCode: claimed.participant.inviteCode,
+      status: claimed.participant.status,
+      created: claimed.created,
+    };
+  }
+
+  /** Opens a pre-issued invite from an employee-facing channel. */
+  async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
+    const inviteCode = input.inviteCode.trim();
+    if (!inviteCode) throw new Error("inviteCode is required");
+
+    const openedAt = this.world.now();
+    const opened = await this.profileStore.openParticipantByInvite(
+      inviteCode,
+      openedAt,
+    );
+    if (!opened) throw new Error("invite not found");
+    const participant = opened.participant;
+
+    if (opened.opened) {
       this.world.events.push({
         type: "InviteOpened",
         employeeId: participant.employeeId,
         inviteCode: participant.inviteCode,
-        timestamp: inviteOpenedAt,
+        timestamp: openedAt,
       });
     }
 
+    const privacyShownAt = this.world.now();
     this.world.events.push({
       type: "PrivacyExplanationShown",
       employeeId: participant.employeeId,
       privacyVersion: currentPrivacyVersion,
-      timestamp: this.world.now(),
+      timestamp: privacyShownAt,
     });
 
     return {
@@ -250,25 +280,24 @@ export class MinutkaService {
       throw new Error("privacy consent must be explicitly accepted");
     }
 
-    const existing = await this.profileStore.getConsent(input.employeeId);
-    if (existing) {
-      return {
-        employeeId: existing.employeeId,
-        privacyVersion: existing.privacyVersion,
-        acceptedAt: existing.acceptedAt,
-      };
-    }
-
     const timestamp = this.world.now();
-    const consent: Consent = {
+    const claimed = await this.profileStore.claimConsent({
       employeeId: input.employeeId,
       privacyVersion: currentPrivacyVersion,
       acceptedAt: timestamp,
       explanationShownAt:
         this.lastPrivacyExplanationShownAt(input.employeeId) ?? timestamp,
       source: input.source,
-    };
-    await this.profileStore.saveConsent(consent);
+    });
+    const consent = claimed.consent;
+
+    if (!claimed.created) {
+      return {
+        employeeId: consent.employeeId,
+        privacyVersion: consent.privacyVersion,
+        acceptedAt: consent.acceptedAt,
+      };
+    }
 
     if (participant.status !== "profile_completed") {
       await this.profileStore.saveParticipant({
@@ -586,11 +615,6 @@ export class MinutkaService {
         input.purpose,
       );
     }
-  }
-
-  private nextEmployeeId() {
-    this.world.counters.participant++;
-    return `emp_${this.world.counters.participant}`;
   }
 
   private assignInsightIdsAndTimestamps(

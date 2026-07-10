@@ -15,12 +15,6 @@ const agentManualProcessId = z.enum([
   "insight_extraction",
   "feedback",
 ]);
-const onboardingStatus = z.enum([
-  "invite_opened",
-  "consent_accepted",
-  "profile_completed",
-]);
-
 const userProfile = z.strictObject({
   employeeId: z.string().min(1),
   role: z.string().min(1),
@@ -137,15 +131,26 @@ const listInsightsRequest = z.strictObject({
 
 const listInsightsResponse = z.array(structuredInsight);
 
+const issueInviteRequest = z.strictObject({
+  employeeId: z.string().min(1),
+  inviteCode: z.string().min(1),
+});
+
+const issueInviteResponse = z.strictObject({
+  employeeId: z.string().min(1),
+  inviteCode: z.string().min(1),
+  status: z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]),
+  created: z.boolean(),
+});
+
 const openInviteRequest = z.strictObject({
   inviteCode: z.string().min(1),
-  employeeId: z.string().min(1).optional(),
 });
 
 const openInviteResponse = z.strictObject({
   employeeId: z.string().min(1),
   inviteCode: z.string().min(1),
-  status: onboardingStatus,
+  status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]),
   privacyVersion: z.literal("privacy-v1"),
   privacyExplanation: z.string().min(1),
 });
@@ -202,6 +207,12 @@ export class MinutkaClient {
     return validate(chatResponse, result, "chat response");
   }
 
+  async issueInvite(input: z.input<typeof issueInviteRequest>) {
+    const validated = validate(issueInviteRequest, input, "issueInvite request");
+    const result = await this.api.issueInvite(validated);
+    return validate(issueInviteResponse, result, "issueInvite response");
+  }
+
   async openInvite(input: z.input<typeof openInviteRequest>) {
     const validated = validate(openInviteRequest, input, "openInvite request");
     const result = await this.api.openInvite(validated);
@@ -247,6 +258,7 @@ export class MinutkaClient {
   }
 }
 
+export type IssueInviteResult = z.infer<typeof issueInviteResponse>;
 export type OpenInviteResult = z.infer<typeof openInviteResponse>;
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponse>;
 export type ChatResult = z.infer<typeof chatResponse>;

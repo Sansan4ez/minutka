@@ -5,6 +5,16 @@ export type ClaimParticipantByInviteResult = {
   created: boolean;
 };
 
+export type ClaimConsentResult = {
+  consent: Consent;
+  created: boolean;
+};
+
+export type OpenParticipantByInviteResult = {
+  participant: Participant;
+  opened: boolean;
+};
+
 export type ProfileStore = {
   saveParticipant(participant: Participant): Promise<void>;
   /**
@@ -13,10 +23,23 @@ export type ProfileStore = {
    * uniqueness in the same storage operation.
    */
   claimParticipantByInvite(participant: Participant): Promise<ClaimParticipantByInviteResult>;
+  /**
+   * Atomically transitions a pre-issued invite to invite_opened. Persistent
+   * adapters must make the state transition conditional in the same operation.
+   */
+  openParticipantByInvite(
+    inviteCode: string,
+    openedAt: string,
+  ): Promise<OpenParticipantByInviteResult | undefined>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
   getParticipantByInvite(inviteCode: string): Promise<Participant | undefined>;
 
-  saveConsent(consent: Consent): Promise<void>;
+  /**
+   * Atomically records consent when it is absent, otherwise returns the
+   * existing record. Persistent adapters must enforce employeeId uniqueness
+   * in the same storage operation.
+   */
+  claimConsent(consent: Consent): Promise<ClaimConsentResult>;
   getConsent(employeeId: string): Promise<Consent | undefined>;
 
   saveProfile(profile: UserProfile): Promise<void>;

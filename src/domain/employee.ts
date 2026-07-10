@@ -5,6 +5,7 @@ export type AiLevel = "beginner" | "intermediate" | "advanced";
 export type ResponseLengthPreference = "short" | "balanced" | "detailed";
 
 export type OnboardingStatus =
+  | "invite_issued"
   | "invite_opened"
   | "consent_accepted"
   | "profile_completed";
