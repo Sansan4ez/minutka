@@ -6,6 +6,8 @@
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 > **Подробный план Phase 3.5:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
 > **Подробный план Phase 4:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
+> **Подробный план Phase 4.1:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
+> **Architecture RFCs:** [`rfc-runtime-projections.md`](../architecture/rfc-runtime-projections.md), [`rfc-http-application-api.md`](../architecture/rfc-http-application-api.md).
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
 
@@ -273,14 +275,17 @@ Persona меняет тон, но не отменяет ограничений. 
 
 ### 5.3 Memory / Storage
 
-Переход по этапам:
+Фактический и целевой переход по этапам:
 
-1. **Phase 1:** `InMemoryWorld` только для executable specs и каркаса.
-2. **Phase 2:** добавить persistent storage для профилей/consent/onboarding. SQLite допустим как старт.
-3. **Phase 3:** подключить Mastra Memory для `resourceId` + `threadId` и проверить удержание контекста.
-4. **Позже:** PostgreSQL, если потребуется мультипользовательская нагрузка и отчётность.
+1. **Phase 1–4:** `InMemoryWorld` и in-memory adapters обеспечивают executable specs и локальный Telegram MVP; состояние теряется после restart.
+2. **Phase 2–4:** выделены `ProfileStore`, conversation/message, insight, feedback и Telegram session boundaries, но persistent adapters ещё не реализованы.
+3. **Phase 3:** создана конфигурация Mastra Memory для `resourceId` + `threadId`, однако normal Telegram path вызывает agent напрямую, memory не получает configured storage, а `LibSQLStore(:memory:)` не является durable application storage.
+4. **Phase 4.1:** PostgreSQL становится canonical persistent application storage; реализуются typed `/proc` и `/run` projections; application `ConversationStore` становится единственным источником chat history, а дублирующая Mastra message history временно отключается.
+5. **После Phase 4.1:** Mastra semantic/observational memory может быть добавлена как отдельный derived LLM-memory contour только после решения retention/deletion и duplicate-history правил.
 
-Перед использованием конкретного Mastra storage/memory API необходимо свериться с embedded docs установленного `@mastra/core`.
+Specs продолжают использовать in-memory adapters. Shared staging/pilot использует PostgreSQL и не имеет silent fallback на пустой `InMemoryWorld`.
+
+Перед использованием конкретного Mastra storage/memory API необходимо свериться с embedded docs установленной версии.
 
 ### 5.4 Agent vault loader / SO-CoT constrained decision plane
 
@@ -501,6 +506,36 @@ Definition of Done:
 - [x] Закрытый ручной Telegram smoke E2E успешен: onboarding, рабочий текстовый диалог и feedback стабильны.
 - [ ] Создать тег `phase-4-telegram-text-feedback` после фиксации документации.
 
+### Phase 4.1 — Durable Runtime Foundation
+
+**Статус:** proposed; обязательный следующий инженерный этап до shared pilot и persistent multi-day use.
+**Подробный план:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
+**Цель:** заменить production-зависимость от `InMemoryWorld` на PostgreSQL application stores, реализовать typed `/proc`/`/run` projections и устранить неоднозначность conversation memory.
+
+Минимальный scope:
+
+1. Убрать прямые записи `MinutkaService` в `world.messages`, `world.events` и counters; ввести полные application boundaries, `Clock` и `IdGenerator`.
+2. Объединить conversation write/recent-turn/message lookup в единый `ConversationStore`.
+3. Добавить safe `AuditEventStore` без raw message/response, invite codes, Telegram IDs и provider payloads.
+4. Реализовать PostgreSQL migrations и adapters для participant/invite, consent, profile, conversations, insights, feedback, Telegram sessions и audit.
+5. Сделать invite redemption + Telegram identity claim атомарным application use case.
+6. Реализовать Runtime Projections RFC Phase A: scoped, bounded `/proc` и redacted `/run` DTO + prompt materialisation.
+7. Назначить application `ConversationStore` canonical history и отключить не подключённую/дублирующую Mastra message history.
+8. Сохранить in-memory adapters для executable specs; добавить PostgreSQL contract, restart, concurrency и deletion tests.
+9. Перевести Telegram composition root на PostgreSQL с fail-fast startup и graceful shutdown.
+
+Definition of Done:
+
+- Profile, consent, Telegram binding, messages, insights и feedback переживают restart.
+- Нет silent fallback с PostgreSQL на пустой in-memory runtime.
+- `/proc` видит только current employee/thread; `/run` не содержит raw personal content.
+- Parallel invite/session claims дают одного победителя и consistent state.
+- Existing executable specs зелёные без БД; отдельный `verify:persistence` зелёный против PostgreSQL.
+- Manual Telegram restart smoke успешен.
+- Коммит и тег `phase-4.1-durable-runtime-foundation`.
+
+После Phase 4.1 отдельная Phase 4.2 реализует authenticated HTTP API/shared runtime по `rfc-http-application-api.md`. Voice/STT можно делать следующим продуктовым этапом, но не поверх transient storage.
+
 ### Phase 5 — Голосовые сообщения и STT boundary
 
 **Цель:** voice message обрабатывается как текст после транскрипции.
@@ -570,16 +605,18 @@ Scope уточняется отдельно. До этого этапа допу
 5. **Privacy by structure.** Сначала доменные типы и privacy-safe projections, потом отчёты.
 6. **Business processes as code.** Агентные правила оформляются как маленькие process-файлы в `vault/processes`, проходят specs и review как код.
 7. **Сценарии ≠ бизнес-процессы.** Product scenarios в `docs/product/*` — источник требований; runtime BP должен быть procedural, атомарным и иметь dependencies.
-8. **Unix-like namespace как контракт.** `/AGENTS.md`, `/docs`, `/proc`, `/bin` — стабильные логические ручки агента; реализация может быть локальной, CLI или remote, но handlers не должны обходить Application layer.
-9. **Git-versioning first.** До отдельного решения достаточно стандартного git-versioning process-файлов; не вводить `vNNNN` store преждевременно.
-10. **Минимальные коммиты по фазам.** Каждый этап заканчивается зелёным `nix run .#verify` и тегом.
-11. **Не создавать `tests/unit`, `tests/contract`, `tests/integration` без отдельного решения.** Основной тестовый контур MVP — `specs/executable`.
+8. **Unix-like namespace как контракт.** `/AGENTS.md`, `/docs`, `/proc`, `/bin`, `/run` — стабильные логические ручки агента; dynamic state реализуется typed scoped projections, а не Git/temporary files или прямой доступ агента к БД.
+9. **Persistent runtime fail-closed.** Shared staging/pilot не откатывается незаметно на пустой `InMemoryWorld`; storage/config/migration failure останавливает startup до внешнего traffic.
+10. **One canonical history.** Application `ConversationStore` владеет conversation history; Mastra Memory не дублирует raw history без отдельного retention/deletion решения.
+11. **Git-versioning first.** До отдельного решения достаточно стандартного git-versioning process-файлов; не вводить `vNNNN` store преждевременно.
+12. **Минимальные коммиты по фазам.** Каждый этап заканчивается зелёным `nix run .#verify` и тегом.
+13. **Основной продуктовый тестовый контур — `specs/executable`.** Отдельный `specs/persistence` допускается только для database adapter contract, restart и concurrency tests Phase 4.1; он не заменяет executable specs.
 
 ---
 
 ## 9. Что за рамками раннего MVP
 
-- Шифрование данных, KMS, полноценный compliance audit log.
+- KMS, field-level encryption и полноценный compliance audit log сверх safe PostgreSQL audit baseline Phase 4.1.
 - Веб-панель методолога и rich admin UI.
 - Полноценный Process Architect LLM, PA queue, conflict rebase, immutable instruction store и hash-based world drift detection.
 - Отдельный Unix/filesystem runtime для агента; в MVP достаточно логического namespace и typed Application boundaries.
@@ -600,7 +637,9 @@ Scope уточняется отдельно. До этого этапа допу
 | LLM нестабилен в specs | Specs используют mock runners/tools; LLM проверяется smoke/eval отдельно. |
 | Telegram handlers начнут содержать бизнес-логику | Ввести Telegram adapter/driver, который вызывает SDK/Application API. |
 | Privacy нарушится при отчётах | Privacy projection и минимум 5 сотрудников проверяются executable spec. |
-| Storage выбор преждевременно усложнит MVP | Начать с interfaces + SQLite/in-memory adapters; PostgreSQL только при необходимости. |
+| Storage выбор преждевременно усложнит MVP | До Phase 4 использовались interfaces + in-memory adapters; Phase 4.1 вводит один pilot backend — PostgreSQL — без второго ORM/SQLite application stack. |
+| Persistent runtime незаметно стартует пустым | Fail-fast на config, migration и connection errors; in-memory mode только explicit для specs/demo. |
+| Две memory-системы дублируют conversation history | На Phase 4.1 canonical source — application `ConversationStore`; Mastra message history отключена до отдельного решения. |
 | Модель `openai/gpt-5.4-mini` станет недоступной | Stop-and-confirm: проверить registry и согласовать замену, не менять молча. |
 | Agent prompt разрастётся в монолит | Phase 3.5 Agent Vault: `AGENTS.md` + process index + атомарные process-файлы. |
 | Product scenarios примут за готовые бизнес-процессы | Author contract: сценарии из `docs/product/*` переписываются в procedural BP с Inputs/Process/Outputs/Dependencies. |
