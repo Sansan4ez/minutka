@@ -28,7 +28,9 @@ Every process file must use this exact structure:
 - Write procedural instructions: what to inspect, what to decide, what to say, and what tools/outputs are allowed.
 - Do not write marketing copy or a broad product overview.
 - Do not copy common privacy and product-boundary rules into every process. Link to `vault/AGENTS.md`, `vault/docs/privacy-boundary.md`, `vault/docs/product-boundary.md`, and `vault/processes/consent_and_privacy.md` instead.
-- Dependencies must point to existing files in this repository. Anchors after `#` are allowed, but Phase 3.5 validates only that the file exists.
+- Dependencies are repository traceability metadata, not runtime imports and not prompt attachments. They identify the requirement source, domain contract, or executable spec from which the process is derived.
+- Dependencies may point both inside `vault/` and to existing repository files outside it (for example, in `docs/`, `specs/`, or `src/`). Anchors after `#` are allowed, but Phase 3.5 validates only that the file exists.
+- The loader validates dependency paths relative to the repository root, but does not read their content into the runtime context. A document needed by the agent at runtime belongs in `vault/docs` and must be explicitly included by the context-building contract.
 - Useful dependency examples:
   - `docs/product/Final_Description.md#scenario-1-employee-joins-the-program`
   - `docs/product/virtual-simulation.md#scenario-6-evening-voice-reflection`

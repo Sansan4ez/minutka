@@ -293,7 +293,7 @@ Specs продолжают использовать in-memory adapters. Shared s
 
 1. загружает `vault/processes/registry.json`, `vault/AGENTS.md`, `vault/processes/index.md` и process-файлы один раз при создании service/harness;
 
-AI-NOTE-ASK: почему в `vault/processes/registry.json` 'dependencies' находятся ссылки на внешние по отношение к 'vault' файлы?
+`dependencies` в `registry.json` — это не runtime-imports и не файлы, которые подмешиваются в prompt. Это репозиторная traceability-метаинформация: ссылки на источник требования, доменный контракт или executable spec, из которых выведен процесс. Поэтому они могут указывать за пределы `vault` (например, в `docs/`, `specs/` или `src/`). Loader на startup проверяет существование файлов относительно корня репозитория, но читает в runtime context только `vault/AGENTS.md`, `processes/index.md` и выбранные process-файлы. Если документ нужен агенту во время диалога, его следует поместить в `vault/docs` и явно добавить в контекст, а не указывать только в `dependencies`.
 
 2. передаёт `processes/index.md`, runtime input, profile и recent turns в SO-CoT constrained conversation decision router;
 3. router возвращает strict JSON: `selectedProcessIds`, `workDecision`, `insightDecision`;
