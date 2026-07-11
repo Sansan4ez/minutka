@@ -4,7 +4,7 @@ import { minutkaAgent } from "./agents/minutka-agent.js";
 export type MinutkaAgentLike = {
   generate(
     text: string,
-    options: { system?: string },
+    options: { system?: string; toolChoice?: "none" },
   ): Promise<{ text?: string }>;
 };
 
@@ -19,6 +19,10 @@ export function createMinutkaAgentRunner(agent: MinutkaAgentLike): AgentRunner {
   return async (input, context) => {
     const result = await agent.generate(input.text, {
       system: context?.systemContext,
+      // Profile updates and insight persistence are application use cases.
+      // Do not begin a Mastra tool loop: the configured OpenAI-compatible
+      // gateway does not persist function-call items between loop steps.
+      toolChoice: "none",
     });
     return result.text ?? "";
   };

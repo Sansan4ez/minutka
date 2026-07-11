@@ -101,7 +101,10 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
         },
       ),
     ).resolves.toBe("ok");
-    expect(observedOptions).toEqual({ system: "trusted runtime context" });
+    expect(observedOptions).toEqual({
+      system: "trusted runtime context",
+      toolChoice: "none",
+    });
   });
 
   it("normalizes a valid flat structured decision into the domain decision", async () => {
