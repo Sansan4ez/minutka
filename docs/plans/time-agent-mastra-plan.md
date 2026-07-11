@@ -1,6 +1,6 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** Phase 4 реализована и проходит автоматические проверки; до завершения остаются ручной Telegram smoke E2E и тег `phase-4-telegram-text-feedback`.
+> **Статус:** Phase 4 завершена: автоматические проверки и закрытый ручной Telegram smoke E2E успешны. Следующий обязательный инженерный этап — Phase 4.1 Durable Runtime Foundation до shared pilot, HTTP API, standalone CLI и web surface.
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
@@ -498,8 +498,8 @@ Definition of Done:
 
 - [x] Реализован text Telegram flow и feedback, связанный с ответом (`targetMessageId` валидируется через `MessageStore`; `FeedbackStore` делает upsert).
 - [x] Specs зелёные без реального Telegram/API (`TelegramDriver`, `SPEC-FEEDBACK-001`).
-- [ ] Провести ручной Telegram smoke E2E.
-- [ ] После smoke создать тег `phase-4-telegram-text-feedback`.
+- [x] Закрытый ручной Telegram smoke E2E успешен: onboarding, рабочий текстовый диалог и feedback стабильны.
+- [ ] Создать тег `phase-4-telegram-text-feedback` после фиксации документации.
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 

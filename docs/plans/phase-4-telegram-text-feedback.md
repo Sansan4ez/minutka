@@ -23,32 +23,32 @@
 
 ## 2. Definition of Done
 
-- [ ] Добавлена dependency `telegraf`.
-- [ ] Создан Telegram слой как отдельная внешняя поверхность, например `src/telegram/*`.
-- [ ] Runtime entrypoint запускает Telegraf-бота только при наличии `TELEGRAM_BOT_TOKEN`.
-- [ ] `.env.example` уже содержит `TELEGRAM_BOT_TOKEN`; при необходимости добавлены комментарии по запуску.
-- [ ] `/start` работает:
-  - [ ] без параметра показывает короткое приветствие и объясняет, что нужна индивидуальная ссылка/invite code;
-  - [ ] с deep-link invite code вызывает onboarding entrypoint через SDK/Application API;
-  - [ ] повторный `/start` для уже связанного пользователя не ломает профиль и даёт понятный статус.
-- [ ] Текстовое сообщение сотрудника проходит путь `Telegram handler → SDK/API → MinutkaService.chat() → Agent Vault routing → AgentRunner`.
-- [ ] Ответ бота отправляется пользователю с inline feedback-кнопками 👍/👌/👎.
-- [ ] Feedback callback сохраняется через application use case, а не напрямую в Telegram handler.
-- [ ] Feedback содержит минимум:
-  - [ ] privacy-safe `employeeId`;
-  - [ ] `threadId`;
-  - [ ] `targetMessageId` ответа `MinutkaService.chat()`;
-  - [ ] rating: `positive | neutral | negative`;
-  - [ ] timestamp;
-  - [ ] Telegram message metadata остаётся только в Telegram shell/session boundary и не попадает в domain feedback record, domain events, insights или аналитику.
-- [ ] `SPEC-FEEDBACK-001` проходит через in-process Telegram adapter/mock update driver без реального Telegram API.
-- [ ] Предыдущие specs остаются зелёными.
-- [ ] `npm run typecheck` проходит.
-- [ ] `npm run specs` проходит.
-- [ ] `npm run verify` проходит.
-- [ ] `nix run .#verify` проходит.
-- [ ] Проведён ручной Telegram smoke E2E с реальным ботом.
-- [ ] Коммит и тег `phase-4-telegram-text-feedback`.
+- [x] Добавлена dependency `telegraf`.
+- [x] Создан Telegram слой как отдельная внешняя поверхность, например `src/telegram/*`.
+- [x] Runtime entrypoint запускает Telegraf-бота только при наличии `TELEGRAM_BOT_TOKEN`.
+- [x] `.env.example` уже содержит `TELEGRAM_BOT_TOKEN`; при необходимости добавлены комментарии по запуску.
+- [x] `/start` работает:
+  - [x] без параметра показывает короткое приветствие и объясняет, что нужна индивидуальная ссылка/invite code;
+  - [x] с deep-link invite code вызывает onboarding entrypoint через SDK/Application API;
+  - [x] повторный `/start` для уже связанного пользователя не ломает профиль и даёт понятный статус.
+- [x] Текстовое сообщение сотрудника проходит путь `Telegram handler → SDK/API → MinutkaService.chat() → Agent Vault routing → AgentRunner`.
+- [x] Ответ бота отправляется пользователю с inline feedback-кнопками 👍/👌/👎.
+- [x] Feedback callback сохраняется через application use case, а не напрямую в Telegram handler.
+- [x] Feedback содержит минимум:
+  - [x] privacy-safe `employeeId`;
+  - [x] `threadId`;
+  - [x] `targetMessageId` ответа `MinutkaService.chat()`;
+  - [x] rating: `positive | neutral | negative`;
+  - [x] timestamp;
+  - [x] Telegram message metadata остаётся только в Telegram shell/session boundary и не попадает в domain feedback record, domain events, insights или аналитику.
+- [x] `SPEC-FEEDBACK-001` проходит через in-process Telegram adapter/mock update driver без реального Telegram API.
+- [x] Предыдущие specs остаются зелёными.
+- [x] `npm run typecheck` проходит.
+- [x] `npm run specs` проходит.
+- [x] `npm run verify` проходит.
+- [x] `nix run .#verify` проходит.
+- [x] Проведён закрытый ручной Telegram smoke E2E с реальным ботом: onboarding, рабочий текст и feedback стабильны.
+- [ ] Тег `phase-4-telegram-text-feedback` (создать после фиксации документации).
 
 ---
 
