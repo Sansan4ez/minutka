@@ -38,7 +38,7 @@ MVP проверяет три гипотезы:
 - **Компания / руководство:** получает только агрегированную и обезличенную аналитику.
 - **Методолог:** оператор программы, управляет потоками и смотрит вовлечённость без доступа к личным диалогам.
 - **Бизнес-процесс агента:** не просто продуктовый сценарий, а атомарный procedural playbook для `MinutkaAgent`: когда применяется, какие входы читает, какие шаги выполняет, какие outputs/tools разрешены, какие privacy/anti-pattern правила соблюдает и от каких документов зависит.
-- **Agent Vault / business processes as code:** `vault/` с `AGENTS.md`, process-файлами, runtime docs, tool manifests и projection contracts, из которых собирается динамический контекст агента. До отдельного решения versioning — обычный git, без `vNNNN/` store.
+- **Agent Vault / business processes as code:** `vault/` с `AGENTS.md`, `/docs`, `/proc`, `/bin`, process-файлами, runtime docs, tool manifests и projection contracts, из которых собирается динамический контекст агента. До отдельного решения versioning — обычный git, без `version-NNNN/` store.
 - **Виртуальная Unix-like среда агента:** логическое рабочее пространство с ручками `/AGENTS.md`, `/docs`, `/proc`, `/bin`. В MVP это может быть локальная проекция поверх файлов, Application services и CLI; позже те же ручки могут стать remote endpoints.
 
 ---
@@ -292,6 +292,9 @@ Specs продолжают использовать in-memory adapters. Shared s
 После актуализации Phase 3.5 `MinutkaService.chat()` работает через единый process-driven decision plane:
 
 1. загружает `vault/processes/registry.json`, `vault/AGENTS.md`, `vault/processes/index.md` и process-файлы один раз при создании service/harness;
+
+AI-NOTE-ASK: почему в `vault/processes/registry.json` 'dependencies' находятся ссылки на внешние по отношение к 'vault' файлы?
+
 2. передаёт `processes/index.md`, runtime input, profile и recent turns в SO-CoT constrained conversation decision router;
 3. router возвращает strict JSON: `selectedProcessIds`, `workDecision`, `insightDecision`;
 4. TypeScript валидирует router output по allow-list ids и `appliesTo`, отбрасывает invented ids и механически исполняет решение;
