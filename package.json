@@ -13,8 +13,6 @@
   },
   "dependencies": {
     "@mastra/core": "^1.49.0",
-    "@mastra/libsql": "^1.15.1",
-    "@mastra/memory": "^1.22.2",
     "commander": "^14.0.0",
     "mastra": "^1.18.0",
     "telegraf": "^4.16.3",

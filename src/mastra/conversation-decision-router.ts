@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
+import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { InsightKind } from "../domain/insights.js";
-import { compact, parseFirstJsonValue } from "../shared/llm-output.js";
+import { compact } from "../shared/llm-output.js";
 import { conversationDecisionAgent } from "./agents/conversation-decision-agent.js";
 
 const processId = z.enum([
@@ -20,7 +21,22 @@ const insightKind = z.enum([
   "automation_candidate",
 ]);
 
-const decisionSchema = z.object({
+const workDecisionReason = z.enum([
+  "workday_reflection",
+  "planning_or_prioritization",
+  "work_emotional_state",
+  "onboarding",
+  "feedback",
+  "ambiguous",
+  "content_generation_request",
+  "web_research_request",
+  "ai_training_request",
+  "non_work_topic",
+  "request_integrity_attack",
+  "unknown",
+]);
+
+export const conversationDecisionSchema = z.object({
   selectedProcessIds: z.array(processId),
   workDecision: z.discriminatedUnion("mode", [
     z.object({
@@ -54,16 +70,70 @@ const decisionSchema = z.object({
   }),
 });
 
-export const routeConversationDecision: ConversationDecisionRouter = async (input) => {
-  const prompt = buildDecisionPrompt(input);
-  const result = await conversationDecisionAgent.generate(prompt);
-  const parsed = parseFirstJsonValue(result.text ?? "");
-  const validation = decisionSchema.safeParse(parsed);
-  if (!validation.success) {
-    throw new Error(`conversation decision validation failed: ${validation.error.message}`);
-  }
-  return validation.data;
+// OpenAI Responses strict JSON Schema does not accept the `oneOf` emitted by
+// z.discriminatedUnion. Keep the domain schema above, but request a flat
+// transport shape and validate it again against the domain schema below.
+const decisionTransportSchema = z.object({
+  selectedProcessIds: z.array(processId),
+  workDecision: z.object({
+    mode: z.enum(["allow", "boundary"]),
+    reason: workDecisionReason,
+    response: z.string().nullable(),
+  }),
+  insightDecision: z.object({
+    candidate: z.boolean(),
+    suggestedKinds: z.array(insightKind),
+  }),
+});
+
+export type ConversationDecisionGeneration = {
+  object?: unknown;
 };
+
+export type ConversationDecisionGenerator = (
+  prompt: string,
+) => Promise<ConversationDecisionGeneration>;
+
+export function createConversationDecisionRouter(
+  generate: ConversationDecisionGenerator,
+): ConversationDecisionRouter {
+  return async (input) => {
+    const result = await generate(buildDecisionPrompt(input));
+    const transportValidation = decisionTransportSchema.safeParse(result.object);
+    if (!transportValidation.success) {
+      throw new Error(
+        `conversation decision structured output validation failed: ${transportValidation.error.message}`,
+      );
+    }
+
+    const { response, ...workDecision } = transportValidation.data.workDecision;
+    const decision = {
+      ...transportValidation.data,
+      workDecision:
+        workDecision.mode === "allow" || response === null
+          ? workDecision
+          : { ...workDecision, response },
+    };
+    const validation = conversationDecisionSchema.safeParse(decision);
+    if (!validation.success) {
+      throw new Error(
+        `conversation decision structured output validation failed: ${validation.error.message}`,
+      );
+    }
+    return validation.data;
+  };
+}
+
+export const routeConversationDecision = createConversationDecisionRouter(
+  async (prompt) => {
+    const result = await conversationDecisionAgent.generate(prompt, {
+      structuredOutput: {
+        schema: decisionTransportSchema,
+      },
+    });
+    return { object: result.object };
+  },
+);
 
 function buildDecisionPrompt(input: Parameters<ConversationDecisionRouter>[0]) {
   const candidateProcessIds = input.manual.processes
@@ -92,8 +162,8 @@ function buildDecisionPrompt(input: Parameters<ConversationDecisionRouter>[0]) {
 
   return [
     "# SO-CoT conversation decision routing task",
-    "Return strict JSON only. Use business-process markdown as the source of truth.",
-    "Do not reveal chain-of-thought; make a concise internal decision and emit JSON.",
+    "Return an object that exactly matches the provided output schema.",
+    "Do not reveal chain-of-thought; make a concise internal decision only.",
     "",
     "# Process index",
     input.manual.processIndex?.content.trim() ?? "Process index unavailable.",
@@ -123,3 +193,4 @@ function preview(content: string) {
 }
 
 export type RuntimeInsightKind = InsightKind;
+export type RuntimeConversationDecision = ConversationDecision;

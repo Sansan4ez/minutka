@@ -6,6 +6,10 @@ import type {
   ChatResult,
 } from "../../../src/application/minutka-service.js";
 import type { StructuredInsightResult } from "../../../src/client/sdk/minutka-client.js";
+import { createConversationDecisionRouter } from "../../../src/mastra/conversation-decision-router.js";
+import { createInsightExtractor } from "../../../src/mastra/insight-extractor.js";
+import { createMinutkaAgentRunner } from "../../../src/mastra/agent-runner.js";
+import { loadAgentManualFromDisk } from "../../../src/application/agent-manual-loader.js";
 import {
   createSpecWorld,
   expectEvent,
@@ -34,7 +38,6 @@ registerSpecMetadata({
   ],
   mastra: [
     "minutkaAgent",
-    "minutkaMemory",
     "extractInsightsTool",
     "runMinutkaAgent",
     "routeAgentManualProcesses",
@@ -55,7 +58,6 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     const { minutkaAgent } = await import(
       "../../../src/mastra/agents/minutka-agent.js"
     );
-    const { minutkaMemory } = await import("../../../src/mastra/memory.js");
     const { extractInsightsTool } = await import(
       "../../../src/mastra/tools/extract-insights-tool.js"
     );
@@ -73,12 +75,150 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     );
 
     expect(minutkaAgent).toBeDefined();
-    expect(minutkaMemory).toBeDefined();
     expect(extractInsightsTool).toBeDefined();
     expect(runMinutkaAgent).toBeDefined();
     expect(routeAgentManualProcesses).toBeDefined();
     expect(routeConversationDecision).toBeDefined();
     expect(extractInsightsWithAgent).toBeDefined();
+  });
+
+  it("passes rendered context to the runtime agent without Mastra message memory", async () => {
+    let observedOptions: unknown;
+    const runner = createMinutkaAgentRunner({
+      async generate(_text, options) {
+        observedOptions = options;
+        return { text: "ok" };
+      },
+    });
+
+    await expect(
+      runner(
+        { employeeId: "emp_1", threadId: "thread_1", text: "Привет" },
+        {
+          purpose: "chat",
+          systemContext: "trusted runtime context",
+          memory: { resourceId: "emp_1", threadId: "thread_1", recentTurns: [] },
+        },
+      ),
+    ).resolves.toBe("ok");
+    expect(observedOptions).toEqual({ system: "trusted runtime context" });
+  });
+
+  it("normalizes a valid flat structured decision into the domain decision", async () => {
+    const router = createConversationDecisionRouter(async () => ({
+      object: {
+        selectedProcessIds: ["core"],
+        workDecision: {
+          mode: "allow",
+          reason: "workday_reflection",
+          response: null,
+        },
+        insightDecision: { candidate: false, suggestedKinds: [] },
+      },
+    }));
+
+    await expect(
+      router({
+        purpose: "chat",
+        text: "Сегодня много встреч.",
+        manual: loadAgentManualFromDisk(),
+      }),
+    ).resolves.toEqual({
+      selectedProcessIds: ["core"],
+      workDecision: { mode: "allow", reason: "workday_reflection" },
+      insightDecision: { candidate: false, suggestedKinds: [] },
+    });
+  });
+
+  it("rejects a malformed structured decision before it reaches the application", async () => {
+    const router = createConversationDecisionRouter(async () => ({
+      object: {
+        selectedProcessIds: ["core"],
+        workDecision: {
+          mode: "allow",
+          reason: "workday_reflection",
+          response: null,
+        },
+        insightDecision: { candidate: true, suggestedKinds: ["not_an_insight_kind"] },
+      },
+    }));
+
+    await expect(
+      router({
+        purpose: "chat",
+        text: "Сегодня много встреч.",
+        manual: loadAgentManualFromDisk(),
+      }),
+    ).rejects.toThrow(/structured output validation failed/);
+  });
+
+  it("normalizes provider-safe insight transport into a typed insight", async () => {
+    const extractor = createInsightExtractor(async () => ({
+      object: {
+        insights: [
+          {
+            kind: "task_category",
+            label: "отчёт",
+            confidence: "high",
+            category: "reporting",
+            patternType: null,
+            interferesWith: null,
+            marker: null,
+            intensity: null,
+            candidateType: null,
+            rationale: null,
+          },
+        ],
+      },
+    }));
+
+    await expect(
+      extractor({
+        employeeId: "emp_1",
+        threadId: "thread_1",
+        messageId: "msg_1",
+        text: "Нужно закончить отчёт.",
+        response: "Давай выделим на него время.",
+        recentTurns: [],
+        decision: {
+          selectedProcessIds: ["core", "insight_extraction"],
+          workDecision: { mode: "allow", reason: "workday_reflection" },
+          insightDecision: { candidate: true, suggestedKinds: ["task_category"] },
+        },
+      }),
+    ).resolves.toEqual({
+      insights: [
+        expect.objectContaining({
+          kind: "task_category",
+          category: "reporting",
+          employeeId: "emp_1",
+          threadId: "thread_1",
+          sourceMessageId: "msg_1",
+        }),
+      ],
+    });
+  });
+
+  it("rejects malformed insight transport before it reaches the application", async () => {
+    const extractor = createInsightExtractor(async () => ({
+      object: { insights: [{ kind: "task_category", confidence: "certain" }] },
+    }));
+
+    await expect(
+      extractor({
+        employeeId: "emp_1",
+        threadId: "thread_1",
+        messageId: "msg_1",
+        text: "Нужно закончить отчёт.",
+        response: "Давай выделим на него время.",
+        recentTurns: [],
+        decision: {
+          selectedProcessIds: ["core", "insight_extraction"],
+          workDecision: { mode: "allow", reason: "workday_reflection" },
+          insightDecision: { candidate: true, suggestedKinds: ["task_category"] },
+        },
+      }),
+    ).rejects.toThrow(/structured output validation failed/);
   });
 
   it("uses morning plan in evening reflection and records privacy-safe insights", async () => {

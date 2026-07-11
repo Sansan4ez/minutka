@@ -1,5 +1,4 @@
 import { Agent } from "@mastra/core/agent";
-import { minutkaMemory } from "../memory.js";
 import { extractInsightsTool, updateProfileTool } from "../tools/index.js";
 
 export const minutkaAgent = new Agent({
@@ -21,6 +20,5 @@ Fallback-границы, если vault context недоступен:
 - отвечай только в границах рабочего дня и связанного с работой состояния.
   `.trim(),
   model: "openai/gpt-5.4-mini",
-  memory: minutkaMemory,
   tools: { updateProfileTool, extractInsightsTool },
 });
