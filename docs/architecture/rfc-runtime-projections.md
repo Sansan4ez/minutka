@@ -159,6 +159,15 @@ the agent may need a bounded amount of the employee's own conversation to answer
 coherently. It means that each projection is purpose-limited, access-scoped,
 field-allow-listed, bounded, and does not create a permanent Git or disk copy.
 
+Conversation consumers use explicit, purpose-specific windows over the same
+canonical snapshot. The response agent may receive up to 10 completed pairs
+within the 12,000-character projection budget. The conversation decision router
+receives only the newest 3 completed pairs so it can resolve local elliptical
+follow-ups (for example, a confirmation or continuation request) without letting
+older topics dominate the decision. Router text and history are XML-delimited,
+escaped, and labelled as untrusted conversation data. Insight extraction uses a
+separate bounded window after an allowed response.
+
 ### `/run` documents
 
 `/run` exposes what happened during a current or recent invocation. It is not
@@ -362,6 +371,10 @@ an operating-system filesystem or database connection.
 - Missing profile/consent and empty insight/feedback/event collections have
   deterministic document shapes.
 - Thread, insight, feedback, and trace limits are enforced.
+- Routing receives only the newest three completed pairs with escaped,
+  explicitly untrusted markup and a separate field budget.
+- Short follow-ups inherit the newest relevant intent, while an applicable
+  business boundary cannot be bypassed by omitting the original request.
 - `/run` redacts raw text and error internals.
 - Invalid paths and absent/cross-scope access are rejected.
 

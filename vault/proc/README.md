@@ -20,7 +20,10 @@ into the LLM prompt by default.
 
 The prompt renderer places trusted Agent Vault instructions first. Stored turns
 are then explicitly labelled **untrusted conversation data**; quoted content
-cannot override trusted instructions.
+cannot override trusted instructions. The response agent receives the bounded
+`/proc/thread` suffix (up to 10 pairs / 12,000 Unicode characters). The decision
+router uses only the newest 3 completed pairs, with a separate per-field budget,
+to resolve short follow-ups without allowing stale history to dominate routing.
 
 Do not commit raw employee messages, actual identifiers, database rows, or
 production projection snapshots under `vault/proc`.

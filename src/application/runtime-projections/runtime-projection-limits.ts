@@ -1,8 +1,10 @@
+import { conversationContextLimits } from "../conversation-context-limits.js";
+
 export const runtimeProjectionLimits = {
-  threadTurns: 10,
-  threadCharacters: 12_000,
+  threadTurns: conversationContextLimits.responseTurns,
+  threadCharacters: conversationContextLimits.responseCharacters,
   /** Individual user/assistant fields are clipped before a turn is budgeted. */
-  threadTurnTextCharacters: 6_000,
+  threadTurnTextCharacters: conversationContextLimits.responseFieldCharacters,
   insights: 20,
   feedback: 20,
   runCurrent: 50,

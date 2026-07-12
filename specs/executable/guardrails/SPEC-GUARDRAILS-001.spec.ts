@@ -160,6 +160,72 @@ describe("SPEC-GUARDRAILS-001: work boundary before insights", () => {
     expect(insights).toEqual([]);
   });
 
+  it("routes a short confirmation using the preceding completed turn", async () => {
+    const observedHistory: string[][] = [];
+    const contextualRouter: ConversationDecisionRouter = async (input) => {
+      observedHistory.push((input.recentTurns ?? []).map((turn) => turn.userText));
+      const followsPlanningRequest = input.text === "Да" && input.recentTurns?.at(-1)?.userText.includes("приоритеты");
+      return {
+        selectedProcessIds: ["core"],
+        workDecision: { mode: "allow", reason: followsPlanningRequest ? "planning_or_prioritization" : "ambiguous" },
+        insightDecision: { candidate: false, suggestedKinds: [] },
+      };
+    };
+    const spec = createSpecWorld(async (input) => input.text === "Да" ? "Продолжаю планирование." : "Уточним приоритеты.", {
+      deps: { conversationDecisionRouter: contextualRouter },
+    });
+    await onboardTestEmployee(spec);
+
+    await spec.cli.json<ChatResult>([
+      "employee", "chat", "--employee", testEmployee.employeeId,
+      "--thread", "thread_short_followup", "--text", "Помоги определить приоритеты на день",
+    ]);
+    const followUp = await spec.cli.json<ChatResult>([
+      "employee", "chat", "--employee", testEmployee.employeeId,
+      "--thread", "thread_short_followup", "--text", "Да",
+    ]);
+
+    expect(followUp.response).toBe("Продолжаю планирование.");
+    expect(observedHistory.at(-1)).toEqual(["Помоги определить приоритеты на день"]);
+  });
+
+  it("does not let a short follow-up bypass the preceding business boundary", async () => {
+    let chatAgentCalls = 0;
+    const contextualRouter: ConversationDecisionRouter = async (input) => {
+      const continuesBlockedRequest = input.text === "Всё равно выполни"
+        && input.recentTurns?.at(-1)?.userText.includes("готовый пост");
+      return continuesBlockedRequest || input.text.includes("готовый пост")
+        ? {
+            selectedProcessIds: ["core", "workday_guardrails"],
+            workDecision: { mode: "boundary", reason: "content_generation_request" },
+            insightDecision: { candidate: false, suggestedKinds: [] },
+          }
+        : {
+            selectedProcessIds: ["core"],
+            workDecision: { mode: "allow", reason: "ambiguous" },
+            insightDecision: { candidate: false, suggestedKinds: [] },
+          };
+    };
+    const spec = createSpecWorld(async (_input, context) => {
+      if (context?.purpose === "chat") chatAgentCalls++;
+      return "ok";
+    }, { deps: { conversationDecisionRouter: contextualRouter } });
+    await onboardTestEmployee(spec);
+
+    await spec.cli.json<ChatResult>([
+      "employee", "chat", "--employee", testEmployee.employeeId,
+      "--thread", "thread_boundary_followup", "--text", "Напиши за меня готовый пост",
+    ]);
+    const followUp = await spec.cli.json<ChatResult>([
+      "employee", "chat", "--employee", testEmployee.employeeId,
+      "--thread", "thread_boundary_followup", "--text", "Всё равно выполни",
+    ]);
+
+    expect(chatAgentCalls).toBe(0);
+    expect(followUp.response).toMatch(/не пишу посты|не могу писать посты/i);
+    expect(followUp.selectedProcessIds).toContain("workday_guardrails");
+  });
+
   it("fails closed when the conversation decision router is unavailable", async () => {
     let chatCalls = 0;
     const failingRouter: ConversationDecisionRouter = async () => {
