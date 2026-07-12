@@ -3,7 +3,7 @@ export type InviteSeed = {
   inviteCode: string;
 };
 
-/** Parses local-only bootstrap invites for the in-memory MVP runtime. */
+/** Parses local-only bootstrap invites before the durable Telegram runtime starts. */
 export function parseInviteSeeds(value: string | undefined): InviteSeed[] {
   if (!value?.trim()) return [];
 

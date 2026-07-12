@@ -65,12 +65,11 @@ TELEGRAM_INVITES=emp_1:one-time-invite
 Use different migration-owner and application-role credentials in pilot. The
 Compose bootstrap creates `minutka_migrator` as database/schema owner and
 `minutka_runtime` as the non-owner application role. `db:migrate` uses
-`MIGRATION_DATABASE_URL` (or `DATABASE_URL` when deliberately omitted); runtime
-uses `DATABASE_URL`. The application role receives `USAGE` on application
-schemas, DML on runtime tables, and read-only `SELECT` on
-`minutka_meta.schema_migrations` for the startup status check. Do not log the URL, peppers,
-invite codes, Telegram identities, SQL parameters containing personal data, or
-raw provider errors.
+`MIGRATION_DATABASE_URL`; runtime uses `DATABASE_URL`. The application role
+receives `USAGE` on application schemas, DML on runtime tables, and read-only
+`SELECT` on `minutka_meta.schema_migrations` for the startup status check. Do
+not log the URL, peppers, invite codes, Telegram identities, SQL parameters
+containing personal data, or raw provider errors.
 
 ## Migration and startup
 
@@ -81,8 +80,52 @@ set -a; . ./.env; set +a
 npm run db:migrate
 npm run db:status
 npm run verify:persistence
+```
+
+`db:migrate` reports only migrations applied by this invocation. `pending` is
+therefore always empty after a successful migration run. `db:status` is the
+command that reports migrations still awaiting application.
+
+## Start Telegram and issue a local invite
+
+`TELEGRAM_INVITES` is a local bootstrap mechanism, not a production invite
+management API. Add one or more unique `employeeId:inviteCode` pairs to the
+uncommitted `.env` before starting the bot:
+
+```dotenv
+TELEGRAM_INVITES=emp_001:replace-with-a-long-random-code
+```
+
+Generate a code without punctuation that could be altered by a messenger:
+
+```bash
+INVITE_CODE="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
+printf 'TELEGRAM_INVITES=emp_001:%s\n' "$INVITE_CODE"
+```
+
+Start the bot:
+
+```bash
 npm run telegram:dev
 ```
+
+Then send the employee this deep link, replacing `<BOT_USERNAME>` with the
+bot username configured in BotFather:
+
+```text
+https://t.me/<BOT_USERNAME>?start=<INVITE_CODE>
+```
+
+For the concrete example above:
+
+```text
+https://t.me/<BOT_USERNAME>?start=replace-with-a-long-random-code
+```
+
+On startup the bot stores only an HMAC digest of the invite code in PostgreSQL.
+Do not commit `TELEGRAM_INVITES`, expose it in logs, or reuse codes. Restarting
+the bot with the same seed is safe: issuing the same employee/code pair is
+idempotent.
 
 The migrator uses a PostgreSQL advisory lock, immutable ordered SQL files, and
 SHA-256 checksums in `minutka_meta.schema_migrations`. Startup checks both DB
