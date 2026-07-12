@@ -1,5 +1,7 @@
 import type { UserProfile } from "../domain/employee.js";
 import type { ConversationTurn } from "./conversation-store.js";
+import type { ProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
+import { renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import type {
   AgentManual,
   AgentManualProcessId,
@@ -34,6 +36,8 @@ export type BuildMinutkaContextInput = {
   text?: string;
   profile?: UserProfile;
   recentTurns?: ConversationTurn[];
+  /** Scoped application snapshot; replaces the legacy duplicated profile context. */
+  runtimeProjection?: ProcSnapshot;
   selectedProcessIds?: AgentManualProcessId[];
 };
 
@@ -46,12 +50,23 @@ export type MinutkaContextBuilderLike = {
   build(input: BuildMinutkaContextInput): Promise<BuiltMinutkaContext>;
 };
 
-export function buildMinutkaProfileContext(profile: UserProfile): string {
+function buildMinutkaPersonaContext(profile: UserProfile): string {
   const aiRule =
     profile.aiLevel === "beginner"
       ? "Если сотрудник не знаком с ИИ, не упоминай ChatGPT/нейросети первым; говори про шаблоны, упрощение и повторяемость."
       : "Можно аккуратно предложить ускорение через ИИ-инструменты, если это уместно; не обучай ИИ-инструментам в обычном ответе.";
 
+  return [
+    `Выбранная персона: ${personaLabels[profile.persona]}.`,
+    "Правила тона:",
+    ...personaRules[profile.persona].map((rule) => `- ${rule}`),
+    "",
+    aiRule,
+  ].join("\n");
+}
+
+/** Legacy standalone profile renderer; runtime chat uses the projection snapshot instead. */
+export function buildMinutkaProfileContext(profile: UserProfile): string {
   return [
     "Профиль сотрудника:",
     `- Роль: ${profile.role}`,
@@ -59,11 +74,7 @@ export function buildMinutkaProfileContext(profile: UserProfile): string {
     `- Уровень знакомства с ИИ: ${profile.aiLevel}`,
     `- Предпочтительная длина ответа: ${profile.responseLength}`,
     "",
-    `Выбранная персона: ${personaLabels[profile.persona]}.`,
-    "Правила тона:",
-    ...personaRules[profile.persona].map((rule) => `- ${rule}`),
-    "",
-    aiRule,
+    buildMinutkaPersonaContext(profile),
   ].join("\n");
 }
 
@@ -83,7 +94,12 @@ export async function buildMinutkaContext(
     sections.push(manualSelection.manualContext);
   }
 
-  if (input.profile) {
+  if (input.runtimeProjection) {
+    if (input.profile) {
+      sections.push(["## Persona context", buildMinutkaPersonaContext(input.profile)].join("\n\n"));
+    }
+    sections.push(renderRuntimeProjection(input.runtimeProjection));
+  } else if (input.profile) {
     sections.push(["## Profile context", buildMinutkaProfileContext(input.profile)].join("\n\n"));
   }
 

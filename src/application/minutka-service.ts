@@ -13,7 +13,8 @@ import type { InsightKind, StructuredInsight, StructuredInsightDraft } from "../
 import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { FeedbackRating, FeedbackSource } from "../domain/feedback.js";
 import type { FeedbackStore } from "./feedback-store.js";
-import type { AuditEventStore, AuditEventType, SafeAuditMetadata } from "./audit-event-store.js";
+import { safeAuditMetadata, type AuditEventStore, type AuditEventType, type SafeAuditMetadata } from "./audit-event-store.js";
+import { PersistenceError } from "./persistence-error.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
 import type { ConsentAcceptanceStore } from "./consent-acceptance-store.js";
@@ -23,7 +24,7 @@ import type {
 } from "./telegram-invite-redemption-store.js";
 import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
-import { renderDecisionProjection, renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
+import { renderDecisionProjection } from "./runtime-projections/runtime-projection-renderer.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
@@ -137,7 +138,7 @@ export class MinutkaService {
     const opened = await this.stores.profileStore.openInvite({
       inviteCode, openedAt, explanationShownAt: this.clock.now(),
     });
-    if (!opened) throw new Error("invite not found");
+    if (!opened) throw new PersistenceError("invite_not_found");
     if (opened.opened) await this.audit(requestId, "invite_opened", opened.participant.employeeId, undefined, undefined, openedAt);
     await this.audit(requestId, "privacy_explanation_shown", opened.participant.employeeId, undefined, undefined, this.clock.now(), {
       privacyVersion: currentPrivacyVersion,
@@ -182,10 +183,9 @@ export class MinutkaService {
         metadata: {},
       },
     });
-    if (result.status === "invite_not_found") throw new Error("invite not found");
-    if (result.status === "employee_already_linked") throw new Error("employee already linked");
-    if (result.status === "chat_already_linked") throw new Error("chat already linked");
-    if (result.status === "invite_unavailable") throw new Error("invite unavailable");
+    if (result.status === "invite_not_found") throw new PersistenceError("invite_not_found");
+    if (result.status === "employee_already_linked") throw new PersistenceError("employee_already_linked");
+    if (result.status === "chat_already_linked") throw new PersistenceError("chat_already_linked");
     return {
       employeeId: result.employeeId,
       threadId: result.threadId,
@@ -249,7 +249,7 @@ export class MinutkaService {
 
   async getProfile(input: { employeeId: string }): Promise<UserProfile> {
     const profile = await this.stores.profileStore.getProfile(input.employeeId);
-    if (!profile) throw new Error("profile not found");
+    if (!profile) throw new PersistenceError("profile_not_found");
     return profile;
   }
 
@@ -264,9 +264,14 @@ export class MinutkaService {
     const decision = await this.routeConversationDecisionSafely({ purpose: "chat", text: input.text, profile, recentTurns });
     const decisionProjection = this.projectionBuilder.buildDecision({ ...input, requestId, purpose: "chat" }, decision);
     const built = await this.contextBuilder.build({
-      purpose: "chat", text: input.text, profile, recentTurns, selectedProcessIds: decision.selectedProcessIds,
+      purpose: "chat",
+      text: input.text,
+      profile,
+      recentTurns,
+      runtimeProjection: snapshot,
+      selectedProcessIds: decision.selectedProcessIds,
     });
-    const projectionContext = [renderDecisionProjection(decisionProjection), renderRuntimeProjection(snapshot)].filter(Boolean).join("\n\n");
+    const projectionContext = renderDecisionProjection(decisionProjection);
     let response: string;
     if (decision.workDecision.mode === "boundary") {
       response = buildBoundaryResponse(decision.workDecision, profile);
@@ -316,7 +321,7 @@ export class MinutkaService {
   }
 
   private async audit(requestId: string, type: AuditEventType, employeeId: string, threadId: string | undefined, messageId: string | undefined, occurredAt: string, metadata: SafeAuditMetadata = {}) {
-    await this.stores.auditEventStore.append({ id: this.ids.auditEventId(), requestId, type, employeeId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), occurredAt, metadata });
+    await this.stores.auditEventStore.append({ id: this.ids.auditEventId(), requestId, type, employeeId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), occurredAt, metadata: safeAuditMetadata(type, metadata) });
   }
 
   private async routeConversationDecisionSafely(input: { purpose: AgentManualPurpose; text: string; profile?: UserProfile; recentTurns: ConversationTurn[] }): Promise<ConversationDecision> {
@@ -325,7 +330,7 @@ export class MinutkaService {
     catch { return sanitizeConversationDecision({ selectedProcessIds: ["core", "workday_guardrails"], workDecision: { mode: "boundary", reason: "unknown" }, insightDecision: { candidate: false, suggestedKinds: [] } }, this.manual, input.purpose); }
   }
 
-  private async requireParticipant(employeeId: string) { const participant = await this.stores.profileStore.getParticipant(employeeId); if (!participant) throw new Error("participant not found"); return participant; }
+  private async requireParticipant(employeeId: string) { const participant = await this.stores.profileStore.getParticipant(employeeId); if (!participant) throw new PersistenceError("participant_not_found"); return participant; }
   private validateProfileInput(input: CompleteOnboardingInput) { if (!input.role.trim()) throw new Error("role is required"); const tasks = input.typicalTasks.map((task) => task.trim()); if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) throw new Error("typicalTasks must contain 1 to 7 non-empty tasks"); }
 }
 
