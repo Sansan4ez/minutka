@@ -8,6 +8,10 @@
     "test": "npm run specs",
     "specs": "vitest run specs/executable --exclude='.direnv/**' --reporter=default --reporter=json --outputFile.json=docs/generated/spec-results.json",
     "telegram:dev": "tsx src/telegram/main.ts",
+    "db:migrate": "tsx src/infrastructure/postgres/migrate.ts",
+    "db:status": "tsx src/infrastructure/postgres/migrate.ts --status",
+    "specs:persistence": "vitest run specs/persistence --exclude='.direnv/**'",
+    "verify:persistence": "npm run typecheck && npm run db:migrate && npm run specs:persistence",
     "verify": "npm run typecheck && npm run specs",
     "mastra:dev": "mastra dev"
   },
@@ -15,11 +19,13 @@
     "@mastra/core": "^1.49.0",
     "commander": "^14.0.0",
     "mastra": "^1.18.0",
+    "pg": "^8.22.0",
     "telegraf": "^4.16.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.23.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
