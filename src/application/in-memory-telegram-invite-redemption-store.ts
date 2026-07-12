@@ -18,22 +18,26 @@ export function createInMemoryTelegramInviteRedemptionStore(input: {
   redemptionLocks.set(input.auditEventStore, locks);
   return {
     redeem: (request) => withKeyLock(locks, request.inviteCode, async () => {
-      const opened = await input.profileStore.openInvite({
-        inviteCode: request.inviteCode,
-        openedAt: request.occurredAt,
-      });
-      if (!opened) return { status: "invite_not_found" };
+      // Claim the session before changing invite state, matching the order in
+      // the PostgreSQL transaction. A conflicting claim therefore leaves the
+      // invite available instead of consuming it without a session.
+      const participant = await input.profileStore.getParticipantByInviteCode(request.inviteCode);
+      if (!participant) return { status: "invite_not_found" };
       const claimed = await input.sessionStore.claim({
         identity: request.identity,
         session: {
-          employeeId: opened.participant.employeeId,
-          threadId: opened.participant.employeeId,
+          employeeId: participant.employeeId,
+          threadId: participant.employeeId,
           createdAt: request.occurredAt,
           updatedAt: request.occurredAt,
         },
       });
       if (claimed.status !== "claimed") return claimed;
-      await input.auditEventStore.append({ ...request.auditEvent, employeeId: opened.participant.employeeId });
+      await input.profileStore.openInvite({
+        inviteCode: request.inviteCode,
+        openedAt: request.occurredAt,
+      });
+      await input.auditEventStore.append({ ...request.auditEvent, employeeId: participant.employeeId });
       return { status: "claimed", employeeId: claimed.session.employeeId, threadId: claimed.session.threadId };
     }),
   };

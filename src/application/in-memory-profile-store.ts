@@ -1,6 +1,7 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
 import type { ProfileStore } from "./profile-store.js";
+import { PersistenceError } from "./persistence-error.js";
 
 function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value: T) {
   const index = items.findIndex((item) => item.employeeId === value.employeeId);
@@ -8,11 +9,14 @@ function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value:
   else items[index] = value;
 }
 
-function worldAuditDeletionMarker(world: InMemoryWorld, _employeeId: string): void {
+const deletionMarkerCounters = new WeakMap<InMemoryWorld, number>();
+function worldAuditDeletionMarker(world: InMemoryWorld): void {
+  const counter = (deletionMarkerCounters.get(world) ?? 0) + 1;
+  deletionMarkerCounters.set(world, counter);
   const occurredAt = world.now();
   world.auditEvents.push({
-    id: `anonymous-deletion-${world.auditEvents.length + 1}`,
-    requestId: `anonymous-deletion-${world.auditEvents.length + 1}`,
+    id: `anonymous-deletion-${counter}`,
+    requestId: `anonymous-deletion-${counter}`,
     type: "employee_data_deleted",
     occurredAt,
     metadata: {},
@@ -25,7 +29,10 @@ const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
  * Executable-spec store. Raw invite codes stay outside observable world state,
  * while adapters over the same fixture share the private lookup.
  */
-export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
+export function createInMemoryProfileStore(
+  world: InMemoryWorld,
+  options: { afterDelete?: (employeeId: string) => Promise<void> } = {},
+): ProfileStore {
   const employeeByInviteCode = inviteIndexes.get(world) ?? new Map<string, string>();
   inviteIndexes.set(world, employeeByInviteCode);
 
@@ -85,7 +92,7 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
     },
     async recordPrivacyExplanationShown({ employeeId, shownAt }) {
       const participant = world.participants.find((candidate) => candidate.employeeId === employeeId);
-      if (!participant) throw new Error("participant not found");
+      if (!participant) throw new PersistenceError("participant_not_found");
       upsertByEmployeeId(world.participants, {
         ...participant,
         privacyExplanationShownAt: shownAt,
@@ -96,7 +103,7 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
       const existing = world.profiles.find((candidate) => candidate.employeeId === profile.employeeId);
       upsertByEmployeeId(world.profiles, profile);
       const participant = world.participants.find((candidate) => candidate.employeeId === profile.employeeId);
-      if (!participant) throw new Error("participant not found");
+      if (!participant) throw new PersistenceError("participant_not_found");
       const wasCompleted = participant.status === "profile_completed";
       upsertByEmployeeId(world.participants, {
         ...participant,
@@ -107,6 +114,10 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
     },
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);
+    },
+    async getParticipantByInviteCode(inviteCode) {
+      const employeeId = employeeByInviteCode.get(inviteCode);
+      return employeeId ? world.participants.find((participant) => participant.employeeId === employeeId) : undefined;
     },
     async getConsent(employeeId) {
       return world.consents.find((consent) => consent.employeeId === employeeId);
@@ -122,7 +133,9 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
         if (indexedEmployeeId === employeeId) employeeByInviteCode.delete(inviteCode);
       }
       world.auditEvents = world.auditEvents.filter((record) => record.employeeId !== employeeId);
-      await worldAuditDeletionMarker(world, employeeId);
+      world.events = world.events.filter((record) => !("employeeId" in record && record.employeeId === employeeId));
+      await options.afterDelete?.(employeeId);
+      await worldAuditDeletionMarker(world);
     },
   };
 }

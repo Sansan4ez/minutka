@@ -40,7 +40,13 @@ export function createPostgresAuditEventStore(pool: Pool): AuditEventStore {
     async listCurrent({ requestId, limit }) {
       try {
         const result = await pool.query<Row>(
-          "SELECT * FROM minutka_audit.events WHERE request_id=$1 ORDER BY occurred_at ASC, event_id ASC LIMIT $2",
+          `SELECT * FROM (
+             SELECT * FROM minutka_audit.events
+             WHERE request_id=$1
+             ORDER BY occurred_at DESC, event_id DESC
+             LIMIT $2
+           ) newest
+           ORDER BY occurred_at ASC, event_id ASC`,
           [requestId, Math.max(0, limit)],
         );
         return result.rows.map(event);

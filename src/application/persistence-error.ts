@@ -1,9 +1,9 @@
 export type PersistenceErrorCode =
   | "invite_not_found"
-  | "invite_conflict"
   | "employee_already_linked"
   | "chat_already_linked"
   | "participant_not_found"
+  | "session_not_found"
   | "consent_required"
   | "profile_not_found"
   | "message_not_found"
@@ -28,10 +28,5 @@ export function mapPostgresError(error: unknown): PersistenceError {
   if (["23502", "23503", "23514"].includes(postgres.code ?? "")) {
     return new PersistenceError("persistence_conflict");
   }
-  if (
-    postgres.code === "57014" ||
-    postgres.code === "57P01" ||
-    postgres.code?.startsWith("08")
-  ) return new PersistenceError("persistence_unavailable");
   return new PersistenceError("persistence_unavailable");
 }

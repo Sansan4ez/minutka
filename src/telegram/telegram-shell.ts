@@ -71,9 +71,9 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
       } catch (error) {
         logShellError("/start", error);
         const code = error instanceof PersistenceError ? error.code : undefined;
-        const message = code === "employee_already_linked" || (error instanceof Error && error.message === "employee already linked")
+        const message = code === "employee_already_linked"
           ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту."
-          : code === "chat_already_linked" || (error instanceof Error && error.message === "chat already linked")
+          : code === "chat_already_linked"
             ? "Этот чат уже связан с профилем."
             : code === "invite_not_found"
               ? "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой."
@@ -93,7 +93,7 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
         let profileExists = true;
         try { await client.getProfile({ employeeId: session.employeeId }); } catch (error) {
-          if ((error instanceof PersistenceError && error.code === "profile_not_found") || (error instanceof Error && error.message === "profile not found")) profileExists = false;
+          if (error instanceof PersistenceError && error.code === "profile_not_found") profileExists = false;
           else throw error;
         }
         if (!profileExists) {

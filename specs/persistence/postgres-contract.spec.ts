@@ -158,6 +158,24 @@ describe("PostgreSQL storage contracts", () => {
     expect((await auditStore.listCurrent({ requestId: "req_safe_metadata", limit: 1 }))[0]?.metadata).toEqual({});
   });
 
+  it("returns the newest current audit window in chronological order", async () => {
+    const auditStore = createPostgresAuditEventStore(pool);
+    for (let index = 0; index < 55; index++) {
+      await auditStore.append({
+        id: `evt_current_${String(index).padStart(2, "0")}`,
+        requestId: "req_current_window",
+        type: "chat_received",
+        employeeId: "emp_pg",
+        occurredAt: now,
+        metadata: {},
+      });
+    }
+    const events = await auditStore.listCurrent({ requestId: "req_current_window", limit: 50 });
+    expect(events).toHaveLength(50);
+    expect(events[0]?.id).toBe("evt_current_05");
+    expect(events.at(-1)?.id).toBe("evt_current_54");
+  });
+
   it("deletes every employee-owned private record", async () => {
     await issueProfileReadyParticipant(pool, "emp_delete", "invite_delete");
     const conversations = createPostgresConversationStore(pool);

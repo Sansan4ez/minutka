@@ -54,6 +54,7 @@ export function safeAuditMetadata(type: AuditEventType, metadata: SafeAuditMetad
 
 export type AuditEventStore = {
   append(event: AuditEventRecord): Promise<void>;
+  /** Returns the newest `limit` events for the request in chronological order. */
   listCurrent(input: { requestId: string; limit: number }): Promise<AuditEventRecord[]>;
   listRecent(input: {
     employeeId: string;

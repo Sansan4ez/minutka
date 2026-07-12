@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Consent, Participant, UserProfile } from "../../domain/employee.js";
+import { systemClock, type Clock } from "../../application/runtime-primitives.js";
 import type { ProfileStore } from "../../application/profile-store.js";
 import { PersistenceError, mapPostgresError } from "../../application/persistence-error.js";
 import type { Pool } from "pg";
@@ -58,7 +59,11 @@ const toProfile = (row: ProfileRow): UserProfile => ({
   updatedAt: row.updated_at.toISOString(),
 });
 
-export function createPostgresProfileStore(pool: Pool, inviteCodePepper: string): ProfileStore {
+export function createPostgresProfileStore(
+  pool: Pool,
+  inviteCodePepper: string,
+  clock: Clock = systemClock,
+): ProfileStore {
   return {
     async issueInvite({ employeeId, inviteCode, issuedAt }) {
       const digest = keyedDigest(inviteCode, inviteCodePepper);
@@ -206,6 +211,17 @@ export function createPostgresProfileStore(pool: Pool, inviteCodePepper: string)
         throw mapPostgresError(error);
       }
     },
+    async getParticipantByInviteCode(inviteCode) {
+      try {
+        const result = await pool.query<ParticipantRow>(
+          "SELECT employee_id, status, privacy_explanation_shown_at, created_at, updated_at FROM minutka_private.participants WHERE invite_code_digest = $1",
+          [keyedDigest(inviteCode, inviteCodePepper)],
+        );
+        return result.rows[0] ? toParticipant(result.rows[0]) : undefined;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async getConsent(employeeId) {
       try {
         const result = await pool.query<ConsentRow>("SELECT * FROM minutka_private.consents WHERE employee_id = $1", [employeeId]);
@@ -233,7 +249,7 @@ export function createPostgresProfileStore(pool: Pool, inviteCodePepper: string)
           await client.query(
             `INSERT INTO minutka_audit.events(event_id, request_id, event_type, metadata, occurred_at)
              VALUES ($1, $2, 'employee_data_deleted', '{}'::jsonb, $3)`,
-            [randomUUID(), randomUUID(), new Date().toISOString()],
+            [randomUUID(), randomUUID(), clock.now()],
           );
         });
       } catch (error) {

@@ -27,6 +27,8 @@ export type ProfileStore = {
     completedAt: string;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
+  /** Private lookup used only by the atomic Telegram invite-redemption adapter. */
+  getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;
   getProfile(employeeId: string): Promise<UserProfile | undefined>;
   deleteEmployeePersonalData(employeeId: string): Promise<void>;

@@ -30,9 +30,11 @@ export function createInMemoryRuntime(input: {
 }): InMemoryRuntime {
   const world = input.world ?? createInMemoryWorld();
   const deps = input.deps ?? {};
-  const profileStore = createInMemoryProfileStore(world);
-  const auditEventStore = createInMemoryAuditEventStore(world);
   const sessionStore = createInMemoryTelegramSessionStore();
+  const profileStore = createInMemoryProfileStore(world, {
+    afterDelete: (employeeId) => sessionStore.deleteByEmployee(employeeId),
+  });
+  const auditEventStore = createInMemoryAuditEventStore(world);
   const consentAcceptanceStore: ConsentAcceptanceStore = {
     async accept({ consent, auditEvent, telegramIdentity }) {
       const result = await profileStore.acceptConsent(consent);

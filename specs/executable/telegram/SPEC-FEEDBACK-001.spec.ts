@@ -159,6 +159,35 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     );
   });
 
+  it("1d. A conflicting session claim does not consume the invite", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_unconsumed",
+      "--employee",
+      "emp_unconsumed",
+    ]);
+
+    // Occupy the chat with another employee, then try the target invite.
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_other",
+      "--employee",
+      "emp_other",
+    ]);
+    await telegram.start({ chatId: "shared_chat", userId: "user_a", inviteCode: "invite_other" });
+    await telegram.start({ chatId: "shared_chat", userId: "user_b", inviteCode: "invite_unconsumed" });
+
+    expect(spec.world.participants).toContainEqual(
+      expect.objectContaining({ employeeId: "emp_unconsumed", status: "invite_issued" }),
+    );
+  });
+
   it("2 & 3. Happy path: onboarding, chat, feedback buttons, click callback, and event check", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

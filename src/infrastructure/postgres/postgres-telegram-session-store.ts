@@ -71,6 +71,13 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
+    async deleteByEmployee(employeeId) {
+      try {
+        await pool.query("DELETE FROM minutka_private.telegram_sessions WHERE employee_id = $1", [employeeId]);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async markConsentAccepted({ identity, employeeId, acceptedAt }) {
       try {
         const chat = keyedDigest(identity.chatId, pepper);
@@ -81,7 +88,7 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
            WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3`,
           [chat, user, employeeId, acceptedAt],
         );
-        if (result.rowCount !== 1) throw new PersistenceError("participant_not_found");
+        if (result.rowCount !== 1) throw new PersistenceError("session_not_found");
       } catch (error) {
         if (error instanceof PersistenceError) throw error;
         throw mapPostgresError(error);

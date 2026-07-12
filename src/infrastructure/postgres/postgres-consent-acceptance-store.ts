@@ -44,7 +44,7 @@ export function createPostgresConsentAcceptanceStore(pool: Pool, telegramIdentit
                 consent.acceptedAt,
               ],
             );
-            if (session.rowCount !== 1) throw new PersistenceError("participant_not_found");
+            if (session.rowCount !== 1) throw new PersistenceError("session_not_found");
           }
           if (!inserted.rowCount) {
             return {

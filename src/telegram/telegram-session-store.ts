@@ -17,6 +17,8 @@ export type TelegramSessionClaimResult =
 export interface TelegramSessionStore {
   getByIdentity(identity: TelegramIdentity): Promise<TelegramSession | undefined>;
   claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
+  /** Removes the chat-to-employee link during personal-data deletion. */
+  deleteByEmployee(employeeId: string): Promise<void>;
   markConsentAccepted(input: {
     identity: TelegramIdentity;
     employeeId: string;
