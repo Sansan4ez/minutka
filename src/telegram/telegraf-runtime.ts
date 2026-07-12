@@ -8,8 +8,10 @@ export function createTelegrafBot(deps: {
   const { token, shell } = deps;
   const bot = new Telegraf(token);
 
-  bot.catch((err, ctx) => {
-    console.error(`Telegraf error for update ${ctx.update.update_id}:`, err);
+  bot.catch((error) => {
+    // Telegraf errors may embed an entire update/request payload, including
+    // chat identifiers and message text. Keep the operational signal only.
+    console.error(`Telegraf update handling failed (${error instanceof Error ? error.name : "UnknownError"}).`);
   });
 
   bot.start(async (ctx) => {

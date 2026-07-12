@@ -29,7 +29,14 @@ async function main() {
   for (const seed of parseInviteSeeds(process.env.TELEGRAM_INVITES)) await client.issueInvite(seed);
   const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort });
   activeBot = createTelegrafBot({ token, shell });
-  const shutdown = async (signal: string) => { console.log(`Stopping bot (${signal})...`); activeBot?.stop(signal); await runtime.shutdown(); };
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Stopping bot (${signal})...`);
+    activeBot?.stop(signal);
+    await runtime.shutdown();
+  };
   process.once("SIGINT", () => void shutdown("SIGINT")); process.once("SIGTERM", () => void shutdown("SIGTERM"));
   await activeBot.launch(); console.log("Minutka Telegram Bot is running with PostgreSQL runtime.");
 }
