@@ -14,5 +14,6 @@ export interface FeedbackStore {
     employeeId?: string;
     threadId?: string;
     targetMessageId?: string;
+    limit?: number;
   }): Promise<FeedbackRecord[]>;
 }

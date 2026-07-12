@@ -44,11 +44,12 @@ export function createInMemoryFeedbackStore(world: InMemoryWorld): FeedbackStore
       );
     },
     async listFeedback(input) {
-      return world.feedback.filter((feedback) =>
+      const matches = world.feedback.filter((feedback) =>
         (!input?.employeeId || feedback.employeeId === input.employeeId) &&
         (!input?.threadId || feedback.threadId === input.threadId) &&
         (!input?.targetMessageId || feedback.targetMessageId === input.targetMessageId),
       );
+      return input?.limit === undefined ? matches : matches.slice(-Math.max(0, input.limit));
     },
   };
 }

@@ -11,13 +11,15 @@ export function createInMemoryInsightStore(world: InMemoryWorld): InsightStore {
       employeeId?: string;
       threadId?: string;
       kind?: InsightKind;
+      limit?: number;
     }) {
-      return world.insights.filter(
+      const matches = world.insights.filter(
         (insight) =>
           (!input.employeeId || insight.employeeId === input.employeeId) &&
           (!input.threadId || insight.threadId === input.threadId) &&
           (!input.kind || insight.kind === input.kind),
       );
+      return input.limit === undefined ? matches : matches.slice(-Math.max(0, input.limit));
     },
   };
 }

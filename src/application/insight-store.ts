@@ -6,5 +6,6 @@ export type InsightStore = {
     employeeId?: string;
     threadId?: string;
     kind?: InsightKind;
+    limit?: number;
   }): Promise<StructuredInsight[]>;
 };

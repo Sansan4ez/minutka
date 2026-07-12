@@ -61,10 +61,18 @@ export function createRuntimeProjectionBuilder(deps: {
           })
         : [];
       const insights = threadId
-        ? await deps.insightStore.listInsights({ employeeId: scope.employeeId, threadId })
+        ? await deps.insightStore.listInsights({
+            employeeId: scope.employeeId,
+            threadId,
+            limit: runtimeProjectionLimits.insights,
+          })
         : [];
       const feedback = threadId
-        ? await deps.feedbackStore.listFeedback({ employeeId: scope.employeeId, threadId })
+        ? await deps.feedbackStore.listFeedback({
+            employeeId: scope.employeeId,
+            threadId,
+            limit: runtimeProjectionLimits.feedback,
+          })
         : [];
 
       return {
@@ -95,12 +103,12 @@ export function createRuntimeProjectionBuilder(deps: {
         insights: envelope(
           "/proc/insights",
           scope,
-          insights.slice(-runtimeProjectionLimits.insights),
+          insights,
         ),
         feedback: envelope(
           "/proc/feedback",
           scope,
-          feedback.slice(-runtimeProjectionLimits.feedback),
+          feedback,
         ),
       };
     },
