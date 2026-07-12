@@ -507,7 +507,7 @@ Raw message/response, invite code, Telegram identifiers, provider payloads и st
 ```dotenv
 # Persistent application storage
 DATABASE_URL=
-# require | prefer | disable; production/pilot must use require
+# require | disable; production/pilot must use require
 DATABASE_SSL_MODE=require
 
 # HMAC secrets. Use separate random values; do not commit real values.
@@ -887,21 +887,13 @@ src/runtime/
 
 ### 11.2 Runtime mode
 
-Допустимый explicit switch:
+Telegram composition root всегда создаёт PostgreSQL runtime. Для specs mode не
+читается из environment — harness вызывает in-memory factory напрямую. Отдельный
+переключатель `MINUTKA_RUNTIME_MODE` намеренно не поддерживается: так typo или
+устаревшая переменная не смогут незаметно включить ephemeral production runtime.
 
-```dotenv
-MINUTKA_RUNTIME_MODE=postgres
-```
-
-Для specs mode не читается из environment — harness вызывает in-memory factory напрямую.
-
-Если нужен local ephemeral demo, допускается explicit `MINUTKA_RUNTIME_MODE=memory`, но startup log должен ясно предупреждать:
-
-```text
-In-memory runtime: all application and Telegram session state will be lost on restart.
-```
-
-Pilot config не разрешает `memory` mode.
+Если позднее понадобится local ephemeral demo, он должен использовать отдельный
+явный entrypoint поверх `createInMemoryRuntime`, а не Telegram/pilot entrypoint.
 
 ### 11.3 Invite bootstrap
 

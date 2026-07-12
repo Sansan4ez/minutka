@@ -2,12 +2,13 @@
 
 Phase 4.1 uses PostgreSQL as the only persistent/pilot application backend.
 `InMemoryWorld` is an executable-spec fixture; `telegram:dev` does not silently
-fall back to it.
+fall back to it. `MINUTKA_RUNTIME_MODE` is deliberately unsupported: Telegram
+always starts a PostgreSQL runtime, so an environment typo cannot enable an
+unsafe ephemeral mode.
 
 ## Configuration
 
 ```dotenv
-MINUTKA_RUNTIME_MODE=postgres
 DATABASE_URL=postgresql://minutka_runtime:...@localhost:5432/minutka
 DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
