@@ -608,6 +608,20 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.feedback).toHaveLength(0);
   });
 
+  it("12b. /start rejects a second Telegram account in an existing chat", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_shared", userId: "owner", inviteCode: testInvite.inviteCode });
+    telegram.clear();
+
+    await telegram.start({ chatId: "chat_shared", userId: "intruder" });
+
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Этот аккаунт не связан с данным чатом." }),
+    ]);
+  });
+
   it("13. Shell returns a generic error without exposing internal error details", async () => {
     const secret = "internal-secret-do-not-disclose";
     const runner: AgentRunner = async (input) => {

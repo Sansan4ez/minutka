@@ -4,6 +4,7 @@ import { PersistenceError, mapPostgresError } from "../../application/persistenc
 import type { Consent } from "../../domain/employee.js";
 import type { Pool } from "pg";
 import { withTransaction } from "./postgres-pool.js";
+import { keyedDigest } from "./digests.js";
 
 type ConsentRow = {
   employee_id: string;
@@ -13,9 +14,9 @@ type ConsentRow = {
   source: Consent["source"];
 };
 
-export function createPostgresConsentAcceptanceStore(pool: Pool): ConsentAcceptanceStore {
+export function createPostgresConsentAcceptanceStore(pool: Pool, telegramIdentityPepper?: string): ConsentAcceptanceStore {
   return {
-    async accept({ consent, auditEvent }) {
+    async accept({ consent, auditEvent, telegramIdentity }) {
       try {
         return await withTransaction(pool, async (client) => {
           const inserted = await client.query<ConsentRow>(
@@ -28,6 +29,23 @@ export function createPostgresConsentAcceptanceStore(pool: Pool): ConsentAccepta
             await client.query<ConsentRow>("SELECT * FROM minutka_private.consents WHERE employee_id = $1", [consent.employeeId])
           ).rows[0];
           if (!row) throw new PersistenceError("participant_not_found");
+          if (telegramIdentity) {
+            if (!telegramIdentityPepper) throw new PersistenceError("persistence_unavailable");
+            const session = await client.query(
+              `UPDATE minutka_private.telegram_sessions
+               SET consent_accepted_at = $4, updated_at = $4
+               WHERE chat_id_digest = $1
+                 AND user_id_digest IS NOT DISTINCT FROM $2
+                 AND employee_id = $3`,
+              [
+                keyedDigest(telegramIdentity.chatId, telegramIdentityPepper),
+                telegramIdentity.userId ? keyedDigest(telegramIdentity.userId, telegramIdentityPepper) : null,
+                consent.employeeId,
+                consent.acceptedAt,
+              ],
+            );
+            if (session.rowCount !== 1) throw new PersistenceError("participant_not_found");
+          }
           if (!inserted.rowCount) {
             return {
               consent: {

@@ -29,7 +29,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
     };
     const service = new MinutkaService(input.agentRunner, {
       ...stores,
-      consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool),
+      consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool, config.telegramIdentityPepper),
       telegramInviteRedemptionStore: createPostgresTelegramInviteRedemptionStore(
         pool,
         config.inviteCodePepper,

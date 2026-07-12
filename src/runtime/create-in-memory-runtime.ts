@@ -9,6 +9,7 @@ import type { TelegramSessionStore } from "../telegram/telegram-session-store.js
 import { createInMemoryWorld, type InMemoryWorld } from "../application/in-memory-world.js";
 import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
 import { createDeterministicIdGenerator } from "../application/runtime-primitives.js";
+import type { ConsentAcceptanceStore } from "../application/consent-acceptance-store.js";
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
 import type { InsightExtractor } from "../application/insight-extractor.js";
 
@@ -32,12 +33,27 @@ export function createInMemoryRuntime(input: {
   const profileStore = createInMemoryProfileStore(world);
   const auditEventStore = createInMemoryAuditEventStore(world);
   const sessionStore = createInMemoryTelegramSessionStore();
+  const consentAcceptanceStore: ConsentAcceptanceStore = {
+    async accept({ consent, auditEvent, telegramIdentity }) {
+      const result = await profileStore.acceptConsent(consent);
+      if (telegramIdentity) {
+        await sessionStore.markConsentAccepted({
+          identity: telegramIdentity,
+          employeeId: consent.employeeId,
+          acceptedAt: result.consent.acceptedAt,
+        });
+      }
+      if (result.created) await auditEventStore.append(auditEvent);
+      return result;
+    },
+  };
   const service = new MinutkaService(input.agentRunner, {
     profileStore,
     conversationStore: createInMemoryConversationStore(world),
     insightStore: createInMemoryInsightStore(world),
     feedbackStore: createInMemoryFeedbackStore(world),
     auditEventStore,
+    consentAcceptanceStore,
     telegramInviteRedemptionStore: createInMemoryTelegramInviteRedemptionStore({
       profileStore,
       sessionStore,

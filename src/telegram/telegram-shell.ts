@@ -36,6 +36,8 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
           }
           return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
         }
+        const existingChat = await sessionStore.getByIdentity(identity(chatId));
+        if (existingChat) return void await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
         if (!inviteCode) return void await replyPort.sendMessage(chatId, "Добро пожаловать! Для начала работы вам нужна индивидуальная ссылка с инвайт-кодом.");
         const redeemed = await client.redeemTelegramInvite({
           inviteCode,
@@ -50,7 +52,9 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
           ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту."
           : code === "chat_already_linked" || (error instanceof Error && error.message === "chat already linked")
             ? "Этот чат уже связан с профилем."
-            : "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой.";
+            : code === "invite_not_found"
+              ? "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой."
+              : "Не удалось завершить настройку. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
       }
     },
@@ -64,9 +68,17 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
           return void await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>");
         }
         if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+        let profileExists = true;
         try { await client.getProfile({ employeeId: session.employeeId }); } catch (error) {
-          if (!(error instanceof PersistenceError && error.code === "profile_not_found") && !(error instanceof Error && error.message === "profile not found")) throw error; const profile = parseOnboardingProfile(trimmed); if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
-          const onboarding = await client.completeOnboarding({ employeeId: session.employeeId, ...profile }); for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk); return;
+          if ((error instanceof PersistenceError && error.code === "profile_not_found") || (error instanceof Error && error.message === "profile not found")) profileExists = false;
+          else throw error;
+        }
+        if (!profileExists) {
+          const profile = parseOnboardingProfile(trimmed);
+          if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
+          const onboarding = await client.completeOnboarding({ employeeId: session.employeeId, ...profile });
+          for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk);
+          return;
         }
         const chat = await client.chat({ employeeId: session.employeeId, threadId: session.threadId, text: trimmed }); const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
         const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
@@ -77,14 +89,31 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
       try {
         const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
         if (data.startsWith("tg:consent:")) {
-          const employeeId = data.slice("tg:consent:".length); if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
-          const consent = await client.acceptConsent({ employeeId, accepted: true, source: "telegram" }); await sessionStore.markConsentAccepted({ identity: telegramIdentity, employeeId, acceptedAt: consent.acceptedAt }); await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!"); await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`); return;
+          const employeeId = data.slice("tg:consent:".length);
+          if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
+          await client.acceptConsent({
+            employeeId,
+            accepted: true,
+            source: "telegram",
+            telegramIdentity,
+          });
+          await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
+          await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`);
+          return;
         }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
         if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
         if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
         await client.submitFeedback({ employeeId: session.employeeId, threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }); await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
-      } catch (error) { logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, "Не удалось сохранить отзыв. Попробуйте ещё раз позже."); }
+      } catch (error) {
+        logShellError("callback", error);
+        await replyPort.answerCallbackQuery(
+          callbackQueryId,
+          data.startsWith("tg:consent:")
+            ? "Не удалось сохранить согласие. Попробуйте ещё раз позже."
+            : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.",
+        );
+      }
     },
   };
 }
