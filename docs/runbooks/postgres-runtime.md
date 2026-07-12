@@ -6,10 +6,52 @@ fall back to it. `MINUTKA_RUNTIME_MODE` is deliberately unsupported: Telegram
 always starts a PostgreSQL runtime, so an environment typo cannot enable an
 unsafe ephemeral mode.
 
+## Local development/test with Docker Compose
+
+`compose.yaml` runs the official `postgres:16-alpine` image with a named volume,
+a healthcheck, and a `127.0.0.1`-only port binding. It creates two databases on
+first initialisation: `minutka` for runtime state and `minutka_test` for the
+persistence suite. Do not point `TEST_DATABASE_URL` to `minutka`: the tests
+truncate their database.
+
+1. Create a local environment file and generate secrets:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# Set POSTGRES_SUPERUSER_PASSWORD, MINUTKA_DB_PASSWORD,
+# INVITE_CODE_PEPPER and TELEGRAM_IDENTITY_PEPPER to distinct random values.
+```
+
+2. Initialise PostgreSQL and wait for the healthcheck:
+
+```bash
+docker compose up -d postgres
+docker compose ps
+```
+
+The server uses Docker Compose v2 (`docker compose`); the legacy
+`docker-compose` binary is not supported.
+
+The init script runs only for an empty `minutka-postgres-data` volume. Normal
+restart/shutdown preserves data:
+
+```bash
+docker compose stop postgres
+docker compose up -d postgres
+```
+
+To reset all local database data deliberately, run:
+
+```bash
+docker compose down --volumes
+```
+
 ## Configuration
 
 ```dotenv
-DATABASE_URL=postgresql://minutka_runtime:...@localhost:5432/minutka
+DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka
+TEST_DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka_test
 DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
@@ -27,8 +69,11 @@ raw provider errors.
 ## Migration and startup
 
 ```bash
+# Export .env because migration/test scripts intentionally do not load it.
+set -a; . ./.env; set +a
 npm run db:migrate
 npm run db:status
+npm run verify:persistence
 npm run telegram:dev
 ```
 
