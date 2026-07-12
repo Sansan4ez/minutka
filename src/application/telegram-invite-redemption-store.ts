@@ -9,7 +9,6 @@ export type TelegramIdentity = {
 export type TelegramInviteRedemptionResult =
   | { status: "claimed"; employeeId: string; threadId: string }
   | { status: "invite_not_found" }
-  | { status: "invite_unavailable" }
   | { status: "chat_already_linked" }
   | { status: "employee_already_linked" };
 

@@ -1,6 +1,6 @@
 import type { DomainEvent } from "../domain/events.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
-import type { AuditEventRecord, AuditEventStore } from "./audit-event-store.js";
+import { safeAuditMetadata, type AuditEventRecord, type AuditEventStore } from "./audit-event-store.js";
 
 /**
  * The legacy DomainEvent array is retained strictly as an executable-spec
@@ -9,8 +9,9 @@ import type { AuditEventRecord, AuditEventStore } from "./audit-event-store.js";
 export function createInMemoryAuditEventStore(world: InMemoryWorld): AuditEventStore {
   return {
     async append(event) {
-      world.auditEvents.push({ ...event, metadata: { ...event.metadata } });
-      const legacy = toLegacyEvent(event);
+      const safeEvent = { ...event, metadata: safeAuditMetadata(event.type, event.metadata) };
+      world.auditEvents.push(safeEvent);
+      const legacy = toLegacyEvent(safeEvent);
       if (legacy) world.events.push(legacy);
     },
     async listCurrent({ requestId, limit }) {

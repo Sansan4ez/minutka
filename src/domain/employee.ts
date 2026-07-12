@@ -10,9 +10,9 @@ export type OnboardingStatus =
   | "consent_accepted"
   | "profile_completed";
 
+/** Persistent participant state. Invite codes are operation inputs, never participant data. */
 export type Participant = {
   employeeId: string;
-  inviteCode: string;
   status: OnboardingStatus;
   createdAt: string;
   updatedAt: string;

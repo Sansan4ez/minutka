@@ -118,11 +118,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     ).rejects.toThrow(/employee already has an active invite/);
 
     expect(spec.world.participants).toEqual([
-      expect.objectContaining({
-        employeeId: "emp_single_invite",
-        inviteCode: "invite_primary",
-      }),
+      expect.objectContaining({ employeeId: "emp_single_invite" }),
     ]);
+    expect(JSON.stringify(spec.world.participants)).not.toContain("invite_primary");
   });
 
   it("1c. Concurrent /start calls can claim a pre-issued invite only once", async () => {

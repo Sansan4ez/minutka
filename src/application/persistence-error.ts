@@ -11,15 +11,27 @@ export type PersistenceErrorCode =
   | "persistence_conflict";
 
 export class PersistenceError extends Error {
-  constructor(readonly code: PersistenceErrorCode, message = code) {
-    super(message);
+  constructor(readonly code: PersistenceErrorCode) {
+    super(code);
     this.name = "PersistenceError";
   }
 }
 
+type PostgresError = { code?: string; constraint?: string };
+
+/** Maps driver errors at the infrastructure boundary; SQL text never escapes it. */
 export function mapPostgresError(error: unknown): PersistenceError {
-  const code = (error as { code?: string; constraint?: string }).code;
-  if (code === "23505") return new PersistenceError("persistence_conflict");
-  if (code === "57014" || code === "08000" || code === "08006") return new PersistenceError("persistence_unavailable");
+  if (error instanceof PersistenceError) return error;
+  const postgres = error as PostgresError;
+  if (postgres.code === "23505") {
+    return new PersistenceError("persistence_conflict");
+  }
+  if (
+    postgres.code === "57014" ||
+    postgres.code === "57P01" ||
+    postgres.code?.startsWith("08")
+  ) {
+    return new PersistenceError("persistence_unavailable");
+  }
   return new PersistenceError("persistence_unavailable");
 }

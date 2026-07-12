@@ -3,6 +3,7 @@ import type { TelegramIdentity, TelegramSessionStore } from "./telegram-session-
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 import { privacyExplanation } from "../domain/privacy.js";
+import { PersistenceError } from "../application/persistence-error.js";
 
 export const maxTelegramMessageCharacters = 4_000;
 export function splitTelegramMessage(text: string): string[] {
@@ -44,9 +45,10 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         await client.recordPrivacyExplanationShown({ employeeId: redeemed.employeeId });
       } catch (error) {
         logShellError("/start", error);
-        const message = error instanceof Error && error.message === "employee already linked"
+        const code = error instanceof PersistenceError ? error.code : undefined;
+        const message = code === "employee_already_linked" || (error instanceof Error && error.message === "employee already linked")
           ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту."
-          : error instanceof Error && error.message === "chat already linked"
+          : code === "chat_already_linked" || (error instanceof Error && error.message === "chat already linked")
             ? "Этот чат уже связан с профилем."
             : "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой.";
         await replyPort.sendMessage(chatId, message);
@@ -63,7 +65,7 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         }
         if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
         try { await client.getProfile({ employeeId: session.employeeId }); } catch (error) {
-          if (!(error instanceof Error && error.message === "profile not found")) throw error; const profile = parseOnboardingProfile(trimmed); if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
+          if (!(error instanceof PersistenceError && error.code === "profile_not_found") && !(error instanceof Error && error.message === "profile not found")) throw error; const profile = parseOnboardingProfile(trimmed); if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
           const onboarding = await client.completeOnboarding({ employeeId: session.employeeId, ...profile }); for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk); return;
         }
         const chat = await client.chat({ employeeId: session.employeeId, threadId: session.threadId, text: trimmed }); const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");

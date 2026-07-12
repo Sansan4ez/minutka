@@ -8,35 +8,50 @@ function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value:
   else items[index] = value;
 }
 
+const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
+
+/**
+ * Executable-spec store. Raw invite codes stay outside observable world state,
+ * while adapters over the same fixture share the private lookup.
+ */
 export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
+  const employeeByInviteCode = inviteIndexes.get(world) ?? new Map<string, string>();
+  inviteIndexes.set(world, employeeByInviteCode);
+
   return {
     async issueInvite({ employeeId, inviteCode, issuedAt }) {
-      const existingByInvite = world.participants.find(
-        (candidate) => candidate.inviteCode === inviteCode,
-      );
-      if (existingByInvite) return { participant: existingByInvite, created: false, inviteMatches: true };
-      const existingByEmployee = world.participants.find(
-        (candidate) => candidate.employeeId === employeeId,
-      );
+      const existingEmployeeForInvite = employeeByInviteCode.get(inviteCode);
+      if (existingEmployeeForInvite) {
+        const participant = world.participants.find((candidate) => candidate.employeeId === existingEmployeeForInvite);
+        if (!participant) throw new Error("in-memory invite index is inconsistent");
+        return {
+          participant,
+          created: false,
+          inviteMatches: existingEmployeeForInvite === employeeId,
+        };
+      }
+      const existingByEmployee = world.participants.find((candidate) => candidate.employeeId === employeeId);
       if (existingByEmployee) return { participant: existingByEmployee, created: false, inviteMatches: false };
       const participant: Participant = {
         employeeId,
-        inviteCode,
         status: "invite_issued",
         createdAt: issuedAt,
         updatedAt: issuedAt,
       };
+      employeeByInviteCode.set(inviteCode, employeeId);
       world.participants.push(participant);
       return { participant, created: true, inviteMatches: true };
     },
     async openInvite({ inviteCode, openedAt, explanationShownAt }) {
-      const index = world.participants.findIndex((participant) => participant.inviteCode === inviteCode);
-      if (index === -1) return undefined;
+      const employeeId = employeeByInviteCode.get(inviteCode);
+      if (!employeeId) return undefined;
+      const index = world.participants.findIndex((participant) => participant.employeeId === employeeId);
+      if (index === -1) throw new Error("in-memory invite index is inconsistent");
       const participant = world.participants[index];
       if (participant.status !== "invite_issued") return { participant, opened: false };
-      const opened = {
+      const opened: Participant = {
         ...participant,
-        status: "invite_opened" as const,
+        status: "invite_opened",
         updatedAt: openedAt,
         ...(explanationShownAt ? { privacyExplanationShownAt: explanationShownAt } : {}),
       };
@@ -53,7 +68,6 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
           ...participant,
           status: "consent_accepted",
           updatedAt: consent.acceptedAt,
-          privacyExplanationShownAt: participant.privacyExplanationShownAt,
         });
       }
       return { consent, created: true };
@@ -92,6 +106,9 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
     async deleteEmployeePersonalData(employeeId) {
       for (const key of ["messages", "insights", "feedback", "profiles", "consents", "participants"] as const) {
         world[key] = world[key].filter((record) => record.employeeId !== employeeId) as never;
+      }
+      for (const [inviteCode, indexedEmployeeId] of employeeByInviteCode) {
+        if (indexedEmployeeId === employeeId) employeeByInviteCode.delete(inviteCode);
       }
       world.auditEvents = world.auditEvents.filter((record) => record.employeeId !== employeeId);
     },

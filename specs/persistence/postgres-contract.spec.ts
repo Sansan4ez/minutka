@@ -4,16 +4,21 @@ import { migratePostgres } from "../../src/infrastructure/postgres/postgres-migr
 import { createPostgresProfileStore } from "../../src/infrastructure/postgres/postgres-profile-store.js";
 import { createPostgresConversationStore } from "../../src/infrastructure/postgres/postgres-conversation-store.js";
 import { createPostgresFeedbackStore } from "../../src/infrastructure/postgres/postgres-feedback-store.js";
+import { createPostgresInsightStore } from "../../src/infrastructure/postgres/postgres-insight-store.js";
 import { createPostgresAuditEventStore } from "../../src/infrastructure/postgres/postgres-audit-event-store.js";
 import { createPostgresConsentAcceptanceStore } from "../../src/infrastructure/postgres/postgres-consent-acceptance-store.js";
 import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
+import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
-const describePostgres = url ? describe : describe.skip;
+if (!url) {
+  throw new Error("TEST_DATABASE_URL is required for specs:persistence; refusing to pass with zero database tests");
+}
+
 const config = {
-  databaseUrl: url!,
+  databaseUrl: url,
   ssl: false as const,
-  max: 2,
+  max: 4,
   connectionTimeoutMillis: 5_000,
   statementTimeoutMillis: 5_000,
   inviteCodePepper: "test-invite-pepper",
@@ -25,17 +30,18 @@ function audit(id: string, type: "invite_opened" | "consent_accepted", employeeI
   return { id, requestId: `req_${id}`, type, employeeId, occurredAt: now, metadata: {} };
 }
 
-async function issueProfileReadyParticipant(employeeId: string, inviteCode: string) {
-  const pool = createPostgresPool(config);
+async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgresPool>, employeeId: string, inviteCode: string) {
   const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
   await profiles.issueInvite({ employeeId, inviteCode, issuedAt: now });
   await profiles.openInvite({ inviteCode, openedAt: now, explanationShownAt: now });
   await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
-  await profiles.completeProfile({ completedAt: now, profile: { employeeId, role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now } });
-  return { pool, profiles };
+  await profiles.completeProfile({
+    completedAt: now,
+    profile: { employeeId, role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+  });
 }
 
-describePostgres("PostgreSQL storage contracts", () => {
+describe("PostgreSQL storage contracts", () => {
   let pool = createPostgresPool(config);
 
   beforeAll(async () => {
@@ -72,10 +78,41 @@ describePostgres("PostgreSQL storage contracts", () => {
       redemption.redeem({ inviteCode: "invite_claim", identity: { chatId: "chat_b", userId: "user_b" }, occurredAt: now, auditEvent: audit("evt_claim_b", "invite_opened") }),
     ]);
     expect([first.status, second.status].filter((status) => status === "claimed")).toHaveLength(1);
-    const sessions = await pool.query("SELECT employee_id FROM minutka_private.telegram_sessions WHERE employee_id = 'emp_claim'");
-    const events = await pool.query("SELECT event_type FROM minutka_audit.events WHERE employee_id = 'emp_claim' AND event_type = 'invite_opened'");
-    expect(sessions.rowCount).toBe(1);
-    expect(events.rowCount).toBe(1);
+    expect((await pool.query("SELECT employee_id FROM minutka_private.telegram_sessions WHERE employee_id = 'emp_claim'"))).toMatchObject({ rowCount: 1 });
+    expect((await pool.query("SELECT event_type FROM minutka_audit.events WHERE employee_id = 'emp_claim' AND event_type = 'invite_opened'"))).toMatchObject({ rowCount: 1 });
+  });
+
+  it("resolves a chat-only identity probe even when the session has a user digest", async () => {
+    await issueProfileReadyParticipant(pool, "emp_probe", "invite_probe");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    expect(await sessions.claim({
+      identity: { chatId: "chat_probe", userId: "user_probe" },
+      session: { employeeId: "emp_probe", threadId: "thread_probe", createdAt: now, updatedAt: now },
+    })).toMatchObject({ status: "claimed" });
+    expect(await sessions.getByIdentity({ chatId: "chat_probe" })).toMatchObject({ employeeId: "emp_probe" });
+    expect(await sessions.getByIdentity({ chatId: "chat_probe", userId: "wrong_user" })).toBeUndefined();
+  });
+
+  it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {
+    await issueProfileReadyParticipant(pool, "emp_chat_a", "invite_chat_a");
+    await issueProfileReadyParticipant(pool, "emp_chat_b", "invite_chat_b");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const [first, second] = await Promise.all([
+      sessions.claim({ identity: { chatId: "shared_chat", userId: "user_a" }, session: { employeeId: "emp_chat_a", threadId: "thread_a", createdAt: now, updatedAt: now } }),
+      sessions.claim({ identity: { chatId: "shared_chat", userId: "user_b" }, session: { employeeId: "emp_chat_b", threadId: "thread_b", createdAt: now, updatedAt: now } }),
+    ]);
+    expect([first.status, second.status].filter((status) => status === "claimed")).toHaveLength(1);
+    expect([first.status, second.status]).toContain("chat_already_linked");
+  });
+
+  it("returns idempotent results for parallel issueInvite calls", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const results = await Promise.all([
+      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", issuedAt: now }),
+      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", issuedAt: now }),
+    ]);
+    expect(results.filter((result) => result.created)).toHaveLength(1);
+    expect(results.every((result) => result.participant.employeeId === "emp_parallel_issue" && result.inviteMatches)).toBe(true);
   });
 
   it("commits consent and its audit event together", async () => {
@@ -92,14 +129,47 @@ describePostgres("PostgreSQL storage contracts", () => {
   });
 
   it("rejects cross-employee feedback and insight links at the database boundary", async () => {
-    const first = await issueProfileReadyParticipant("emp_owner_a", "invite_owner_a");
-    const second = await issueProfileReadyParticipant("emp_owner_b", "invite_owner_b");
-    await first.pool.end();
-    await second.pool.end();
+    await issueProfileReadyParticipant(pool, "emp_owner_a", "invite_owner_a");
+    await issueProfileReadyParticipant(pool, "emp_owner_b", "invite_owner_b");
     const conversations = createPostgresConversationStore(pool);
     await conversations.appendTurn({ messageId: "msg_owner_a", employeeId: "emp_owner_a", threadId: "thread_owner_a", userText: "private", agentResponse: "reply", timestamp: now });
     await conversations.appendTurn({ messageId: "msg_owner_b", employeeId: "emp_owner_b", threadId: "thread_owner_b", userText: "private", agentResponse: "reply", timestamp: now });
     await expect(pool.query("INSERT INTO minutka_private.feedback(feedback_id, employee_id, thread_id, target_message_id, rating, source, created_at, updated_at) VALUES ('fb_cross', 'emp_owner_a', 'thread_owner_a', 'msg_owner_b', 'positive', 'test', $1, $1)", [now])).rejects.toMatchObject({ code: "23503" });
     await expect(pool.query("INSERT INTO minutka_private.insights(insight_id, employee_id, thread_id, source_message_id, kind, label, confidence, payload, created_at) VALUES ('ins_cross', 'emp_owner_a', 'thread_owner_a', 'msg_owner_b', 'task_category', 'cross', 'low', '{}', $1)", [now])).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("filters forbidden audit metadata at the store boundary", async () => {
+    const auditStore = createPostgresAuditEventStore(pool);
+    await auditStore.append({
+      id: "evt_safe_metadata",
+      requestId: "req_safe_metadata",
+      type: "chat_received",
+      employeeId: "emp_pg",
+      occurredAt: now,
+      metadata: { text: "must never persist" } as never,
+    });
+    expect((await auditStore.listCurrent({ requestId: "req_safe_metadata", limit: 1 }))[0]?.metadata).toEqual({});
+  });
+
+  it("deletes every employee-owned private record", async () => {
+    await issueProfileReadyParticipant(pool, "emp_delete", "invite_delete");
+    const conversations = createPostgresConversationStore(pool);
+    await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
+    await createPostgresFeedbackStore(pool).saveFeedback({ id: "fb_delete", employeeId: "emp_delete", threadId: "thread_delete", targetMessageId: "msg_delete", rating: "positive", source: "test", updatedAt: now });
+    await createPostgresInsightStore(pool).saveInsights([{
+      id: "ins_delete", employeeId: "emp_delete", threadId: "thread_delete", sourceMessageId: "msg_delete",
+      kind: "task_category", label: "reporting", confidence: "low", category: "reporting", createdAt: now,
+    }]);
+    await createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper).claim({
+      identity: { chatId: "chat_delete", userId: "user_delete" },
+      session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
+    });
+    await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
+    await createPostgresProfileStore(pool, config.inviteCodePepper).deleteEmployeePersonalData("emp_delete");
+    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions"]) {
+      const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
+      expect(result.rowCount).toBe(0);
+    }
+    expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
   });
 });
