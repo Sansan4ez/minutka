@@ -34,14 +34,29 @@ async function main() {
   const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort });
   activeBot = createTelegrafBot({ token, shell });
   let shuttingDown = false;
+  let launchCompleted: Promise<void> | undefined;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`Stopping bot (${signal})...`);
     activeBot?.stop(signal);
+    // stop() only aborts polling. Telegraf resolves launch() after pending
+    // update handlers settle, so keep the database alive until they finish.
+    await launchCompleted;
     await runtime.shutdown();
   };
-  process.once("SIGINT", () => void shutdown("SIGINT")); process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  await activeBot.launch(); console.log("Minutka Telegram Bot is running with PostgreSQL runtime.");
+  const requestShutdown = (signal: string) => {
+    void shutdown(signal).catch((error) => {
+      console.error(`Graceful shutdown failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+      process.exitCode = 1;
+    });
+  };
+  const launchBot = () => {
+    launchCompleted = activeBot.launch();
+    return launchCompleted;
+  };
+  process.once("SIGINT", () => requestShutdown("SIGINT")); process.once("SIGTERM", () => requestShutdown("SIGTERM"));
+  console.log("Minutka Telegram Bot is running with PostgreSQL runtime.");
+  await launchBot();
 }
 main().catch((error) => { console.error("Fatal error in main:", error instanceof Error ? error.message : "unknown error"); process.exit(1); });

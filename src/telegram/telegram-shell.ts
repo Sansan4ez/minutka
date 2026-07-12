@@ -13,6 +13,7 @@ export function splitTelegramMessage(text: string): string[] {
 }
 const onboardingFormat = "роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced";
 const typingRefreshMilliseconds = 4_000;
+const maxTelegramCallbackDataBytes = 64;
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function parseOnboardingProfile(text: string): { role: string; typicalTasks: string[]; persona: "support" | "efficiency"; aiLevel: "beginner" | "intermediate" | "advanced" } | undefined {
   const [role, tasksInput, persona, aiLevel, ...extra] = text.split("|").map((part) => part.trim());
@@ -20,7 +21,15 @@ function parseOnboardingProfile(text: string): { role: string; typicalTasks: str
   return extra.length === 0 && role && typicalTasks.length >= 1 && typicalTasks.length <= 7 && !typicalTasks.some((task) => !task) && (persona === "support" || persona === "efficiency") && (aiLevel === "beginner" || aiLevel === "intermediate" || aiLevel === "advanced") ? { role, typicalTasks, persona, aiLevel } : undefined;
 }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
-async function sendConsentPrompt(replyPort: TelegramReplyPort, chatId: string, employeeId: string, explanation: string) { await replyPort.sendMessage(chatId, explanation, { replyMarkup: { inlineKeyboard: [[{ text: "✅ Принимаю", callbackData: `tg:consent:${employeeId}` }]] } }); }
+function consentCallbackData(employeeId: string): string | undefined {
+  const callbackData = `tg:consent:${employeeId}`;
+  return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined;
+}
+async function sendConsentPrompt(replyPort: TelegramReplyPort, chatId: string, employeeId: string, explanation: string) {
+  const callbackData = consentCallbackData(employeeId);
+  if (!callbackData) throw new Error("Telegram consent callback data exceeds the 64-byte limit");
+  await replyPort.sendMessage(chatId, explanation, { replyMarkup: { inlineKeyboard: [[{ text: "✅ Принимаю", callbackData }]] } });
+}
 
 async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: string, action: () => Promise<T>): Promise<T> {
   // Failure to paint an ephemeral indicator must never prevent a chat response.
@@ -90,8 +99,10 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         if (!profileExists) {
           const profile = parseOnboardingProfile(trimmed);
           if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
-          const onboarding = await client.completeOnboarding({ employeeId: session.employeeId, ...profile });
-          for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk);
+          const onboarding = await withTypingIndicator(replyPort, chatId, () => client.completeOnboarding({ employeeId: session.employeeId, ...profile }));
+          const response = onboarding.firstResponse.trim();
+          if (!response) throw new Error("Agent returned an empty onboarding response");
+          for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
           return;
         }
         const chat = await withTypingIndicator(replyPort, chatId, () => client.chat({
@@ -117,7 +128,11 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
             telegramIdentity,
           });
           await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
-          await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`);
+          try {
+            await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`);
+          } catch (error) {
+            logShellError("consent follow-up delivery", error);
+          }
           return;
         }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
