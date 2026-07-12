@@ -8,6 +8,17 @@ function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value:
   else items[index] = value;
 }
 
+function worldAuditDeletionMarker(world: InMemoryWorld, _employeeId: string): void {
+  const occurredAt = world.now();
+  world.auditEvents.push({
+    id: `anonymous-deletion-${world.auditEvents.length + 1}`,
+    requestId: `anonymous-deletion-${world.auditEvents.length + 1}`,
+    type: "employee_data_deleted",
+    occurredAt,
+    metadata: {},
+  });
+}
+
 const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
 
 /**
@@ -111,6 +122,7 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
         if (indexedEmployeeId === employeeId) employeeByInviteCode.delete(inviteCode);
       }
       world.auditEvents = world.auditEvents.filter((record) => record.employeeId !== employeeId);
+      await worldAuditDeletionMarker(world, employeeId);
     },
   };
 }

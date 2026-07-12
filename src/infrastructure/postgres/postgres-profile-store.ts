@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Consent, Participant, UserProfile } from "../../domain/employee.js";
 import type { ProfileStore } from "../../application/profile-store.js";
 import { PersistenceError, mapPostgresError } from "../../application/persistence-error.js";
@@ -224,10 +225,16 @@ export function createPostgresProfileStore(pool: Pool, inviteCodePepper: string)
     async deleteEmployeePersonalData(employeeId) {
       try {
         await withTransaction(pool, async (client) => {
-          // Private records cascade from participant. Audit linkage is also removed
-          // until a separately approved retention marker is introduced.
+          // Remove all employee-linked records first. The retained marker is
+          // deliberately anonymous: it proves a deletion occurred without
+          // retaining an identity or any personal content.
           await client.query("DELETE FROM minutka_audit.events WHERE employee_id = $1", [employeeId]);
           await client.query("DELETE FROM minutka_private.participants WHERE employee_id = $1", [employeeId]);
+          await client.query(
+            `INSERT INTO minutka_audit.events(event_id, request_id, event_type, metadata, occurred_at)
+             VALUES ($1, $2, 'employee_data_deleted', '{}'::jsonb, $3)`,
+            [randomUUID(), randomUUID(), new Date().toISOString()],
+          );
         });
       } catch (error) {
         throw mapPostgresError(error);
