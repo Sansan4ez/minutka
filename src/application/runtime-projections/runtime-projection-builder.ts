@@ -147,7 +147,9 @@ function boundTurns(turns: ConversationTurn[]): ConversationTurn[] {
     const userText = sanitiseTurnText(turn.userText);
     const agentResponse = sanitiseTurnText(turn.agentResponse);
     const size = Array.from(userText).length + Array.from(agentResponse).length;
-    if (characters + size > runtimeProjectionLimits.threadCharacters) continue;
+    // Turns are evaluated newest-to-oldest: on overflow, retain the contiguous
+    // newest suffix instead of creating holes or dropping the latest context.
+    if (characters + size > runtimeProjectionLimits.threadCharacters) break;
     retained.push({ ...turn, userText, agentResponse });
     characters += size;
   }
@@ -155,5 +157,6 @@ function boundTurns(turns: ConversationTurn[]): ConversationTurn[] {
 }
 
 function sanitiseTurnText(text: string): string {
-  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  const cleaned = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  return [...cleaned].slice(0, runtimeProjectionLimits.threadTurnTextCharacters).join("");
 }
