@@ -10,6 +10,7 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in .env}
       MINUTKA_DB_PASSWORD: ${MINUTKA_DB_PASSWORD:?set MINUTKA_DB_PASSWORD in .env}
+      MINUTKA_MIGRATOR_DB_PASSWORD: ${MINUTKA_MIGRATOR_DB_PASSWORD:?set MINUTKA_MIGRATOR_DB_PASSWORD in .env}
     volumes:
       - minutka-postgres-data:/var/lib/postgresql/data
       - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-minutka-databases.sh:ro

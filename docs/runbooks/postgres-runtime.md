@@ -20,7 +20,8 @@ truncate their database.
 cp .env.example .env
 chmod 600 .env
 # Set POSTGRES_SUPERUSER_PASSWORD, MINUTKA_DB_PASSWORD,
-# INVITE_CODE_PEPPER and TELEGRAM_IDENTITY_PEPPER to distinct random values.
+# MINUTKA_MIGRATOR_DB_PASSWORD, INVITE_CODE_PEPPER and
+# TELEGRAM_IDENTITY_PEPPER to distinct random values.
 ```
 
 2. Initialise PostgreSQL and wait for the healthcheck:
@@ -52,6 +53,8 @@ docker compose down --volumes
 ```dotenv
 DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka
 TEST_DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka_test
+MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5432/minutka
+TEST_MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5432/minutka_test
 DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
@@ -60,8 +63,11 @@ TELEGRAM_INVITES=emp_1:one-time-invite
 ```
 
 Use different migration-owner and application-role credentials in pilot. The
-application role must not own schema migrations; grant it `USAGE` on the
-application schemas plus DML on runtime tables and read-only `SELECT` on
+Compose bootstrap creates `minutka_migrator` as database/schema owner and
+`minutka_runtime` as the non-owner application role. `db:migrate` uses
+`MIGRATION_DATABASE_URL` (or `DATABASE_URL` when deliberately omitted); runtime
+uses `DATABASE_URL`. The application role receives `USAGE` on application
+schemas, DML on runtime tables, and read-only `SELECT` on
 `minutka_meta.schema_migrations` for the startup status check. Do not log the URL, peppers,
 invite codes, Telegram identities, SQL parameters containing personal data, or
 raw provider errors.
@@ -71,6 +77,7 @@ raw provider errors.
 ```bash
 # Export .env because migration/test scripts intentionally do not load it.
 set -a; . ./.env; set +a
+# db:migrate requires MIGRATION_DATABASE_URL; runtime does not use it.
 npm run db:migrate
 npm run db:status
 npm run verify:persistence
@@ -84,8 +91,9 @@ polling starts on failure.
 
 Backup policy and retention periods require explicit pilot approval. Until then,
 use only approved limited pilot data. `ProfileStore.deleteEmployeePersonalData`
-removes employee-keyed private records through FK cascades; an audit deletion
-marker must be separately approved before it is retained.
+removes employee-keyed private records through FK cascades and retains only an
+anonymous `employee_data_deleted` marker (no employee ID, transport identity,
+or personal content).
 
 ## Restart smoke
 
