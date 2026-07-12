@@ -11,8 +11,8 @@ export function renderRuntimeProjection(
     sections.push(
       [
         "## Runtime projection: /proc/profile",
-        `- Роль: ${profile.role}`,
-        `- Типовые задачи: ${profile.typicalTasks.join(", ")}`,
+        `- Роль: ${escapeUserControlledText(profile.role)}`,
+        `- Типовые задачи: ${profile.typicalTasks.map(escapeUserControlledText).join(", ")}`,
         `- Уровень знакомства с ИИ: ${profile.aiLevel}`,
         `- Предпочтительная длина ответа: ${profile.responseLength}`,
       ].join("\n"),
@@ -25,7 +25,7 @@ export function renderRuntimeProjection(
     const turns = snapshot.thread.data.turns
       .map(
         (turn, index) =>
-          `<untrusted-turn index="${index + 1}">\nuser: ${escapeUntrustedText(turn.userText)}\nassistant: ${escapeUntrustedText(turn.agentResponse)}\n</untrusted-turn>`,
+          `<untrusted-turn index="${index + 1}">\nuser: ${escapeUserControlledText(turn.userText)}\nassistant: ${escapeUserControlledText(turn.agentResponse)}\n</untrusted-turn>`,
       )
       .join("\n\n");
     sections.push(
@@ -39,8 +39,8 @@ export function renderRuntimeProjection(
   return sections.join("\n\n");
 }
 
-/** Prevent saved content from terminating or introducing structural prompt markup. */
-function escapeUntrustedText(text: string): string {
+/** Prevent saved user-controlled content from introducing structural prompt markup. */
+export function escapeUserControlledText(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

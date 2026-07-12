@@ -9,8 +9,8 @@
     "generatedAt": { "type": "string" },
     "scope": {
       "type": "object",
-      "required": ["employeeId", "requestId"],
-      "properties": { "employeeId": { "type": "string" }, "threadId": { "type": "string" }, "requestId": { "type": "string" } },
+      "required": ["employeeId", "requestId", "purpose"],
+      "properties": { "employeeId": { "type": "string" }, "threadId": { "type": "string" }, "requestId": { "type": "string" }, "purpose": { "enum": ["chat", "feedback", "onboarding", "audit"] } },
       "additionalProperties": false
     },
     "data": {}

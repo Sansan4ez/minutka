@@ -1,4 +1,5 @@
 import type { AuditEventStore } from "../audit-event-store.js";
+import type { UserProfile } from "../../domain/employee.js";
 import type { Clock } from "../runtime-primitives.js";
 import type { ConversationStore, ConversationTurn } from "../conversation-store.js";
 import type { FeedbackStore } from "../feedback-store.js";
@@ -12,10 +13,13 @@ import type {
   ProcSnapshot,
   RunSnapshot,
   RuntimeProjection,
+  ProfileProjection,
 } from "./runtime-projection-types.js";
 
 export type RuntimeProjectionBuilder = {
   buildProc(scope: RuntimeAccessScope): Promise<ProcSnapshot>;
+  /** Chat-specific read model avoids loading projections that the prompt does not render. */
+  buildChatProc(scope: RuntimeAccessScope): Promise<{ snapshot: ProcSnapshot; profile?: UserProfile }>;
   buildDecision(
     scope: RuntimeAccessScope,
     decision: DecisionProjection,
@@ -43,73 +47,68 @@ export function createRuntimeProjectionBuilder(deps: {
       employeeId: scope.employeeId,
       ...(scope.threadId ? { threadId: scope.threadId } : {}),
       requestId: scope.requestId,
+      purpose: scope.purpose,
     },
     data,
   });
 
-  return {
-    async buildProc(scope) {
-      const profile = await deps.profileStore.getProfile(scope.employeeId);
-      const participant = await deps.profileStore.getParticipant(scope.employeeId);
-      const consent = await deps.profileStore.getConsent(scope.employeeId);
-      const threadId = scope.threadId;
-      const turns = threadId
-        ? await deps.conversationStore.getRecentTurns({
-            employeeId: scope.employeeId,
-            threadId,
-            limit: runtimeProjectionLimits.threadTurns,
-          })
-        : [];
-      const insights = threadId
-        ? await deps.insightStore.listInsights({
-            employeeId: scope.employeeId,
-            threadId,
-            limit: runtimeProjectionLimits.insights,
-          })
-        : [];
-      const feedback = threadId
-        ? await deps.feedbackStore.listFeedback({
-            employeeId: scope.employeeId,
-            threadId,
-            limit: runtimeProjectionLimits.feedback,
-          })
-        : [];
+  const projectProfile = (profile: Awaited<ReturnType<ProfileStore["getProfile"]>>): ProfileProjection | null =>
+    profile
+      ? {
+          role: profile.role,
+          typicalTasks: [...profile.typicalTasks],
+          persona: profile.persona,
+          aiLevel: profile.aiLevel,
+          responseLength: profile.responseLength,
+          ...(profile.preferredCheckinsPerDay
+            ? { preferredCheckinsPerDay: profile.preferredCheckinsPerDay }
+            : {}),
+        }
+      : null;
+  const thread = async (scope: RuntimeAccessScope) => {
+    if (!scope.threadId) return [];
+    return boundTurns(await deps.conversationStore.getRecentTurns({
+      employeeId: scope.employeeId,
+      threadId: scope.threadId,
+      limit: runtimeProjectionLimits.threadTurns,
+    }));
+  };
 
+  return {
+    async buildChatProc(scope) {
+      const [profile, turns] = await Promise.all([
+        deps.profileStore.getProfile(scope.employeeId),
+        thread(scope),
+      ]);
+      const snapshot: ProcSnapshot = {
+        profile: envelope("/proc/profile", scope, projectProfile(profile)),
+        consent: envelope("/proc/consent", scope, { accepted: false }),
+        thread: envelope("/proc/thread", scope, { turns }),
+        insights: envelope("/proc/insights", scope, []),
+        feedback: envelope("/proc/feedback", scope, []),
+      };
+      return { snapshot, ...(profile ? { profile } : {}) };
+    },
+    async buildProc(scope) {
+      const threadId = scope.threadId;
+      const [profile, participant, consent, turns, insights, feedback] = await Promise.all([
+        deps.profileStore.getProfile(scope.employeeId),
+        deps.profileStore.getParticipant(scope.employeeId),
+        deps.profileStore.getConsent(scope.employeeId),
+        thread(scope),
+        threadId ? deps.insightStore.listInsights({ employeeId: scope.employeeId, threadId, limit: runtimeProjectionLimits.insights }) : [],
+        threadId ? deps.feedbackStore.listFeedback({ employeeId: scope.employeeId, threadId, limit: runtimeProjectionLimits.feedback }) : [],
+      ]);
       return {
-        profile: envelope(
-          "/proc/profile",
-          scope,
-          profile
-            ? {
-                role: profile.role,
-                typicalTasks: [...profile.typicalTasks],
-                persona: profile.persona,
-                aiLevel: profile.aiLevel,
-                responseLength: profile.responseLength,
-                ...(profile.preferredCheckinsPerDay
-                  ? { preferredCheckinsPerDay: profile.preferredCheckinsPerDay }
-                  : {}),
-              }
-            : null,
-        ),
+        profile: envelope("/proc/profile", scope, projectProfile(profile)),
         consent: envelope("/proc/consent", scope, {
           status: participant?.status,
           accepted: Boolean(consent),
-          ...(consent
-            ? { privacyVersion: consent.privacyVersion, acceptedAt: consent.acceptedAt }
-            : {}),
+          ...(consent ? { privacyVersion: consent.privacyVersion, acceptedAt: consent.acceptedAt } : {}),
         }),
-        thread: envelope("/proc/thread", scope, { turns: boundTurns(turns) }),
-        insights: envelope(
-          "/proc/insights",
-          scope,
-          insights,
-        ),
-        feedback: envelope(
-          "/proc/feedback",
-          scope,
-          feedback,
-        ),
+        thread: envelope("/proc/thread", scope, { turns }),
+        insights: envelope("/proc/insights", scope, insights),
+        feedback: envelope("/proc/feedback", scope, feedback),
       };
     },
     buildDecision(scope, decision) {

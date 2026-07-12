@@ -258,8 +258,7 @@ export class MinutkaService {
     const messageId = this.ids.messageId();
     const timestamp = this.clock.now();
     await this.audit(requestId, "chat_received", input.employeeId, input.threadId, messageId, timestamp);
-    const snapshot = await this.projectionBuilder.buildProc({ ...input, requestId, purpose: "chat" });
-    const profile = await this.stores.profileStore.getProfile(input.employeeId);
+    const { snapshot, profile } = await this.projectionBuilder.buildChatProc({ ...input, requestId, purpose: "chat" });
     const recentTurns = snapshot.thread.data.turns;
     const decision = await this.routeConversationDecisionSafely({ purpose: "chat", text: input.text, profile, recentTurns });
     const decisionProjection = this.projectionBuilder.buildDecision({ ...input, requestId, purpose: "chat" }, decision);
@@ -286,7 +285,13 @@ export class MinutkaService {
       });
     }
     await this.stores.conversationStore.appendTurn({ messageId, employeeId: input.employeeId, threadId: input.threadId, userText: input.text, agentResponse: response, timestamp });
-    await this.audit(requestId, "chat_response_generated", input.employeeId, input.threadId, messageId, this.clock.now());
+    // The turn is durable at this point. An audit outage must not turn a
+    // successful response into a retry that duplicates the conversation.
+    try {
+      await this.audit(requestId, "chat_response_generated", input.employeeId, input.threadId, messageId, this.clock.now());
+    } catch (error) {
+      logOperationalError("chat response audit", error);
+    }
     if (decision.insightDecision.candidate) await this.extractInsights({ input, messageId, response, profile, recentTurns, decision, requestId });
     return { messageId, response, selectedProcessIds: built.selectedProcessIds };
   }

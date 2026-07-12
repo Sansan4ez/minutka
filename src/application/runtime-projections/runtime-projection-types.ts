@@ -22,7 +22,12 @@ export type RuntimeProjection<T> = {
   schemaVersion: 1;
   path: AllowedRuntimePath;
   generatedAt: string;
-  scope: { employeeId: string; threadId?: string; requestId: string };
+  scope: {
+    employeeId: string;
+    threadId?: string;
+    requestId: string;
+    purpose: "chat" | "feedback" | "onboarding" | "audit";
+  };
   data: T;
 };
 

@@ -197,6 +197,37 @@ describe("SPEC-GUARDRAILS-001: work boundary before insights", () => {
     });
   });
 
+  it("returns the persisted chat response when its post-persistence audit fails", async () => {
+    const failingAuditStore = {
+      async append(event: import("../../../src/application/audit-event-store.js").AuditEventRecord) {
+        if (event.type === "chat_response_generated") throw new Error("audit unavailable");
+      },
+      async listCurrent() { return []; },
+      async listRecent() { return []; },
+    };
+    const spec = createSpecWorld(
+      async () => "Ответ сохранён.",
+      { deps: { auditEventStore: failingAuditStore } },
+    );
+    await onboardTestEmployee(spec);
+
+    const result = await spec.cli.json<ChatResult>([
+      "employee",
+      "chat",
+      "--employee",
+      testEmployee.employeeId,
+      "--thread",
+      "thread_audit_failure_1",
+      "--text",
+      "Нужны приоритеты по отчёту",
+    ]);
+
+    expect(result.response).toBe("Ответ сохранён.");
+    expect(spec.world.messages).toContainEqual(
+      expect.objectContaining({ threadId: "thread_audit_failure_1", response: "Ответ сохранён." }),
+    );
+  });
+
   it("returns chat response when insight extraction fails", async () => {
     const spec = createSpecWorld(
       async () => "Вижу рабочий сигнал, но инсайт можно сохранить позже.",
