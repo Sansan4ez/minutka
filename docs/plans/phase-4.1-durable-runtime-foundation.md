@@ -1,6 +1,6 @@
 # Этап 4.1: Durable Runtime Foundation — PostgreSQL, runtime projections и storage boundaries
 
-> **Статус:** proposed.
+> **Статус:** ✅ завершено. `verify:persistence` зелёный против реального PostgreSQL; ручной Telegram restart smoke подтвердил сохранность profile/consent/binding/conversation/insights/feedback; создан тег `phase-4.1-durable-runtime-foundation`.
 > **Родительский план:** [time-agent-mastra-plan.md](./time-agent-mastra-plan.md)
 > **Предыдущий этап:** [phase-4-telegram-text-feedback.md](./phase-4-telegram-text-feedback.md)
 > **Стартовый тег:** `phase-4-telegram-text-feedback`
@@ -74,56 +74,56 @@ Phase 4.1 закрывает эти разрывы до Phase 5 voice, HTTP API,
 
 ### 3.1 Persistent application state
 
-- [ ] PostgreSQL выбран и документирован как обязательный runtime backend для shared staging/pilot.
-- [ ] Добавлены versioned SQL migrations и migration runner.
-- [ ] Реализованы PostgreSQL adapters для:
-  - [ ] participants/invites, consent и profiles;
-  - [ ] threads/messages/conversation lookup;
-  - [ ] insights;
-  - [ ] feedback;
-  - [ ] Telegram identity/session mapping;
-  - [ ] safe audit events.
-- [ ] Telegram runtime больше не создаёт `InMemoryWorld` и in-memory session store как production defaults.
-- [ ] После restart сохраняются profile, consent, Telegram binding, conversation turns, insights и feedback.
-- [ ] Invite claim, consent claim, profile completion, feedback upsert и Telegram identity claim имеют database-level atomicity/uniqueness.
+- [x] PostgreSQL выбран и документирован как обязательный runtime backend для shared staging/pilot.
+- [x] Добавлены versioned SQL migrations и migration runner.
+- [x] Реализованы PostgreSQL adapters для:
+  - [x] participants/invites, consent и profiles;
+  - [x] threads/messages/conversation lookup;
+  - [x] insights;
+  - [x] feedback;
+  - [x] Telegram identity/session mapping;
+  - [x] safe audit events.
+- [x] Telegram runtime больше не создаёт `InMemoryWorld` и in-memory session store как production defaults.
+- [x] После restart сохраняются profile, consent, Telegram binding, conversation turns, insights и feedback.
+- [x] Invite claim, consent claim, profile completion, feedback upsert и Telegram identity claim имеют database-level atomicity/uniqueness.
 
 ### 3.2 Application boundaries
 
-- [ ] `MinutkaService` не пишет напрямую в `world.messages`, `world.events` или counters.
-- [ ] Conversation write/read/lookup объединены в один `ConversationStore` boundary.
-- [ ] Safe audit writes идут через `AuditEventStore`.
-- [ ] ID и timestamp создаются через injected `IdGenerator` и `Clock`, а не через `InMemoryWorld` counters/`world.now()`.
-- [ ] In-memory adapters остаются для executable specs и реализуют те же contracts.
-- [ ] Production composition требует явные stores; silent fallback на in-memory в Telegram/pilot runtime отсутствует.
+- [x] `MinutkaService` не пишет напрямую в `world.messages`, `world.events` или counters.
+- [x] Conversation write/read/lookup объединены в один `ConversationStore` boundary.
+- [x] Safe audit writes идут через `AuditEventStore`.
+- [x] ID и timestamp создаются через injected `IdGenerator` и `Clock`, а не через `InMemoryWorld` counters/`world.now()`.
+- [x] In-memory adapters остаются для executable specs и реализуют те же contracts.
+- [x] Production composition требует явные stores; silent fallback на in-memory в Telegram/pilot runtime отсутствует.
 
 ### 3.3 Runtime projections
 
-- [ ] Реализованы `RuntimeAccessScope`, projection envelope и typed projection DTOs.
-- [ ] Реализован `RuntimeProjectionBuilder` поверх application store interfaces.
-- [ ] Реализованы bounded `/proc/profile`, `/proc/consent`, `/proc/thread`, `/proc/decision`, `/proc/insights`, `/proc/feedback`.
-- [ ] Реализованы redacted `/run/current` и `/run/recent` поверх `AuditEventStore`.
-- [ ] `MinutkaContextBuilder` получает projection snapshot, а не произвольные domain/store records.
-- [ ] Prompt context содержит bounded recent thread turns, поэтому реальный agent удерживает контекст без зависимости от Mastra Memory.
-- [ ] Схемы `vault/proc/schemas/*` и новые `/run` schemas соответствуют фактическим DTO.
+- [x] Реализованы `RuntimeAccessScope`, projection envelope и typed projection DTOs.
+- [x] Реализован `RuntimeProjectionBuilder` поверх application store interfaces.
+- [x] Реализованы bounded `/proc/profile`, `/proc/consent`, `/proc/thread`, `/proc/decision`, `/proc/insights`, `/proc/feedback`.
+- [x] Реализованы redacted `/run/current` и `/run/recent` поверх `AuditEventStore`.
+- [x] `MinutkaContextBuilder` получает projection snapshot, а не произвольные domain/store records.
+- [x] Prompt context содержит bounded recent thread turns, поэтому реальный agent удерживает контекст без зависимости от Mastra Memory.
+- [x] Схемы `vault/proc/schemas/*` и новые `/run` schemas соответствуют фактическим DTO.
 
 ### 3.4 Mastra Memory
 
-- [ ] Для Phase 4.1 канонической историей назначен application `ConversationStore`.
-- [ ] Не подключённая/дублирующая Mastra message history отключена от `minutkaAgent`.
-- [ ] `@mastra/memory` и `@mastra/libsql` удалены, если после отключения не используются другим runtime-кодом.
-- [ ] В документации зафиксировано, что semantic recall, observational memory и LLM-specific derived memory рассматриваются отдельным этапом после утверждения retention/deletion правил.
+- [x] Для Phase 4.1 канонической историей назначен application `ConversationStore`.
+- [x] Не подключённая/дублирующая Mastra message history отключена от `minutkaAgent`.
+- [x] `@mastra/memory` и `@mastra/libsql` удалены, если после отключения не используются другим runtime-кодом.
+- [x] В документации зафиксировано, что semantic recall, observational memory и LLM-specific derived memory рассматриваются отдельным этапом после утверждения retention/deletion правил.
 
 ### 3.5 Verification
 
-- [ ] Все существующие executable specs остаются зелёными на in-memory adapters.
-- [ ] Добавлен `SPEC-RUNTIME-PROJECTIONS-001`.
-- [ ] Добавлен PostgreSQL storage contract suite.
-- [ ] Добавлен restart persistence test с повторным созданием pool/adapters.
-- [ ] Добавлены concurrency tests для invite/session claims и feedback upsert.
-- [ ] `npm run typecheck`, `npm run specs`, `npm run verify`, `nix run .#verify` проходят без PostgreSQL.
-- [ ] Отдельный `npm run verify:persistence` проходит против реального PostgreSQL.
-- [ ] Проведён ручной Telegram restart smoke.
-- [ ] Создан тег `phase-4.1-durable-runtime-foundation`.
+- [x] Все существующие executable specs остаются зелёными на in-memory adapters.
+- [x] Добавлен `SPEC-RUNTIME-PROJECTIONS-001`.
+- [x] Добавлен PostgreSQL storage contract suite.
+- [x] Добавлен restart persistence test с повторным созданием pool/adapters.
+- [x] Добавлены concurrency tests для invite/session claims и feedback upsert.
+- [x] `npm run typecheck`, `npm run specs`, `npm run verify`, `nix run .#verify` проходят без PostgreSQL.
+- [x] Отдельный `npm run verify:persistence` проходит против реального PostgreSQL.
+- [x] Проведён ручной Telegram restart smoke.
+- [x] Создан тег `phase-4.1-durable-runtime-foundation`.
 
 ---
 

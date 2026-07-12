@@ -1,12 +1,13 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** Phase 4.1 durable runtime foundation реализована в коде: PostgreSQL adapters/migrations, typed runtime projections и production Telegram composition добавлены. Реальный PostgreSQL persistence smoke и ручной Telegram restart smoke требуют отдельной configured environment-проверки перед тегом.
+> **Статус:** Phase 4.1 durable runtime foundation завершена: PostgreSQL adapters/migrations, typed runtime projections и production Telegram composition реализованы; `verify:persistence` зелёный против реального PostgreSQL, ручной Telegram restart smoke подтвердил сохранность state. Тег `phase-4.1-durable-runtime-foundation` создан. Следующий этап — Phase 4.2 HTTP Application API.
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
 > **Подробный план Phase 3.5:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
 > **Подробный план Phase 4:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
 > **Подробный план Phase 4.1:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
+> **Подробный план Phase 4.2:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
 > **Architecture RFCs:** [`rfc-runtime-projections.md`](../architecture/rfc-runtime-projections.md), [`rfc-http-application-api.md`](../architecture/rfc-http-application-api.md).
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
@@ -507,11 +508,12 @@ Definition of Done:
 - [x] Реализован text Telegram flow и feedback, связанный с ответом (`targetMessageId` валидируется через `MessageStore`; `FeedbackStore` делает upsert).
 - [x] Specs зелёные без реального Telegram/API (`TelegramDriver`, `SPEC-FEEDBACK-001`).
 - [x] Закрытый ручной Telegram smoke E2E успешен: onboarding, рабочий текстовый диалог и feedback стабильны.
-- [ ] Создать тег `phase-4-telegram-text-feedback` после фиксации документации.
+- [x] Создан тег `phase-4-telegram-text-feedback`.
 
 ### Phase 4.1 — Durable Runtime Foundation
 
-**Статус:** proposed; обязательный следующий инженерный этап до shared pilot и persistent multi-day use.
+**Статус:** ✅ завершено.
+**Тег:** `phase-4.1-durable-runtime-foundation`.
 **Подробный план:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
 **Цель:** заменить production-зависимость от `InMemoryWorld` на PostgreSQL application stores, реализовать typed `/proc`/`/run` projections и устранить неоднозначность conversation memory.
 
@@ -538,6 +540,29 @@ Definition of Done:
 - Коммит и тег `phase-4.1-durable-runtime-foundation`.
 
 После Phase 4.1 отдельная Phase 4.2 реализует authenticated HTTP API/shared runtime по `rfc-http-application-api.md`. Voice/STT можно делать следующим продуктовым этапом, но не поверх transient storage.
+
+### Phase 4.2 — HTTP Application API and Shared Runtime
+
+**Статус:** proposed; следующий инженерный этап после durable foundation.
+**Подробный план:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
+**Цель:** аутентифицированный versioned HTTP API `/v1` перед `MinutkaService`, transport-neutral SDK contracts и standalone CLI из отдельного процесса; Telegram переходит на тот же HTTP SDK (loopback, service credential) в одном composition root (Stage 1 из RFC).
+
+Минимальный scope:
+
+1. Выделить `src/contracts/minutka-api.ts`: Zod schemas, DTO, error envelope; `client/sdk` перестаёт импортировать application/server типы.
+2. Ввести `AuthenticatedPrincipal` (`employee | operator | service`) и identity-bound transports: employee-операции не принимают `employeeId`, он выводится из principal.
+3. Реализовать `node:http` listener + router: `/v1/me/*`, `/v1/service/*`, `/v1/admin/invites`, unauthenticated rate-limited `POST /v1/onboarding/invites/open`, `GET /healthz`; static bearer tokens для pilot, server-side валидация, safe error mapping.
+4. Добавить `HttpMinutkaTransport` и executable CLI entrypoint (`MINUTKA_API_URL`/`MINUTKA_API_TOKEN`); employee-команды без `--employee`, privileged `admin` group отдельно.
+5. Composition root `serve`: PostgreSQL runtime → HTTP listener → optional Telegram polling (`TELEGRAM_MODE`); fail-fast startup, ordered graceful shutdown.
+6. Specs: `SPEC-HTTP-API-001` (auth/authz/error mapping), `SPEC-CLI-HTTP-001` (real listener на ephemeral port + multi-transport parity) — hermetic, без PostgreSQL/LLM.
+
+Definition of Done:
+
+- CLI из отдельного OS-процесса видит state работающего сервера; никогда не создаёт свой `InMemoryWorld`.
+- Employee identity выводится из authenticated context; cross-employee/cross-plane доступ отклоняется без утечки данных.
+- `MinutkaService` без HTTP/auth зависимостей; error envelope не содержит stack/SQL/secrets/Telegram IDs.
+- `npm run verify`, `nix run .#verify`, `npm run verify:persistence` зелёные; manual multi-process smoke успешен.
+- Коммит и тег `phase-4.2-http-application-api`.
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
