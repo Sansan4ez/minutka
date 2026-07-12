@@ -10,6 +10,7 @@ export async function migratePostgres(pool: Pool): Promise<{ applied: string[]; 
     const migrations = await loadMigrationFiles();
     const appliedRows = await client.query<{ version: string; checksum: string }>("SELECT version, checksum FROM minutka_meta.schema_migrations");
     const applied = new Map(appliedRows.rows.map((row) => [row.version, row.checksum]));
+    assertNoMissingAppliedMigrations(applied, migrations.map((migration) => migration.version));
     const completed: string[] = [];
     for (const migration of migrations) {
       const existing = applied.get(migration.version);
@@ -34,6 +35,13 @@ export async function migrationStatus(pool: Pool): Promise<{ applied: string[]; 
   }
   const result = await pool.query<{ version: string; checksum: string }>("SELECT version, checksum FROM minutka_meta.schema_migrations");
   const stored = new Map(result.rows.map((row) => [row.version, row.checksum]));
+  assertNoMissingAppliedMigrations(stored, migrations.map((migration) => migration.version));
   for (const migration of migrations) if (stored.has(migration.version) && stored.get(migration.version) !== migration.checksum) throw new Error(`migration checksum mismatch: ${migration.version}`);
   return { applied: migrations.filter((migration) => stored.has(migration.version)).map((migration) => migration.version), pending: migrations.filter((migration) => !stored.has(migration.version)).map((migration) => migration.version) };
+}
+
+function assertNoMissingAppliedMigrations(applied: Map<string, string>, availableVersions: string[]): void {
+  const available = new Set(availableVersions);
+  const missing = [...applied.keys()].filter((version) => !available.has(version));
+  if (missing.length) throw new Error(`applied migration files are missing: ${missing.sort().join(", ")}`);
 }
