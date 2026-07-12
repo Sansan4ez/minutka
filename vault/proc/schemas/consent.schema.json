@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConsentProjection",
+  "type": "object",
+  "required": ["accepted"],
+  "properties": {
+    "status": { "enum": ["invite_issued", "invite_opened", "consent_accepted", "profile_completed"] },
+    "accepted": { "type": "boolean" },
+    "privacyVersion": { "type": "string" },
+    "acceptedAt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

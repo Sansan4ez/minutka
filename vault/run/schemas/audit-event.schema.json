@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SafeAuditEventProjection",
+  "type": "object",
+  "required": ["id", "requestId", "type", "occurredAt", "metadata"],
+  "properties": {
+    "id": { "type": "string" },
+    "requestId": { "type": "string" },
+    "type": { "type": "string" },
+    "employeeId": { "type": "string" },
+    "threadId": { "type": "string" },
+    "messageId": { "type": "string" },
+    "occurredAt": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

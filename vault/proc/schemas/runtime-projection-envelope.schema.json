@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuntimeProjectionEnvelope",
+  "type": "object",
+  "required": ["schemaVersion", "path", "generatedAt", "scope", "data"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "path": { "enum": ["/proc/profile", "/proc/consent", "/proc/thread", "/proc/decision", "/proc/insights", "/proc/feedback", "/run/current", "/run/recent"] },
+    "generatedAt": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "required": ["employeeId", "requestId"],
+      "properties": { "employeeId": { "type": "string" }, "threadId": { "type": "string" }, "requestId": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "data": {}
+  },
+  "additionalProperties": false
+}

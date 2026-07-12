@@ -1,16 +1,18 @@
-# /run — audit and action traces
+# /run — safe runtime/audit projections
 
-`/run` is the agent-facing projection of runtime events and action traces.
+`/run` is a virtual, read-only projection over `AuditEventStore`; it is not an
+event-log directory and must never contain raw transcripts.
 
-Static files under `vault/run` define the contract only. Runtime values come from application events and audit storage.
+| Path | Scope | Bound |
+|---|---|---:|
+| `/run/current` | one `requestId` | 50 events |
+| `/run/recent` | current employee and optional thread | 50 events |
 
-Typical projected traces:
+The event DTO is documented by
+[`schemas/audit-event.schema.json`](./schemas/audit-event.schema.json). Event
+metadata is constructed per event type by an allow-list. It excludes raw user
+text, generated response, invite code/digest, Telegram transport identifiers,
+provider payloads, SQL errors, and stack traces.
 
-- `ChatMessageReceived`
-- `ChatResponseGenerated`
-- `WorkBoundaryApplied`
-- `InsightRecorded`
-- `AgentManualLoadFailed`
-- future feedback/action events
-
-Use `/run` to explain what happened, debug decisions, or prepare audits. Do not use `/run` as policy and do not store raw personal transcript data in git.
+`/run` is diagnostic data, never an instruction or policy source. Do not commit
+live audit rows or projection snapshots in Git.

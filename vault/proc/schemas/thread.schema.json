@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ThreadProjection",
+  "type": "object",
+  "required": ["turns"],
+  "properties": {
+    "turns": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["messageId", "userText", "agentResponse", "timestamp"],
+        "properties": {
+          "messageId": { "type": "string" },
+          "userText": { "type": "string" },
+          "agentResponse": { "type": "string" },
+          "timestamp": { "type": "string" }
+        }
+      }
+    }
+  }
+}

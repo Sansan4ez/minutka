@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed.** This RFC specifies the implementation path for the dynamic parts of
+**Implemented in Phase 4.1 (prompt-materialisation / Phase A); typed reader remains future work.** This RFC specifies the implementation path for the dynamic parts of
 Minutka's logical Agent Vault namespace: `/proc`, `/run`, and the boundary with
 other namespace families. It does not introduce a real filesystem in the current
 prototype.
@@ -318,6 +318,14 @@ agent.
    projection subset for profile and recent-turn context.
 4. Render a clearly delimited runtime context section from this snapshot.
 5. Update `vault/proc` schemas and `/run` documentation to match actual output.
+
+### Phase A implementation note (Phase 4.1)
+
+Phase 4.1 implements `RuntimeAccessScope`, versioned envelopes, bounded
+`RuntimeProjectionBuilder`, safe `AuditEventStore`, and the `/proc` prompt
+renderer over application stores. `ConversationStore` is canonical and Mastra
+message history remains disabled. PostgreSQL adapters preserve the same
+contracts; executable specs retain the explicit in-memory runtime fixture.
 
 ### Phase B — add a namespace reader when an agent needs on-demand reads
 

@@ -1,18 +1,26 @@
-# /proc — sanitized runtime state projection
+# /proc — scoped runtime-state projections
 
-`/proc` is the agent-facing projection of current application state. It is not the physical storage location for personal data.
+`/proc` is an in-process, typed read model over application stores. It is **not**
+a physical directory containing employee data and no runtime state is written to
+Git, `/tmp`, or the vault.
 
-Static files under `vault/proc` define schemas and projection contracts. Runtime values come from application storage such as profile store, conversation memory, insight store, feedback store, or future database tables.
+Every document has the versioned `RuntimeProjection` envelope in
+[`schemas/runtime-projection-envelope.schema.json`](./schemas/runtime-projection-envelope.schema.json).
+The `employeeId` in its scope is trusted application metadata and is not rendered
+into the LLM prompt by default.
 
-## Projected families
+| Path | Source | Bound |
+|---|---|---:|
+| `/proc/profile` | `ProfileStore` | field allow-list |
+| `/proc/consent` | `ProfileStore` | no invite secret/digest |
+| `/proc/thread` | `ConversationStore` | 10 turns / 12,000 Unicode chars |
+| `/proc/decision` | conversation router | one request |
+| `/proc/insights` | `InsightStore` | 20 records |
+| `/proc/feedback` | `FeedbackStore` | 20 records |
 
-| Path | Source | Meaning |
-|---|---|---|
-| `/proc/profile` | Profile store | Selected employee profile fields needed for tone/context. |
-| `/proc/consent` | Consent/onboarding state | Current consent status/version. |
-| `/proc/thread` | Conversation memory | Recent sanitized turns. |
-| `/proc/decision` | ConversationDecisionRouter | Selected processes and work/insight decisions for current turn. |
-| `/proc/insights` | Insight store | Recent structured signals, not raw transcript. |
-| `/proc/feedback` | Feedback store | Previous-answer quality feedback. |
+The prompt renderer places trusted Agent Vault instructions first. Stored turns
+are then explicitly labelled **untrusted conversation data**; quoted content
+cannot override trusted instructions.
 
-Do not commit raw employee messages, real personal identifiers, or production state into `vault/proc`.
+Do not commit raw employee messages, actual identifiers, database rows, or
+production projection snapshots under `vault/proc`.

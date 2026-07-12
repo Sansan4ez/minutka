@@ -72,8 +72,8 @@ Do not interpret “one vault” as “everything is a git file”. The vault is
 | `/processes/*` | git files in `vault/processes` |
 | `/docs/*` | git files in `vault/docs` |
 | `/bin/*` | git manifests + typed TS application boundaries |
-| `/proc/*` | profile/memory/insight/feedback stores projected at runtime |
-| `/run/*` | domain events/audit logs projected at runtime |
+| `/proc/*` | typed, bounded `RuntimeProjectionBuilder` over profile/conversation/insight/feedback stores |
+| `/run/*` | redacted `AuditEventStore` projections; never a transcript copy |
 
 ## Change lifecycle
 
@@ -89,4 +89,4 @@ Do not interpret “one vault” as “everything is a git file”. The vault is
 - No arbitrary shell access through `/bin`.
 - No raw employee data committed under `vault/proc`.
 - No full legal privacy contour inside `workday_guardrails` or `insight_extraction`.
-- No benchmark-style VFS mount required for Phase 3.5; the namespace is implemented by loader/context projection and typed application boundaries.
+- No benchmark-style VFS mount required; the namespace is implemented by loader/context projection and typed application boundaries.
