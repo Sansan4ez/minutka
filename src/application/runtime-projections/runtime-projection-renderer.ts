@@ -44,7 +44,10 @@ function escapeUntrustedText(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    // Markdown headings inside quoted history must not resemble trusted
+    // projection headings, even to a model that underweights the XML fence.
+    .replace(/^\s*#+/gm, (heading) => `> ${heading}`);
 }
 
 /** Decision data is trusted application output, unlike the quoted thread projection. */

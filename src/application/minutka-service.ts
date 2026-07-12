@@ -227,7 +227,7 @@ export class MinutkaService {
 
   async completeOnboarding(input: CompleteOnboardingInput): Promise<CompleteOnboardingResult> {
     await this.requireParticipant(input.employeeId);
-    if (!await this.stores.profileStore.getConsent(input.employeeId)) throw new Error("consent is required before onboarding can be completed");
+    if (!await this.stores.profileStore.getConsent(input.employeeId)) throw new PersistenceError("consent_required");
     this.validateProfileInput(input);
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
@@ -296,7 +296,7 @@ export class MinutkaService {
   async submitFeedback(input: SubmitFeedbackInput): Promise<SubmitFeedbackResult> {
     await this.requireParticipant(input.employeeId);
     const message = await this.stores.conversationStore.getTurnByMessageId({ employeeId: input.employeeId, threadId: input.threadId, messageId: input.targetMessageId });
-    if (!message) throw new Error(`Message not found or mismatch: ${input.targetMessageId}`);
+    if (!message) throw new PersistenceError("message_not_found");
     const requestId = this.ids.requestId();
     const profile = await this.stores.profileStore.getProfile(input.employeeId);
     const decision = await this.routeConversationDecisionSafely({ purpose: "feedback", text: "[structured-feedback]", profile, recentTurns: [] });
@@ -309,19 +309,29 @@ export class MinutkaService {
   }
 
   private async extractInsights(input: { input: ChatInput; messageId: string; response: string; profile?: UserProfile; recentTurns: ConversationTurn[]; decision: ConversationDecision; requestId: string }) {
+    let insights: StructuredInsight[];
     try {
       if (!this.deps.insightExtractor) throw new Error("insightExtractor is required when decision enables insight extraction");
       const extraction = await this.deps.insightExtractor({ ...input.input, messageId: input.messageId, response: input.response, profile: input.profile, recentTurns: input.recentTurns, decision: input.decision });
-      const insights = extraction.insights.map((draft) => ({ ...draft, id: this.ids.insightId(), createdAt: this.clock.now() } as StructuredInsight));
+      insights = extraction.insights.map((draft) => ({ ...draft, id: this.ids.insightId(), createdAt: this.clock.now() } as StructuredInsight));
       await this.stores.insightStore.saveInsights(insights);
-      for (const insight of insights) await this.audit(input.requestId, "insight_recorded", insight.employeeId, insight.threadId, insight.sourceMessageId, insight.createdAt, { insightId: insight.id, kind: insight.kind });
     } catch (error) {
       logOperationalError("insight extraction", error);
       try {
         await this.audit(input.requestId, "insight_extraction_failed", input.input.employeeId, input.input.threadId, input.messageId, this.clock.now());
       } catch (auditError) {
-        logOperationalError("insight extraction audit", auditError);
+        logOperationalError("insight extraction failure audit", auditError);
       }
+      return;
+    }
+    try {
+      for (const insight of insights) {
+        await this.audit(input.requestId, "insight_recorded", insight.employeeId, insight.threadId, insight.sourceMessageId, insight.createdAt, { insightId: insight.id, kind: insight.kind });
+      }
+    } catch (error) {
+      // Insights have already committed, so recording extraction_failed here
+      // would create a contradictory audit trail. Preserve the failure signal.
+      logOperationalError("insight audit", error);
     }
   }
 
@@ -332,7 +342,10 @@ export class MinutkaService {
   private async routeConversationDecisionSafely(input: { purpose: AgentManualPurpose; text: string; profile?: UserProfile; recentTurns: ConversationTurn[] }): Promise<ConversationDecision> {
     if (!this.deps.conversationDecisionRouter) throw new Error("conversationDecisionRouter is required for chat");
     try { return sanitizeConversationDecision(await this.deps.conversationDecisionRouter({ ...input, manual: this.manual }), this.manual, input.purpose); }
-    catch { return sanitizeConversationDecision({ selectedProcessIds: ["core", "workday_guardrails"], workDecision: { mode: "boundary", reason: "unknown" }, insightDecision: { candidate: false, suggestedKinds: [] } }, this.manual, input.purpose); }
+    catch (error) {
+      logOperationalError("conversation decision router", error);
+      return sanitizeConversationDecision({ selectedProcessIds: ["core", "workday_guardrails"], workDecision: { mode: "boundary", reason: "unknown" }, insightDecision: { candidate: false, suggestedKinds: [] } }, this.manual, input.purpose);
+    }
   }
 
   private async requireParticipant(employeeId: string) { const participant = await this.stores.profileStore.getParticipant(employeeId); if (!participant) throw new PersistenceError("participant_not_found"); return participant; }
