@@ -1,7 +1,10 @@
 import type { DecisionProjection, ProcSnapshot, RuntimeProjection } from "./runtime-projection-types.js";
 
 /** Renders explicitly quoted untrusted history after trusted profile/process context. */
-export function renderRuntimeProjection(snapshot: ProcSnapshot): string {
+export function renderRuntimeProjection(
+  snapshot: ProcSnapshot,
+  decision?: RuntimeProjection<DecisionProjection>,
+): string {
   const sections: string[] = [];
   const profile = snapshot.profile.data;
   if (profile) {
@@ -16,11 +19,13 @@ export function renderRuntimeProjection(snapshot: ProcSnapshot): string {
     );
   }
 
+  if (decision) sections.push(renderDecisionProjection(decision));
+
   if (snapshot.thread.data.turns.length > 0) {
     const turns = snapshot.thread.data.turns
       .map(
         (turn, index) =>
-          `<untrusted-turn index="${index + 1}">\nuser: ${turn.userText}\nassistant: ${turn.agentResponse}\n</untrusted-turn>`,
+          `<untrusted-turn index="${index + 1}">\nuser: ${escapeUntrustedText(turn.userText)}\nassistant: ${escapeUntrustedText(turn.agentResponse)}\n</untrusted-turn>`,
       )
       .join("\n\n");
     sections.push(
@@ -32,6 +37,14 @@ export function renderRuntimeProjection(snapshot: ProcSnapshot): string {
     );
   }
   return sections.join("\n\n");
+}
+
+/** Prevent saved content from terminating or introducing structural prompt markup. */
+function escapeUntrustedText(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 /** Decision data is trusted application output, unlike the quoted thread projection. */

@@ -38,6 +38,7 @@ export type BuildMinutkaContextInput = {
   recentTurns?: ConversationTurn[];
   /** Scoped application snapshot; replaces the legacy duplicated profile context. */
   runtimeProjection?: ProcSnapshot;
+  decisionProjection?: import("./runtime-projections/runtime-projection-types.js").RuntimeProjection<import("./runtime-projections/runtime-projection-types.js").DecisionProjection>;
   selectedProcessIds?: AgentManualProcessId[];
 };
 
@@ -98,7 +99,7 @@ export async function buildMinutkaContext(
     if (input.profile) {
       sections.push(["## Persona context", buildMinutkaPersonaContext(input.profile)].join("\n\n"));
     }
-    sections.push(renderRuntimeProjection(input.runtimeProjection));
+    sections.push(renderRuntimeProjection(input.runtimeProjection, input.decisionProjection));
   } else if (input.profile) {
     sections.push(["## Profile context", buildMinutkaProfileContext(input.profile)].join("\n\n"));
   }
