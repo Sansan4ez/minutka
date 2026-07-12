@@ -11,17 +11,16 @@ export async function migratePostgres(pool: Pool): Promise<{ applied: string[]; 
     const appliedRows = await client.query<{ version: string; checksum: string }>("SELECT version, checksum FROM minutka_meta.schema_migrations");
     const applied = new Map(appliedRows.rows.map((row) => [row.version, row.checksum]));
     const completed: string[] = [];
-    const pending: string[] = [];
     for (const migration of migrations) {
       const existing = applied.get(migration.version);
       if (existing && existing !== migration.checksum) throw new Error(`migration checksum mismatch: ${migration.version}`);
       if (existing) continue;
-      pending.push(migration.version);
       await client.query(migration.sql);
       await client.query("INSERT INTO minutka_meta.schema_migrations(version, name, checksum) VALUES ($1, $2, $3)", [migration.version, migration.name, migration.checksum]);
       completed.push(migration.version);
     }
-    return { applied: completed, pending };
+    // This command has applied everything it found, so nothing remains pending.
+    return { applied: completed, pending: [] };
   });
 }
 

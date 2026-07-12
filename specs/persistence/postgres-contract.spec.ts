@@ -11,8 +11,9 @@ import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastru
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
-if (!url) {
-  throw new Error("TEST_DATABASE_URL is required for specs:persistence; refusing to pass with zero database tests");
+const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
+if (!url || !migrationUrl) {
+  throw new Error("TEST_DATABASE_URL and TEST_MIGRATION_DATABASE_URL are required for specs:persistence");
 }
 
 const config = {
@@ -24,6 +25,7 @@ const config = {
   inviteCodePepper: "test-invite-pepper",
   telegramIdentityPepper: "test-telegram-pepper",
 };
+const migrationConfig = { ...config, databaseUrl: migrationUrl };
 const now = "2026-07-12T00:00:00.000Z";
 
 function audit(id: string, type: "invite_opened" | "consent_accepted", employeeId?: string) {
@@ -43,12 +45,17 @@ async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgr
 
 describe("PostgreSQL storage contracts", () => {
   let pool = createPostgresPool(config);
+  const migrationPool = createPostgresPool(migrationConfig);
 
   beforeAll(async () => {
-    await migratePostgres(pool);
-    await pool.query("TRUNCATE minutka_audit.events, minutka_private.feedback, minutka_private.insights, minutka_private.messages, minutka_private.threads, minutka_private.telegram_sessions, minutka_private.profiles, minutka_private.consents, minutka_private.participants CASCADE");
+    // Schema ownership stays with the migrator. The runtime role is tested only
+    // against an already-migrated database, exactly as it runs in production.
+    await migratePostgres(migrationPool);
+    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants");
   });
-  afterAll(() => pool.end());
+  afterAll(async () => {
+    await Promise.all([pool.end(), migrationPool.end()]);
+  });
 
   it("persists invite, profile, turn and stable feedback upsert after recreating the pool", async () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
