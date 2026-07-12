@@ -18,7 +18,7 @@ async function main() {
   let activeBot: Telegraf | null = null;
   const replyPort: TelegramReplyPort = {
     async sendMessage(chatId, text, options) {
-      if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4096-character limit");
+      if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error(`Telegram message exceeds the ${maxTelegramMessageCharacters}-character limit`);
       if (!activeBot) throw new Error("Bot not running");
       const reply_markup = options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined;
       await activeBot.telegram.sendMessage(chatId, text, { reply_markup });
@@ -33,19 +33,28 @@ async function main() {
   for (const seed of parseInviteSeeds(process.env.TELEGRAM_INVITES)) await client.issueInvite(seed);
   const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort });
   activeBot = createTelegrafBot({ token, shell });
-  let shuttingDown = false;
+  let shutdownPromise: Promise<void> | undefined;
   let launchCompleted: Promise<void> | undefined;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`Stopping bot (${signal})...`);
-    activeBot?.stop(signal);
-    // stop() only aborts polling. Telegraf resolves launch() after pending
-    // update handlers settle, so keep the database alive until they finish.
-    await launchCompleted;
-    await runtime.shutdown();
+  const shutdown = (signal: string) => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      console.log(`Stopping bot (${signal})...`);
+      try {
+        activeBot?.stop(signal);
+        // stop() only aborts polling. Telegraf resolves launch() after pending
+        // update handlers settle, so keep the database alive until they finish.
+        await launchCompleted;
+      } finally {
+        await runtime.shutdown();
+      }
+    })();
+    return shutdownPromise;
   };
   const requestShutdown = (signal: string) => {
+    if (shutdownPromise) {
+      console.error("Forced shutdown requested.");
+      process.exit(1);
+    }
     void shutdown(signal).catch((error) => {
       console.error(`Graceful shutdown failed (${error instanceof Error ? error.name : "UnknownError"}).`);
       process.exitCode = 1;
@@ -55,7 +64,7 @@ async function main() {
     launchCompleted = activeBot.launch();
     return launchCompleted;
   };
-  process.once("SIGINT", () => requestShutdown("SIGINT")); process.once("SIGTERM", () => requestShutdown("SIGTERM"));
+  process.on("SIGINT", () => requestShutdown("SIGINT")); process.on("SIGTERM", () => requestShutdown("SIGTERM"));
   console.log("Minutka Telegram Bot is running with PostgreSQL runtime.");
   await launchBot();
 }
