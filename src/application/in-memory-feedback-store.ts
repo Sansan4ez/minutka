@@ -6,57 +6,49 @@ export function createInMemoryFeedbackStore(world: InMemoryWorld): FeedbackStore
   return {
     async saveFeedback(input: SaveFeedbackInput): Promise<FeedbackRecord> {
       const index = world.feedback.findIndex(
-        (f) =>
-          f.employeeId === input.employeeId &&
-          f.threadId === input.threadId &&
-          f.targetMessageId === input.targetMessageId
+        (feedback) =>
+          feedback.employeeId === input.employeeId &&
+          feedback.threadId === input.threadId &&
+          feedback.targetMessageId === input.targetMessageId,
       );
-
-      let record: FeedbackRecord;
       if (index === -1) {
-        world.counters.feedback++;
-        record = {
-          ...input,
-          id: `fb_${world.counters.feedback}`,
-          createdAt: world.now(),
-        };
-        world.feedback.push(record);
-      } else {
-        const existing = world.feedback[index];
-        record = {
-          ...existing,
+        const record: FeedbackRecord = {
+          id: input.id,
+          employeeId: input.employeeId,
+          threadId: input.threadId,
+          targetMessageId: input.targetMessageId,
           rating: input.rating,
           source: input.source,
+          createdAt: input.updatedAt,
+          updatedAt: input.updatedAt,
         };
-        world.feedback[index] = record;
+        world.feedback.push(record);
+        return record;
       }
+      const existing = world.feedback[index];
+      const record: FeedbackRecord = {
+        ...existing,
+        rating: input.rating,
+        source: input.source,
+        updatedAt: input.updatedAt,
+      };
+      world.feedback[index] = record;
       return record;
     },
-
-    async getFeedbackByTarget(input: {
-      employeeId: string;
-      threadId: string;
-      targetMessageId: string;
-    }): Promise<FeedbackRecord | undefined> {
+    async getFeedbackByTarget(input) {
       return world.feedback.find(
-        (f) =>
-          f.employeeId === input.employeeId &&
-          f.threadId === input.threadId &&
-          f.targetMessageId === input.targetMessageId
+        (feedback) =>
+          feedback.employeeId === input.employeeId &&
+          feedback.threadId === input.threadId &&
+          feedback.targetMessageId === input.targetMessageId,
       );
     },
-
-    async listFeedback(input?: {
-      employeeId?: string;
-      threadId?: string;
-      targetMessageId?: string;
-    }): Promise<FeedbackRecord[]> {
-      return world.feedback.filter((f) => {
-        if (input?.employeeId && f.employeeId !== input.employeeId) return false;
-        if (input?.threadId && f.threadId !== input.threadId) return false;
-        if (input?.targetMessageId && f.targetMessageId !== input.targetMessageId) return false;
-        return true;
-      });
-    }
+    async listFeedback(input) {
+      return world.feedback.filter((feedback) =>
+        (!input?.employeeId || feedback.employeeId === input.employeeId) &&
+        (!input?.threadId || feedback.threadId === input.threadId) &&
+        (!input?.targetMessageId || feedback.targetMessageId === input.targetMessageId),
+      );
+    },
   };
 }

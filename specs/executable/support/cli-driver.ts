@@ -4,7 +4,7 @@ import {
   type CliResult,
 } from "../../../src/client/cli/minutka-cli.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { createInProcessServer } from "../../../src/server/http/in-process-server.js";
+import { createInProcessSpecServer } from "../../../src/server/http/in-process-server.js";
 import type {
   AgentRunner,
   MinutkaServiceDeps,
@@ -20,7 +20,7 @@ export class CliDriver {
     deps: MinutkaServiceDeps = {},
   ) {
     this.client = new MinutkaClient(
-      createInProcessServer(world, agentRunner, deps),
+      createInProcessSpecServer(world, agentRunner, deps),
     );
   }
 

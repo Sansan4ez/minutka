@@ -16,6 +16,8 @@ export type Participant = {
   status: OnboardingStatus;
   createdAt: string;
   updatedAt: string;
+  /** Internal onboarding timestamp; never included in agent-facing projections. */
+  privacyExplanationShownAt?: string;
 };
 
 export type Consent = {

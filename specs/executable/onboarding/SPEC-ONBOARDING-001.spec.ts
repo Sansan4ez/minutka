@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import {
   MinutkaService,
   type AgentRunContext,
@@ -295,7 +296,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     ];
     let index = 0;
     const world = createInMemoryWorld(() => timestamps[index++] ?? timestamps.at(-1)!);
-    const service = new MinutkaService(world, async () => "first response");
+    const { service } = createInMemoryRuntime({ world, agentRunner: async () => "first response" });
 
     await service.issueInvite({
       inviteCode: "invite_timestamp",

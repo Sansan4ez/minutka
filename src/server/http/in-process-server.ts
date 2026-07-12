@@ -1,68 +1,43 @@
-import type { InMemoryWorld } from "../../application/in-memory-world.js";
-import { createInMemoryProfileStore } from "../../application/in-memory-profile-store.js";
-import { createMastraMinutkaServiceDeps } from "../../mastra/runtime-deps.js";
-import {
+import type {
+  AcceptConsentInput,
+  AgentRunner,
+  ChatInput,
+  CompleteOnboardingInput,
+  IssueInviteInput,
+  ListInsightsInput,
   MinutkaService,
-  type AcceptConsentInput,
-  type AgentRunner,
-  type ChatInput,
-  type CompleteOnboardingInput,
-  type IssueInviteInput,
-  type ListInsightsInput,
-  type MinutkaServiceDeps,
-  type OpenInviteInput,
-  type SubmitFeedbackInput,
+  OpenInviteInput,
+  SubmitFeedbackInput,
 } from "../../application/minutka-service.js";
-import type { ProfileStore } from "../../application/profile-store.js";
+import type { InMemoryWorld } from "../../application/in-memory-world.js";
+import { createInMemoryRuntime } from "../../runtime/create-in-memory-runtime.js";
 
-export type MinutkaApi = ReturnType<typeof createInProcessServer>;
+/** Spec-only in-process transport. It is not an HTTP listener. */
+export type MinutkaApi = {
+  chat(input: ChatInput): ReturnType<MinutkaService["chat"]>;
+  issueInvite(input: IssueInviteInput): ReturnType<MinutkaService["issueInvite"]>;
+  openInvite(input: OpenInviteInput): ReturnType<MinutkaService["openInvite"]>;
+  acceptConsent(input: AcceptConsentInput): ReturnType<MinutkaService["acceptConsent"]>;
+  completeOnboarding(input: CompleteOnboardingInput): ReturnType<MinutkaService["completeOnboarding"]>;
+  getProfile(input: { employeeId: string }): ReturnType<MinutkaService["getProfile"]>;
+  listInsights(input: ListInsightsInput): ReturnType<MinutkaService["listInsights"]>;
+  submitFeedback(input: SubmitFeedbackInput): ReturnType<MinutkaService["submitFeedback"]>;
+};
 
-export function createInProcessServer(
-  world: InMemoryWorld,
-  agentRunner: AgentRunner,
-  depsOrProfileStore?: MinutkaServiceDeps | ProfileStore,
-) {
-  const defaultDeps = createMastraMinutkaServiceDeps({
-    profileStore: createInMemoryProfileStore(world),
-  });
-  const deps = depsOrProfileStore
-    ? isProfileStore(depsOrProfileStore)
-      ? { ...defaultDeps, profileStore: depsOrProfileStore }
-      : { ...defaultDeps, ...depsOrProfileStore }
-    : defaultDeps;
-  const service = new MinutkaService(world, agentRunner, deps);
-
+export function createInProcessServer(service: MinutkaService): MinutkaApi {
   return {
-    chat(input: ChatInput) {
-      return service.chat(input);
-    },
-    issueInvite(input: IssueInviteInput) {
-      return service.issueInvite(input);
-    },
-    openInvite(input: OpenInviteInput) {
-      return service.openInvite(input);
-    },
-    acceptConsent(input: AcceptConsentInput) {
-      return service.acceptConsent(input);
-    },
-    completeOnboarding(input: CompleteOnboardingInput) {
-      return service.completeOnboarding(input);
-    },
-    getProfile(input: { employeeId: string }) {
-      return service.getProfile(input);
-    },
-    listInsights(input: ListInsightsInput) {
-      return service.listInsights(input);
-    },
-    submitFeedback(input: SubmitFeedbackInput) {
-      return service.submitFeedback(input);
-    },
+    chat: (input) => service.chat(input), issueInvite: (input) => service.issueInvite(input),
+    openInvite: (input) => service.openInvite(input), acceptConsent: (input) => service.acceptConsent(input),
+    completeOnboarding: (input) => service.completeOnboarding(input), getProfile: (input) => service.getProfile(input),
+    listInsights: (input) => service.listInsights(input), submitFeedback: (input) => service.submitFeedback(input),
   };
 }
 
-function isProfileStore(value: MinutkaServiceDeps | ProfileStore): value is ProfileStore {
-  return (
-    typeof (value as ProfileStore).getProfile === "function" &&
-    typeof (value as ProfileStore).saveProfile === "function"
-  );
+/** @deprecated Compatibility composition for executable specs only. */
+export function createInProcessSpecServer(
+  world: InMemoryWorld,
+  agentRunner: AgentRunner,
+  deps: Parameters<typeof createInMemoryRuntime>[0]["deps"] = {},
+): MinutkaApi {
+  return createInProcessServer(createInMemoryRuntime({ world, agentRunner, deps }).service);
 }

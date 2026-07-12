@@ -10,5 +10,6 @@ export type FeedbackRecord = {
   targetMessageId: string;
   rating: FeedbackRating;
   createdAt: string;
+  updatedAt: string;
   source: FeedbackSource;
 };

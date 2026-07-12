@@ -1,7 +1,7 @@
 import type { UserProfile } from "../domain/employee.js";
 import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
-import type { ConversationTurn } from "./conversation-memory-store.js";
+import type { ConversationTurn } from "./conversation-store.js";
 
 export type ConversationDecisionInput = {
   purpose: AgentManualPurpose;

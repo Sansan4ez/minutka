@@ -10,73 +10,76 @@ function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value:
 
 export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
   return {
-    async saveParticipant(participant: Participant) {
-      upsertByEmployeeId(world.participants, participant);
-    },
-
-    async claimParticipantByInvite(participant: Participant) {
+    async issueInvite({ employeeId, inviteCode, issuedAt }) {
       const existingByInvite = world.participants.find(
-        (candidate) => candidate.inviteCode === participant.inviteCode,
+        (candidate) => candidate.inviteCode === inviteCode,
       );
-      if (existingByInvite) return { participant: existingByInvite, created: false };
-
+      if (existingByInvite) return { participant: existingByInvite, created: false, inviteMatches: true };
       const existingByEmployee = world.participants.find(
-        (candidate) => candidate.employeeId === participant.employeeId,
+        (candidate) => candidate.employeeId === employeeId,
       );
-      if (existingByEmployee) return { participant: existingByEmployee, created: false };
-
-      world.participants.push(participant);
-      return { participant, created: true };
-    },
-
-    async openParticipantByInvite(inviteCode: string, openedAt: string) {
-      const index = world.participants.findIndex(
-        (participant) => participant.inviteCode === inviteCode,
-      );
-      if (index === -1) return undefined;
-
-      const participant = world.participants[index];
-      if (participant.status !== "invite_issued") {
-        return { participant, opened: false };
-      }
-
-      const opened = {
-        ...participant,
-        status: "invite_opened" as const,
-        updatedAt: openedAt,
+      if (existingByEmployee) return { participant: existingByEmployee, created: false, inviteMatches: false };
+      const participant: Participant = {
+        employeeId,
+        inviteCode,
+        status: "invite_issued",
+        createdAt: issuedAt,
+        updatedAt: issuedAt,
       };
+      world.participants.push(participant);
+      return { participant, created: true, inviteMatches: true };
+    },
+    async openInvite({ inviteCode, openedAt, explanationShownAt }) {
+      const index = world.participants.findIndex((participant) => participant.inviteCode === inviteCode);
+      if (index === -1) return undefined;
+      const participant = world.participants[index];
+      if (participant.status !== "invite_issued") return { participant, opened: false };
+      const opened = { ...participant, status: "invite_opened" as const, updatedAt: openedAt, privacyExplanationShownAt: explanationShownAt };
       world.participants[index] = opened;
       return { participant: opened, opened: true };
     },
-
-    async getParticipant(employeeId: string) {
-      return world.participants.find((p) => p.employeeId === employeeId);
-    },
-
-    async getParticipantByInvite(inviteCode: string) {
-      return world.participants.find((p) => p.inviteCode === inviteCode);
-    },
-
-    async claimConsent(consent: Consent) {
-      const existing = world.consents.find(
-        (candidate) => candidate.employeeId === consent.employeeId,
-      );
+    async acceptConsent(consent) {
+      const existing = world.consents.find((candidate) => candidate.employeeId === consent.employeeId);
       if (existing) return { consent: existing, created: false };
-
       world.consents.push(consent);
+      const participant = world.participants.find((candidate) => candidate.employeeId === consent.employeeId);
+      if (participant && participant.status !== "profile_completed") {
+        upsertByEmployeeId(world.participants, {
+          ...participant,
+          status: "consent_accepted",
+          updatedAt: consent.acceptedAt,
+          privacyExplanationShownAt: participant.privacyExplanationShownAt,
+        });
+      }
       return { consent, created: true };
     },
-
-    async getConsent(employeeId: string) {
-      return world.consents.find((c) => c.employeeId === employeeId);
-    },
-
-    async saveProfile(profile: UserProfile) {
+    async completeProfile({ profile, completedAt }) {
+      const existing = world.profiles.find((candidate) => candidate.employeeId === profile.employeeId);
       upsertByEmployeeId(world.profiles, profile);
+      const participant = world.participants.find((candidate) => candidate.employeeId === profile.employeeId);
+      if (!participant) throw new Error("participant not found");
+      const wasCompleted = participant.status === "profile_completed";
+      upsertByEmployeeId(world.participants, {
+        ...participant,
+        status: "profile_completed",
+        updatedAt: completedAt,
+      });
+      return { profile, wasCompleted: Boolean(existing && wasCompleted) };
     },
-
-    async getProfile(employeeId: string) {
-      return world.profiles.find((p) => p.employeeId === employeeId);
+    async getParticipant(employeeId) {
+      return world.participants.find((participant) => participant.employeeId === employeeId);
+    },
+    async getConsent(employeeId) {
+      return world.consents.find((consent) => consent.employeeId === employeeId);
+    },
+    async getProfile(employeeId) {
+      return world.profiles.find((profile) => profile.employeeId === employeeId);
+    },
+    async deleteEmployeePersonalData(employeeId) {
+      for (const key of ["messages", "insights", "feedback", "profiles", "consents", "participants"] as const) {
+        world[key] = world[key].filter((record) => record.employeeId !== employeeId) as never;
+      }
+      world.auditEvents = world.auditEvents.filter((record) => record.employeeId !== employeeId);
     },
   };
 }

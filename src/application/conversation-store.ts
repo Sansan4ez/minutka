@@ -7,10 +7,17 @@ export type ConversationTurn = {
   timestamp: string;
 };
 
-export type ConversationMemoryStore = {
+/** Canonical application conversation history. */
+export type ConversationStore = {
+  appendTurn(turn: ConversationTurn): Promise<void>;
   getRecentTurns(input: {
     employeeId: string;
     threadId: string;
     limit: number;
   }): Promise<ConversationTurn[]>;
+  getTurnByMessageId(input: {
+    employeeId: string;
+    threadId: string;
+    messageId: string;
+  }): Promise<ConversationTurn | undefined>;
 };

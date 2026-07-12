@@ -97,7 +97,6 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
         {
           purpose: "chat",
           systemContext: "trusted runtime context",
-          memory: { resourceId: "emp_1", threadId: "thread_1", recentTurns: [] },
         },
       ),
     ).resolves.toBe("ok");
@@ -228,9 +227,7 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
       observedRuns.push({ input, context });
-      const morning = context?.memory?.recentTurns.find((turn) =>
-        turn.userText.includes("квартальный отчёт"),
-      );
+      const morning = context?.systemContext?.includes("квартальный отчёт");
       if (input.text.includes("Отчёт не успел") && morning) {
         return "Вижу: утром главным был квартальный отчёт, но день забрали звонки. Давай выделим следующий маленький шаг.";
       }
@@ -266,18 +263,8 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     const eveningRun = observedRuns.find((run) =>
       run.input.text.includes("Отчёт не успел"),
     );
-    expect(eveningRun?.context?.memory).toMatchObject({
-      resourceId: testEmployee.employeeId,
-      threadId: testEmployee.threadId,
-    });
-    expect(eveningRun?.context?.memory?.recentTurns).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          userText: expect.stringContaining("квартальный отчёт"),
-          agentResponse: expect.stringContaining("приоритет"),
-        }),
-      ]),
-    );
+    expect(eveningRun?.context?.systemContext).toContain("untrusted conversation data");
+    expect(eveningRun?.context?.systemContext).toContain("квартальный отчёт");
 
     expect(spec.world.messages).toHaveLength(2);
     expect(spec.world.messages.every((m) => m.threadId === testEmployee.threadId)).toBe(

@@ -1,722 +1,258 @@
-import type {
-  AiLevel,
-  OnboardingStatus,
-  Participant,
-  Persona,
-  ResponseLengthPreference,
-  UserProfile,
-} from "../domain/employee.js";
-import {
-  currentPrivacyVersion,
-  privacyExplanation,
-} from "../domain/privacy.js";
-import type { InMemoryWorld, ChatMessage } from "./in-memory-world.js";
-import { createInMemoryConversationMemory } from "./in-memory-conversation-memory.js";
-import { createInMemoryInsightStore } from "./in-memory-insight-store.js";
-import { createInMemoryProfileStore } from "./in-memory-profile-store.js";
-import type {
-  AgentManual,
-  AgentManualProcessId,
-  AgentManualPurpose,
-} from "./agent-manual-types.js";
+import type { AiLevel, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
+import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
-import {
-  createMinutkaContextBuilder,
-  type MinutkaContextBuilderLike,
-} from "./minutka-context-builder.js";
+import { createMinutkaContextBuilder, type MinutkaContextBuilderLike } from "./minutka-context-builder.js";
 import type { AgentManualRouter } from "./agent-manual-resolver.js";
-import type {
-  ConversationMemoryStore,
-  ConversationTurn,
-} from "./conversation-memory-store.js";
+import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
 import type { InsightExtractor } from "./insight-extractor.js";
 import type { InsightStore } from "./insight-store.js";
 import type { ProfileStore } from "./profile-store.js";
-import {
-  buildBoundaryResponse,
-  sanitizeConversationDecision,
-  type ConversationDecisionRouter,
-} from "./conversation-decision-router.js";
-import type {
-  InsightKind,
-  StructuredInsight,
-  StructuredInsightDraft,
-} from "../domain/insights.js";
+import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
+import type { InsightKind, StructuredInsight, StructuredInsightDraft } from "../domain/insights.js";
 import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { FeedbackRating, FeedbackSource } from "../domain/feedback.js";
 import type { FeedbackStore } from "./feedback-store.js";
-import { createInMemoryFeedbackStore } from "./in-memory-feedback-store.js";
-import type { MessageStore } from "./message-store.js";
-import { createInMemoryMessageStore } from "./in-memory-message-store.js";
+import type { AuditEventStore, AuditEventType, SafeAuditMetadata } from "./audit-event-store.js";
+import type { Clock, IdGenerator } from "./runtime-primitives.js";
+import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
+import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
+import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
+import { renderDecisionProjection, renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
 
-export type ChatInput = {
-  employeeId: string;
-  threadId: string;
-  text: string;
-};
-
-export type ChatResult = {
-  messageId: string;
-  response: string;
-  selectedProcessIds: AgentManualProcessId[];
-};
-
-export type AgentMemoryContext = {
-  resourceId: string;
-  threadId: string;
-  recentTurns: ConversationTurn[];
-};
-
+export type ChatInput = { employeeId: string; threadId: string; text: string };
+export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
   purpose: AgentManualPurpose;
-  memory?: AgentMemoryContext;
   decision?: ConversationDecision;
   selectedProcessIds?: AgentManualProcessId[];
 };
-
-/**
- * Генератор ответов агента.
- * В executable specs инжектируется mock-runner,
- * чтобы проверки не зависели от LLM/API.
- * В runtime используется Mastra Agent runner (src/mastra/agent-runner.ts).
- */
-export type AgentRunner = (
-  input: ChatInput,
-  context?: AgentRunContext,
-) => Promise<string>;
-
-export type IssueInviteInput = {
-  employeeId: string;
-  inviteCode: string;
-};
-
-export type IssueInviteResult = {
-  employeeId: string;
-  inviteCode: string;
-  status: OnboardingStatus;
-  created: boolean;
-};
-
-export type OpenInviteInput = {
-  inviteCode: string;
-};
-
+export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promise<string>;
+export type IssueInviteInput = { employeeId: string; inviteCode: string };
+export type IssueInviteResult = { employeeId: string; inviteCode: string; status: OnboardingStatus; created: boolean };
+export type OpenInviteInput = { inviteCode: string };
 export type OpenInviteResult = {
   employeeId: string;
+  /** Returned only at the invite-operation boundary; never stored in Participant. */
   inviteCode: string;
   status: OnboardingStatus;
   privacyVersion: typeof currentPrivacyVersion;
   privacyExplanation: string;
 };
-
-export type AcceptConsentInput = {
-  employeeId: string;
-  accepted: true;
-  source: "cli" | "telegram" | "test";
-};
-
-export type AcceptConsentResult = {
-  employeeId: string;
-  privacyVersion: typeof currentPrivacyVersion;
-  acceptedAt: string;
-};
-
+export type AcceptConsentInput = { employeeId: string; accepted: true; source: "cli" | "telegram" | "test" };
+export type AcceptConsentResult = { employeeId: string; privacyVersion: typeof currentPrivacyVersion; acceptedAt: string };
 export type CompleteOnboardingInput = {
-  employeeId: string;
-  role: string;
-  typicalTasks: string[];
-  persona: Persona;
-  aiLevel: AiLevel;
-  responseLength?: ResponseLengthPreference;
-  preferredCheckinsPerDay?: 1 | 2 | 3;
+  employeeId: string; role: string; typicalTasks: string[]; persona: Persona; aiLevel: AiLevel;
+  responseLength?: ResponseLengthPreference; preferredCheckinsPerDay?: 1 | 2 | 3;
 };
-
-export type CompleteOnboardingResult = {
-  employeeId: string;
-  status: "profile_completed";
-  profile: UserProfile;
-  firstResponse: string;
-};
-
-export type ListInsightsInput = {
-  employeeId?: string;
-  threadId?: string;
-  kind?: InsightKind;
-};
-
+export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; profile: UserProfile; firstResponse: string };
+export type ListInsightsInput = { employeeId?: string; threadId?: string; kind?: InsightKind };
 export type SubmitFeedbackInput = {
-  employeeId: string;
-  threadId: string;
-  targetMessageId: string;
-  rating: FeedbackRating;
-  source: FeedbackSource;
+  employeeId: string; threadId: string; targetMessageId: string; rating: FeedbackRating; source: FeedbackSource;
 };
-
-export type SubmitFeedbackResult = {
-  accepted: true;
-  feedbackId: string;
-  selectedProcessIds: AgentManualProcessId[];
-};
+export type SubmitFeedbackResult = { accepted: true; feedbackId: string; selectedProcessIds: AgentManualProcessId[] };
 
 export type MinutkaServiceDeps = {
   profileStore?: ProfileStore;
-  conversationMemory?: ConversationMemoryStore;
+  conversationStore?: ConversationStore;
   insightStore?: InsightStore;
+  feedbackStore?: FeedbackStore;
+  auditEventStore?: AuditEventStore;
+  clock?: Clock;
+  idGenerator?: IdGenerator;
   insightExtractor?: InsightExtractor;
   contextBuilder?: MinutkaContextBuilderLike;
+  projectionBuilder?: RuntimeProjectionBuilder;
   agentManualRouter?: AgentManualRouter;
   conversationDecisionRouter?: ConversationDecisionRouter;
-  feedbackStore?: FeedbackStore;
-  messageStore?: MessageStore;
+  manual?: AgentManual;
 };
 
+/** Transport- and storage-independent application use cases. */
 export class MinutkaService {
-  private readonly profileStore: ProfileStore;
-  private readonly conversationMemory: ConversationMemoryStore;
-  private readonly insightStore: InsightStore;
-  private readonly insightExtractor?: InsightExtractor;
+  private readonly stores: {
+    profileStore: ProfileStore;
+    conversationStore: ConversationStore;
+    insightStore: InsightStore;
+    feedbackStore: FeedbackStore;
+    auditEventStore: AuditEventStore;
+  };
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
   private readonly contextBuilder: MinutkaContextBuilderLike;
-  private readonly conversationDecisionRouter?: ConversationDecisionRouter;
-  private readonly feedbackStore: FeedbackStore;
-  private readonly messageStore: MessageStore;
+  private readonly projectionBuilder: RuntimeProjectionBuilder;
   private readonly manual: AgentManual;
 
-  constructor(
-    private readonly world: InMemoryWorld,
-    private readonly agentRunner: AgentRunner,
-    depsOrProfileStore: MinutkaServiceDeps | ProfileStore = {},
-  ) {
-    const deps = isProfileStore(depsOrProfileStore)
-      ? { profileStore: depsOrProfileStore }
-      : depsOrProfileStore;
-    this.profileStore = deps.profileStore ?? createInMemoryProfileStore(world);
-    this.conversationMemory =
-      deps.conversationMemory ?? createInMemoryConversationMemory(world);
-    this.insightStore = deps.insightStore ?? createInMemoryInsightStore(world);
-    this.insightExtractor = deps.insightExtractor;
-    this.feedbackStore = deps.feedbackStore ?? createInMemoryFeedbackStore(world);
-    this.messageStore = deps.messageStore ?? createInMemoryMessageStore(world);
-    this.manual = loadRequiredAgentManual(world);
-    this.conversationDecisionRouter = deps.conversationDecisionRouter;
-    this.contextBuilder =
-      deps.contextBuilder ?? createDefaultContextBuilder(this.manual, deps.agentManualRouter);
-  }
-
-  /**
-   * Creates a pre-issued invite for a known employee. This is deliberately a
-   * separate administrative operation: public channels may only open a code
-   * that has already been issued.
-   */
-  async issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
-    const inviteCode = input.inviteCode.trim();
-    const employeeId = input.employeeId.trim();
-    if (!inviteCode) throw new Error("inviteCode is required");
-    if (!employeeId) throw new Error("employeeId is required");
-
-    const timestamp = this.world.now();
-    const claimed = await this.profileStore.claimParticipantByInvite({
-      employeeId,
-      inviteCode,
-      status: "invite_issued",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    if (claimed.participant.employeeId !== employeeId) {
-      throw new Error("invite already belongs to another employee");
-    }
-    if (claimed.participant.inviteCode !== inviteCode) {
-      throw new Error("employee already has an active invite");
-    }
-
-    return {
-      employeeId: claimed.participant.employeeId,
-      inviteCode: claimed.participant.inviteCode,
-      status: claimed.participant.status,
-      created: claimed.created,
+  constructor(private readonly agentRunner: AgentRunner, private readonly deps: MinutkaServiceDeps) {
+    this.stores = {
+      profileStore: requireDependency(deps.profileStore, "profileStore"),
+      conversationStore: requireDependency(deps.conversationStore, "conversationStore"),
+      insightStore: requireDependency(deps.insightStore, "insightStore"),
+      feedbackStore: requireDependency(deps.feedbackStore, "feedbackStore"),
+      auditEventStore: requireDependency(deps.auditEventStore, "auditEventStore"),
     };
+    this.clock = deps.clock ?? systemClock;
+    this.ids = deps.idGenerator ?? randomIdGenerator;
+    this.manual = deps.manual ?? loadAgentManualFromDisk();
+    this.contextBuilder = deps.contextBuilder ?? createMinutkaContextBuilder(this.manual, deps.agentManualRouter);
+    this.projectionBuilder = deps.projectionBuilder ?? createRuntimeProjectionBuilder({ ...this.stores, clock: this.clock });
   }
 
-  /** Opens a pre-issued invite from an employee-facing channel. */
+  async issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
+    const employeeId = input.employeeId.trim();
+    const inviteCode = input.inviteCode.trim();
+    if (!employeeId) throw new Error("employeeId is required");
+    if (!inviteCode) throw new Error("inviteCode is required");
+    const result = await this.stores.profileStore.issueInvite({ employeeId, inviteCode, issuedAt: this.clock.now() });
+    if (result.participant.employeeId !== employeeId) throw new Error("invite already belongs to another employee");
+    if (!result.created && !result.inviteMatches) throw new Error("employee already has an active invite");
+    return { employeeId, inviteCode, status: result.participant.status, created: result.created };
+  }
+
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {
     const inviteCode = input.inviteCode.trim();
     if (!inviteCode) throw new Error("inviteCode is required");
-
-    const openedAt = this.world.now();
-    const opened = await this.profileStore.openParticipantByInvite(
-      inviteCode,
-      openedAt,
-    );
-    if (!opened) throw new Error("invite not found");
-    const participant = opened.participant;
-
-    if (opened.opened) {
-      this.world.events.push({
-        type: "InviteOpened",
-        employeeId: participant.employeeId,
-        inviteCode: participant.inviteCode,
-        timestamp: openedAt,
-      });
-    }
-
-    const privacyShownAt = this.world.now();
-    this.world.events.push({
-      type: "PrivacyExplanationShown",
-      employeeId: participant.employeeId,
-      privacyVersion: currentPrivacyVersion,
-      timestamp: privacyShownAt,
+    const requestId = this.ids.requestId();
+    const openedAt = this.clock.now();
+    const opened = await this.stores.profileStore.openInvite({
+      inviteCode, openedAt, explanationShownAt: this.clock.now(),
     });
-
+    if (!opened) throw new Error("invite not found");
+    if (opened.opened) await this.audit(requestId, "invite_opened", opened.participant.employeeId, undefined, undefined, openedAt);
+    await this.audit(requestId, "privacy_explanation_shown", opened.participant.employeeId, undefined, undefined, this.clock.now(), {
+      privacyVersion: currentPrivacyVersion,
+    });
     return {
-      employeeId: participant.employeeId,
-      inviteCode: participant.inviteCode,
-      status: participant.status,
+      employeeId: opened.participant.employeeId,
+      inviteCode,
+      status: opened.participant.status,
       privacyVersion: currentPrivacyVersion,
       privacyExplanation,
     };
   }
 
   async acceptConsent(input: AcceptConsentInput): Promise<AcceptConsentResult> {
+    if (input.accepted !== true) throw new Error("privacy consent must be explicitly accepted");
     const participant = await this.requireParticipant(input.employeeId);
-    if (input.accepted !== true) {
-      throw new Error("privacy consent must be explicitly accepted");
-    }
-
-    const timestamp = this.world.now();
-    const claimed = await this.profileStore.claimConsent({
+    const requestId = this.ids.requestId();
+    const timestamp = this.clock.now();
+    const claimed = await this.stores.profileStore.acceptConsent({
       employeeId: input.employeeId,
       privacyVersion: currentPrivacyVersion,
       acceptedAt: timestamp,
-      explanationShownAt:
-        this.lastPrivacyExplanationShownAt(input.employeeId) ?? timestamp,
+      explanationShownAt: participant.privacyExplanationShownAt ?? timestamp,
       source: input.source,
     });
-    const consent = claimed.consent;
-
-    if (!claimed.created) {
-      return {
-        employeeId: consent.employeeId,
-        privacyVersion: consent.privacyVersion,
-        acceptedAt: consent.acceptedAt,
-      };
-    }
-
-    if (participant.status !== "profile_completed") {
-      await this.profileStore.saveParticipant({
-        ...participant,
-        status: "consent_accepted",
-        updatedAt: timestamp,
-      });
-    }
-
-    this.world.events.push({
-      type: "ConsentAccepted",
-      employeeId: input.employeeId,
-      privacyVersion: currentPrivacyVersion,
-      timestamp,
-    });
-
-    return {
-      employeeId: consent.employeeId,
-      privacyVersion: consent.privacyVersion,
-      acceptedAt: consent.acceptedAt,
-    };
+    if (claimed.created) await this.audit(requestId, "consent_accepted", participant.employeeId, undefined, undefined, timestamp, { privacyVersion: currentPrivacyVersion });
+    return { employeeId: claimed.consent.employeeId, privacyVersion: claimed.consent.privacyVersion, acceptedAt: claimed.consent.acceptedAt };
   }
 
-  async completeOnboarding(
-    input: CompleteOnboardingInput,
-  ): Promise<CompleteOnboardingResult> {
-    const participant = await this.requireParticipant(input.employeeId);
-    const consent = await this.profileStore.getConsent(input.employeeId);
-    if (!consent) {
-      throw new Error("consent is required before onboarding can be completed");
-    }
-
+  async completeOnboarding(input: CompleteOnboardingInput): Promise<CompleteOnboardingResult> {
+    await this.requireParticipant(input.employeeId);
+    if (!await this.stores.profileStore.getConsent(input.employeeId)) throw new Error("consent is required before onboarding can be completed");
     this.validateProfileInput(input);
-
-    const existingProfile = await this.profileStore.getProfile(input.employeeId);
-    const timestamp = this.world.now();
+    const requestId = this.ids.requestId();
+    const timestamp = this.clock.now();
+    const existing = await this.stores.profileStore.getProfile(input.employeeId);
     const profile: UserProfile = {
-      employeeId: input.employeeId,
-      role: input.role.trim(),
-      typicalTasks: input.typicalTasks.map((task) => task.trim()),
-      persona: input.persona,
-      aiLevel: input.aiLevel,
-      responseLength: input.responseLength ?? "balanced",
-      preferredCheckinsPerDay: input.preferredCheckinsPerDay,
-      createdAt: existingProfile?.createdAt ?? timestamp,
-      updatedAt: timestamp,
+      employeeId: input.employeeId, role: input.role.trim(), typicalTasks: input.typicalTasks.map((task) => task.trim()),
+      persona: input.persona, aiLevel: input.aiLevel, responseLength: input.responseLength ?? "balanced",
+      preferredCheckinsPerDay: input.preferredCheckinsPerDay, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp,
     };
-
-    await this.profileStore.saveProfile(profile);
-
-    const wasCompleted = participant.status === "profile_completed";
-    await this.profileStore.saveParticipant({
-      ...participant,
-      status: "profile_completed",
-      updatedAt: timestamp,
+    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp });
+    await this.audit(requestId, "profile_updated", input.employeeId, undefined, undefined, timestamp, { changedFields: getChangedFields(existing, profile) });
+    if (!completed.wasCompleted) await this.audit(requestId, "onboarding_completed", input.employeeId, undefined, undefined, timestamp, { persona: input.persona });
+    const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.", profile });
+    const firstResponse = await this.agentRunner({ employeeId: input.employeeId, threadId: input.employeeId, text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику." }, {
+      profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
     });
-
-    const changedFields = getChangedFields(existingProfile, profile);
-    this.world.events.push({
-      type: "UserProfileUpdated",
-      employeeId: input.employeeId,
-      changedFields,
-      timestamp,
-    });
-
-    if (!wasCompleted) {
-      this.world.events.push({
-        type: "OnboardingCompleted",
-        employeeId: input.employeeId,
-        persona: input.persona,
-        timestamp,
-      });
-    }
-
-    const builtContext = await this.contextBuilder.build({
-      purpose: "onboarding_first_response",
-      text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.",
-      profile,
-    });
-    const firstResponse = await this.agentRunner(
-      {
-        employeeId: input.employeeId,
-        threadId: input.employeeId,
-        text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.",
-      },
-      {
-        profile,
-        systemContext: builtContext.systemContext,
-        selectedProcessIds: builtContext.selectedProcessIds,
-        purpose: "onboarding_first_response",
-      },
-    );
-
-    return {
-      employeeId: input.employeeId,
-      status: "profile_completed",
-      profile,
-      firstResponse,
-    };
+    return { employeeId: input.employeeId, status: "profile_completed", profile, firstResponse };
   }
 
   async getProfile(input: { employeeId: string }): Promise<UserProfile> {
-    const profile = await this.profileStore.getProfile(input.employeeId);
+    const profile = await this.stores.profileStore.getProfile(input.employeeId);
     if (!profile) throw new Error("profile not found");
     return profile;
   }
 
   async chat(input: ChatInput): Promise<ChatResult> {
-    this.world.counters.message++;
-    const messageId = `msg_${this.world.counters.message}`;
-    const timestamp = this.world.now();
-
-    this.world.events.push({
-      type: "ChatMessageReceived",
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      text: input.text,
-      timestamp,
+    const requestId = this.ids.requestId();
+    const messageId = this.ids.messageId();
+    const timestamp = this.clock.now();
+    await this.audit(requestId, "chat_received", input.employeeId, input.threadId, messageId, timestamp);
+    const snapshot = await this.projectionBuilder.buildProc({ ...input, requestId, purpose: "chat" });
+    const profile = await this.stores.profileStore.getProfile(input.employeeId);
+    const recentTurns = snapshot.thread.data.turns;
+    const decision = await this.routeConversationDecisionSafely({ purpose: "chat", text: input.text, profile, recentTurns });
+    const decisionProjection = this.projectionBuilder.buildDecision({ ...input, requestId, purpose: "chat" }, decision);
+    const built = await this.contextBuilder.build({
+      purpose: "chat", text: input.text, profile, recentTurns, selectedProcessIds: decision.selectedProcessIds,
     });
-
-    const profile = await this.profileStore.getProfile(input.employeeId);
-    const recentTurns = await this.conversationMemory.getRecentTurns({
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      limit: 10,
-    });
-    const decision = await this.routeConversationDecisionSafely({
-      purpose: "chat",
-      text: input.text,
-      profile,
-      recentTurns,
-    });
-    const builtContext = await this.contextBuilder.build({
-      purpose: "chat",
-      text: input.text,
-      profile,
-      recentTurns,
-      selectedProcessIds: decision.selectedProcessIds,
-    });
-
+    const projectionContext = [renderDecisionProjection(decisionProjection), renderRuntimeProjection(snapshot)].filter(Boolean).join("\n\n");
     let response: string;
     if (decision.workDecision.mode === "boundary") {
       response = buildBoundaryResponse(decision.workDecision, profile);
-      this.world.events.push({
-        type: "WorkBoundaryApplied",
-        employeeId: input.employeeId,
-        threadId: input.threadId,
-        reason: decision.workDecision.reason,
-        selectedProcessIds: builtContext.selectedProcessIds,
-        timestamp: this.world.now(),
+      await this.audit(requestId, "work_boundary_applied", input.employeeId, input.threadId, messageId, this.clock.now(), {
+        reason: decision.workDecision.reason, selectedProcessIds: built.selectedProcessIds,
       });
     } else {
       response = await this.agentRunner(input, {
         ...(profile ? { profile } : {}),
-        systemContext: builtContext.systemContext,
-        selectedProcessIds: builtContext.selectedProcessIds,
-        purpose: "chat",
-        memory: {
-          resourceId: input.employeeId,
-          threadId: input.threadId,
-          recentTurns,
-        },
-        decision,
+        systemContext: [built.systemContext, projectionContext].filter(Boolean).join("\n\n"),
+        selectedProcessIds: built.selectedProcessIds, purpose: "chat", decision,
       });
     }
-
-    this.world.events.push({
-      type: "ChatResponseGenerated",
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      response,
-      timestamp: this.world.now(),
-    });
-
-    const message: ChatMessage = {
-      id: messageId,
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      text: input.text,
-      response,
-      timestamp,
-    };
-    this.world.messages.push(message);
-
-    if (decision.insightDecision.candidate) {
-      try {
-        const insightExtractor = this.requireInsightExtractor();
-        const extraction = await insightExtractor({
-          employeeId: input.employeeId,
-          threadId: input.threadId,
-          messageId,
-          text: input.text,
-          response,
-          profile,
-          recentTurns,
-          decision,
-        });
-        const insights = this.assignInsightIdsAndTimestamps(extraction.insights);
-        await this.insightStore.saveInsights(insights);
-        for (const insight of insights) {
-          this.world.events.push({
-            type: "InsightRecorded",
-            employeeId: insight.employeeId,
-            threadId: insight.threadId,
-            insightId: insight.id,
-            kind: insight.kind,
-            timestamp: insight.createdAt,
-          });
-        }
-      } catch (error) {
-        this.world.events.push({
-          type: "InsightExtractionFailed",
-          employeeId: input.employeeId,
-          threadId: input.threadId,
-          reason: error instanceof Error ? error.message : String(error),
-          timestamp: this.world.now(),
-        });
-        console.warn("Insight extraction failed; returning chat response without insights.", error);
-      }
-    }
-
-    return {
-      messageId,
-      response,
-      selectedProcessIds: builtContext.selectedProcessIds,
-    };
+    await this.stores.conversationStore.appendTurn({ messageId, employeeId: input.employeeId, threadId: input.threadId, userText: input.text, agentResponse: response, timestamp });
+    await this.audit(requestId, "chat_response_generated", input.employeeId, input.threadId, messageId, this.clock.now());
+    if (decision.insightDecision.candidate) await this.extractInsights({ input, messageId, response, profile, recentTurns, decision, requestId });
+    return { messageId, response, selectedProcessIds: built.selectedProcessIds };
   }
 
-  async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> {
-    return this.insightStore.listInsights(input);
-  }
+  async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.stores.insightStore.listInsights(input); }
 
-  async submitFeedback(
-    input: SubmitFeedbackInput,
-  ): Promise<SubmitFeedbackResult> {
+  async submitFeedback(input: SubmitFeedbackInput): Promise<SubmitFeedbackResult> {
     await this.requireParticipant(input.employeeId);
-    const message = await this.messageStore.getMessageById({
-      messageId: input.targetMessageId,
-      employeeId: input.employeeId,
-      threadId: input.threadId,
+    const message = await this.stores.conversationStore.getTurnByMessageId({ employeeId: input.employeeId, threadId: input.threadId, messageId: input.targetMessageId });
+    if (!message) throw new Error(`Message not found or mismatch: ${input.targetMessageId}`);
+    const requestId = this.ids.requestId();
+    const profile = await this.stores.profileStore.getProfile(input.employeeId);
+    const decision = await this.routeConversationDecisionSafely({ purpose: "feedback", text: "[structured-feedback]", profile, recentTurns: [] });
+    const built = await this.contextBuilder.build({ purpose: "feedback", text: "[structured-feedback]", profile, selectedProcessIds: decision.selectedProcessIds });
+    const saved = await this.stores.feedbackStore.saveFeedback({ id: this.ids.feedbackId(), ...input, updatedAt: this.clock.now() });
+    await this.audit(requestId, "feedback_received", input.employeeId, input.threadId, input.targetMessageId, this.clock.now(), {
+      feedbackId: saved.id, rating: input.rating, source: input.source, selectedProcessIds: built.selectedProcessIds,
     });
-    if (!message) {
-      throw new Error(`Message not found or mismatch: ${input.targetMessageId}`);
-    }
-
-    const profile = await this.profileStore.getProfile(input.employeeId);
-    const decision = await this.routeConversationDecisionSafely({
-      purpose: "feedback",
-      text: "[structured-feedback]",
-      profile,
-      recentTurns: [],
-    });
-    const builtContext = await this.contextBuilder.build({
-      purpose: "feedback",
-      text: "[structured-feedback]",
-      profile,
-      selectedProcessIds: decision.selectedProcessIds,
-    });
-
-    const saved = await this.feedbackStore.saveFeedback({
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      targetMessageId: input.targetMessageId,
-      rating: input.rating,
-      source: input.source,
-    });
-
-    this.world.events.push({
-      type: "FeedbackReceived",
-      feedbackId: saved.id,
-      employeeId: input.employeeId,
-      threadId: input.threadId,
-      targetMessageId: input.targetMessageId,
-      rating: input.rating,
-      source: input.source,
-      selectedProcessIds: builtContext.selectedProcessIds,
-      timestamp: this.world.now(),
-    });
-
-    return {
-      accepted: true,
-      feedbackId: saved.id,
-      selectedProcessIds: builtContext.selectedProcessIds,
-    };
+    return { accepted: true, feedbackId: saved.id, selectedProcessIds: built.selectedProcessIds };
   }
 
-  private async routeConversationDecisionSafely(input: {
-    purpose: AgentManualPurpose;
-    text: string;
-    profile?: UserProfile;
-    recentTurns: ConversationTurn[];
-  }): Promise<ConversationDecision> {
-    const decisionRouter = this.requireConversationDecisionRouter();
+  private async extractInsights(input: { input: ChatInput; messageId: string; response: string; profile?: UserProfile; recentTurns: ConversationTurn[]; decision: ConversationDecision; requestId: string }) {
     try {
-      return sanitizeConversationDecision(
-        await decisionRouter({
-          ...input,
-          manual: this.manual,
-        }),
-        this.manual,
-        input.purpose,
-      );
-    } catch (error) {
-      console.warn(
-        "Conversation decision router failed; applying fail-closed work boundary.",
-        error,
-      );
-      return sanitizeConversationDecision(
-        {
-          selectedProcessIds: ["core", "workday_guardrails"],
-          workDecision: { mode: "boundary", reason: "unknown" },
-          insightDecision: { candidate: false, suggestedKinds: [] },
-        },
-        this.manual,
-        input.purpose,
-      );
+      if (!this.deps.insightExtractor) throw new Error("insightExtractor is required when decision enables insight extraction");
+      const extraction = await this.deps.insightExtractor({ ...input.input, messageId: input.messageId, response: input.response, profile: input.profile, recentTurns: input.recentTurns, decision: input.decision });
+      const insights = extraction.insights.map((draft) => ({ ...draft, id: this.ids.insightId(), createdAt: this.clock.now() } as StructuredInsight));
+      await this.stores.insightStore.saveInsights(insights);
+      for (const insight of insights) await this.audit(input.requestId, "insight_recorded", insight.employeeId, insight.threadId, insight.sourceMessageId, insight.createdAt, { insightId: insight.id, kind: insight.kind });
+    } catch {
+      await this.audit(input.requestId, "insight_extraction_failed", input.input.employeeId, input.input.threadId, input.messageId, this.clock.now());
     }
   }
 
-  private assignInsightIdsAndTimestamps(
-    drafts: StructuredInsightDraft[],
-  ): StructuredInsight[] {
-    return drafts.map((draft) => {
-      this.world.counters.insight++;
-      return {
-        ...draft,
-        id: `ins_${this.world.counters.insight}`,
-        createdAt: this.world.now(),
-      } as StructuredInsight;
-    });
+  private async audit(requestId: string, type: AuditEventType, employeeId: string, threadId: string | undefined, messageId: string | undefined, occurredAt: string, metadata: SafeAuditMetadata = {}) {
+    await this.stores.auditEventStore.append({ id: this.ids.auditEventId(), requestId, type, employeeId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), occurredAt, metadata });
   }
 
-  private async requireParticipant(employeeId: string) {
-    const participant = await this.profileStore.getParticipant(employeeId);
-    if (!participant) throw new Error("participant not found");
-    return participant;
+  private async routeConversationDecisionSafely(input: { purpose: AgentManualPurpose; text: string; profile?: UserProfile; recentTurns: ConversationTurn[] }): Promise<ConversationDecision> {
+    if (!this.deps.conversationDecisionRouter) throw new Error("conversationDecisionRouter is required for chat");
+    try { return sanitizeConversationDecision(await this.deps.conversationDecisionRouter({ ...input, manual: this.manual }), this.manual, input.purpose); }
+    catch { return sanitizeConversationDecision({ selectedProcessIds: ["core", "workday_guardrails"], workDecision: { mode: "boundary", reason: "unknown" }, insightDecision: { candidate: false, suggestedKinds: [] } }, this.manual, input.purpose); }
   }
 
-  private requireConversationDecisionRouter() {
-    if (!this.conversationDecisionRouter) {
-      throw new Error("conversationDecisionRouter is required for chat");
-    }
-    return this.conversationDecisionRouter;
-  }
-
-  private requireInsightExtractor() {
-    if (!this.insightExtractor) {
-      throw new Error("insightExtractor is required when decision enables insight extraction");
-    }
-    return this.insightExtractor;
-  }
-
-  private validateProfileInput(input: CompleteOnboardingInput) {
-    if (!input.role.trim()) throw new Error("role is required");
-    const tasks = input.typicalTasks.map((task) => task.trim());
-    if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) {
-      throw new Error("typicalTasks must contain 1 to 7 non-empty tasks");
-    }
-  }
-
-  private lastPrivacyExplanationShownAt(employeeId: string) {
-    return [...this.world.events]
-      .reverse()
-      .find(
-        (event) =>
-          event.type === "PrivacyExplanationShown" &&
-          event.employeeId === employeeId &&
-          event.privacyVersion === currentPrivacyVersion,
-      )?.timestamp;
-  }
+  private async requireParticipant(employeeId: string) { const participant = await this.stores.profileStore.getParticipant(employeeId); if (!participant) throw new Error("participant not found"); return participant; }
+  private validateProfileInput(input: CompleteOnboardingInput) { if (!input.role.trim()) throw new Error("role is required"); const tasks = input.typicalTasks.map((task) => task.trim()); if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) throw new Error("typicalTasks must contain 1 to 7 non-empty tasks"); }
 }
 
-const trackedProfileFields = [
-  "role",
-  "typicalTasks",
-  "persona",
-  "aiLevel",
-  "responseLength",
-  "preferredCheckinsPerDay",
-] as const;
-
-function createDefaultContextBuilder(
-  manual: AgentManual,
-  agentManualRouter?: AgentManualRouter,
-) {
-  return createMinutkaContextBuilder(manual, agentManualRouter);
-}
-
-function loadRequiredAgentManual(world: InMemoryWorld) {
-  try {
-    return loadAgentManualFromDisk();
-  } catch (error) {
-    world.events.push({
-      type: "AgentManualLoadFailed",
-      reason: error instanceof Error ? error.message : String(error),
-      timestamp: world.now(),
-    });
-    throw error;
-  }
-}
-
-function isProfileStore(value: MinutkaServiceDeps | ProfileStore): value is ProfileStore {
-  return (
-    typeof (value as ProfileStore).getProfile === "function" &&
-    typeof (value as ProfileStore).saveProfile === "function"
-  );
-}
-
-function getChangedFields(
-  existing: UserProfile | undefined,
-  next: UserProfile,
-): string[] {
-  if (!existing) {
-    return trackedProfileFields.filter((field) => next[field] !== undefined);
-  }
-  return trackedProfileFields.filter(
-    (field) => JSON.stringify(existing[field]) !== JSON.stringify(next[field]),
-  );
-}
+const trackedProfileFields = ["role", "typicalTasks", "persona", "aiLevel", "responseLength", "preferredCheckinsPerDay"] as const;
+function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] { return trackedProfileFields.filter((field) => (field === "preferredCheckinsPerDay" && next[field] === undefined) ? false : !existing || JSON.stringify(existing[field]) !== JSON.stringify(next[field])); }
+function requireDependency<T>(value: T | undefined, name: string): T { if (!value) throw new Error(`${name} is required; production composition has no in-memory fallback`); return value; }

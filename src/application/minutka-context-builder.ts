@@ -1,5 +1,5 @@
 import type { UserProfile } from "../domain/employee.js";
-import type { ConversationTurn } from "./conversation-memory-store.js";
+import type { ConversationTurn } from "./conversation-store.js";
 import type {
   AgentManual,
   AgentManualProcessId,

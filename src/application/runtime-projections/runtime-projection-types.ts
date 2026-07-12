@@ -1,0 +1,54 @@
+import type { ConversationDecision } from "../../domain/conversation-decision.js";
+import type { FeedbackRecord } from "../../domain/feedback.js";
+import type { StructuredInsight } from "../../domain/insights.js";
+import type { AuditEventRecord } from "../audit-event-store.js";
+import type { ConversationTurn } from "../conversation-store.js";
+import type { Consent, OnboardingStatus, UserProfile } from "../../domain/employee.js";
+
+export const allowedRuntimePaths = [
+  "/proc/profile",
+  "/proc/consent",
+  "/proc/thread",
+  "/proc/decision",
+  "/proc/insights",
+  "/proc/feedback",
+  "/run/current",
+  "/run/recent",
+] as const;
+
+export type AllowedRuntimePath = (typeof allowedRuntimePaths)[number];
+
+export type RuntimeProjection<T> = {
+  schemaVersion: 1;
+  path: AllowedRuntimePath;
+  generatedAt: string;
+  scope: { employeeId: string; threadId?: string; requestId: string };
+  data: T;
+};
+
+export type ProcSnapshot = {
+  profile: RuntimeProjection<ProfileProjection | null>;
+  consent: RuntimeProjection<ConsentProjection>;
+  thread: RuntimeProjection<ThreadProjection>;
+  insights: RuntimeProjection<StructuredInsight[]>;
+  feedback: RuntimeProjection<FeedbackRecord[]>;
+};
+
+export type ProfileProjection = Pick<
+  UserProfile,
+  "role" | "typicalTasks" | "persona" | "aiLevel" | "responseLength" | "preferredCheckinsPerDay"
+>;
+
+export type ConsentProjection = {
+  status?: OnboardingStatus;
+  accepted: boolean;
+  privacyVersion?: Consent["privacyVersion"];
+  acceptedAt?: string;
+};
+
+export type ThreadProjection = { turns: ConversationTurn[] };
+export type DecisionProjection = ConversationDecision;
+export type RunSnapshot = {
+  current: RuntimeProjection<AuditEventRecord[]>;
+  recent: RuntimeProjection<AuditEventRecord[]>;
+};

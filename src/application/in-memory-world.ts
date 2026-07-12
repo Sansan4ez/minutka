@@ -1,6 +1,7 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { DomainEvent } from "../domain/events.js";
 import type { StructuredInsight } from "../domain/insights.js";
+import type { AuditEventRecord } from "./audit-event-store.js";
 import type { FeedbackRecord } from "../domain/feedback.js";
 
 export type ChatMessage = {
@@ -14,7 +15,9 @@ export type ChatMessage = {
 
 export type InMemoryWorld = {
   messages: ChatMessage[];
+  /** Legacy observable event fixture; application code writes AuditEventStore. */
   events: DomainEvent[];
+  auditEvents: AuditEventRecord[];
   participants: Participant[];
   consents: Consent[];
   profiles: UserProfile[];
@@ -30,6 +33,7 @@ export function createInMemoryWorld(
   return {
     messages: [],
     events: [],
+    auditEvents: [],
     participants: [],
     consents: [],
     profiles: [],
