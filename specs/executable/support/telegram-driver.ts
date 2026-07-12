@@ -1,5 +1,5 @@
 import { MinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { createInProcessServer } from "../../../src/server/http/in-process-server.js";
+import { createInProcessSpecServer } from "../../../src/server/http/in-process-server.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createInMemoryTelegramSessionStore } from "../../../src/telegram/in-memory-telegram-session-store.js";
 import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
@@ -31,7 +31,7 @@ export class TelegramDriver {
     agentRunner: AgentRunner,
     deps: MinutkaServiceDeps = {},
   ) {
-    const server = createInProcessServer(world, agentRunner, createDefaultSpecDeps(deps));
+    const server = createInProcessSpecServer(world, agentRunner, createDefaultSpecDeps(deps));
     const client = new MinutkaClient(server);
     const sessionStore = createInMemoryTelegramSessionStore();
 

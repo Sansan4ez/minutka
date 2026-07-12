@@ -1,14 +1,9 @@
-export type TelegramIdentity = {
-  chatId: string;
-  userId?: string;
-};
+export type TelegramIdentity = { chatId: string; userId?: string };
 
+/** Raw transport identifiers are accepted only at this private boundary. */
 export type TelegramSession = {
-  chatId: string;
-  userId?: string;
   employeeId: string;
   threadId: string;
-  inviteCode?: string;
   consentAcceptedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -20,7 +15,11 @@ export type TelegramSessionClaimResult =
   | { status: "employee_already_linked" };
 
 export interface TelegramSessionStore {
-  getByChatId(chatId: string): Promise<TelegramSession | undefined>;
-  claim(session: TelegramSession): Promise<TelegramSessionClaimResult>;
-  save(session: TelegramSession): Promise<void>;
+  getByIdentity(identity: TelegramIdentity): Promise<TelegramSession | undefined>;
+  claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
+  markConsentAccepted(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    acceptedAt: string;
+  }): Promise<void>;
 }

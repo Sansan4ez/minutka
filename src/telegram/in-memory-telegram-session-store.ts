@@ -1,31 +1,24 @@
-import type {
-  TelegramSession,
-  TelegramSessionClaimResult,
-  TelegramSessionStore,
-} from "./telegram-session-store.js";
+import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, TelegramSessionStore } from "./telegram-session-store.js";
 
+/** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
 export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
-  const store = new Map<string, TelegramSession>();
-
+  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession }>();
   return {
-    async getByChatId(chatId: string): Promise<TelegramSession | undefined> {
-      const session = store.get(chatId);
-      return session ? { ...session } : undefined;
+    async getByIdentity(identity) {
+      const found = store.get(identity.chatId);
+      if (!found || (identity.userId !== undefined && found.identity.userId !== identity.userId)) return undefined;
+      return { ...found.session };
     },
-    async claim(session: TelegramSession): Promise<TelegramSessionClaimResult> {
-      if (store.has(session.chatId)) {
-        return { status: "chat_already_linked" };
-      }
-      if ([...store.values()].some((existing) => existing.employeeId === session.employeeId)) {
-        return { status: "employee_already_linked" };
-      }
-
-      const saved = { ...session };
-      store.set(saved.chatId, saved);
-      return { status: "claimed", session: { ...saved } };
+    async claim({ identity, session }): Promise<TelegramSessionClaimResult> {
+      if (store.has(identity.chatId)) return { status: "chat_already_linked" };
+      if ([...store.values()].some((entry) => entry.session.employeeId === session.employeeId)) return { status: "employee_already_linked" };
+      store.set(identity.chatId, { identity: { ...identity }, session: { ...session } });
+      return { status: "claimed", session: { ...session } };
     },
-    async save(session: TelegramSession): Promise<void> {
-      store.set(session.chatId, { ...session });
+    async markConsentAccepted({ identity, employeeId, acceptedAt }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) throw new Error("telegram session not found");
+      found.session = { ...found.session, consentAcceptedAt: acceptedAt, updatedAt: acceptedAt };
     },
   };
 }

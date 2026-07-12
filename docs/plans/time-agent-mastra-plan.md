@@ -1,6 +1,6 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
-> **Статус:** Phase 4 завершена: автоматические проверки и закрытый ручной Telegram smoke E2E успешны. Следующий обязательный инженерный этап — Phase 4.1 Durable Runtime Foundation до shared pilot, HTTP API, standalone CLI и web surface.
+> **Статус:** Phase 4.1 durable runtime foundation реализована в коде: PostgreSQL adapters/migrations, typed runtime projections и production Telegram composition добавлены. Реальный PostgreSQL persistence smoke и ручной Telegram restart smoke требуют отдельной configured environment-проверки перед тегом.
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
 > **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  

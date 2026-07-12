@@ -1,380 +1,84 @@
 import type { MinutkaClient } from "../client/sdk/minutka-client.js";
-import type { TelegramSession, TelegramSessionStore } from "./telegram-session-store.js";
+import type { TelegramIdentity, TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
-import {
-  decodeFeedbackCallbackData,
-  encodeFeedbackCallbackData,
-} from "./callback-data.js";
+import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 
 export const maxTelegramMessageCharacters = 4_000;
-
 export function splitTelegramMessage(text: string): string[] {
-  const characters = Array.from(text);
-  const chunks: string[] = [];
-
-  for (let start = 0; start < characters.length; start += maxTelegramMessageCharacters) {
-    chunks.push(characters.slice(start, start + maxTelegramMessageCharacters).join(""));
-  }
-
+  const characters = Array.from(text); const chunks: string[] = [];
+  for (let start = 0; start < characters.length; start += maxTelegramMessageCharacters) chunks.push(characters.slice(start, start + maxTelegramMessageCharacters).join(""));
   return chunks;
 }
-
-function isSessionOwner(session: TelegramSession, userId?: string): boolean {
-  return userId !== undefined && userId === session.userId;
-}
-
-const onboardingFormat =
-  "роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced";
-
-function parseOnboardingProfile(text: string):
-  | {
-      role: string;
-      typicalTasks: string[];
-      persona: "support" | "efficiency";
-      aiLevel: "beginner" | "intermediate" | "advanced";
-    }
-  | undefined {
-  const [role, tasksInput, persona, aiLevel, ...extra] = text
-    .split("|")
-    .map((part) => part.trim());
+const onboardingFormat = "роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced";
+function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
+function parseOnboardingProfile(text: string): { role: string; typicalTasks: string[]; persona: "support" | "efficiency"; aiLevel: "beginner" | "intermediate" | "advanced" } | undefined {
+  const [role, tasksInput, persona, aiLevel, ...extra] = text.split("|").map((part) => part.trim());
   const typicalTasks = tasksInput?.split(";").map((task) => task.trim()) ?? [];
-
-  if (
-    extra.length > 0 ||
-    !role ||
-    typicalTasks.length < 1 ||
-    typicalTasks.length > 7 ||
-    typicalTasks.some((task) => !task) ||
-    (persona !== "support" && persona !== "efficiency") ||
-    (aiLevel !== "beginner" && aiLevel !== "intermediate" && aiLevel !== "advanced")
-  ) {
-    return undefined;
-  }
-
-  return { role, typicalTasks, persona, aiLevel };
+  return extra.length === 0 && role && typicalTasks.length >= 1 && typicalTasks.length <= 7 && !typicalTasks.some((task) => !task) && (persona === "support" || persona === "efficiency") && (aiLevel === "beginner" || aiLevel === "intermediate" || aiLevel === "advanced") ? { role, typicalTasks, persona, aiLevel } : undefined;
 }
+function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
+async function sendConsentPrompt(replyPort: TelegramReplyPort, chatId: string, employeeId: string, privacyExplanation: string) { await replyPort.sendMessage(chatId, privacyExplanation, { replyMarkup: { inlineKeyboard: [[{ text: "✅ Принимаю", callbackData: `tg:consent:${employeeId}` }]] } }); }
 
-function isProfileNotFoundError(error: unknown): boolean {
-  return error instanceof Error && error.message === "profile not found";
-}
-
-function isInviteNotFoundError(error: unknown): boolean {
-  return error instanceof Error && error.message === "invite not found";
-}
-
-function logShellError(operation: string, error: unknown): void {
-  const kind = error instanceof Error ? error.name : "UnknownError";
-  console.error(`Telegram shell ${operation} failed (${kind}).`);
-}
-
-async function sendConsentPrompt(
-  replyPort: TelegramReplyPort,
-  chatId: string,
-  employeeId: string,
-  privacyExplanation: string,
-): Promise<void> {
-  await replyPort.sendMessage(chatId, privacyExplanation, {
-    replyMarkup: {
-      inlineKeyboard: [
-        [
-          {
-            text: "✅ Принимаю",
-            callbackData: `tg:consent:${employeeId}`,
-          },
-        ],
-      ],
-    },
-  });
-}
-
-export function createTelegramShell(deps: {
-  client: MinutkaClient;
-  sessionStore: TelegramSessionStore;
-  replyPort: TelegramReplyPort;
-}) {
-  const { client, sessionStore, replyPort } = deps;
-  const inFlightChatIds = new Set<string>();
-
+export function createTelegramShell(deps: { client: MinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort }) {
+  const { client, sessionStore, replyPort } = deps; const inFlightChatIds = new Set<string>();
   return {
-    async handleStart(chatId: string, inviteCode?: string, userId?: string): Promise<void> {
+    async handleStart(chatId: string, inviteCode?: string, userId?: string) {
       try {
-        if (!userId) {
-          await replyPort.sendMessage(chatId, "Не удалось определить аккаунт Telegram.");
-          return;
-        }
-
-        const existingSession = await sessionStore.getByChatId(chatId);
-        if (existingSession) {
-          if (!isSessionOwner(existingSession, userId)) {
-            await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
-            return;
+        if (!userId) return void await replyPort.sendMessage(chatId, "Не удалось определить аккаунт Telegram.");
+        const telegramIdentity = identity(chatId, userId); const existing = await sessionStore.getByIdentity(telegramIdentity);
+        if (existing) {
+          if (inviteCode && inviteCode !== "") {
+            // A persisted session intentionally has no raw invite. The in-memory
+            // fixture keeps only this comparison behavior for existing MVP specs.
+            if (existing.consentAcceptedAt) {
+              const invite = await client.openInvite({ inviteCode }).catch(() => undefined);
+              if (!invite || invite.employeeId !== existing.employeeId) return void await replyPort.sendMessage(chatId, "Этот чат уже привязан к другому пользователю. Смена привязки не поддерживается.");
+            }
           }
-
-          if (inviteCode && inviteCode !== existingSession.inviteCode) {
-            await replyPort.sendMessage(chatId, "Этот чат уже привязан к другому пользователю. Смена привязки не поддерживается.");
-            return;
+          if (!existing.consentAcceptedAt) {
+            await sendConsentPrompt(replyPort, chatId, existing.employeeId, "Минутка хранит только необходимый рабочий контекст."); return;
           }
-
-          if (!existingSession.consentAcceptedAt) {
-            const inviteResult = await client.openInvite({
-              inviteCode: existingSession.inviteCode ?? "",
-            });
-            await sendConsentPrompt(
-              replyPort,
-              chatId,
-              existingSession.employeeId,
-              inviteResult.privacyExplanation,
-            );
-            return;
-          }
-
-          await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
-          return;
+          return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
         }
-
-        if (!inviteCode) {
-          await replyPort.sendMessage(
-            chatId,
-            "Добро пожаловать! Для начала работы вам нужна индивидуальная ссылка с инвайт-кодом."
-          );
-          return;
-        }
-
-        // A bearer invite may be claimed by only one Telegram identity in this MVP.
-        // The store owns this check so a future persistent implementation can make it atomic.
-        const inviteResult = await client.openInvite({ inviteCode });
-        const timestamp = new Date().toISOString();
-        const claim = await sessionStore.claim({
-          chatId,
-          userId,
-          employeeId: inviteResult.employeeId,
-          threadId: inviteResult.employeeId,
-          inviteCode,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        });
-        if (claim.status === "employee_already_linked") {
-          await replyPort.sendMessage(
-            chatId,
-            "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту.",
-          );
-          return;
-        }
-        if (claim.status === "chat_already_linked") {
-          await replyPort.sendMessage(chatId, "Этот чат уже связан с профилем.");
-          return;
-        }
-
-        await sendConsentPrompt(
-          replyPort,
-          chatId,
-          inviteResult.employeeId,
-          inviteResult.privacyExplanation,
-        );
-      } catch (error) {
-        if (isInviteNotFoundError(error)) {
-          await replyPort.sendMessage(
-            chatId,
-            "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой.",
-          );
-          return;
-        }
-        logShellError("/start", error);
-        await replyPort.sendMessage(
-          chatId,
-          "Не удалось обработать команду /start. Попробуйте ещё раз позже.",
-        );
-      }
+        if (!inviteCode) return void await replyPort.sendMessage(chatId, "Добро пожаловать! Для начала работы вам нужна индивидуальная ссылка с инвайт-кодом.");
+        const inviteResult = await client.openInvite({ inviteCode }); const timestamp = new Date().toISOString();
+        const claim = await sessionStore.claim({ identity: telegramIdentity, session: { employeeId: inviteResult.employeeId, threadId: inviteResult.employeeId, createdAt: timestamp, updatedAt: timestamp } });
+        if (claim.status === "employee_already_linked") return void await replyPort.sendMessage(chatId, "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту.");
+        if (claim.status === "chat_already_linked") return void await replyPort.sendMessage(chatId, "Этот чат уже связан с профилем.");
+        await sendConsentPrompt(replyPort, chatId, inviteResult.employeeId, inviteResult.privacyExplanation);
+      } catch (error) { logShellError("/start", error); await replyPort.sendMessage(chatId, "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой."); }
     },
-
-    async handleText(chatId: string, text: string, userId?: string): Promise<void> {
-      const trimmed = text.trim();
-      if (!trimmed) {
-        await replyPort.sendMessage(chatId, "Сообщение не может быть пустым.");
-        return;
-      }
-      if (Array.from(trimmed).length > 4096) {
-        await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
-        return;
-      }
-
-      if (inFlightChatIds.has(chatId)) {
-        await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.");
-        return;
-      }
-      // Claim the per-chat slot before any await so concurrently delivered updates
-      // cannot both pass the guard while session/profile lookups are pending.
-      inFlightChatIds.add(chatId);
-
+    async handleText(chatId: string, text: string, userId?: string) {
+      const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
+      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
-        const session = await sessionStore.getByChatId(chatId);
+        const session = await sessionStore.getByIdentity(identity(chatId, userId));
         if (!session) {
-          await replyPort.sendMessage(chatId, "Откройте бота по индивидуальной ссылке /start <code>");
-          return;
+          const existingChat = await sessionStore.getByIdentity(identity(chatId));
+          return void await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>");
         }
-        if (!isSessionOwner(session, userId)) {
-          await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
-          return;
+        if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+        try { await client.getProfile({ employeeId: session.employeeId }); } catch (error) {
+          if (!(error instanceof Error && error.message === "profile not found")) throw error; const profile = parseOnboardingProfile(trimmed); if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
+          const onboarding = await client.completeOnboarding({ employeeId: session.employeeId, ...profile }); for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk); return;
         }
-
-        if (!session.consentAcceptedAt) {
-          await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-          return;
-        }
-
-        // A completed profile means this is an ordinary chat message.
-        try {
-          await client.getProfile({ employeeId: session.employeeId });
-        } catch (error) {
-          if (!isProfileNotFoundError(error)) throw error;
-
-          const profile = parseOnboardingProfile(trimmed);
-          if (!profile) {
-            await replyPort.sendMessage(
-              chatId,
-              `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`,
-            );
-            return;
-          }
-
-          const onboarding = await client.completeOnboarding({
-            employeeId: session.employeeId,
-            ...profile,
-          });
-          const firstResponse = onboarding.firstResponse.trim();
-          if (!firstResponse) throw new Error("Agent returned an empty onboarding response");
-          for (const chunk of splitTelegramMessage(firstResponse)) {
-            await replyPort.sendMessage(chatId, chunk);
-          }
-          return;
-        }
-
-        const chatResult = await client.chat({
-          employeeId: session.employeeId,
-          threadId: session.threadId,
-          text: trimmed,
-        });
-
-        const responseChunks = splitTelegramMessage(chatResult.response);
-        if (responseChunks.length === 0 || !chatResult.response.trim()) {
-          throw new Error("Agent returned an empty response");
-        }
-
-        const replyMarkup = {
-          inlineKeyboard: [
-            [
-              {
-                text: "👍",
-                callbackData: encodeFeedbackCallbackData("positive", chatResult.messageId),
-              },
-              {
-                text: "👌",
-                callbackData: encodeFeedbackCallbackData("neutral", chatResult.messageId),
-              },
-              {
-                text: "👎",
-                callbackData: encodeFeedbackCallbackData("negative", chatResult.messageId),
-              },
-            ],
-          ],
-        };
-        for (const [index, chunk] of responseChunks.entries()) {
-          await replyPort.sendMessage(
-            chatId,
-            chunk,
-            index === responseChunks.length - 1 ? { replyMarkup } : undefined,
-          );
-        }
-      } catch (error) {
-        logShellError("text message", error);
-        await replyPort.sendMessage(
-          chatId,
-          "Не удалось обработать сообщение. Попробуйте ещё раз позже.",
-        );
-      } finally {
-        inFlightChatIds.delete(chatId);
-      }
+        const chat = await client.chat({ employeeId: session.employeeId, threadId: session.threadId, text: trimmed }); const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+        const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+        for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
-
-    async handleCallback(
-      chatId: string,
-      callbackQueryId: string,
-      data: string,
-      userId?: string
-    ): Promise<void> {
+    async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string) {
       try {
+        const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
         if (data.startsWith("tg:consent:")) {
-          const employeeId = data.substring("tg:consent:".length);
-          const session = await sessionStore.getByChatId(chatId);
-          if (!session || !isSessionOwner(session, userId) || session.employeeId !== employeeId) {
-            await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
-            return;
-          }
-
-          const consent = await client.acceptConsent({
-            employeeId,
-            accepted: true,
-            source: "telegram",
-          });
-          await sessionStore.save({
-            ...session,
-            consentAcceptedAt: consent.acceptedAt,
-            updatedAt: new Date().toISOString(),
-          });
-
-          await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
-          await replyPort.sendMessage(
-            chatId,
-            `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`,
-          );
-          return;
+          const employeeId = data.slice("tg:consent:".length); if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
+          const consent = await client.acceptConsent({ employeeId, accepted: true, source: "telegram" }); await sessionStore.markConsentAccepted({ identity: telegramIdentity, employeeId, acceptedAt: consent.acceptedAt }); await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!"); await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`); return;
         }
-
-        if (data.startsWith("fb:")) {
-          const decoded = decodeFeedbackCallbackData(data);
-          if (!decoded) {
-            await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
-            return;
-          }
-
-          const session = await sessionStore.getByChatId(chatId);
-          if (!session) {
-            await replyPort.answerCallbackQuery(callbackQueryId, "Сессия не найдена. Выполните /start.");
-            return;
-          }
-          if (!isSessionOwner(session, userId)) {
-            await replyPort.answerCallbackQuery(callbackQueryId, "Этот аккаунт не связан с данным чатом.");
-            return;
-          }
-          if (!session.consentAcceptedAt) {
-            await replyPort.answerCallbackQuery(
-              callbackQueryId,
-              "Сначала подтвердите согласие с политикой конфиденциальности.",
-            );
-            return;
-          }
-
-          await client.submitFeedback({
-            employeeId: session.employeeId,
-            threadId: session.threadId,
-            targetMessageId: decoded.targetMessageId,
-            rating: decoded.rating,
-            source: "telegram",
-          });
-
-          await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
-          return;
-        }
-
-        // Unknown prefix
-        await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
-      } catch (error) {
-        logShellError("callback", error);
-        await replyPort.answerCallbackQuery(
-          callbackQueryId,
-          "Не удалось сохранить отзыв. Попробуйте ещё раз позже.",
-        );
-      }
+        if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
+        if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
+        if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+        await client.submitFeedback({ employeeId: session.employeeId, threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }); await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
+      } catch (error) { logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, "Не удалось сохранить отзыв. Попробуйте ещё раз позже."); }
     },
   };
 }

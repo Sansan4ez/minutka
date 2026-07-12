@@ -1,101 +1,36 @@
 import { existsSync, readFileSync } from "node:fs";
-import { createInMemoryWorld } from "../application/in-memory-world.js";
-import { createInProcessServer } from "../server/http/in-process-server.js";
 import { MinutkaClient } from "../client/sdk/minutka-client.js";
-import { createInMemoryTelegramSessionStore } from "./in-memory-telegram-session-store.js";
-import {
-  createTelegramShell,
-  maxTelegramMessageCharacters,
-} from "./telegram-shell.js";
+import { createInProcessServer } from "../server/http/in-process-server.js";
+import { createPostgresRuntime } from "../runtime/create-postgres-runtime.js";
+import { createTelegramShell, maxTelegramMessageCharacters } from "./telegram-shell.js";
 import { createTelegrafBot } from "./telegraf-runtime.js";
 import { runMinutkaAgent } from "../mastra/agent-runner.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { Telegraf } from "telegraf";
 import { parseInviteSeeds } from "./invite-seeds.js";
 
-// Load .env manually if it exists to avoid external dependencies
-if (existsSync(".env")) {
-  const envContent = readFileSync(".env", "utf8");
-  for (const line of envContent.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const index = trimmed.indexOf("=");
-    if (index !== -1) {
-      const key = trimmed.substring(0, index).trim();
-      const val = trimmed.substring(index + 1).trim();
-      if (!process.env[key]) {
-        process.env[key] = val;
-      }
-    }
-  }
-}
+if (existsSync(".env")) for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) { const trimmed = line.trim(); const index = trimmed.indexOf("="); if (trimmed && !trimmed.startsWith("#") && index !== -1 && !process.env[trimmed.slice(0, index).trim()]) process.env[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim(); }
 
 async function main() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    console.error("TELEGRAM_BOT_TOKEN is not set in environment.");
-    process.exit(1);
-  }
-
-  console.log("Starting Minutka Telegram Bot...");
-
-  const world = createInMemoryWorld();
-  const sessionStore = createInMemoryTelegramSessionStore();
-
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not set in environment.");
+  const runtime = await createPostgresRuntime({ agentRunner: runMinutkaAgent, env: process.env });
   let activeBot: Telegraf | null = null;
-
   const replyPort: TelegramReplyPort = {
     async sendMessage(chatId, text, options) {
-      if (Array.from(text).length > maxTelegramMessageCharacters) {
-        throw new Error("Telegram message exceeds the 4096-character limit");
-      }
+      if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4096-character limit");
       if (!activeBot) throw new Error("Bot not running");
-      let replyMarkup = undefined;
-      if (options?.replyMarkup?.inlineKeyboard) {
-        replyMarkup = {
-          inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) =>
-            row.map((btn) => ({
-              text: btn.text,
-              callback_data: btn.callbackData,
-            }))
-          ),
-        };
-      }
-      await activeBot.telegram.sendMessage(chatId, text, { reply_markup: replyMarkup });
+      const reply_markup = options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined;
+      await activeBot.telegram.sendMessage(chatId, text, { reply_markup });
     },
-    async answerCallbackQuery(callbackQueryId, text) {
-      if (!activeBot) throw new Error("Bot not running");
-      await activeBot.telegram.answerCbQuery(callbackQueryId, text?.slice(0, 200));
-    },
+    async answerCallbackQuery(callbackQueryId, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(callbackQueryId, text?.slice(0, 200)); },
   };
-
-  const server = createInProcessServer(world, runMinutkaAgent);
-  const client = new MinutkaClient(server);
-  for (const seed of parseInviteSeeds(process.env.TELEGRAM_INVITES)) {
-    const issued = await client.issueInvite(seed);
-    if (!issued.created) {
-      throw new Error(`Invite already exists: ${seed.inviteCode}`);
-    }
-  }
-  const shell = createTelegramShell({ client, sessionStore, replyPort });
-
+  const client = new MinutkaClient(createInProcessServer(runtime.service));
+  for (const seed of parseInviteSeeds(process.env.TELEGRAM_INVITES)) await client.issueInvite(seed);
+  const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort });
   activeBot = createTelegrafBot({ token, shell });
-
-  // Enable graceful stop
-  process.once("SIGINT", () => {
-    console.log("Stopping bot (SIGINT)...");
-    activeBot?.stop("SIGINT");
-  });
-  process.once("SIGTERM", () => {
-    console.log("Stopping bot (SIGTERM)...");
-    activeBot?.stop("SIGTERM");
-  });
-
-  await activeBot.launch();
-  console.log("Minutka Telegram Bot is running successfully.");
+  const shutdown = async (signal: string) => { console.log(`Stopping bot (${signal})...`); activeBot?.stop(signal); await runtime.shutdown(); };
+  process.once("SIGINT", () => void shutdown("SIGINT")); process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  await activeBot.launch(); console.log("Minutka Telegram Bot is running with PostgreSQL runtime.");
 }
-
-main().catch((err) => {
-  console.error("Fatal error in main:", err);
-  process.exit(1);
-});
+main().catch((error) => { console.error("Fatal error in main:", error instanceof Error ? error.message : "unknown error"); process.exit(1); });
