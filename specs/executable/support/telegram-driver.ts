@@ -24,6 +24,7 @@ export class TelegramDriver {
   private readonly shell: ReturnType<typeof createTelegramShell>;
   private readonly sent: SentMessage[] = [];
   private readonly callbacks: CallbackAnswer[] = [];
+  private readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
   private failNextSend = false;
 
   constructor(
@@ -47,6 +48,9 @@ export class TelegramDriver {
           throw new Error("simulated Telegram delivery failure");
         }
         self.sent.push({ chatId, text, replyMarkup: options?.replyMarkup });
+      },
+      async sendChatAction(chatId, action) {
+        self.chatActions.push({ chatId, action });
       },
       async answerCallbackQuery(callbackQueryId, text) {
         self.callbacks.push({ callbackQueryId, text });
@@ -112,9 +116,14 @@ export class TelegramDriver {
     return this.callbacks;
   }
 
+  sentChatActions(): Array<{ chatId: string; action: "typing" }> {
+    return this.chatActions;
+  }
+
   clear() {
     this.sent.length = 0;
     this.callbacks.length = 0;
+    this.chatActions.length = 0;
   }
 
   private defaultUserId(chatId: string): string {

@@ -12,6 +12,7 @@ export function splitTelegramMessage(text: string): string[] {
   return chunks;
 }
 const onboardingFormat = "роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced";
+const typingRefreshMilliseconds = 4_000;
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function parseOnboardingProfile(text: string): { role: string; typicalTasks: string[]; persona: "support" | "efficiency"; aiLevel: "beginner" | "intermediate" | "advanced" } | undefined {
   const [role, tasksInput, persona, aiLevel, ...extra] = text.split("|").map((part) => part.trim());
@@ -20,6 +21,19 @@ function parseOnboardingProfile(text: string): { role: string; typicalTasks: str
 }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 async function sendConsentPrompt(replyPort: TelegramReplyPort, chatId: string, employeeId: string, explanation: string) { await replyPort.sendMessage(chatId, explanation, { replyMarkup: { inlineKeyboard: [[{ text: "✅ Принимаю", callbackData: `tg:consent:${employeeId}` }]] } }); }
+
+async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: string, action: () => Promise<T>): Promise<T> {
+  // Failure to paint an ephemeral indicator must never prevent a chat response.
+  void replyPort.sendChatAction(chatId, "typing").catch(() => undefined);
+  const refresh = setInterval(() => {
+    void replyPort.sendChatAction(chatId, "typing").catch(() => undefined);
+  }, typingRefreshMilliseconds);
+  try {
+    return await action();
+  } finally {
+    clearInterval(refresh);
+  }
+}
 
 export function createTelegramShell(deps: { client: MinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort }) {
   const { client, sessionStore, replyPort } = deps; const inFlightChatIds = new Set<string>();
@@ -80,7 +94,12 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
           for (const chunk of splitTelegramMessage(onboarding.firstResponse.trim())) await replyPort.sendMessage(chatId, chunk);
           return;
         }
-        const chat = await client.chat({ employeeId: session.employeeId, threadId: session.threadId, text: trimmed }); const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+        const chat = await withTypingIndicator(replyPort, chatId, () => client.chat({
+          employeeId: session.employeeId,
+          threadId: session.threadId,
+          text: trimmed,
+        }));
+        const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
         const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
         for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
       } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }

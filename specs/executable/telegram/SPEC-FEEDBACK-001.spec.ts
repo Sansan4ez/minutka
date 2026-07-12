@@ -251,6 +251,20 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(event.transport).toBeUndefined();
   });
 
+  it("3a. Shows Telegram typing while a normal chat response is being generated", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "typing_chat", userId: "typing_user", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "typing_chat", userId: "typing_user", callbackData: consentCallbackData! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "typing_chat", userId: "typing_user", text: "Помоги с приоритетами." });
+
+    expect(telegram.sentChatActions()).toEqual([{ chatId: "typing_chat", action: "typing" }]);
+  });
+
   it("3b. Consent callback gates chat and feedback even for an already onboarded employee", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

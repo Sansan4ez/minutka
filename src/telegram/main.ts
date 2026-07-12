@@ -23,6 +23,10 @@ async function main() {
       const reply_markup = options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined;
       await activeBot.telegram.sendMessage(chatId, text, { reply_markup });
     },
+    async sendChatAction(chatId, action) {
+      if (!activeBot) throw new Error("Bot not running");
+      await activeBot.telegram.sendChatAction(chatId, action);
+    },
     async answerCallbackQuery(callbackQueryId, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(callbackQueryId, text?.slice(0, 200)); },
   };
   const client = new MinutkaClient(createInProcessServer(runtime.service));
