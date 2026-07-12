@@ -23,15 +23,15 @@ type PostgresError = { code?: string; constraint?: string };
 export function mapPostgresError(error: unknown): PersistenceError {
   if (error instanceof PersistenceError) return error;
   const postgres = error as PostgresError;
-  if (postgres.code === "23505") {
+  if (postgres.code === "23505") return new PersistenceError("persistence_conflict");
+  // These indicate a caller/data invariant violation, not a transient outage.
+  if (["23502", "23503", "23514"].includes(postgres.code ?? "")) {
     return new PersistenceError("persistence_conflict");
   }
   if (
     postgres.code === "57014" ||
     postgres.code === "57P01" ||
     postgres.code?.startsWith("08")
-  ) {
-    return new PersistenceError("persistence_unavailable");
-  }
+  ) return new PersistenceError("persistence_unavailable");
   return new PersistenceError("persistence_unavailable");
 }

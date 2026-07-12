@@ -15,7 +15,21 @@ export function createPostgresPool(config: PostgresConfig): Pool {
 
 export async function withTransaction<T>(pool: Pool, callback: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
-  try { await client.query("BEGIN"); const result = await callback(client); await client.query("COMMIT"); return result; }
-  catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; }
-  finally { client.release(); }
+  let releaseError: Error | undefined;
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // A client that cannot roll back may be protocol-corrupted; evict it.
+      releaseError = error instanceof Error ? error : new Error("transaction rollback failed");
+    }
+    throw error;
+  } finally {
+    client.release(releaseError);
+  }
 }

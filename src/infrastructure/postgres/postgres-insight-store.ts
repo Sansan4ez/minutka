@@ -33,7 +33,10 @@ type Row = {
 };
 
 function restoreInsight(row: Row): StructuredInsight {
+  const payload = typeof row.payload === "object" && row.payload !== null ? row.payload : {};
+  // Column values are authoritative identity and classification fields.
   return structuredInsight.parse({
+    ...payload,
     id: row.insight_id,
     employeeId: row.employee_id,
     threadId: row.thread_id,
@@ -41,7 +44,6 @@ function restoreInsight(row: Row): StructuredInsight {
     kind: row.kind,
     label: row.label,
     confidence: row.confidence,
-    ...(typeof row.payload === "object" && row.payload !== null ? row.payload : {}),
     createdAt: row.created_at.toISOString(),
   });
 }
@@ -83,7 +85,17 @@ export function createPostgresInsightStore(pool: Pool): InsightStore {
            ) recent ORDER BY created_at ASC, insight_id ASC`,
           params,
         );
-        return result.rows.map(restoreInsight);
+        const insights: StructuredInsight[] = [];
+        for (const row of result.rows) {
+          try {
+            insights.push(restoreInsight(row));
+          } catch {
+            // Corrupt historic JSON must not make otherwise valid employee
+            // insights unavailable. Do not log the row or its payload.
+            console.warn("Skipped invalid persisted insight.");
+          }
+        }
+        return insights;
       } catch (error) {
         throw mapPostgresError(error);
       }

@@ -28,6 +28,9 @@ export function postgresConfigFromEnv(env: NodeJS.ProcessEnv): PostgresConfig {
   };
 }
 function parsePositiveInt(value: string | undefined, fallback: number) {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+  if (value === undefined || value === "") return fallback;
+  if (!/^\d+$/.test(value)) throw new Error(`Expected a positive integer, received ${JSON.stringify(value)}`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`Expected a positive integer, received ${JSON.stringify(value)}`);
+  return parsed;
 }

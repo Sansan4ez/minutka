@@ -6,39 +6,50 @@ import type {
 } from "./telegram-invite-redemption-store.js";
 import type { TelegramSessionStore } from "../telegram/telegram-session-store.js";
 
+const redemptionLocks = new WeakMap<AuditEventStore, Map<string, Promise<void>>>();
+
 /** Executable-spec counterpart of the PostgreSQL redemption transaction. */
 export function createInMemoryTelegramInviteRedemptionStore(input: {
   profileStore: ProfileStore;
   sessionStore: TelegramSessionStore;
   auditEventStore: AuditEventStore;
 }): TelegramInviteRedemptionStore {
+  const locks = redemptionLocks.get(input.auditEventStore) ?? new Map<string, Promise<void>>();
+  redemptionLocks.set(input.auditEventStore, locks);
   return {
-    async redeem({ inviteCode, identity, occurredAt, auditEvent }): Promise<TelegramInviteRedemptionResult> {
+    redeem: (request) => withKeyLock(locks, request.inviteCode, async () => {
       const opened = await input.profileStore.openInvite({
-        inviteCode,
-        openedAt: occurredAt,
+        inviteCode: request.inviteCode,
+        openedAt: request.occurredAt,
       });
       if (!opened) return { status: "invite_not_found" };
-
       const claimed = await input.sessionStore.claim({
-        identity,
+        identity: request.identity,
         session: {
           employeeId: opened.participant.employeeId,
           threadId: opened.participant.employeeId,
-          createdAt: occurredAt,
-          updatedAt: occurredAt,
+          createdAt: request.occurredAt,
+          updatedAt: request.occurredAt,
         },
       });
       if (claimed.status !== "claimed") return claimed;
-      await input.auditEventStore.append({
-        ...auditEvent,
-        employeeId: opened.participant.employeeId,
-      });
-      return {
-        status: "claimed",
-        employeeId: claimed.session.employeeId,
-        threadId: claimed.session.threadId,
-      };
-    },
+      await input.auditEventStore.append({ ...request.auditEvent, employeeId: opened.participant.employeeId });
+      return { status: "claimed", employeeId: claimed.session.employeeId, threadId: claimed.session.threadId };
+    }),
   };
+}
+
+async function withKeyLock<T>(locks: Map<string, Promise<void>>, key: string, action: () => Promise<T>): Promise<T> {
+  const previous = locks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  locks.set(key, queued);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (locks.get(key) === queued) locks.delete(key);
+  }
 }

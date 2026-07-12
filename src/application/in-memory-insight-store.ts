@@ -5,7 +5,9 @@ import type { InsightStore } from "./insight-store.js";
 export function createInMemoryInsightStore(world: InMemoryWorld): InsightStore {
   return {
     async saveInsights(insights) {
-      world.insights.push(...insights);
+      for (const insight of insights) {
+        if (!world.insights.some((existing) => existing.id === insight.id)) world.insights.push(insight);
+      }
     },
     async listInsights(input: {
       employeeId?: string;
