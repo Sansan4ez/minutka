@@ -24,7 +24,6 @@ import type {
 } from "./telegram-invite-redemption-store.js";
 import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
-import { renderDecisionProjection } from "./runtime-projections/runtime-projection-renderer.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
@@ -58,7 +57,7 @@ export type OpenInviteResult = {
   privacyVersion: typeof currentPrivacyVersion;
   privacyExplanation: string;
 };
-export type AcceptConsentInput = { employeeId: string; accepted: true; source: "cli" | "telegram" | "test" };
+export type AcceptConsentInput = { employeeId: string; accepted: true; source: "cli" | "telegram" | "test"; telegramIdentity?: TelegramIdentity };
 export type AcceptConsentResult = { employeeId: string; privacyVersion: typeof currentPrivacyVersion; acceptedAt: string };
 export type CompleteOnboardingInput = {
   employeeId: string; role: string; typicalTasks: string[]; persona: Persona; aiLevel: AiLevel;
@@ -217,6 +216,7 @@ export class MinutkaService {
             occurredAt: timestamp,
             metadata: { privacyVersion: currentPrivacyVersion },
           },
+          ...(input.telegramIdentity ? { telegramIdentity: input.telegramIdentity } : {}),
         })
       : await this.stores.profileStore.acceptConsent(consent);
     if (claimed.created && !this.deps.consentAcceptanceStore) {
@@ -269,9 +269,9 @@ export class MinutkaService {
       profile,
       recentTurns,
       runtimeProjection: snapshot,
+      decisionProjection,
       selectedProcessIds: decision.selectedProcessIds,
     });
-    const projectionContext = renderDecisionProjection(decisionProjection);
     let response: string;
     if (decision.workDecision.mode === "boundary") {
       response = buildBoundaryResponse(decision.workDecision, profile);
@@ -281,7 +281,7 @@ export class MinutkaService {
     } else {
       response = await this.agentRunner(input, {
         ...(profile ? { profile } : {}),
-        systemContext: [built.systemContext, projectionContext].filter(Boolean).join("\n\n"),
+        systemContext: built.systemContext,
         selectedProcessIds: built.selectedProcessIds, purpose: "chat", decision,
       });
     }
@@ -315,8 +315,13 @@ export class MinutkaService {
       const insights = extraction.insights.map((draft) => ({ ...draft, id: this.ids.insightId(), createdAt: this.clock.now() } as StructuredInsight));
       await this.stores.insightStore.saveInsights(insights);
       for (const insight of insights) await this.audit(input.requestId, "insight_recorded", insight.employeeId, insight.threadId, insight.sourceMessageId, insight.createdAt, { insightId: insight.id, kind: insight.kind });
-    } catch {
-      await this.audit(input.requestId, "insight_extraction_failed", input.input.employeeId, input.input.threadId, input.messageId, this.clock.now());
+    } catch (error) {
+      logOperationalError("insight extraction", error);
+      try {
+        await this.audit(input.requestId, "insight_extraction_failed", input.input.employeeId, input.input.threadId, input.messageId, this.clock.now());
+      } catch (auditError) {
+        logOperationalError("insight extraction audit", auditError);
+      }
     }
   }
 
@@ -335,5 +340,14 @@ export class MinutkaService {
 }
 
 const trackedProfileFields = ["role", "typicalTasks", "persona", "aiLevel", "responseLength", "preferredCheckinsPerDay"] as const;
-function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] { return trackedProfileFields.filter((field) => (field === "preferredCheckinsPerDay" && next[field] === undefined) ? false : !existing || JSON.stringify(existing[field]) !== JSON.stringify(next[field])); }
+function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
+  return trackedProfileFields.filter((field) =>
+    // Omitted optional data is not a change on initial creation, while a later
+    // removal from an existing profile remains visible in the audit trail.
+    (field !== "preferredCheckinsPerDay" || existing?.[field] !== undefined || next[field] !== undefined)
+    && (!existing || JSON.stringify(existing[field]) !== JSON.stringify(next[field])),
+  );
+}
+/** Logs only the operation and error class; user data and driver payloads remain private. */
+function logOperationalError(operation: string, error: unknown): void { console.warn(`Minutka ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 function requireDependency<T>(value: T | undefined, name: string): T { if (!value) throw new Error(`${name} is required; production composition has no in-memory fallback`); return value; }
