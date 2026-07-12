@@ -39,6 +39,13 @@ export function createPostgresProfileStore(pool: Pool, inviteCodePepper: string)
         return { consent: { employeeId: row.employee_id, privacyVersion: row.privacy_version, acceptedAt: row.accepted_at.toISOString(), explanationShownAt: row.explanation_shown_at.toISOString(), source: row.source }, created: Boolean(inserted.rowCount) };
       });
     },
+    async recordPrivacyExplanationShown({ employeeId, shownAt }) {
+      const result = await pool.query(
+        "UPDATE minutka_private.participants SET privacy_explanation_shown_at = $2, updated_at = $2 WHERE employee_id = $1",
+        [employeeId, shownAt],
+      );
+      if (result.rowCount !== 1) throw new Error("participant not found");
+    },
     async completeProfile({ profile, completedAt }) {
       return withTransaction(pool, async (client) => {
         const participant = await client.query<{ status: Participant["status"] }>("SELECT status FROM minutka_private.participants WHERE employee_id = $1 FOR UPDATE", [profile.employeeId]);

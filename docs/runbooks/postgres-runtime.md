@@ -17,7 +17,9 @@ TELEGRAM_INVITES=emp_1:one-time-invite
 ```
 
 Use different migration-owner and application-role credentials in pilot. The
-application role must not own schema migrations. Do not log the URL, peppers,
+application role must not own schema migrations; grant it `USAGE` on the
+application schemas plus DML on runtime tables and read-only `SELECT` on
+`minutka_meta.schema_migrations` for the startup status check. Do not log the URL, peppers,
 invite codes, Telegram identities, SQL parameters containing personal data, or
 raw provider errors.
 

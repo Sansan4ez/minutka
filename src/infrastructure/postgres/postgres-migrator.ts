@@ -26,9 +26,13 @@ export async function migratePostgres(pool: Pool): Promise<{ applied: string[]; 
 }
 
 export async function migrationStatus(pool: Pool): Promise<{ applied: string[]; pending: string[] }> {
-  await pool.query("CREATE SCHEMA IF NOT EXISTS minutka_meta");
-  await pool.query("CREATE TABLE IF NOT EXISTS minutka_meta.schema_migrations (version text PRIMARY KEY, name text NOT NULL, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())");
   const migrations = await loadMigrationFiles();
+  const exists = await pool.query<{ exists: boolean }>(
+    "SELECT to_regclass('minutka_meta.schema_migrations') IS NOT NULL AS exists",
+  );
+  if (!exists.rows[0]?.exists) {
+    return { applied: [], pending: migrations.map((migration) => migration.version) };
+  }
   const result = await pool.query<{ version: string; checksum: string }>("SELECT version, checksum FROM minutka_meta.schema_migrations");
   const stored = new Map(result.rows.map((row) => [row.version, row.checksum]));
   for (const migration of migrations) if (stored.has(migration.version) && stored.get(migration.version) !== migration.checksum) throw new Error(`migration checksum mismatch: ${migration.version}`);

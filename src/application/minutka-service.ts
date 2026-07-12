@@ -16,6 +16,11 @@ import type { FeedbackStore } from "./feedback-store.js";
 import type { AuditEventStore, AuditEventType, SafeAuditMetadata } from "./audit-event-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
+import type { ConsentAcceptanceStore } from "./consent-acceptance-store.js";
+import type {
+  TelegramIdentity,
+  TelegramInviteRedemptionStore,
+} from "./telegram-invite-redemption-store.js";
 import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { renderDecisionProjection, renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
@@ -33,6 +38,17 @@ export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promi
 export type IssueInviteInput = { employeeId: string; inviteCode: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; status: OnboardingStatus; created: boolean };
 export type OpenInviteInput = { inviteCode: string };
+export type RecordPrivacyExplanationShownInput = { employeeId: string };
+export type RedeemTelegramInviteInput = {
+  inviteCode: string;
+  identity: TelegramIdentity;
+};
+export type RedeemTelegramInviteResult = {
+  employeeId: string;
+  threadId: string;
+  privacyVersion: typeof currentPrivacyVersion;
+  privacyExplanation: string;
+};
 export type OpenInviteResult = {
   employeeId: string;
   /** Returned only at the invite-operation boundary; never stored in Participant. */
@@ -65,6 +81,8 @@ export type MinutkaServiceDeps = {
   insightExtractor?: InsightExtractor;
   contextBuilder?: MinutkaContextBuilderLike;
   projectionBuilder?: RuntimeProjectionBuilder;
+  consentAcceptanceStore?: ConsentAcceptanceStore;
+  telegramInviteRedemptionStore?: TelegramInviteRedemptionStore;
   agentManualRouter?: AgentManualRouter;
   conversationDecisionRouter?: ConversationDecisionRouter;
   manual?: AgentManual;
@@ -133,19 +151,77 @@ export class MinutkaService {
     };
   }
 
+  async recordPrivacyExplanationShown(input: RecordPrivacyExplanationShownInput): Promise<void> {
+    const employeeId = input.employeeId.trim();
+    if (!employeeId) throw new Error("employeeId is required");
+    const requestId = this.ids.requestId();
+    const shownAt = this.clock.now();
+    await this.stores.profileStore.recordPrivacyExplanationShown({ employeeId, shownAt });
+    await this.audit(requestId, "privacy_explanation_shown", employeeId, undefined, undefined, shownAt, {
+      privacyVersion: currentPrivacyVersion,
+    });
+  }
+
+  async redeemTelegramInvite(input: RedeemTelegramInviteInput): Promise<RedeemTelegramInviteResult> {
+    const inviteCode = input.inviteCode.trim();
+    if (!inviteCode) throw new Error("inviteCode is required");
+    const store = this.deps.telegramInviteRedemptionStore;
+    if (!store) throw new Error("telegramInviteRedemptionStore is required for Telegram invite redemption");
+    const requestId = this.ids.requestId();
+    const occurredAt = this.clock.now();
+    const result = await store.redeem({
+      inviteCode,
+      identity: input.identity,
+      occurredAt,
+      auditEvent: {
+        id: this.ids.auditEventId(),
+        requestId,
+        type: "invite_opened",
+        employeeId: undefined,
+        occurredAt,
+        metadata: {},
+      },
+    });
+    if (result.status === "invite_not_found") throw new Error("invite not found");
+    if (result.status === "employee_already_linked") throw new Error("employee already linked");
+    if (result.status === "chat_already_linked") throw new Error("chat already linked");
+    if (result.status === "invite_unavailable") throw new Error("invite unavailable");
+    return {
+      employeeId: result.employeeId,
+      threadId: result.threadId,
+      privacyVersion: currentPrivacyVersion,
+      privacyExplanation,
+    };
+  }
+
   async acceptConsent(input: AcceptConsentInput): Promise<AcceptConsentResult> {
     if (input.accepted !== true) throw new Error("privacy consent must be explicitly accepted");
     const participant = await this.requireParticipant(input.employeeId);
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
-    const claimed = await this.stores.profileStore.acceptConsent({
+    const consent = {
       employeeId: input.employeeId,
       privacyVersion: currentPrivacyVersion,
       acceptedAt: timestamp,
       explanationShownAt: participant.privacyExplanationShownAt ?? timestamp,
       source: input.source,
-    });
-    if (claimed.created) await this.audit(requestId, "consent_accepted", participant.employeeId, undefined, undefined, timestamp, { privacyVersion: currentPrivacyVersion });
+    } as const;
+    const claimed = this.deps.consentAcceptanceStore
+      ? await this.deps.consentAcceptanceStore.accept({
+          consent,
+          auditEvent: {
+            id: this.ids.auditEventId(),
+            requestId,
+            type: "consent_accepted",
+            employeeId: participant.employeeId,
+            occurredAt: timestamp,
+            metadata: { privacyVersion: currentPrivacyVersion },
+          },
+        })
+      : await this.stores.profileStore.acceptConsent(consent);
+    if (claimed.created && !this.deps.consentAcceptanceStore) {
+      await this.audit(requestId, "consent_accepted", participant.employeeId, undefined, undefined, timestamp, { privacyVersion: currentPrivacyVersion });
+    }
     return { employeeId: claimed.consent.employeeId, privacyVersion: claimed.consent.privacyVersion, acceptedAt: claimed.consent.acceptedAt };
   }
 

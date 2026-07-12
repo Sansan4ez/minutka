@@ -15,9 +15,13 @@ export type ProfileStore = {
   openInvite(input: {
     inviteCode: string;
     openedAt: string;
-    explanationShownAt: string;
+    explanationShownAt?: string;
   }): Promise<OpenInviteResult | undefined>;
   acceptConsent(consent: Consent): Promise<ClaimConsentResult>;
+  recordPrivacyExplanationShown(input: {
+    employeeId: string;
+    shownAt: string;
+  }): Promise<void>;
   completeProfile(input: {
     profile: UserProfile;
     completedAt: string;

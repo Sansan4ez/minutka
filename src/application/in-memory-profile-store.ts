@@ -34,7 +34,12 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
       if (index === -1) return undefined;
       const participant = world.participants[index];
       if (participant.status !== "invite_issued") return { participant, opened: false };
-      const opened = { ...participant, status: "invite_opened" as const, updatedAt: openedAt, privacyExplanationShownAt: explanationShownAt };
+      const opened = {
+        ...participant,
+        status: "invite_opened" as const,
+        updatedAt: openedAt,
+        ...(explanationShownAt ? { privacyExplanationShownAt: explanationShownAt } : {}),
+      };
       world.participants[index] = opened;
       return { participant: opened, opened: true };
     },
@@ -52,6 +57,15 @@ export function createInMemoryProfileStore(world: InMemoryWorld): ProfileStore {
         });
       }
       return { consent, created: true };
+    },
+    async recordPrivacyExplanationShown({ employeeId, shownAt }) {
+      const participant = world.participants.find((candidate) => candidate.employeeId === employeeId);
+      if (!participant) throw new Error("participant not found");
+      upsertByEmployeeId(world.participants, {
+        ...participant,
+        privacyExplanationShownAt: shownAt,
+        updatedAt: shownAt,
+      });
     },
     async completeProfile({ profile, completedAt }) {
       const existing = world.profiles.find((candidate) => candidate.employeeId === profile.employeeId);

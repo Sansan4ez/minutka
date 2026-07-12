@@ -431,7 +431,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     // Repeated /start with different invite should not link or overwrite
     telegram.clear();
     await telegram.start({ chatId: "chat_1", inviteCode: "invite_another" });
-    expect(telegram.sentMessages()[0].text).toContain("Смена привязки не поддерживается");
+    expect(telegram.sentMessages()[0].text).toContain("Вы уже зарегистрированы");
 
     // Repeated /start without parameters
     telegram.clear();
@@ -529,12 +529,19 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_1", inviteCode: "invite_retry" });
     expect(telegram.sentMessages()).toEqual([
       expect.objectContaining({
-        text: expect.stringContaining("Минутка хранит"),
+        text: [
+          "Минутка хранит ваш личный рабочий контекст, чтобы помогать вам разбирать день.",
+          "Компания не получает личные диалоги, ФИО, индивидуальные задачи или ваше состояние.",
+          "Для компании используются только обезличенные агрегированные сигналы по группам от 5 сотрудников.",
+        ].join("\n"),
         replyMarkup: expect.objectContaining({
           inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_retry" })]],
         }),
       }),
     ]);
+    expect(
+      spec.world.events.filter((event) => event.type === "PrivacyExplanationShown"),
+    ).toHaveLength(1);
   });
 
   it("11. An invite cannot be replayed from another Telegram chat", async () => {

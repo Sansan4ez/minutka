@@ -1,6 +1,8 @@
 import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
+import { createPostgresConsentAcceptanceStore } from "../infrastructure/postgres/postgres-consent-acceptance-store.js";
+import { createPostgresTelegramInviteRedemptionStore } from "../infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { postgresConfigFromEnv } from "../infrastructure/postgres/postgres-config.js";
 import { createPostgresConversationStore } from "../infrastructure/postgres/postgres-conversation-store.js";
 import { createPostgresFeedbackStore } from "../infrastructure/postgres/postgres-feedback-store.js";
@@ -26,8 +28,17 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
       auditEventStore: createPostgresAuditEventStore(pool),
     };
     const service = new MinutkaService(input.agentRunner, {
-      ...stores, clock: systemClock, idGenerator: randomIdGenerator,
-      ...createMastraMinutkaServiceDeps(), ...input.deps,
+      ...stores,
+      consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool),
+      telegramInviteRedemptionStore: createPostgresTelegramInviteRedemptionStore(
+        pool,
+        config.inviteCodePepper,
+        config.telegramIdentityPepper,
+      ),
+      clock: systemClock,
+      idGenerator: randomIdGenerator,
+      ...createMastraMinutkaServiceDeps(),
+      ...input.deps,
     });
     return { service, telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper), shutdown: () => pool.end() };
   } catch (error) { await pool.end(); throw error; }

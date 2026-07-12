@@ -1,7 +1,7 @@
 import { MinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { createInProcessSpecServer } from "../../../src/server/http/in-process-server.js";
+import { createInProcessServer } from "../../../src/server/http/in-process-server.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
-import { createInMemoryTelegramSessionStore } from "../../../src/telegram/in-memory-telegram-session-store.js";
 import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
 import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
@@ -31,9 +31,13 @@ export class TelegramDriver {
     agentRunner: AgentRunner,
     deps: MinutkaServiceDeps = {},
   ) {
-    const server = createInProcessSpecServer(world, agentRunner, createDefaultSpecDeps(deps));
-    const client = new MinutkaClient(server);
-    const sessionStore = createInMemoryTelegramSessionStore();
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner,
+      deps: createDefaultSpecDeps(deps),
+    });
+    const client = new MinutkaClient(createInProcessServer(runtime.service));
+    const sessionStore = runtime.telegramSessionStore;
 
     const self = this;
     const replyPort: TelegramReplyPort = {
