@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed.** This RFC introduces an authenticated HTTP transport in front of
+**Implemented (Phase 4.2).** This RFC introduces an authenticated HTTP transport in front of
 `MinutkaService` so that a standalone CLI, the Telegram shell, and a future web
 panel can use the same long-lived application runtime and persistent data.
 
@@ -123,10 +123,9 @@ Phase 4 explicitly chose the opposite scope boundary for the Telegram MVP:
 
 > Do not add an HTTP server if the in-process server is sufficient.
 
-Therefore a real HTTP API is **not already implemented and is not assigned to a
-numbered phase**. It should be a new, explicit *pilot-readiness / Phase 4.1*
-work item, before a multi-user pilot and before claiming that a standalone CLI
-or web UI shares live runtime state.
+Phase 4.2 implements this boundary after the durable PostgreSQL foundation. The
+listener and HTTP transport are now the shared runtime path for standalone CLI
+and optional Telegram polling; the in-process transport remains spec-only.
 
 ## Architecture
 

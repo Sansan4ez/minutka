@@ -543,7 +543,7 @@ Definition of Done:
 
 ### Phase 4.2 — HTTP Application API and Shared Runtime
 
-**Статус:** proposed; следующий инженерный этап после durable foundation.
+**Статус:** ✅ реализовано; ожидает финального manual multi-process smoke и тега `phase-4.2-http-application-api`.
 **Подробный план:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
 **Цель:** аутентифицированный versioned HTTP API `/v1` перед `MinutkaService`, transport-neutral SDK contracts и standalone CLI из отдельного процесса; Telegram переходит на тот же HTTP SDK (loopback, service credential) в одном composition root (Stage 1 из RFC).
 
