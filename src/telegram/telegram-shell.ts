@@ -1,4 +1,5 @@
-import type { MinutkaClient } from "../client/sdk/minutka-client.js";
+import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
+import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { TelegramIdentity, TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
@@ -44,8 +45,9 @@ async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: stri
   }
 }
 
-export function createTelegramShell(deps: { client: MinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort }) {
   const { client, sessionStore, replyPort } = deps; const inFlightChatIds = new Set<string>();
+  const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
       try {
@@ -54,7 +56,7 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         if (existing) {
           if (!existing.consentAcceptedAt) {
             await sendConsentPrompt(replyPort, chatId, existing.employeeId, privacyExplanation);
-            await client.recordPrivacyExplanationShown({ employeeId: existing.employeeId });
+            await employeeClient(existing.employeeId).recordPrivacyExplanationShown();
             return;
           }
           return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
@@ -67,10 +69,10 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
           identity: telegramIdentity,
         });
         await sendConsentPrompt(replyPort, chatId, redeemed.employeeId, redeemed.privacyExplanation);
-        await client.recordPrivacyExplanationShown({ employeeId: redeemed.employeeId });
+        await employeeClient(redeemed.employeeId).recordPrivacyExplanationShown();
       } catch (error) {
         logShellError("/start", error);
-        const code = error instanceof PersistenceError ? error.code : undefined;
+        const code = error instanceof PersistenceError || error instanceof MinutkaApiError ? error.code : undefined;
         const message = code === "employee_already_linked"
           ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту."
           : code === "chat_already_linked"
@@ -92,24 +94,20 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         }
         if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
         let profileExists = true;
-        try { await client.getProfile({ employeeId: session.employeeId }); } catch (error) {
-          if (error instanceof PersistenceError && error.code === "profile_not_found") profileExists = false;
+        try { await employeeClient(session.employeeId).getProfile(); } catch (error) {
+          if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false;
           else throw error;
         }
         if (!profileExists) {
           const profile = parseOnboardingProfile(trimmed);
           if (!profile) return void await replyPort.sendMessage(chatId, `Чтобы завершить настройку, отправьте одну строку в формате:\n${onboardingFormat}`);
-          const onboarding = await withTypingIndicator(replyPort, chatId, () => client.completeOnboarding({ employeeId: session.employeeId, ...profile }));
+          const onboarding = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).completeOnboarding(profile));
           const response = onboarding.firstResponse.trim();
           if (!response) throw new Error("Agent returned an empty onboarding response");
           for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
           return;
         }
-        const chat = await withTypingIndicator(replyPort, chatId, () => client.chat({
-          employeeId: session.employeeId,
-          threadId: session.threadId,
-          text: trimmed,
-        }));
+        const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text: trimmed }));
         const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
         const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
         for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
@@ -121,12 +119,7 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         if (data.startsWith("tg:consent:")) {
           const employeeId = data.slice("tg:consent:".length);
           if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
-          await client.acceptConsent({
-            employeeId,
-            accepted: true,
-            source: "telegram",
-            telegramIdentity,
-          });
+          await employeeClient(employeeId).acceptConsent({ accepted: true, source: "telegram", telegramIdentity });
           await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
           try {
             await replyPort.sendMessage(chatId, `Спасибо! Теперь отправьте одну строку в формате:\n${onboardingFormat}`);
@@ -138,7 +131,7 @@ export function createTelegramShell(deps: { client: MinutkaClient; sessionStore:
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
         if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
         if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-        await client.submitFeedback({ employeeId: session.employeeId, threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }); await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
+        await employeeClient(session.employeeId).submitFeedback({ threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }); await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
       } catch (error) {
         logShellError("callback", error);
         await replyPort.answerCallbackQuery(

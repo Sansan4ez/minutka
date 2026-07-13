@@ -1,48 +1,29 @@
-import { MinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import {
-  runMinutkaCli,
-  type CliResult,
-} from "../../../src/client/cli/minutka-cli.js";
+import { AdminMinutkaClient, EmployeeMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { runMinutkaCli, type CliResult } from "../../../src/client/cli/minutka-cli.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { createInProcessSpecServer } from "../../../src/server/http/in-process-server.js";
-import type {
-  AgentRunner,
-  MinutkaServiceDeps,
-} from "../../../src/application/minutka-service.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInProcessAdminTransport, createInProcessEmployeeTransport } from "../../../src/server/http/in-process-transport.js";
+import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
 
+/** Legacy spec adapter. New HTTP/CLI specs exercise the public grammar directly. */
 export class CliDriver {
-  private readonly client: MinutkaClient;
-
-  constructor(
-    world: InMemoryWorld,
-    agentRunner: AgentRunner,
-    private readonly onCommand?: (commandPath: string) => void,
-    deps: MinutkaServiceDeps = {},
-  ) {
-    this.client = new MinutkaClient(
-      createInProcessSpecServer(world, agentRunner, deps),
-    );
-  }
-
+  private readonly runtime;
+  constructor(world: InMemoryWorld, agentRunner: AgentRunner, private readonly onCommand?: (commandPath: string) => void, deps: MinutkaServiceDeps = {}) { this.runtime = createInMemoryRuntime({ world, agentRunner, deps }); }
   async run(args: string[]): Promise<CliResult> {
-    const commandPath: string[] = [];
-    for (const token of args) {
-      if (token.startsWith("-")) break;
-      commandPath.push(token);
+    const commandPath: string[] = []; for (const token of args) { if (token.startsWith("-")) break; commandPath.push(token); } this.onCommand?.(commandPath.join(" "));
+    const employeeIndex = args.indexOf("--employee"); const employeeId = employeeIndex >= 0 ? args[employeeIndex + 1] : "emp_test_1";
+    if (!employeeId) return { exitCode: 1, stdout: [], stderr: ["--employee requires an employee ID"] };
+    const normalized = employeeIndex >= 0 ? [...args.slice(0, employeeIndex), ...args.slice(employeeIndex + 2)] : [...args];
+    if (normalized[0] === "employee" && normalized[1] === "issue-invite") {
+      normalized[0] = "admin"; normalized.splice(2, 0, "--employee", employeeId);
+      return runMinutkaCli(new AdminMinutkaClient(createInProcessAdminTransport(this.runtime.service, { kind: "operator", operatorId: "spec" })), normalized);
     }
-    this.onCommand?.(commandPath.join(" "));
-    return runMinutkaCli(this.client, args);
+    if (normalized[0] === "employee" && normalized[1] === "open-invite" && employeeIndex >= 0) {
+      const inviteIndex = normalized.indexOf("--invite"); const inviteCode = inviteIndex >= 0 ? normalized[inviteIndex + 1] : undefined;
+      if (!inviteCode) return { exitCode: 1, stdout: [], stderr: ["--invite requires an invite code"] };
+      await this.runtime.service.issueInvite({ employeeId, inviteCode });
+    }
+    return runMinutkaCli(new EmployeeMinutkaClient(createInProcessEmployeeTransport(this.runtime.service, { kind: "employee", employeeId })), normalized);
   }
-
-  async json<T>(args: string[]): Promise<T> {
-    const result = await this.run(args);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.join("\n"));
-    }
-    const lastLine = result.stdout.at(-1);
-    if (!lastLine) {
-      throw new Error(`CLI produced no JSON for ${args.join(" ")}`);
-    }
-    return JSON.parse(lastLine) as T;
-  }
+  async json<T>(args: string[]): Promise<T> { const result = await this.run(args); if (result.exitCode !== 0) throw new Error(result.stderr.join("\n")); const lastLine = result.stdout.at(-1); if (!lastLine) throw new Error(`CLI produced no JSON for ${args.join(" ")}`); return JSON.parse(lastLine) as T; }
 }
