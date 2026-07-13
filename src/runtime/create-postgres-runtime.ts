@@ -40,6 +40,15 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
       ...createMastraMinutkaServiceDeps(),
       ...input.deps,
     });
-    return { service, telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper), shutdown: () => pool.end() };
+    return {
+      service,
+      telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
+      /** Safe liveness/readiness probe: exposes no database metadata. */
+      health: async () => {
+        try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
+        catch { return false; }
+      },
+      shutdown: () => pool.end(),
+    };
   } catch (error) { await pool.end(); throw error; }
 }
