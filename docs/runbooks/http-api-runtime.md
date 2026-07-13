@@ -43,21 +43,37 @@ TELEGRAM_MODE=polling npm run serve
 
 ## CLI
 
-The CLI is a separate process and never creates a runtime or accesses PostgreSQL
-directly. Employee identity comes from the bearer token, never `--employee`.
-
-```bash
-export MINUTKA_API_URL=http://127.0.0.1:8787
-export MINUTKA_API_TOKEN=<employee-token>
-npm run cli -- employee profile
-npm run cli -- employee chat --thread workday-1 --text 'План на сегодня'
-```
-
 Use an operator token only for privileged commands:
 
 ```bash
 export MINUTKA_API_TOKEN=<admin-token>
 npm run cli -- admin issue-invite --employee emp_pilot --invite "$(openssl rand -hex 24)"
+
+The CLI is a separate process and never creates a runtime or accesses PostgreSQL
+directly. Employee identity comes from the bearer token, never `--employee`.
+
+Before running employee commands, register that employee's token in the runtime
+`.env` file via `MINUTKA_EMPLOYEE_TOKENS` (for example,
+`MINUTKA_EMPLOYEE_TOKENS=emp_pilot:<employee-token>`) and restart `npm run serve`
+after changing it. Configure the same token in the CLI process:
+
+```bash
+export MINUTKA_API_URL=http://127.0.0.1:8787
+export MINUTKA_API_TOKEN=<employee-token>
+```
+
+Employee-token full cycle:
+
+```bash
+npm run cli -- employee open-invite --invite <code>
+npm run cli -- employee accept-consent --yes
+npm run cli -- employee complete-onboarding --role "аналитик" \
+  --task "отчёты" --persona support --ai-level beginner
+npm run cli -- employee profile
+npm run cli -- employee chat --thread workday-1 --text "План на сегодня"
+npm run cli -- employee insights --kind routine_pattern
+npm run cli -- employee feedback --target-message <id> --thread workday-1 --rating positive
+```
 ```
 
 ## Pilot-auth security notes
