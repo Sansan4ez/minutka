@@ -511,7 +511,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Привет" });
-    expect(telegram.sentMessages()[0].text).toContain("Чтобы завершить настройку");
+    expect(telegram.sentMessages()[0].text).toContain("какая у вас роль");
     expect(spec.world.messages).toHaveLength(0);
 
     telegram.clear();
@@ -519,7 +519,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       chatId: "chat_1",
       text: "Руководитель проектов | планирование; встречи | efficiency | intermediate",
     });
-    expect(telegram.sentMessages()[0].text).toBe("Я робот-помощник Минутка.");
+    expect(telegram.sentMessages()[0].text).toContain("Проверьте, пожалуйста");
+    expect(spec.world.profiles).toHaveLength(0);
+
+    const confirm = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_1", callbackData: confirm! });
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Я робот-помощник Минутка.");
     expect(spec.world.profiles).toHaveLength(1);
 
     telegram.clear();

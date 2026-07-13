@@ -5,7 +5,7 @@ import type { ApiErrorCode } from "../../contracts/minutka-api.js";
 export type HttpError = { status: number; code: ApiErrorCode; message: string };
 const persistenceStatuses: Record<PersistenceErrorCode, number> = {
   invite_not_found: 404, participant_not_found: 404, profile_not_found: 404, message_not_found: 404, session_not_found: 404,
-  employee_already_linked: 409, chat_already_linked: 409, consent_required: 409, persistence_conflict: 409,
+  employee_already_linked: 409, chat_already_linked: 409, consent_required: 409, profile_already_completed: 409, persistence_conflict: 409,
   persistence_unavailable: 503,
 };
 export class RequestError extends Error { constructor(readonly http: HttpError) { super(http.message); } }

@@ -1,7 +1,7 @@
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
   AcceptConsentRequest, AcceptEmployeeConsentRequest, ChatRequest, CompleteOnboardingRequest,
-  IssueInviteRequest, ListInsightsRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
+  IssueInviteRequest, ListInsightsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
 import type {
@@ -47,6 +47,9 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   recordPrivacyExplanationShown() { return this.service.recordPrivacyExplanationShown({ employeeId: this.employeeId() }); }
   acceptConsent(input: AcceptConsentRequest) { return this.service.acceptConsent({ ...input, employeeId: this.employeeId() }); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.service.completeOnboarding({ ...input, employeeId: this.employeeId() }); }
+  submitOnboardingAnswer(input: OnboardingAnswerRequest) { return this.service.submitOnboardingAnswer({ ...input, employeeId: this.employeeId() }); }
+  confirmOnboarding() { return this.service.confirmOnboarding({ employeeId: this.employeeId() }); }
+  resetOnboardingDraft() { return this.service.resetOnboardingDraft({ employeeId: this.employeeId() }); }
   getProfile() { return this.service.getProfile({ employeeId: this.employeeId() }); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.service.submitFeedback({ ...input, employeeId: this.employeeId() }); }
   forEmployee(employeeId: string): ServiceEmployeeMinutkaTransport { service(this.principal); if (!employeeId) throw new Error("employeeId is required for service scope"); return new InProcessServiceMinutkaTransport(this.service, this.principal, employeeId); }

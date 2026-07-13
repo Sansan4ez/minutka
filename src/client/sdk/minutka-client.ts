@@ -1,12 +1,12 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema,
   chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema,
-  issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, openInviteRequestSchema,
+  issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
   type CompleteOnboardingRequest, type IssueInviteRequest, type ListInsightsRequest,
-  type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
 
@@ -26,6 +26,9 @@ export type ServiceEmployeeMinutkaTransport = {
   recordPrivacyExplanationShown(): Promise<unknown>;
   acceptConsent(input: AcceptConsentRequest): Promise<unknown>;
   completeOnboarding(input: CompleteOnboardingRequest): Promise<unknown>;
+  submitOnboardingAnswer(input: OnboardingAnswerRequest): Promise<unknown>;
+  confirmOnboarding(): Promise<unknown>;
+  resetOnboardingDraft(): Promise<unknown>;
   getProfile(): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
 };
@@ -65,6 +68,9 @@ export class ServiceEmployeeMinutkaClient {
   async recordPrivacyExplanationShown() { await this.transport.recordPrivacyExplanationShown(); }
   async acceptConsent(input: unknown) { return validate(acceptConsentResponseSchema, await this.transport.acceptConsent(validate(acceptConsentRequestSchema, input, "acceptConsent request")), "acceptConsent response"); }
   async completeOnboarding(input: unknown) { return validate(completeOnboardingResponseSchema, await this.transport.completeOnboarding(validate(completeOnboardingRequestSchema, input, "completeOnboarding request")), "completeOnboarding response"); }
+  async submitOnboardingAnswer(input: unknown) { return validate(onboardingProgressSchema, await this.transport.submitOnboardingAnswer(validate(onboardingAnswerRequestSchema, input, "onboarding answer request")), "onboarding progress"); }
+  async confirmOnboarding() { return validate(completeOnboardingResponseSchema, await this.transport.confirmOnboarding(), "confirm onboarding response"); }
+  async resetOnboardingDraft() { return validate(onboardingProgressSchema, await this.transport.resetOnboardingDraft(), "reset onboarding response"); }
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
 }
@@ -86,6 +92,7 @@ export type RedeemTelegramInviteResult = z.infer<typeof redeemTelegramInviteResp
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponseSchema>;
 export type ChatResult = z.infer<typeof chatResponseSchema>;
 export type CompleteOnboardingResult = z.infer<typeof completeOnboardingResponseSchema>;
+export type OnboardingProgressResult = z.infer<typeof onboardingProgressSchema>;
 export type SubmitFeedbackResult = z.infer<typeof submitFeedbackResponseSchema>;
 export type UserProfileResult = z.infer<typeof userProfileSchema>;
 export type StructuredInsightResult = z.infer<typeof structuredInsightSchema>;

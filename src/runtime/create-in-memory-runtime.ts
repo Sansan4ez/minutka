@@ -3,6 +3,7 @@ import { createInMemoryConversationStore } from "../application/in-memory-conver
 import { createInMemoryFeedbackStore } from "../application/in-memory-feedback-store.js";
 import { createInMemoryInsightStore } from "../application/in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "../application/in-memory-profile-store.js";
+import { createInMemoryOnboardingDraftStore } from "../application/in-memory-onboarding-draft-store.js";
 import { createInMemoryTelegramInviteRedemptionStore } from "../application/in-memory-telegram-invite-redemption-store.js";
 import { createInMemoryTelegramSessionStore } from "../telegram/in-memory-telegram-session-store.js";
 import type { TelegramSessionStore } from "../telegram/telegram-session-store.js";
@@ -23,7 +24,7 @@ export type InMemoryRuntime = {
 export function createInMemoryRuntime(input: {
   agentRunner: AgentRunner;
   world?: InMemoryWorld;
-  deps?: Pick<MinutkaServiceDeps, "contextBuilder" | "agentManualRouter" | "manual"> & {
+  deps?: Pick<MinutkaServiceDeps, "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
     insightExtractor?: InsightExtractor;
   };
@@ -32,7 +33,7 @@ export function createInMemoryRuntime(input: {
   const deps = input.deps ?? {};
   const sessionStore = createInMemoryTelegramSessionStore();
   const profileStore = createInMemoryProfileStore(world, {
-    afterDelete: (employeeId) => sessionStore.deleteByEmployee(employeeId),
+    afterDelete: async (employeeId) => { await sessionStore.deleteByEmployee(employeeId); world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== employeeId); },
   });
   const auditEventStore = createInMemoryAuditEventStore(world);
   const consentAcceptanceStore: ConsentAcceptanceStore = {
@@ -51,6 +52,7 @@ export function createInMemoryRuntime(input: {
   };
   const service = new MinutkaService(input.agentRunner, {
     profileStore,
+    onboardingDraftStore: createInMemoryOnboardingDraftStore(world),
     conversationStore: createInMemoryConversationStore(world),
     insightStore: createInMemoryInsightStore(world),
     feedbackStore: createInMemoryFeedbackStore(world),

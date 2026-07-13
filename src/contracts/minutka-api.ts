@@ -51,11 +51,19 @@ export const acceptEmployeeConsentRequestSchema = acceptConsentRequestSchema.omi
 export const acceptConsentResponseSchema = z.strictObject({ employeeId: employeeIdSchema, privacyVersion: z.literal("privacy-v1"), acceptedAt: z.string().min(1) });
 export const completeOnboardingRequestSchema = z.strictObject({ role: z.string().min(1), typicalTasks: z.array(z.string().min(1)).min(1).max(7), persona: personaSchema, aiLevel: aiLevelSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), profile: userProfileSchema, firstResponse: z.string() });
+export const onboardingFieldSchema = z.enum(["role", "typicalTasks", "persona", "aiLevel"]);
+export const onboardingAnswerRequestSchema = z.strictObject({ text: z.string().min(1).max(4_096) });
+export const onboardingProgressSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
+  z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["persona", "aiLevel"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(2) }),
+  z.strictObject({ status: z.literal("needs_confirmation"), summary: z.strictObject({ role: z.string().min(1), typicalTasks: z.array(z.string().min(1)).min(1).max(7), persona: z.string().min(1), aiLevel: z.string().min(1) }) }),
+  z.strictObject({ status: z.literal("completed"), result: completeOnboardingResponseSchema }),
+]);
 
 export const errorCodeSchema = z.enum([
   "unauthorized", "forbidden", "invalid_request", "rate_limited", "internal_error",
   "invite_not_found", "employee_already_linked", "chat_already_linked", "participant_not_found",
-  "session_not_found", "consent_required", "profile_not_found", "message_not_found",
+  "session_not_found", "consent_required", "profile_not_found", "profile_already_completed", "message_not_found",
   "persistence_unavailable", "persistence_conflict",
 ]);
 export const errorEnvelopeSchema = z.strictObject({ error: z.strictObject({ code: errorCodeSchema, message: z.string().min(1), requestId: z.string().min(1) }) });
@@ -78,6 +86,8 @@ export type AcceptEmployeeConsentRequest = z.infer<typeof acceptEmployeeConsentR
 export type AcceptConsentResponse = z.infer<typeof acceptConsentResponseSchema>;
 export type CompleteOnboardingRequest = z.infer<typeof completeOnboardingRequestSchema>;
 export type CompleteOnboardingResponse = z.infer<typeof completeOnboardingResponseSchema>;
+export type OnboardingAnswerRequest = z.infer<typeof onboardingAnswerRequestSchema>;
+export type OnboardingProgress = z.infer<typeof onboardingProgressSchema>;
 export type UserProfile = z.infer<typeof userProfileSchema>;
 export type ApiErrorCode = z.infer<typeof errorCodeSchema>;
 export type ApiErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;

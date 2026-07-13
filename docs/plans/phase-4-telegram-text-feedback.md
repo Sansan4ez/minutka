@@ -401,17 +401,16 @@ issueInvite(employeeId, inviteCode)
 
 Минус: в реальном Telegram onboarding неполный.
 
-#### Вариант B — рекомендуемый Phase 4 баланс
+#### Вариант B — реализованный conversational onboarding
 
-Реализовать очень короткий Telegram onboarding без сложного FSM:
+1. `/start <inviteCode>` привязывает проверенную сессию и показывает privacy explanation с inline button `✅ Принимаю`.
+2. callback consent сохраняет явное согласие.
+3. После consent бот принимает обычный текст, собирает временный scoped draft и задаёт только следующий недостающий вопрос.
+4. Для ограниченных enum используются inline buttons; итог показывается сотруднику и сохраняется только по `✅ Подтвердить` через существующий `completeOnboarding()`.
 
-1. `/start <inviteCode>` → `openInvite`, показать privacy explanation и inline button `✅ Принимаю`.
-2. callback `tg:consent:<employeeId>` → `acceptConsent({ source: "telegram" })`.
-3. После consent бот просит отправить одну строку с ролью и задачами в простом формате и вызывает существующий `completeOnboarding()` через SDK.
+Внутренние значения `support`, `efficiency` и AI enum не требуются в сообщении. Детали state machine, TTL, optimistic concurrency и deterministic fallback определены в [RFC conversational onboarding](../architecture/rfc-conversational-onboarding.md).
 
-Чтобы не раздувать Phase 4, не делать многошаговую анкету: после consent shell принимает один формат `роль | задача 1; задача 2 | support|efficiency | beginner|intermediate|advanced`. Это делает ручной Telegram smoke достижимым из чистого runtime без отдельного CLI/API процесса.
-
-Итого Phase 4 реализует `/start` + session binding + consent acknowledgement + минимальное заполнение профиля через существующий application use case; сложный Telegram onboarding wizard остаётся за рамками этапа.
+Итого Telegram реализует `/start` + session binding + consent acknowledgement + human-readable progressive onboarding, не создавая профиль до явного подтверждения.
 
 ---
 

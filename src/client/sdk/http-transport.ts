@@ -2,7 +2,7 @@ import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
   type CompleteOnboardingRequest, type IssueInviteRequest, type ListInsightsRequest,
-  type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -65,6 +65,9 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   recordPrivacyExplanationShown() { return this.request("POST", `${this.prefix}/privacy-explanation`, {}); }
   acceptConsent(input: AcceptConsentRequest) { return this.request("POST", `${this.prefix}/consent`, input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", `${this.prefix}/onboarding`, input); }
+  submitOnboardingAnswer(input: OnboardingAnswerRequest) { return this.request("POST", `${this.prefix}/onboarding/answers`, input); }
+  confirmOnboarding() { return this.request("POST", `${this.prefix}/onboarding/confirm`, {}); }
+  resetOnboardingDraft() { return this.request("POST", `${this.prefix}/onboarding/reset`, {}); }
   getProfile() { return this.request("GET", `${this.prefix}/profile`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
 }

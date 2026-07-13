@@ -6,6 +6,7 @@ export type PersistenceErrorCode =
   | "session_not_found"
   | "consent_required"
   | "profile_not_found"
+  | "profile_already_completed"
   | "message_not_found"
   | "persistence_unavailable"
   | "persistence_conflict";

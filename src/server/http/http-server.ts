@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema,
-  issueInviteRequestSchema, listInsightsRequestSchema, openInviteRequestSchema,
+  issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema,
 } from "../../contracts/minutka-api.js";
@@ -110,6 +110,12 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "GET" && serviceProfile) { template = "/v1/service/employees/:employeeId/profile"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.getProfile({ employeeId: parse(employeeIdSchema, serviceProfile) })), id); }
       const serviceConsent = pathEmployee(url.pathname, "/consent");
       if (req.method === "POST" && serviceConsent) { template = "/v1/service/employees/:employeeId/consent"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.acceptConsent({ ...parse(acceptConsentRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceConsent) })), id); }
+      const serviceOnboardingAnswer = pathEmployee(url.pathname, "/onboarding/answers");
+      if (req.method === "POST" && serviceOnboardingAnswer) { template = "/v1/service/employees/:employeeId/onboarding/answers"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitOnboardingAnswer({ ...parse(onboardingAnswerRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboardingAnswer) })), id); }
+      const serviceOnboardingConfirm = pathEmployee(url.pathname, "/onboarding/confirm");
+      if (req.method === "POST" && serviceOnboardingConfirm) { template = "/v1/service/employees/:employeeId/onboarding/confirm"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.service.confirmOnboarding({ employeeId: parse(employeeIdSchema, serviceOnboardingConfirm) })), id); }
+      const serviceOnboardingReset = pathEmployee(url.pathname, "/onboarding/reset");
+      if (req.method === "POST" && serviceOnboardingReset) { template = "/v1/service/employees/:employeeId/onboarding/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.resetOnboardingDraft({ employeeId: parse(employeeIdSchema, serviceOnboardingReset) })), id); }
       const serviceOnboarding = pathEmployee(url.pathname, "/onboarding");
       if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
