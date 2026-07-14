@@ -21,13 +21,26 @@ export function createOpenAiSpeechToText(config: Pick<SttConfig, "apiKey" | "bas
   const voice = new OpenAIVoice(openAiVoiceConfig(config));
   return {
     async transcribe({ audio, filetype, signal }) {
-      // The package declaration omits "ogg", although Whisper accepts the
-      // Telegram OGG/Opus container. The cast is needed only for that stale union.
-      // listen() does not expose AbortSignal, so close its input to abort its read.
-      signal?.addEventListener("abort", () => (audio as NodeJS.ReadableStream & { destroy: () => void }).destroy(), { once: true });
-      const transcript = await voice.listen(audio, { filetype: filetype as "mp3" });
-      if (typeof transcript !== "string") throw new Error("STT provider returned a non-text result");
-      return transcript;
+      // Mastra 0.13's declaration omits "ogg", although the OpenAI
+      // transcription API accepts Telegram's OGG/Opus container. Keep the
+      // actual runtime value instead of pretending it is another format.
+      const destroyAudio = () => {
+        const destroy = (audio as NodeJS.ReadableStream & { destroy?: () => void }).destroy;
+        if (typeof destroy === "function") destroy.call(audio);
+      };
+      const onAbort = () => destroyAudio();
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        // The installed Mastra declaration is narrower than the provider's
+        // runtime/API contract. Localize that compatibility boundary here;
+        // the Telegram gateway still supplies the actual "ogg" format.
+        const listen = voice.listen.bind(voice) as (input: NodeJS.ReadableStream, options?: { filetype?: string }) => Promise<string>;
+        const transcript = await listen(audio, { filetype });
+        if (typeof transcript !== "string") throw new Error("STT provider returned a non-text result");
+        return transcript;
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
     },
   };
 }
