@@ -8,6 +8,7 @@
 > **Подробный план Phase 4:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
 > **Подробный план Phase 4.1:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
 > **Подробный план Phase 4.2:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
+> **Подробный план Phase 5:** [`phase-5-voice-stt.md`](./phase-5-voice-stt.md).
 > **Architecture RFCs:** [`rfc-runtime-projections.md`](../architecture/rfc-runtime-projections.md), [`rfc-http-application-api.md`](../architecture/rfc-http-application-api.md).
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
@@ -566,13 +567,14 @@ Definition of Done:
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
+**Подробный план:** [`phase-5-voice-stt.md`](./phase-5-voice-stt.md).
 **Цель:** voice message обрабатывается как текст после транскрипции.
 
 Минимальный scope:
 
-1. Добавить STT boundary/interface.
-2. Реализовать Telegram voice handler: metadata → download boundary → STT boundary → chat flow.
-3. Для specs использовать mock STT, без реального Whisper/API.
+1. Добавить STT boundary/interface (`SpeechToTextPort`); реализация — встроенный Mastra voice-провайдер `@mastra/voice-openai` (`OpenAIVoice.listen()`, `whisper-1`).
+2. Реализовать Telegram voice handler: metadata → download boundary → STT boundary → chat flow; аудио не пересекает HTTP API и не персистится.
+3. Для specs использовать mock STT/download gateway, без реального Whisper/API.
 4. Написать `SPEC-VOICE-001`.
 
 Definition of Done:
