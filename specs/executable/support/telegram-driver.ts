@@ -12,7 +12,7 @@ import { Readable } from "node:stream";
 import type { SpeechToTextPort } from "../../../src/application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-voice-file-gateway.js";
 
-export type VoiceInput = { chatId: string; userId?: string; fileId: string; messageId?: number; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "transcribe" };
+export type VoiceInput = { chatId: string; userId?: string; fileId: string; messageId?: number; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "download-hang" | "transcribe" | "stream" | "hang" };
 
 export type SentMessage = { chatId: string; text: string; replyMarkup?: TelegramReplyMarkup; replyToMessageId?: number };
 export type CallbackAnswer = { callbackQueryId: string; text?: string };
@@ -25,12 +25,13 @@ export class TelegramDriver {
   private failNextSend = false;
   private readonly voiceFiles = new Map<string, Buffer>();
   private readonly voiceTranscripts = new Map<string, string>();
-  private readonly voiceErrors = new Map<string, "download" | "transcribe">();
+  private readonly voiceErrors = new Map<string, "download" | "download-hang" | "transcribe" | "stream" | "hang">();
   private readonly voiceFileIds = new WeakMap<NodeJS.ReadableStream, string>();
+  private readonly closedVoiceStreams: string[] = [];
   private readonly voiceDownloads: string[] = [];
   private readonly transcriptions: string[] = [];
 
-  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}) {
+  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number) {
     const runtime = createInMemoryRuntime({ world, agentRunner, deps: createDefaultSpecDeps(deps) });
     const client = new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" }));
     const self = this;
@@ -43,11 +44,14 @@ export class TelegramDriver {
       async answerCallbackQuery(callbackQueryId, text) { self.callbacks.push({ callbackQueryId, text }); },
     };
     const voiceFileGateway: TelegramVoiceFileGateway = {
-      openVoiceFile: async (fileId) => {
+      openVoiceFile: async (fileId, signal) => {
         this.voiceDownloads.push(fileId);
         if (this.voiceErrors.get(fileId) === "download") throw new Error("simulated voice download failure");
+        if (this.voiceErrors.get(fileId) === "download-hang") return await new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("simulated aborted voice download")), { once: true }));
         const stream = Readable.from(this.voiceFiles.get(fileId) ?? Buffer.from("voice"));
         this.voiceFileIds.set(stream, fileId);
+        stream.once("close", () => this.closedVoiceStreams.push(fileId));
+        if (this.voiceErrors.get(fileId) === "stream") queueMicrotask(() => stream.destroy(new Error("simulated voice stream failure")));
         return { stream, filetype: "ogg" };
       },
     };
@@ -60,10 +64,17 @@ export class TelegramDriver {
         const fileId = this.voiceFileIds.get(audio) ?? data.subarray(0, separator === -1 ? data.length : separator).toString("utf8");
         this.transcriptions.push(fileId);
         if (this.voiceErrors.get(fileId) === "transcribe") throw new Error("simulated STT failure");
+        if (this.voiceErrors.get(fileId) === "hang") return await new Promise<string>(() => undefined);
         return this.voiceTranscripts.get(fileId) ?? "";
       },
     };
-    this.shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, speechToText, voiceFileGateway });
+    this.shell = createTelegramShell({
+      client,
+      sessionStore: runtime.telegramSessionStore,
+      replyPort,
+      ...(voiceEnabled ? { speechToText, voiceFileGateway } : {}),
+      ...(voiceProcessingTimeoutMs === undefined ? {} : { voiceProcessingTimeoutMs }),
+    });
   }
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
@@ -82,6 +93,7 @@ export class TelegramDriver {
   sentChatActions(): Array<{ chatId: string; action: "typing" }> { return this.chatActions; }
   voiceDownloadCalls(): string[] { return [...this.voiceDownloads]; }
   transcriptionCalls(): string[] { return [...this.transcriptions]; }
-  clear() { this.sent.length = 0; this.callbacks.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; }
+  closedVoiceStreamIds(): string[] { return [...this.closedVoiceStreams]; }
+  clear() { this.sent.length = 0; this.callbacks.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
   private defaultUserId(chatId: string): string { return `user_${chatId}`; }
 }

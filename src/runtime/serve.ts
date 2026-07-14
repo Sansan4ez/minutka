@@ -57,10 +57,10 @@ async function main(): Promise<void> {
       };
       const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: listener.url, token: serviceToken }));
       const voiceFileGateway: TelegramVoiceFileGateway | undefined = stt ? {
-        async openVoiceFile(fileId) {
+        async openVoiceFile(fileId, signal) {
           if (!activeBot) throw new Error("Bot not running");
           const url = await activeBot.telegram.getFileLink(fileId);
-          const response = await fetch(url);
+          const response = await fetch(url, { signal });
           if (!response.ok || !response.body) {
             void response.body?.cancel().catch(() => undefined);
             throw new Error(`Voice file download failed (${response.status})`);

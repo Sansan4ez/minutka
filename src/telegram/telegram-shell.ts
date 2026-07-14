@@ -6,9 +6,9 @@ import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 import { privacyExplanation } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
-import type { SpeechToTextPort } from "../application/speech-to-text.js";
+import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
-import { Transform } from "node:stream";
+import { pipeline, Transform } from "node:stream";
 
 export const maxTelegramMessageCharacters = 4_000;
 export function splitTelegramMessage(text: string): string[] {
@@ -21,6 +21,7 @@ const maxTelegramCallbackDataBytes = 64;
 export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
+class VoiceProcessingTimeoutError extends Error {}
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
   let bytes = 0;
   const limit = new Transform({
@@ -29,11 +30,29 @@ function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): 
       callback(bytes > maximumBytes ? new VoiceFileTooLargeError() : undefined, chunk);
     },
   });
-  stream.pipe(limit);
+  // pipeline forwards source errors and tears down both streams, unlike pipe().
+  pipeline(stream, limit, () => undefined);
   return limit;
 }
 function destroyStream(stream: NodeJS.ReadableStream): void {
-  (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+  (stream as NodeJS.ReadableStream & { destroy: () => void }).destroy();
+}
+async function withVoiceTimeout<T>(timeoutMs: number, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      action(controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new VoiceProcessingTimeoutError());
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 const onboardingIntroduction = "Расскажите немного о работе в удобной форме: ваша роль, типичные задачи, предпочитаемый стиль общения — «Поддержка» или «Эффективность» — и опыт работы с ИИ. Можно ответить одним сообщением или по частям.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
@@ -82,8 +101,8 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway }) {
-  const { client, sessionStore, replyPort, speechToText, voiceFileGateway } = deps; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+  const { client, sessionStore, replyPort, speechToText, voiceFileGateway } = deps; const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
   async function authorizedSession(chatId: string, userId?: string) {
     const session = await sessionStore.getByIdentity(identity(chatId, userId));
     if (!session) {
@@ -133,16 +152,22 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
-      if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
         const session = await authorizedSession(chatId, userId); if (!session) return;
+        if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
         if (voice.durationSeconds > maxVoiceDurationSeconds) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком длинное (максимум 5 минут).");
         if (voice.fileSizeBytes !== undefined && voice.fileSizeBytes > maxVoiceFileSizeBytes) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком большое (максимум 20 МБ).");
-        const file = await withTypingIndicator(replyPort, chatId, () => voiceFileGateway.openVoiceFile(voice.fileId));
+        const file = await withTypingIndicator(replyPort, chatId, () => withVoiceTimeout(voiceTimeoutMs, (signal) => voiceFileGateway.openVoiceFile(voice.fileId, signal)));
         const audio = voice.fileSizeBytes === undefined ? limitVoiceStream(file.stream, maxVoiceFileSizeBytes) : file.stream;
         try {
-          const transcript = (await withTypingIndicator(replyPort, chatId, () => speechToText.transcribe({ audio, filetype: file.filetype }))).trim();
+          const transcript = (await withTypingIndicator(replyPort, chatId, () => withVoiceTimeout(voiceTimeoutMs, async (signal) => {
+            signal.addEventListener("abort", () => {
+              destroyStream(audio);
+              if (audio !== file.stream) destroyStream(file.stream);
+            }, { once: true });
+            return speechToText.transcribe({ audio, filetype: file.filetype, signal });
+          }))).trim();
           if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
           if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
           await sendVoiceTranscript(replyPort, chatId, transcript, voice.messageId);
@@ -150,7 +175,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         } finally {
           // A provider can fail before consuming the download; close it promptly.
           destroyStream(audio);
-          destroyStream(file.stream);
+          if (audio !== file.stream) destroyStream(file.stream);
         }
       } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },

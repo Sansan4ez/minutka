@@ -20,9 +20,11 @@ export function openAiVoiceConfig(config: Pick<SttConfig, "apiKey" | "baseUrl">)
 export function createOpenAiSpeechToText(config: Pick<SttConfig, "apiKey" | "baseUrl">): SpeechToTextPort {
   const voice = new OpenAIVoice(openAiVoiceConfig(config));
   return {
-    async transcribe({ audio, filetype }) {
+    async transcribe({ audio, filetype, signal }) {
       // The package declaration omits "ogg", although Whisper accepts the
       // Telegram OGG/Opus container. The cast is needed only for that stale union.
+      // listen() does not expose AbortSignal, so close its input to abort its read.
+      signal?.addEventListener("abort", () => (audio as NodeJS.ReadableStream & { destroy: () => void }).destroy(), { once: true });
       const transcript = await voice.listen(audio, { filetype: filetype as "mp3" });
       if (typeof transcript !== "string") throw new Error("STT provider returned a non-text result");
       return transcript;

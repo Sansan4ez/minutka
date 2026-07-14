@@ -19,9 +19,9 @@ registerSpecMetadata({
 
 const runner: AgentRunner = async () => "Готово: выделите один следующий шаг.";
 
-async function connectedDriver() {
+async function connectedDriver(voiceEnabled = true) {
   const spec = createSpecWorld(runner);
-  const telegram = new TelegramDriver(spec.world, runner);
+  const telegram = new TelegramDriver(spec.world, runner, {}, voiceEnabled);
   await onboardTestEmployee(spec);
   await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
   const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
@@ -64,6 +64,31 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     expect(spec.world.auditEvents.find((event) => event.type === "chat_received")?.metadata).toEqual({ inputModality: "text" });
   });
 
+  it("applies session and consent guards before the voice-disabled fallback", async () => {
+    const spec = createSpecWorld(runner);
+    const telegram = new TelegramDriver(spec.world, runner, {}, false);
+
+    await telegram.sendVoice({ chatId: "unknown", fileId: "unknown_voice", durationSeconds: 1 });
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start <code>");
+    expect(telegram.voiceDownloadCalls()).toEqual([]);
+
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "pending", userId: "pending_user", inviteCode: testInvite.inviteCode });
+    telegram.clear();
+    await telegram.sendVoice({ chatId: "pending", userId: "pending_user", fileId: "unconsented", durationSeconds: 1 });
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Сначала подтвердите согласие с политикой конфиденциальности.");
+    expect(telegram.voiceDownloadCalls()).toEqual([]);
+  });
+
+  it("disables voice without STT dependencies without downloading the file", async () => {
+    const { telegram } = await connectedDriver(false);
+
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "disabled", durationSeconds: 1 });
+
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
+    expect(telegram.voiceDownloadCalls()).toEqual([]);
+  });
+
   it("rejects unauthorised, unconsented, too-long, and too-large voice before download", async () => {
     const spec = createSpecWorld(runner);
     const telegram = new TelegramDriver(spec.world, runner);
@@ -93,13 +118,35 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     const { spec, telegram } = await connectedDriver();
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "download_error", durationSeconds: 1, error: "download" });
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "stt_error", durationSeconds: 1, error: "transcribe" });
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "stream_error", durationSeconds: 1, error: "stream" });
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "empty", durationSeconds: 1, transcript: "   " });
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "oversized", durationSeconds: 1, transcript: "а".repeat(4097) });
     expect(spec.world.messages).toHaveLength(0);
+    expect(telegram.closedVoiceStreamIds()).toEqual(expect.arrayContaining(["stt_error", "stream_error"]));
     expect(telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
       "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже.",
       "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.",
       "Сообщение слишком длинное (максимум 4096 символов).",
+    ]));
+  });
+
+  it("times out stalled download and STT, releases the chat guard, and closes the download stream", async () => {
+    const spec = createSpecWorld(runner);
+    const telegram = new TelegramDriver(spec.world, runner, {}, true, 1);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+    telegram.clear();
+
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "download-stalled", durationSeconds: 1, error: "download-hang" });
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "stalled", durationSeconds: 1, error: "hang" });
+    await telegram.sendText({ chatId: "voice_chat", userId: "voice_user", text: "after timeout" });
+
+    expect(telegram.closedVoiceStreamIds()).toContain("stalled");
+    expect(telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
+      "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже.",
+      expect.stringContaining("следующий шаг"),
     ]));
   });
 
