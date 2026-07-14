@@ -28,7 +28,7 @@
 - [ ] STT настраивается отдельно через `STT_PROVIDER`, `STT_API_KEY` и необязательный `STT_BASE_URL`; STT-трафик не наследует `OPENAI_API_KEY` или `OPENAI_BASE_URL` LLM-контура. Без `STT_API_KEY` polling-бот продолжает запускаться, но controlled-ответом отключает voice.
 - [ ] Добавлен `TelegramVoiceFileGateway` (download boundary) в Telegram shell слое; Telegraf-реализация через `getFileLink` + `fetch`.
 - [ ] `createTelegramShell()` получил `handleVoice()`: metadata guards → download → STT → общий chat-путь.
-- [ ] Voice и text сходятся в один внутренний dispatch: после транскрипции voice проходит ровно тот же путь, что `handleText` (включая onboarding-ответы голосом до создания профиля).
+- [ ] Voice и text сходятся в один внутренний dispatch: после транскрипции bot сначала показывает сотруднику `Распознано:\n<transcript>`, затем voice проходит ровно тот же путь, что `handleText` (включая onboarding-ответы голосом до создания профиля).
 - [ ] Chat contract расширен опциональным `inputModality: "text" | "voice"` (default `"text"`); поле проходит SDK → HTTP `/v1` → `MinutkaService.chat()`.
 - [ ] `ChatMessageReceived` и audit `chat_received` содержат `inputModality`; никакие Telegram `fileId`/URL/duration в domain events не попадают.
 - [ ] Guards: длительность ≤ 300 сек, размер ≤ 20 MB (лимит Telegram `getFile`), пустой транскрипт → controlled message без вызова `chat()`.
@@ -192,10 +192,11 @@ handleVoice(chatId, voice: { fileId, durationSeconds, fileSizeBytes? }, userId?)
   5. под typing indicator: gateway.openVoiceFile(fileId) → speechToText.transcribe(); закрыть stream в `finally`; если size отсутствует, применить stream-limit 20 MiB
   6. transcript.trim(); пустой → "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом."
   7. transcript длиннее 4096 chars → тот же лимит, что у текста
-  8. дальше — общий dispatch с inputModality = "voice":
+  8. отправить в Telegram `Распознано:\n<transcript>` (с обычным chunking по 4 000 символов) reply к исходному voice `message_id`; если доставка не удалась, не отправлять невидимый сотруднику текст в onboarding/chat
+  9. дальше — общий dispatch с inputModality = "voice":
      - профиль не создан → submitOnboardingAnswer({ text: transcript })  (onboarding голосом работает бесплатно)
      - профиль есть → chat({ threadId, text: transcript, inputModality: "voice" }) → ответ с feedback-кнопками
-  9. любая ошибка download/STT → logShellError + "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."
+  10. любая ошибка download/STT/показа транскрипта → logShellError + "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."
 ```
 
 `createTelegramShell()` получает optional `speechToText` и `voiceFileGateway`: в polling deployment без STT key text остаётся доступен, а voice получает controlled fallback без download. При заданном STT key обе зависимости передаются вместе.
@@ -240,7 +241,7 @@ export const chatRequestSchema = z.strictObject({
 
 Что запрещено: `fileId`, file URL, `mimeType`, длительность и размер файла в contract/domain/audit. Единственное privacy-safe поле — enum `inputModality` (по аналогии с `source` у feedback).
 
-`ConversationTurn` и таблица conversation не расширяются: для MVP достаточно связи через audit `chat_received(messageId, inputModality)`. Если позже аналитике понадобится модальность в history — отдельная миграция отдельным решением.
+`ConversationTurn` и таблица conversation не расширяются: транскрипт уже сохраняется как обычный private `user_text` в canonical conversation history, потому что он передаётся в обычный `chat()` use case. Audit `chat_received(messageId, inputModality)` связывает этот turn с voice без дублирования raw transcript в audit. Если позже аналитике понадобится модальность непосредственно в history — отдельная миграция отдельным решением.
 
 ---
 
@@ -273,7 +274,8 @@ Driver собирает shell с fake-портами:
 Given сотрудник прошёл onboarding и связан с Telegram chat
 When он отправляет voice message
 Then shell скачивает файл через gateway и получает транскрипт через SpeechToTextPort
-And транскрипт проходит тот же client.chat() путь, что и текст
+And bot сначала показывает `Распознано:\n<transcript>` reply к исходному voice message, чтобы сотрудник видел текст, отправляемый агенту
+And транскрипт проходит тот же client.chat() путь, что и текст и сохраняется как private `user_text`
 And бот отвечает с кнопками 👍/👌/👎, feedback по ответу работает как для текста
 And ChatMessageReceived содержит text = транскрипт и inputModality = "voice"
 And audit chat_received содержит messageId и inputModality = "voice"
@@ -396,7 +398,7 @@ npm run verify:persistence   # регрессия: схема БД не меня
 | File URL с bot token утечёт в логи | Логировать только operation + error name (существующий `logShellError`); не логировать URL и raw fetch errors. |
 | Дорогие/долгие транскрипции длинных voice | Лимит 300 сек и 20 MB до скачивания; in-flight guard по chatId уже ограничивает параллелизм. |
 | Whisper вернёт мусор на шум/тишину | Пустой транскрипт → controlled message; мусорный, но непустой транскрипт идёт обычным путём — decision plane и guardrails обрабатывают его как любой текст. |
-| Транскрипт «не то, что я сказал» подрывает доверие | MVP-допущение: ответ агента строится на транскрипте; при реальной боли — отдельной задачей показывать транскрипт пользователю. Не усложнять сейчас. |
+| Транскрипт «не то, что я сказал» подрывает доверие | Перед dispatch bot показывает сотруднику exact transcript с префиксом «Распознано:»; редактирование/повторная транскрипция остаются отдельной задачей. |
 | `inputModality` начнут расширять transport-метаданными | Поле — закрытый enum по образцу feedback `source`; правило зафиксировано в разделе 5 и privacy-boundary doc. |
 | STT случайно наследует LLM key или proxy из `OPENAI_*` | Никогда не полагаться на env fallback SDK: в оба клиента `OpenAIVoice` передаются `STT_API_KEY` и `STT_BASE_URL`, а при пустом `STT_BASE_URL` — явный официальный OpenAI URL. |
 | Onboarding голосом усложнит FSM | Ничего не меняется: транскрипт уходит в существующий `submitOnboardingAnswer`, confirm остаётся кнопочным. |

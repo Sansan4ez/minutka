@@ -34,15 +34,21 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
   it("transcribes voice, produces feedback buttons, and writes privacy-safe modality metadata", async () => {
     const { spec, telegram } = await connectedDriver();
 
-    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "voice_1", durationSeconds: 12, fileSizeBytes: 1_024, transcript: "Сегодня хочу закрыть квартальный отчёт." });
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "voice_1", messageId: 42, durationSeconds: 12, fileSizeBytes: 1_024, transcript: "Сегодня хочу закрыть квартальный отчёт." });
 
     expect(telegram.voiceDownloadCalls()).toEqual(["voice_1"]);
     expect(telegram.transcriptionCalls()).toEqual(["voice_1"]);
-    const reply = telegram.sentMessages()[0];
-    expect(reply.text).toContain("следующий шаг");
-    expect(reply.replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
+    const [transcript, reply] = telegram.sentMessages();
+    expect(transcript?.text).toBe("Распознано:\nСегодня хочу закрыть квартальный отчёт.");
+    expect(transcript?.replyToMessageId).toBe(42);
+    expect(reply?.text).toContain("следующий шаг");
+    expect(reply?.replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
     expectEvent(spec, { type: "ChatMessageReceived", text: "[private]", inputModality: "voice" });
     const audit = spec.world.auditEvents.find((event) => event.type === "chat_received")!;
+    expect(spec.world.messages).toContainEqual(expect.objectContaining({
+      id: audit.messageId,
+      text: "Сегодня хочу закрыть квартальный отчёт.",
+    }));
     expect(audit).toMatchObject({ messageId: expect.any(String), metadata: { inputModality: "voice" } });
     expect(JSON.stringify({ events: spec.world.events, auditEvents: spec.world.auditEvents })).not.toContain("voice_1");
     expect(JSON.stringify({ events: spec.world.events, auditEvents: spec.world.auditEvents })).not.toContain("1024");
@@ -97,6 +103,16 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     ]));
   });
 
+  it("does not dispatch a transcript when Telegram cannot show it", async () => {
+    const { spec, telegram } = await connectedDriver();
+    telegram.failNextMessageDelivery();
+
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "undelivered_transcript", durationSeconds: 1, transcript: "Текст, который сотрудник не увидел" });
+
+    expect(spec.world.messages).toHaveLength(0);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже.");
+  });
+
   it("uses voice transcript for conversational onboarding before profile creation", async () => {
     const spec = createSpecWorld(runner);
     const telegram = new TelegramDriver(spec.world, runner);
@@ -107,7 +123,10 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     telegram.clear();
 
     await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "Аналитик | отчёты | Поддержка | Начинающий" });
-    expect(telegram.sentMessages()[0].text).toContain("Проверьте, пожалуйста");
+    expect(telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
+      "Распознано:\nАналитик | отчёты | Поддержка | Начинающий",
+      expect.stringContaining("Проверьте, пожалуйста"),
+    ]));
     expect(spec.world.messages).toHaveLength(0);
   });
 

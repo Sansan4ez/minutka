@@ -60,6 +60,12 @@ function onboardingChoiceValue(field: "persona" | "aiLevel", choice: string): st
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
 }
+async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string, transcript: string, replyToMessageId: number): Promise<void> {
+  // Telegram cannot render a bot-received voice message as a user text message.
+  // Reply to its source voice message so the employee can still see the
+  // relationship between the original input and text sent to the agent.
+  for (const chunk of splitTelegramMessage(`Распознано:\n${transcript}`)) await replyPort.sendMessage(chatId, chunk, { replyToMessageId });
+}
 async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult): Promise<void> {
   if (progress.status === "needs_answer") return replyPort.sendMessage(chatId, progress.prompt);
   if (progress.status === "needs_choice") {
@@ -126,7 +132,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text"); }
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
-    async handleVoice(chatId: string, voice: { fileId: string; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
+    async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
       if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
@@ -139,6 +145,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           const transcript = (await withTypingIndicator(replyPort, chatId, () => speechToText.transcribe({ audio, filetype: file.filetype }))).trim();
           if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
           if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
+          await sendVoiceTranscript(replyPort, chatId, transcript, voice.messageId);
           await dispatchText(chatId, transcript, session, "voice");
         } finally {
           // A provider can fail before consuming the download; close it promptly.

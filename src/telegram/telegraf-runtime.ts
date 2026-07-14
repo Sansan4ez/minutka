@@ -51,6 +51,7 @@ export function createTelegrafBot(deps: {
     const voice = ctx.message.voice;
     await shell.handleVoice(String(ctx.chat.id), {
       fileId: voice.file_id,
+      messageId: ctx.message.message_id,
       durationSeconds: voice.duration,
       ...(voice.file_size === undefined ? {} : { fileSizeBytes: voice.file_size }),
     }, ctx.from ? String(ctx.from.id) : undefined);
