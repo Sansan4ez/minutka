@@ -8,6 +8,7 @@ import { privacyExplanation } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import type { SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
+import { Transform } from "node:stream";
 
 export const maxTelegramMessageCharacters = 4_000;
 export function splitTelegramMessage(text: string): string[] {
@@ -19,6 +20,21 @@ const typingRefreshMilliseconds = 4_000;
 const maxTelegramCallbackDataBytes = 64;
 export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
+class VoiceFileTooLargeError extends Error {}
+function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
+  let bytes = 0;
+  const limit = new Transform({
+    transform(chunk, _encoding, callback) {
+      bytes += Buffer.byteLength(chunk);
+      callback(bytes > maximumBytes ? new VoiceFileTooLargeError() : undefined, chunk);
+    },
+  });
+  stream.pipe(limit);
+  return limit;
+}
+function destroyStream(stream: NodeJS.ReadableStream): void {
+  (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+}
 const onboardingIntroduction = "Расскажите немного о работе в удобной форме: ваша роль, типичные задачи, предпочитаемый стиль общения — «Поддержка» или «Эффективность» — и опыт работы с ИИ. Можно ответить одним сообщением или по частям.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
@@ -60,7 +76,7 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; speechToText: SpeechToTextPort; voiceFileGateway: TelegramVoiceFileGateway }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway }) {
   const { client, sessionStore, replyPort, speechToText, voiceFileGateway } = deps; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
   async function authorizedSession(chatId: string, userId?: string) {
     const session = await sessionStore.getByIdentity(identity(chatId, userId));
@@ -111,17 +127,25 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
+      if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (voice.durationSeconds > maxVoiceDurationSeconds) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком длинное (максимум 5 минут).");
         if (voice.fileSizeBytes !== undefined && voice.fileSizeBytes > maxVoiceFileSizeBytes) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком большое (максимум 20 МБ).");
         const file = await withTypingIndicator(replyPort, chatId, () => voiceFileGateway.openVoiceFile(voice.fileId));
-        const transcript = (await withTypingIndicator(replyPort, chatId, () => speechToText.transcribe({ audio: file.stream, filetype: file.filetype }))).trim();
-        if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
-        if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
-        await dispatchText(chatId, transcript, session, "voice");
-      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+        const audio = voice.fileSizeBytes === undefined ? limitVoiceStream(file.stream, maxVoiceFileSizeBytes) : file.stream;
+        try {
+          const transcript = (await withTypingIndicator(replyPort, chatId, () => speechToText.transcribe({ audio, filetype: file.filetype }))).trim();
+          if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
+          if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
+          await dispatchText(chatId, transcript, session, "voice");
+        } finally {
+          // A provider can fail before consuming the download; close it promptly.
+          destroyStream(audio);
+          destroyStream(file.stream);
+        }
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string) {
       try {

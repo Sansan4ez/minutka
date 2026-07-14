@@ -63,17 +63,20 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     const telegram = new TelegramDriver(spec.world, runner);
     await telegram.sendVoice({ chatId: "unknown", fileId: "unknown_voice", durationSeconds: 1, transcript: "ignored" });
     expect(telegram.voiceDownloadCalls()).toEqual([]);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start <code>");
 
     await onboardTestEmployee(spec);
     await telegram.start({ chatId: "pending", userId: "pending_user", inviteCode: testInvite.inviteCode });
     telegram.clear();
     await telegram.sendVoice({ chatId: "pending", userId: "pending_user", fileId: "unconsented", durationSeconds: 1, transcript: "ignored" });
     expect(telegram.voiceDownloadCalls()).toEqual([]);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Сначала подтвердите согласие с политикой конфиденциальности.");
 
     const connected = await connectedDriver();
     await connected.telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "long", durationSeconds: 301, transcript: "ignored" });
     await connected.telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "large", durationSeconds: 1, fileSizeBytes: maxVoiceFileSizeBytes + 1, transcript: "ignored" });
-    expect(connected.telegram.voiceDownloadCalls()).toEqual([]);
+    await connected.telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "size_unknown", durationSeconds: 1, audioBytes: maxVoiceFileSizeBytes + 1, transcript: "ignored" });
+    expect(connected.telegram.voiceDownloadCalls()).toEqual(["size_unknown"]);
     expect(connected.telegram.transcriptionCalls()).toEqual([]);
     expect(connected.telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
       expect.stringContaining("слишком длинное"), expect.stringContaining("слишком большое"),

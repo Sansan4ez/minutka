@@ -8,7 +8,7 @@ This document describes the current prototype-facing privacy explanation. Full p
 - Company and methodologist views must not expose raw conversations, individual tasks, or individual emotional states.
 - Structured insights should be short business signals, linked to source ids for audit/correction, and should not copy raw transcript text.
 - Aggregate views require safe grouping; the current product baseline uses a minimum group size of 5 employees.
-- Telegram voice messages are sent transiently to the configured external STT provider (currently OpenAI/Whisper) for transcription. Audio is not written to disk or stored; only the resulting text follows the normal conversation path. Transport identifiers (file IDs, URLs, duration, size, and MIME type) do not enter domain events, audits, insights, or aggregates.
+- Telegram voice messages are sent transiently to the separately configured external STT provider (currently OpenAI/Whisper) for transcription. STT uses `STT_API_KEY` and `STT_BASE_URL` only; it never inherits the LLM `OPENAI_API_KEY` or `OPENAI_BASE_URL`. Audio is not written to disk or stored; only the resulting text follows the normal conversation path. Transport identifiers (file IDs, URLs, duration, size, and MIME type) do not enter domain events, audits, insights, or aggregates.
 
 ## What this document does not decide
 

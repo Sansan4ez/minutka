@@ -12,7 +12,7 @@ import { Readable } from "node:stream";
 import type { SpeechToTextPort } from "../../../src/application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-voice-file-gateway.js";
 
-export type VoiceInput = { chatId: string; userId?: string; fileId: string; durationSeconds: number; fileSizeBytes?: number; transcript?: string; error?: "download" | "transcribe" };
+export type VoiceInput = { chatId: string; userId?: string; fileId: string; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "transcribe" };
 
 export type SentMessage = { chatId: string; text: string; replyMarkup?: TelegramReplyMarkup };
 export type CallbackAnswer = { callbackQueryId: string; text?: string };
@@ -53,10 +53,13 @@ export class TelegramDriver {
     };
     const speechToText: SpeechToTextPort = {
       transcribe: async ({ audio }) => {
-        const fileId = this.voiceFileIds.get(audio) ?? "";
+        const chunks: Buffer[] = [];
+        for await (const chunk of audio) chunks.push(Buffer.from(chunk)); // consume fake audio like a real provider
+        const data = Buffer.concat(chunks);
+        const separator = data.indexOf(0);
+        const fileId = this.voiceFileIds.get(audio) ?? data.subarray(0, separator === -1 ? data.length : separator).toString("utf8");
         this.transcriptions.push(fileId);
         if (this.voiceErrors.get(fileId) === "transcribe") throw new Error("simulated STT failure");
-        for await (const _chunk of audio) { /* consume fake audio like a real provider */ }
         return this.voiceTranscripts.get(fileId) ?? "";
       },
     };
@@ -66,7 +69,7 @@ export class TelegramDriver {
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendVoice(input: VoiceInput): Promise<void> {
-    this.voiceFiles.set(input.fileId, Buffer.from("voice"));
+    this.voiceFiles.set(input.fileId, Buffer.concat([Buffer.from(`${input.fileId}\0`), Buffer.alloc(input.audioBytes ?? 0)]));
     this.voiceTranscripts.set(input.fileId, input.transcript ?? "");
     if (input.error) this.voiceErrors.set(input.fileId, input.error); else this.voiceErrors.delete(input.fileId);
     await this.shell.handleVoice(input.chatId, { fileId: input.fileId, durationSeconds: input.durationSeconds, ...(input.fileSizeBytes === undefined ? {} : { fileSizeBytes: input.fileSizeBytes }) }, input.userId ?? this.defaultUserId(input.chatId));

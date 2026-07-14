@@ -25,6 +25,7 @@
 
 - [ ] Добавлена dependency `@mastra/voice-openai`; API `OpenAIVoice`/`listen()` сверен с embedded docs установленной версии.
 - [ ] Добавлен application-level порт `SpeechToTextPort`; Mastra-реализация живёт в `src/mastra/`.
+- [ ] STT настраивается отдельно через `STT_PROVIDER`, `STT_API_KEY` и необязательный `STT_BASE_URL`; STT-трафик не наследует `OPENAI_API_KEY` или `OPENAI_BASE_URL` LLM-контура. Без `STT_API_KEY` polling-бот продолжает запускаться, но controlled-ответом отключает voice.
 - [ ] Добавлен `TelegramVoiceFileGateway` (download boundary) в Telegram shell слое; Telegraf-реализация через `getFileLink` + `fetch`.
 - [ ] `createTelegramShell()` получил `handleVoice()`: metadata guards → download → STT → общий chat-путь.
 - [ ] Voice и text сходятся в один внутренний dispatch: после транскрипции voice проходит ровно тот же путь, что `handleText` (включая onboarding-ответы голосом до создания профиля).
@@ -48,8 +49,9 @@
 3. `handleVoice()` в pure Telegram shell + `bot.on("voice")` в Telegraf runtime.
 4. `inputModality` в chat contract, domain event и audit metadata.
 5. Расширение telegram-driver (`sendVoice`) и `SPEC-VOICE-001`.
-6. Обновление privacy-заметок в `vault/docs/privacy-boundary.md` (аудио обрабатывается внешним STT-провайдером, не хранится).
-7. Ручной smoke с реальным ботом и OpenAI.
+6. Отдельная runtime-конфигурация STT: `STT_PROVIDER` (сейчас только `openai`), обязательный для voice `STT_API_KEY`, необязательный `STT_BASE_URL`.
+7. Обновление privacy-заметок в `vault/docs/privacy-boundary.md` (аудио обрабатывается настроенным внешним STT-провайдером, не хранится).
+8. Ручной smoke с реальным ботом и OpenAI.
 
 ### Не входит
 
@@ -60,7 +62,7 @@
 - Поддержка `audio`-документов, `video_note`, пересланных файлов — только `message.voice`.
 - Feedback голосом, voice-специфичные процессы в Agent Vault: транскрипт — обычный user text, routing не меняется.
 - Отдельная PostgreSQL-миграция: `inputModality` фиксируется в событии/audit metadata (jsonb), схема conversation не меняется.
-- Env-конфигурация STT-модели: константа `whisper-1`; выбор модели — отдельным решением при реальной необходимости.
+- Env-конфигурация STT-модели: константа `whisper-1`; выбор модели — отдельным решением при реальной необходимости. Runtime credentials и endpoint — исключение: они задаются отдельными `STT_PROVIDER` / `STT_API_KEY` / `STT_BASE_URL`.
 
 ---
 
@@ -121,29 +123,35 @@ export interface TelegramVoiceFileGateway {
 
 `fileId` и file URL — transport identifiers: они допустимы только в shell/gateway и transient-логах; не попадают в application contract, domain events, audit и insights.
 
-### 4.3 Mastra-реализация STT
+### 4.3 Конфигурация и Mastra-реализация STT
+
+STT — самостоятельный credential boundary. LLM использует `OPENAI_API_KEY`/`OPENAI_BASE_URL`; voice использует только:
+
+```dotenv
+STT_PROVIDER=openai                 # default; единственный поддержанный сейчас
+STT_API_KEY=                        # включает voice-транскрипцию
+# STT_BASE_URL=https://api.openai.com/v1  # optional OpenAI-compatible endpoint
+```
+
+`STT_API_KEY` пустой означает, что polling-бот остаётся совместим с существующим текстовым deployment: voice handler отвечает, что голос временно недоступен, и не скачивает файл. Если задан любой из остальных STT-параметров без ключа, или выбран неподдерживаемый provider, запуск завершается с понятной configuration error.
 
 ```ts
 // src/mastra/voice-transcriber.ts
-import { OpenAIVoice } from "@mastra/voice-openai";
-import type { SpeechToTextPort } from "../application/speech-to-text.js";
-
-export function createOpenAiSpeechToText(): SpeechToTextPort {
-  const voice = new OpenAIVoice({ listeningModel: { name: "whisper-1" } });
-  return {
-    async transcribe({ audio, filetype }) {
-      const result = await voice.listen(audio, { filetype });
-      if (typeof result !== "string") throw new Error("STT provider returned a non-text result");
-      return result;
-    },
-  };
-}
+const options = { baseURL: config.baseUrl ?? "https://api.openai.com/v1" };
+const voice = new OpenAIVoice({
+  // Текущая версия пакета создаёт оба клиента даже при listen()-only.
+  // Оба получают только STT credentials и явный endpoint.
+  speechModel: { name: "tts-1", apiKey: config.apiKey, options },
+  listeningModel: { name: "whisper-1", apiKey: config.apiKey, options },
+});
 ```
+
+Явный fallback `https://api.openai.com/v1` и ключи в обеих model-конфигурациях обязательны: `openai` SDK иначе читает `OPENAI_BASE_URL`/`OPENAI_API_KEY` из окружения, а `OpenAIVoice` текущей версии требует speech key, хотя TTS не используется. Таким образом аудио не может случайно уйти через LLM proxy.
 
 Docs-first обязательства перед реализацией (правило №3 родительского плана):
 
-1. После `npm install @mastra/voice-openai` прочитать embedded docs/типы установленной версии (`node_modules/@mastra/voice-openai`), сверить сигнатуру конструктора (`listeningModel`), `listen(stream, { filetype })` и тип возврата (`string | ReadableStream | void`).
-2. Проверить совместимость версии пакета с `@mastra/core@1.50.x` (peer deps) и работу `OPENAI_BASE_URL` override: провайдер использует `openai` SDK, который читает `OPENAI_API_KEY`/`OPENAI_BASE_URL` из env — подтвердить по установленному коду; если base URL не подхватывается, прокинуть его явно в конструктор.
+1. После `npm install @mastra/voice-openai` прочитать embedded docs/типы установленной версии (`node_modules/@mastra/voice-openai`), сверить сигнатуру конструктора (`listeningModel`, `speechModel`), `listen(stream, { filetype })` и тип возврата.
+2. Проверить peer-совместимость с `@mastra/core@1.50.x` и исходники конструктора: он создаёт speech и listening clients; не полагаться на env fallback SDK.
 3. `whisper-1` — не chat-модель, provider registry для неё не применяется; фиксация модели — в этом плане и в коде константой.
 
 Формат: Telegram voice — OGG/Opus; официальный список Whisper API включает `ogg`, поэтому конвертация не нужна.
@@ -168,7 +176,8 @@ const voiceFileGateway: TelegramVoiceFileGateway = {
 Замечания:
 
 - URL из `getFileLink` содержит bot token в пути — **не логировать** URL и тела ошибок fetch целиком; в логах только operation + error name (существующий паттерн `logShellError`).
-- Bot API `getFile` отдаёт файлы до 20 MB — это естественный верхний лимит; проверка размера по `voice.file_size` делается до скачивания.
+- Bot API `getFile` отдаёт файлы до 20 MB — это естественный верхний лимит; проверка размера по `voice.file_size` делается до скачивания. Если Telegram не передал размер, ограничивающий stream всё равно обрывает загрузку после 20 MiB.
+- Поток закрывается в `finally`, включая случай, когда STT-провайдер завершился ошибкой до полного чтения body.
 
 ### 4.5 `handleVoice` в pure shell
 
@@ -180,7 +189,7 @@ handleVoice(chatId, voice: { fileId, durationSeconds, fileSizeBytes? }, userId?)
   2. session + consent guards — как в handleText, ДО скачивания файла
   3. if durationSeconds > 300 → "Голосовое сообщение слишком длинное (максимум 5 минут)."
   4. if fileSizeBytes > 20 MB → controlled message (лимит Telegram)
-  5. под typing indicator: gateway.openVoiceFile(fileId) → speechToText.transcribe()
+  5. под typing indicator: gateway.openVoiceFile(fileId) → speechToText.transcribe(); закрыть stream в `finally`; если size отсутствует, применить stream-limit 20 MiB
   6. transcript.trim(); пустой → "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом."
   7. transcript длиннее 4096 chars → тот же лимит, что у текста
   8. дальше — общий dispatch с inputModality = "voice":
@@ -189,7 +198,7 @@ handleVoice(chatId, voice: { fileId, durationSeconds, fileSizeBytes? }, userId?)
   9. любая ошибка download/STT → logShellError + "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."
 ```
 
-`createTelegramShell()` расширяет deps: `speechToText: SpeechToTextPort` и `voiceFileGateway: TelegramVoiceFileGateway`. Чтобы не менять существующие вызовы (specs Phase 4), допустимо сделать их обязательными и обновить все точки сборки — их всего три (serve, telegram-driver, возможно in-memory runtime).
+`createTelegramShell()` получает optional `speechToText` и `voiceFileGateway`: в polling deployment без STT key text остаётся доступен, а voice получает controlled fallback без download. При заданном STT key обе зависимости передаются вместе.
 
 ### 4.6 Telegraf runtime
 
@@ -275,10 +284,10 @@ And ни одно domain event / audit record не содержит fileId, URL,
 
 1. Happy path выше, включая последующий feedback callback на voice-ответ.
 2. Text path регрессии: обычный текст даёт `inputModality = "text"` (или default) — voice не ломает text.
-3. Нет session / нет consent → тот же controlled ответ, что у text; **gateway и STT не вызываются**.
+3. Нет session / нет consent → тот же controlled ответ, что у text; **gateway и STT не вызываются** (включая проверку текста ответа).
 4. `durationSeconds > 300` → controlled message, gateway/STT не вызываются.
-5. `fileSizeBytes > 20 MB` → controlled message, gateway/STT не вызываются.
-6. STT бросает ошибку → user-facing fallback, `client.chat()` не вызывается, shell не падает.
+5. `fileSizeBytes > 20 MB` → controlled message, gateway/STT не вызываются; при отсутствующем `fileSizeBytes` stream-limit прекращает чтение после 20 MiB.
+6. STT бросает ошибку → user-facing fallback, `client.chat()` не вызывается, shell не падает, stream закрыт.
 7. Download gateway бросает ошибку → то же самое.
 8. Пустой/whitespace транскрипт → controlled message «не удалось распознать», `chat()` не вызывается.
 9. Транскрипт длиннее 4096 символов → тот же лимит, что у текста.
@@ -312,8 +321,9 @@ npm run typecheck && npm run specs
 ### Step 3 — Порты и Mastra STT adapter
 
 1. `src/application/speech-to-text.ts` — интерфейс.
-2. `src/mastra/voice-transcriber.ts` — `createOpenAiSpeechToText()`.
-3. `src/telegram/telegram-voice-file-gateway.ts` — интерфейс gateway.
+2. `src/runtime/stt-config.ts` — parse/validation `STT_PROVIDER`, `STT_API_KEY`, `STT_BASE_URL`; отсутствие ключа отключает только voice.
+3. `src/mastra/voice-transcriber.ts` — `createOpenAiSpeechToText()` с явно заданными STT key/base URL у listening и обязательного внутреннего speech client.
+4. `src/telegram/telegram-voice-file-gateway.ts` — интерфейс gateway.
 
 Проверка: `npm run typecheck`.
 
@@ -335,15 +345,15 @@ npm run typecheck && npm run specs
 ### Step 6 — Telegraf runtime и composition root
 
 1. `bot.on("voice", ...)` в `telegraf-runtime.ts` (private-chat guard, metadata → shell).
-2. `serve.ts`: собрать `voiceFileGateway` (getFileLink + fetch + `Readable.fromWeb`) и `createOpenAiSpeechToText()`; передать в shell. STT-порт создаётся один раз на процесс.
-3. Обновить `vault/docs/privacy-boundary.md`: голосовые сообщения транскрибируются внешним STT-провайдером (OpenAI), аудио не сохраняется, транскрипт обрабатывается как обычный текст.
+2. `serve.ts`: если STT configured, собрать `voiceFileGateway` (getFileLink + fetch + `Readable.fromWeb`) и `createOpenAiSpeechToText()`; иначе создать текстовый shell без STT. STT-порт создаётся один раз на процесс.
+3. Обновить `.env.example` и `vault/docs/privacy-boundary.md`: STT credentials/endpoints независимы от LLM `OPENAI_*`; голосовые сообщения транскрибируются настроенным внешним STT-провайдером, аудио не сохраняется, транскрипт обрабатывается как обычный текст.
 
 Проверка: `npm run typecheck`.
 
 ### Step 7 — Manual voice smoke
 
 ```bash
-TELEGRAM_MODE=polling npm run serve   # с заполненным .env (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, PostgreSQL)
+TELEGRAM_MODE=polling npm run serve   # с STT_API_KEY, TELEGRAM_BOT_TOKEN и PostgreSQL; OPENAI_API_KEY нужен отдельно для LLM
 ```
 
 1. Отправить голосовое: «Сегодня хочу закрыть квартальный отчёт, но всё утро ушло на звонки».
@@ -388,7 +398,7 @@ npm run verify:persistence   # регрессия: схема БД не меня
 | Whisper вернёт мусор на шум/тишину | Пустой транскрипт → controlled message; мусорный, но непустой транскрипт идёт обычным путём — decision plane и guardrails обрабатывают его как любой текст. |
 | Транскрипт «не то, что я сказал» подрывает доверие | MVP-допущение: ответ агента строится на транскрипте; при реальной боли — отдельной задачей показывать транскрипт пользователю. Не усложнять сейчас. |
 | `inputModality` начнут расширять transport-метаданными | Поле — закрытый enum по образцу feedback `source`; правило зафиксировано в разделе 5 и privacy-boundary doc. |
-| `OPENAI_BASE_URL` override не подхватится voice-провайдером | Проверить на Step 1 по коду установленного пакета; при необходимости прокинуть baseURL явно в конструктор. |
+| STT случайно наследует LLM key или proxy из `OPENAI_*` | Никогда не полагаться на env fallback SDK: в оба клиента `OpenAIVoice` передаются `STT_API_KEY` и `STT_BASE_URL`, а при пустом `STT_BASE_URL` — явный официальный OpenAI URL. |
 | Onboarding голосом усложнит FSM | Ничего не меняется: транскрипт уходит в существующий `submitOnboardingAnswer`, confirm остаётся кнопочным. |
 
 ---
@@ -407,7 +417,9 @@ src/mastra/voice-transcriber.ts                # OpenAIVoice adapter
 src/telegram/telegram-voice-file-gateway.ts    # download boundary interface
 src/telegram/telegram-shell.ts                 # handleVoice + общий dispatch
 src/telegram/telegraf-runtime.ts               # bot.on("voice")
-src/runtime/serve.ts                           # composition: gateway + STT port
+src/runtime/stt-config.ts                      # отдельные STT provider/credentials/endpoint
+src/runtime/serve.ts                           # optional composition: gateway + STT port
+.env.example                                   # отдельные STT variables и deployment note
 vault/docs/privacy-boundary.md                 # заметка про внешний STT
 specs/executable/support/telegram-driver.ts    # sendVoice + fake ports
 specs/executable/telegram/SPEC-VOICE-001.spec.ts
@@ -422,7 +434,7 @@ specs/executable/telegram/SPEC-VOICE-001.spec.ts
 - Не делать TTS/голосовые ответы и realtime STT.
 - Не хранить аудио и не строить audio blob store / retry-очередь транскрипции.
 - Не добавлять audio endpoints в HTTP API.
-- Не вводить env-конфигурацию STT-модели — константа `whisper-1`.
+- Не вводить env-конфигурацию STT-модели — константа `whisper-1`; отдельные provider/key/endpoint нужны только для credential boundary.
 - Не показывать транскрипт пользователю «на подтверждение» — отдельная задача при реальной боли.
 - Не расширять conversation-схему БД ради модальности.
 - Не добавлять voice-специфичные процессы в Agent Vault: транскрипт — обычный текст для decision plane.

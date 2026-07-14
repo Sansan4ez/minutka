@@ -42,7 +42,6 @@ async function main(): Promise<void> {
       const token = process.env.TELEGRAM_BOT_TOKEN; const serviceToken = process.env.MINUTKA_SERVICE_TOKEN;
       if (!token || !serviceToken) throw new Error("TELEGRAM_MODE=polling requires TELEGRAM_BOT_TOKEN and MINUTKA_SERVICE_TOKEN");
       const stt = sttConfigFromEnv(process.env);
-      if (stt.provider !== "openai") throw new Error(`Unsupported STT_PROVIDER: ${stt.provider}`);
       let activeBot: Telegraf | undefined;
       const replyPort: TelegramReplyPort = {
         async sendMessage(chatId, text, options) { if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000-character limit"); if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendMessage(chatId, text, { reply_markup: options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined }); },
@@ -50,16 +49,19 @@ async function main(): Promise<void> {
         async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },
       };
       const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: listener.url, token: serviceToken }));
-      const voiceFileGateway: TelegramVoiceFileGateway = {
+      const voiceFileGateway: TelegramVoiceFileGateway | undefined = stt ? {
         async openVoiceFile(fileId) {
           if (!activeBot) throw new Error("Bot not running");
           const url = await activeBot.telegram.getFileLink(fileId);
           const response = await fetch(url);
-          if (!response.ok || !response.body) throw new Error(`Voice file download failed (${response.status})`);
+          if (!response.ok || !response.body) {
+            void response.body?.cancel().catch(() => undefined);
+            throw new Error(`Voice file download failed (${response.status})`);
+          }
           return { stream: Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), filetype: "ogg" };
         },
-      };
-      const speechToText = createOpenAiSpeechToText(stt);
+      } : undefined;
+      const speechToText = stt ? createOpenAiSpeechToText(stt) : undefined;
       bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
     console.log(`Minutka HTTP API listening on ${listener.url}`);
