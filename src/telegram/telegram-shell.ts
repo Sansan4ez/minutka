@@ -158,13 +158,18 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
         if (voice.durationSeconds > maxVoiceDurationSeconds) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком длинное (максимум 5 минут).");
         if (voice.fileSizeBytes !== undefined && voice.fileSizeBytes > maxVoiceFileSizeBytes) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком большое (максимум 20 МБ).");
-        const file = await withTypingIndicator(replyPort, chatId, () => withVoiceTimeout(voiceTimeoutMs, (signal) => voiceFileGateway.openVoiceFile(voice.fileId, signal)));
-        const audio = voice.fileSizeBytes === undefined ? limitVoiceStream(file.stream, maxVoiceFileSizeBytes) : file.stream;
+        let file: Awaited<ReturnType<TelegramVoiceFileGateway["openVoiceFile"]>> | undefined;
+        let audio: NodeJS.ReadableStream | undefined;
         try {
+          // Download and STT share one budget. A single deadline prevents a
+          // stalled download followed by a stalled provider call from holding
+          // the per-chat guard for twice the configured processing window.
           const transcript = (await withTypingIndicator(replyPort, chatId, () => withVoiceTimeout(voiceTimeoutMs, async (signal) => {
+            file = await voiceFileGateway.openVoiceFile(voice.fileId, signal);
+            audio = voice.fileSizeBytes === undefined ? limitVoiceStream(file.stream, maxVoiceFileSizeBytes) : file.stream;
             signal.addEventListener("abort", () => {
-              destroyStream(audio);
-              if (audio !== file.stream) destroyStream(file.stream);
+              if (audio) destroyStream(audio);
+              if (audio && audio !== file?.stream) destroyStream(file!.stream);
             }, { once: true });
             return speechToText.transcribe({ audio, filetype: file.filetype, signal });
           }))).trim();
@@ -174,8 +179,8 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           await dispatchText(chatId, transcript, session, "voice");
         } finally {
           // A provider can fail before consuming the download; close it promptly.
-          destroyStream(audio);
-          if (audio !== file.stream) destroyStream(file.stream);
+          if (audio) destroyStream(audio);
+          if (audio && audio !== file?.stream) destroyStream(file!.stream);
         }
       } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
