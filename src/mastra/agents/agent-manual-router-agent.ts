@@ -1,4 +1,5 @@
 import { Agent } from "@mastra/core/agent";
+import { llmModel } from "../../config/llm.js";
 
 export const agentManualRouterAgent = new Agent({
   id: "agent-manual-router",
@@ -14,5 +15,5 @@ Task:
 - Never invent ids.
 - Never include explanations or markdown.
   `.trim(),
-  model: "openai/gpt-5.4-mini",
+  model: llmModel,
 });

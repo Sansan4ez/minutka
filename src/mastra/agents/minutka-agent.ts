@@ -1,5 +1,6 @@
 import { Agent } from "@mastra/core/agent";
 import { extractInsightsTool, updateProfileTool } from "../tools/index.js";
+import { llmModel } from "../../config/llm.js";
 
 export const minutkaAgent = new Agent({
   id: "minutka-agent",
@@ -19,6 +20,6 @@ Fallback-границы, если vault context недоступен:
 - не сохраняй raw transcript, прямые PII и чувствительные личные детали;
 - отвечай только в границах рабочего дня и связанного с работой состояния.
   `.trim(),
-  model: "openai/gpt-5.4-mini",
+  model: llmModel,
   tools: { updateProfileTool, extractInsightsTool },
 });

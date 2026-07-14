@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
 import { HttpServiceMinutkaTransport } from "../client/sdk/http-transport.js";
@@ -13,9 +12,9 @@ import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
 import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { parseInviteSeeds } from "../telegram/invite-seeds.js";
 import { Telegraf } from "telegraf";
+import { loadDotEnv } from "../config/llm.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
 
-function loadDotEnv(): void { if (!existsSync(".env")) return; for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) { const trimmed = line.trim(); const index = trimmed.indexOf("="); if (trimmed && !trimmed.startsWith("#") && index !== -1 && !process.env[trimmed.slice(0, index).trim()]) process.env[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim(); } }
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
