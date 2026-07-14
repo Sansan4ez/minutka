@@ -195,7 +195,19 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("deletes every employee-owned private record", async () => {
-    await issueProfileReadyParticipant(pool, "emp_delete", "invite_delete");
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const drafts = createPostgresOnboardingDraftStore(pool);
+    await profiles.issueInvite({ employeeId: "emp_delete", inviteCode: "invite_delete", issuedAt: now });
+    await profiles.openInvite({ inviteCode: "invite_delete", openedAt: now, explanationShownAt: now });
+    await profiles.acceptConsent({ employeeId: "emp_delete", privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
+    // Drafts are intentionally rejected after profile completion. Persist this
+    // temporary private record while onboarding is still in progress, then
+    // complete the profile without its normal draft-cleanup option.
+    await drafts.save({ employeeId: "emp_delete", status: "collecting", pendingField: "role", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
+    await profiles.completeProfile({
+      completedAt: now,
+      profile: { employeeId: "emp_delete", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+    });
     const conversations = createPostgresConversationStore(pool);
     await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
     await createPostgresFeedbackStore(pool).saveFeedback({ id: "fb_delete", employeeId: "emp_delete", threadId: "thread_delete", targetMessageId: "msg_delete", rating: "positive", source: "test", updatedAt: now });
@@ -208,8 +220,7 @@ describe("PostgreSQL storage contracts", () => {
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
-    await createPostgresOnboardingDraftStore(pool).save({ employeeId: "emp_delete", status: "collecting", pendingField: "role", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
-    await createPostgresProfileStore(pool, config.inviteCodePepper).deleteEmployeePersonalData("emp_delete");
+    await profiles.deleteEmployeePersonalData("emp_delete");
     for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
