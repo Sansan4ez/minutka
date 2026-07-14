@@ -16,7 +16,7 @@
 Принципы этапа:
 
 - **простой:** нет TTS/`speak()`, нет realtime/streaming STT, нет хранения аудио, нет конвертации форматов (Telegram OGG/Opus напрямую поддерживается Whisper API);
-- **надёжный:** specs используют fake STT и fake file gateway; реальный OpenAI/Telegram нужен только для manual smoke; ошибки STT дают controlled user-facing fallback;
+- **надёжный:** specs используют fake STT и fake file gateway; реальный OpenAI/Telegram нужен только для manual smoke; ошибки и зависшие download/STT операции дают controlled user-facing fallback; voice-processing timeout освобождает in-flight guard;
 - **эффективный:** voice конвергирует с text в одну внутреннюю функцию shell; guards (session, consent, in-flight, лимиты) срабатывают **до** скачивания файла и вызова STT.
 
 ---
@@ -31,7 +31,7 @@
 - [ ] Voice и text сходятся в один внутренний dispatch: после транскрипции bot сначала показывает сотруднику `Распознано:\n<transcript>`, затем voice проходит ровно тот же путь, что `handleText` (включая onboarding-ответы голосом до создания профиля).
 - [ ] Chat contract расширен опциональным `inputModality: "text" | "voice"` (default `"text"`); поле проходит SDK → HTTP `/v1` → `MinutkaService.chat()`.
 - [ ] `ChatMessageReceived` и audit `chat_received` содержат `inputModality`; никакие Telegram `fileId`/URL/duration в domain events не попадают.
-- [ ] Guards: длительность ≤ 300 сек, размер ≤ 20 MB (лимит Telegram `getFile`), пустой транскрипт → controlled message без вызова `chat()`.
+- [ ] Guards: длительность ≤ 300 сек, размер ≤ 20 MB (лимит Telegram `getFile`), пустой транскрипт → controlled message без вызова `chat()`; download и STT ограничены timeout и освобождают in-flight guard.
 - [ ] `SPEC-VOICE-001` проходит через telegram-driver с fake STT/gateway, без OpenAI key, Telegram token и network.
 - [ ] Предыдущие specs остаются зелёными.
 - [ ] `npm run typecheck`, `npm run specs`, `npm run verify`, `nix run .#verify` проходят.
@@ -178,6 +178,7 @@ const voiceFileGateway: TelegramVoiceFileGateway = {
 - URL из `getFileLink` содержит bot token в пути — **не логировать** URL и тела ошибок fetch целиком; в логах только operation + error name (существующий паттерн `logShellError`).
 - Bot API `getFile` отдаёт файлы до 20 MB — это естественный верхний лимит; проверка размера по `voice.file_size` делается до скачивания. Если Telegram не передал размер, ограничивающий stream всё равно обрывает загрузку после 20 MiB.
 - Поток закрывается в `finally`, включая случай, когда STT-провайдер завершился ошибкой до полного чтения body.
+- Download и STT ограничены одним timeout budget (120 секунд). По expiry `fetch` получает `AbortSignal`, download stream закрывается, а chat in-flight guard освобождается.
 
 ### 4.5 `handleVoice` в pure shell
 
@@ -189,7 +190,7 @@ handleVoice(chatId, voice: { fileId, durationSeconds, fileSizeBytes? }, userId?)
   2. session + consent guards — как в handleText, ДО скачивания файла
   3. if durationSeconds > 300 → "Голосовое сообщение слишком длинное (максимум 5 минут)."
   4. if fileSizeBytes > 20 MB → controlled message (лимит Telegram)
-  5. под typing indicator: gateway.openVoiceFile(fileId) → speechToText.transcribe(); закрыть stream в `finally`; если size отсутствует, применить stream-limit 20 MiB
+  5. под typing indicator: gateway.openVoiceFile(fileId) → speechToText.transcribe(); ограничить каждую операцию timeout budget 120 секунд; закрыть stream в `finally`; если size отсутствует, применить stream-limit 20 MiB
   6. transcript.trim(); пустой → "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом."
   7. transcript длиннее 4096 chars → тот же лимит, что у текста
   8. отправить в Telegram `Распознано:\n<transcript>` (с обычным chunking по 4 000 символов) reply к исходному voice `message_id`; если доставка не удалась, не отправлять невидимый сотруднику текст в onboarding/chat
@@ -291,10 +292,11 @@ And ни одно domain event / audit record не содержит fileId, URL,
 5. `fileSizeBytes > 20 MB` → controlled message, gateway/STT не вызываются; при отсутствующем `fileSizeBytes` stream-limit прекращает чтение после 20 MiB.
 6. STT бросает ошибку → user-facing fallback, `client.chat()` не вызывается, shell не падает, stream закрыт.
 7. Download gateway бросает ошибку → то же самое.
-8. Пустой/whitespace транскрипт → controlled message «не удалось распознать», `chat()` не вызывается.
-9. Транскрипт длиннее 4096 символов → тот же лимит, что у текста.
-10. In-flight guard: второй voice (или text) по тому же chatId во время обработки → cooldown message, без параллельного STT/LLM.
-11. Voice до создания профиля → транскрипт уходит в `submitOnboardingAnswer` (onboarding голосом), профиль не создаётся мимо confirm-flow.
+8. Зависшие download/STT превышают timeout → controlled fallback, stream закрыт и следующий message этого chat допускается.
+9. Пустой/whitespace транскрипт → controlled message «не удалось распознать», `chat()` не вызывается.
+10. Транскрипт длиннее 4096 символов → тот же лимит, что у текста.
+11. In-flight guard: второй voice (или text) по тому же chatId во время обработки → cooldown message, без параллельного STT/LLM.
+12. Voice до создания профиля → транскрипт уходит в `submitOnboardingAnswer` (onboarding голосом), профиль не создаётся мимо confirm-flow.
 
 ---
 
