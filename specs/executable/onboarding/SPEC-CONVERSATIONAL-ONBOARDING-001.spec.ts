@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { extractDeterministicOnboardingPatch } from "../../../src/application/onboarding-profile-extractor.js";
 
 async function consentedRuntime() {
   const world = createInMemoryWorld();
@@ -36,11 +37,18 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: progressive profile onboarding", (
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "новичок" })).toMatchObject({ status: "needs_confirmation" });
   });
 
-  it("does not overwrite a draft with conflicting extracted data", async () => {
+  it("does not overwrite a draft with conflicting extracted data, but accepts an explicit correction after the summary", async () => {
     const runtime = await consentedRuntime();
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Роль — аналитик" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Роль — менеджер" });
     expect(runtime.world.onboardingDrafts[0].role).toBe("аналитик");
+
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Задачи: отчёты. Поддержка. Начинающий." });
+    expect(runtime.world.onboardingDrafts[0].typicalTasks).toEqual(["отчёты"]);
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Роль — менеджер" })).resolves.toMatchObject({
+      status: "needs_confirmation", summary: { role: "менеджер", typicalTasks: ["отчёты"] },
+    });
   });
 
   it("falls back to deterministic extraction when the configured extractor fails or times out", async () => {
@@ -92,5 +100,99 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: progressive profile onboarding", (
     expect(agentRuns).toBe(1);
     expect(world.auditEvents.filter((event) => event.type === "profile_updated")).toHaveLength(1);
     expect(world.auditEvents.filter((event) => event.type === "onboarding_completed")).toHaveLength(1);
+  });
+
+  it("audits an explicit update of an already completed profile", async () => {
+    const runtime = await consentedRuntime();
+    await runtime.service.completeOnboarding({ employeeId: "emp_conversational", role: "аналитик", typicalTasks: ["отчёты"], persona: "support", aiLevel: "beginner" });
+
+    await expect(runtime.service.completeOnboarding({ employeeId: "emp_conversational", role: "руководитель", typicalTasks: ["планирование"], persona: "efficiency", aiLevel: "advanced" })).resolves.toMatchObject({
+      firstResponse: "Профиль обновлён.",
+      profile: { role: "руководитель", typicalTasks: ["планирование"], persona: "efficiency", aiLevel: "advanced" },
+    });
+    expect(runtime.world.auditEvents.filter((event) => event.type === "profile_updated")).toHaveLength(2);
+    expect(runtime.world.auditEvents.filter((event) => event.type === "onboarding_completed")).toHaveLength(1);
+  });
+
+  it("does not retain a completed draft when audit or the welcome response fails", async () => {
+    const world = createInMemoryWorld();
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: async () => { throw new Error("agent unavailable"); },
+      deps: {
+        auditEventStore: {
+          append: async (event) => {
+            if (event.type === "profile_updated" || event.type === "onboarding_completed") throw new Error("audit unavailable");
+            world.auditEvents.push(event);
+          },
+          listCurrent: async () => [],
+          listRecent: async () => [],
+        },
+      },
+    });
+    await runtime.service.issueInvite({ employeeId: "emp_recovery", inviteCode: "invite_recovery" });
+    await runtime.service.openInvite({ inviteCode: "invite_recovery" });
+    await runtime.service.acceptConsent({ employeeId: "emp_recovery", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_recovery", text: "Аналитик | отчёты | Поддержка | Начинающий" });
+
+    await expect(runtime.service.confirmOnboarding({ employeeId: "emp_recovery" })).resolves.toMatchObject({ firstResponse: "Профиль сохранён. Добро пожаловать!" });
+    expect(world.profiles).toHaveLength(1);
+    expect(world.onboardingDrafts).toHaveLength(0);
+    await expect(runtime.service.confirmOnboarding({ employeeId: "emp_recovery" })).resolves.toMatchObject({ firstResponse: "Профиль уже сохранён." });
+  });
+
+  it("does not recreate a draft when confirmation completes during extraction", async () => {
+    let extractionStarted!: () => void;
+    let releaseExtraction!: () => void;
+    const started = new Promise<void>((resolve) => { extractionStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseExtraction = resolve; });
+    const world = createInMemoryWorld();
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: async () => "ok",
+      deps: {
+        onboardingProfileExtractor: async (input) => {
+          if (input.text === "Роль — директор") { extractionStarted(); await release; }
+          return extractDeterministicOnboardingPatch(input);
+        },
+      },
+    });
+    await runtime.service.issueInvite({ employeeId: "emp_completion_race", inviteCode: "invite_completion_race" });
+    await runtime.service.openInvite({ inviteCode: "invite_completion_race" });
+    await runtime.service.acceptConsent({ employeeId: "emp_completion_race", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_completion_race", text: "Аналитик | отчёты | Поддержка | Начинающий" });
+
+    const staleAnswer = runtime.service.submitOnboardingAnswer({ employeeId: "emp_completion_race", text: "Роль — директор" });
+    await started;
+    await runtime.service.confirmOnboarding({ employeeId: "emp_completion_race" });
+    releaseExtraction();
+    await expect(staleAnswer).rejects.toMatchObject({ code: "profile_already_completed" });
+    expect(world.profiles).toHaveLength(1);
+    expect(world.onboardingDrafts).toHaveLength(0);
+  });
+
+  it("starts a fresh draft when it expires while extraction is running", async () => {
+    let now = "2026-01-01T00:00:00.000Z";
+    let expireDuringExtraction = false;
+    const world = createInMemoryWorld(() => now);
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: async () => "ok",
+      deps: {
+        onboardingProfileExtractor: async (input) => {
+          if (expireDuringExtraction) now = "2026-02-01T00:00:00.000Z";
+          return extractDeterministicOnboardingPatch(input);
+        },
+      },
+    });
+    await runtime.service.issueInvite({ employeeId: "emp_expiry_race", inviteCode: "invite_expiry_race" });
+    await runtime.service.openInvite({ inviteCode: "invite_expiry_race" });
+    await runtime.service.acceptConsent({ employeeId: "emp_expiry_race", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_expiry_race", text: "Роль — аналитик" });
+    expireDuringExtraction = true;
+
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_expiry_race", text: "отчёты" })).resolves.toMatchObject({ status: "needs_answer", field: "role" });
+    expect(world.onboardingDrafts[0]).toMatchObject({ createdAt: "2026-02-01T00:00:00.000Z", typicalTasks: ["отчёты"] });
+    expect(world.onboardingDrafts[0].role).toBeUndefined();
   });
 });

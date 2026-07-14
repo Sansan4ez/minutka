@@ -57,6 +57,7 @@ export const onboardingProgressSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["persona", "aiLevel"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(2) }),
   z.strictObject({ status: z.literal("needs_confirmation"), summary: z.strictObject({ role: z.string().min(1), typicalTasks: z.array(z.string().min(1)).min(1).max(7), persona: z.string().min(1), aiLevel: z.string().min(1) }) }),
+  z.strictObject({ status: z.literal("needs_correction"), prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("completed"), result: completeOnboardingResponseSchema }),
 ]);
 

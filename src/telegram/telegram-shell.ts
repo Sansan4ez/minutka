@@ -46,6 +46,7 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
     const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
     return replyPort.sendMessage(chatId, progress.prompt, { replyMarkup: { inlineKeyboard: choices.map((choice) => [choice]) } });
   }
+  if (progress.status === "needs_correction") return replyPort.sendMessage(chatId, progress.prompt);
   if (progress.status === "needs_confirmation") {
     const summary = progress.summary;
     return replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- роль: ${summary.role};`, `- типичные задачи: ${summary.typicalTasks.join(", ")};`, `- стиль: ${summary.persona};`, `- опыт работы с ИИ: ${summary.aiLevel}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
@@ -108,7 +109,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           const [prefix, action, value, ...extra] = data.split(":");
           if (prefix !== "ob" || extra.length || !action) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
           if (action === "confirm" && !value) { const result = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()); await replyPort.answerCallbackQuery(callbackQueryId, "Профиль сохранён!"); for (const chunk of splitTelegramMessage(result.firstResponse)) await replyPort.sendMessage(chatId, chunk); return; }
-          if (action === "reset" && !value) { await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?"); return replyPort.sendMessage(chatId, "Напишите исправление, например: «Не средний, а начинающий» или «Добавь отчёты к задачам». "); }
+          if (action === "reset" && !value) { const progress = await employeeClient(session.employeeId).submitOnboardingAnswer({ text: "Исправить" }); await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?"); return renderOnboardingProgress(replyPort, chatId, progress); }
           if ((action === "persona" || action === "aiLevel") && value) { await replyPort.answerCallbackQuery(callbackQueryId); return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text: value })); }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }

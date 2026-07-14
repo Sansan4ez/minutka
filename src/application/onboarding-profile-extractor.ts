@@ -41,7 +41,7 @@ export function extractDeterministicOnboardingPatch(input: {
 
   // A direct answer to a focused question is safe only for free-form fields.
   if (input.currentDraft.pendingField === "role" && !patch.role && !patch.persona && !patch.aiLevel && looksLikeRole(text)) patch.role = text;
-  if (input.currentDraft.pendingField === "typicalTasks" && !patch.typicalTasks && !patch.persona && !patch.aiLevel) patch.typicalTasks = tasks(text);
+  if (input.currentDraft.pendingField === "typicalTasks" && !patch.typicalTasks && !patch.role && !patch.persona && !patch.aiLevel) patch.typicalTasks = tasks(text);
   return validatePatch(patch);
 }
 

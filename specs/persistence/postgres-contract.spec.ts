@@ -177,16 +177,21 @@ describe("PostgreSQL storage contracts", () => {
     expect(events.at(-1)?.id).toBe("evt_current_54");
   });
 
-  it("removes expired onboarding drafts and allows a fresh draft to be created", async () => {
+  it("purges expired onboarding drafts and never revives one during a stale CAS write", async () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const drafts = createPostgresOnboardingDraftStore(pool);
     await profiles.issueInvite({ employeeId: "emp_draft", inviteCode: "invite_draft", issuedAt: now });
     const expired = { employeeId: "emp_draft", status: "collecting" as const, pendingField: "role" as const, revision: 1, createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", expiresAt: "2000-02-01T00:00:00.000Z" };
     await drafts.save(expired, 0);
-    expect(await drafts.get("emp_draft")).toBeUndefined();
-    const fresh = { ...expired, revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" };
-    expect(await drafts.save(fresh, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
+    const fresh = { ...expired, revision: 2, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" };
+    await expect(drafts.save(fresh, expired.revision)).rejects.toMatchObject({ code: "persistence_conflict" });
+    expect(await drafts.purgeExpired()).toBe(1);
+    expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
+    expect(await drafts.save({ ...fresh, revision: 1 }, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
     expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "typicalTasks" })).toMatchObject({ revision: 2, pendingField: "typicalTasks" });
+    await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
+    expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
+    await expect(drafts.save({ ...fresh, revision: 3 }, 0)).rejects.toMatchObject({ code: "persistence_conflict" });
   });
 
   it("deletes every employee-owned private record", async () => {

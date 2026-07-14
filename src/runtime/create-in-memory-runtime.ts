@@ -24,7 +24,7 @@ export type InMemoryRuntime = {
 export function createInMemoryRuntime(input: {
   agentRunner: AgentRunner;
   world?: InMemoryWorld;
-  deps?: Pick<MinutkaServiceDeps, "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingExtractionTimeoutMs"> & {
+  deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingExtractionTimeoutMs"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
     insightExtractor?: InsightExtractor;
   };
@@ -56,7 +56,7 @@ export function createInMemoryRuntime(input: {
     conversationStore: createInMemoryConversationStore(world),
     insightStore: createInMemoryInsightStore(world),
     feedbackStore: createInMemoryFeedbackStore(world),
-    auditEventStore,
+    auditEventStore: deps.auditEventStore ?? auditEventStore,
     consentAcceptanceStore,
     telegramInviteRedemptionStore: createInMemoryTelegramInviteRedemptionStore({
       profileStore,

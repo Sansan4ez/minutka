@@ -40,12 +40,17 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
         const result = await pool.query<DraftRow>(
           `INSERT INTO minutka_private.onboarding_drafts
              (employee_id, role, typical_tasks, persona, ai_level, status, pending_field, revision, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11)
+           SELECT $1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11
+           WHERE EXISTS (
+             SELECT 1 FROM minutka_private.participants
+             WHERE employee_id = $1 AND status <> 'profile_completed'
+           )
            ON CONFLICT (employee_id) DO UPDATE SET
              role=EXCLUDED.role, typical_tasks=EXCLUDED.typical_tasks, persona=EXCLUDED.persona, ai_level=EXCLUDED.ai_level,
              status=EXCLUDED.status, pending_field=EXCLUDED.pending_field, revision=EXCLUDED.revision,
              updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at
            WHERE ($12::integer IS NULL OR minutka_private.onboarding_drafts.revision = $12)
+             AND minutka_private.onboarding_drafts.expires_at > now()
            RETURNING *`,
           [draft.employeeId, draft.role ?? null, draft.typicalTasks ? JSON.stringify(draft.typicalTasks) : null, draft.persona ?? null,
             draft.aiLevel ?? null, draft.status, draft.pendingField ?? null, draft.revision, draft.createdAt, draft.updatedAt,
@@ -60,7 +65,11 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
         const result = await pool.query<DraftRow>(
           `INSERT INTO minutka_private.onboarding_drafts
              (employee_id, role, typical_tasks, persona, ai_level, status, pending_field, revision, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11)
+           SELECT $1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11
+           WHERE EXISTS (
+             SELECT 1 FROM minutka_private.participants
+             WHERE employee_id = $1 AND status <> 'profile_completed'
+           )
            ON CONFLICT (employee_id) DO UPDATE SET
              role=EXCLUDED.role, typical_tasks=EXCLUDED.typical_tasks, persona=EXCLUDED.persona, ai_level=EXCLUDED.ai_level,
              status=EXCLUDED.status, pending_field=EXCLUDED.pending_field, revision=EXCLUDED.revision,
@@ -76,6 +85,12 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
     async delete(employeeId) {
       try { await pool.query("DELETE FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [employeeId]); }
       catch (error) { throw mapPostgresError(error); }
+    },
+    async purgeExpired() {
+      try {
+        const result = await pool.query("DELETE FROM minutka_private.onboarding_drafts WHERE expires_at <= now()");
+        return result.rowCount ?? 0;
+      } catch (error) { throw mapPostgresError(error); }
     },
   };
 }

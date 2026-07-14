@@ -255,17 +255,18 @@ export class MinutkaService {
       persona: input.persona, aiLevel: input.aiLevel, responseLength: input.responseLength ?? "balanced",
       preferredCheckinsPerDay: input.preferredCheckinsPerDay, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp,
     };
-    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate });
-    // The storage lock is the idempotency boundary. Replays return the
-    // finalized profile and never produce another audit fact or agent run.
-    if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
-    const changedFields = getChangedFields(existing, completed.profile);
-    await this.audit(requestId, "profile_updated", input.employeeId, undefined, undefined, timestamp, { changedFields });
-    await this.audit(requestId, "onboarding_completed", input.employeeId, undefined, undefined, timestamp, { persona: completed.profile.persona });
-    const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.", profile: completed.profile });
-    const firstResponse = await this.agentRunner({ employeeId: input.employeeId, threadId: input.employeeId, text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику." }, {
-      profile: completed.profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
-    });
+    const changedFields = getChangedFields(existing, profile);
+    if (allowUpdate && existing && changedFields.length === 0) {
+      await this.deleteOnboardingDraftSafely(input.employeeId);
+      return { employeeId: input.employeeId, status: "profile_completed", profile: existing, firstResponse: "Профиль уже сохранён." };
+    }
+    // Profile completion and draft removal are one storage transaction. This
+    // makes the finalized profile the source of truth even under stale writes.
+    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
+    if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
+    await this.auditProfileCompletionSafely({ requestId, employeeId: input.employeeId, timestamp, changedFields, persona: completed.profile.persona, isNewProfile: !completed.wasCompleted });
+    if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль обновлён." };
+    const firstResponse = await this.createFirstOnboardingResponse(completed.profile);
     return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse };
   }
 
@@ -277,8 +278,9 @@ export class MinutkaService {
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
     const current = await this.getOrCreateOnboardingDraft(employeeId);
-    if (current.status === "awaiting_confirmation" && isCompleteOnboardingDraft(current) && isAffirmativeOnboardingAnswer(text)) {
-      return { status: "completed", result: await this.confirmOnboarding({ employeeId }) };
+    if (current.status === "awaiting_confirmation" && isCompleteOnboardingDraft(current)) {
+      if (isAffirmativeOnboardingAnswer(text)) return { status: "completed", result: await this.confirmOnboarding({ employeeId }) };
+      if (isNegativeOnboardingAnswer(text)) return { status: "needs_correction", prompt: onboardingCorrectionPrompt };
     }
     let extracted: OnboardingProfilePatch;
     try {
@@ -296,12 +298,21 @@ export class MinutkaService {
     // extractor was running. Re-merge the same bounded patch once instead of
     // dropping either answer or overwriting the newer draft.
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Confirmation may have committed while extraction was in flight. Never
+      // recreate or retain temporary personal data after that final transition.
+      if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
       const next = makeOnboardingDraft(draft, mergeOnboardingPatch(draft, patch), this.clock.now());
       try { return onboardingProgress(await this.stores.onboardingDraftStore.save(next, draft.revision)); }
       catch (error) {
         if (!(error instanceof PersistenceError) || error.code !== "persistence_conflict" || attempt === 1) throw error;
+        if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
         const refreshed = await this.stores.onboardingDraftStore.get(employeeId);
-        if (!refreshed) throw error;
+        if (!refreshed) {
+          // The draft expired while extraction was in progress. Start from an
+          // empty generation so stale fields can never be revived by this save.
+          draft = await this.getOrCreateOnboardingDraft(employeeId);
+          continue;
+        }
         // A reset starts a new collection generation. Never replay an answer
         // that was already in flight when the user discarded the old draft.
         if (refreshed.createdAt !== current.createdAt) return onboardingProgress(refreshed);
@@ -316,12 +327,13 @@ export class MinutkaService {
     await this.requireParticipant(employeeId);
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     const existingProfile = await this.stores.profileStore.getProfile(employeeId);
-    if (existingProfile) return { employeeId, status: "profile_completed", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
+    if (existingProfile) {
+      await this.deleteOnboardingDraftSafely(employeeId);
+      return { employeeId, status: "profile_completed", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
+    }
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
     if (!draft || draft.status !== "awaiting_confirmation" || !isCompleteOnboardingDraft(draft)) throw new Error("onboarding draft is incomplete");
-    const result = await this.completeOnboardingProfile({ employeeId, role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel }, false);
-    await this.stores.onboardingDraftStore.delete(employeeId);
-    return result;
+    return this.completeOnboardingProfile({ employeeId, role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel }, false);
   }
 
   async resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> {
@@ -434,6 +446,32 @@ export class MinutkaService {
     await this.stores.auditEventStore.append({ id: this.ids.auditEventId(), requestId, type, employeeId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), occurredAt, metadata: safeAuditMetadata(type, metadata) });
   }
 
+  private async deleteOnboardingDraftSafely(employeeId: string): Promise<void> {
+    try { await this.stores.onboardingDraftStore.delete(employeeId); }
+    catch (error) { logOperationalError("onboarding draft cleanup", error); }
+  }
+
+  private async auditProfileCompletionSafely(input: { requestId: string; employeeId: string; timestamp: string; changedFields: string[]; persona: Persona; isNewProfile: boolean }): Promise<void> {
+    try { await this.audit(input.requestId, "profile_updated", input.employeeId, undefined, undefined, input.timestamp, { changedFields: input.changedFields }); }
+    catch (error) { logOperationalError("profile completion audit", error); }
+    if (!input.isNewProfile) return;
+    try { await this.audit(input.requestId, "onboarding_completed", input.employeeId, undefined, undefined, input.timestamp, { persona: input.persona }); }
+    catch (error) { logOperationalError("profile completion audit", error); }
+  }
+
+  private async createFirstOnboardingResponse(profile: UserProfile): Promise<string> {
+    try {
+      const text = "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.";
+      const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text, profile });
+      return await this.agentRunner({ employeeId: profile.employeeId, threadId: profile.employeeId, text }, {
+        profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
+      });
+    } catch (error) {
+      logOperationalError("onboarding first response", error);
+      return "Профиль сохранён. Добро пожаловать!";
+    }
+  }
+
   private async routeConversationDecisionSafely(input: { purpose: AgentManualPurpose; text: string; profile?: UserProfile; recentTurns: ConversationTurn[] }): Promise<ConversationDecision> {
     if (!this.deps.conversationDecisionRouter) throw new Error("conversationDecisionRouter is required for chat");
     try { return sanitizeConversationDecision(await this.deps.conversationDecisionRouter({ ...input, manual: this.manual }), this.manual, input.purpose); }
@@ -461,10 +499,12 @@ export class MinutkaService {
 }
 
 const onboardingFields: OnboardingField[] = ["role", "typicalTasks", "persona", "aiLevel"];
+const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Не средний, а начинающий» или «Добавь отчёты к задачам».";
 const personaLabels = { support: "Поддержка", efficiency: "Эффективность" } as const;
 const aiLevelLabels = { beginner: "начинающий", intermediate: "средний", advanced: "продвинутый" } as const;
 function onboardingExpiry(now: string): string { const date = new Date(now); date.setDate(date.getDate() + 30); return date.toISOString(); }
 function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да|верно|всё верно|подтверждаю|подтвердить)$/iu.test(text.trim()); }
+function isNegativeOnboardingAnswer(text: string): boolean { return /^(?:нет|неверно|не верно|исправить|не всё верно)$/iu.test(text.trim()); }
 function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel">> {
   return Boolean(draft.role && draft.typicalTasks?.length && draft.persona && draft.aiLevel);
 }

@@ -532,7 +532,28 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
-  it("10a. Uses canonical callback values so every AI level button completes the fallback flow", async () => {
+  it("10a. Lets the employee correct a summary through the edit callback and textual confirmation", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_correction", "--employee", "emp_correction"]);
+    await telegram.start({ chatId: "chat_correction", inviteCode: "invite_correction" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_correction", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_correction", text: "Аналитик | отчёты | Поддержка | Средний" });
+    const edit = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][1];
+    expect(edit).toMatchObject({ text: "✏️ Исправить", callbackData: "ob:reset" });
+    await telegram.clickCallback({ chatId: "chat_correction", callbackData: edit!.callbackData });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Напишите, что исправить");
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_correction", text: "Не средний, а начинающий" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("начинающий");
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_correction", text: "Да" });
+    expect(spec.world.profiles[0]).toMatchObject({ aiLevel: "beginner", role: "Аналитик", typicalTasks: ["отчёты"] });
+  });
+
+  it("10b. Uses canonical callback values so every AI level button completes the fallback flow", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
     await spec.cli.run(["employee", "issue-invite", "--invite", "invite_ai_button", "--employee", "emp_ai_button"]);

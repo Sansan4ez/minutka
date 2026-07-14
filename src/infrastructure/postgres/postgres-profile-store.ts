@@ -172,7 +172,7 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
-    async completeProfile({ profile, completedAt, allowUpdate = true }) {
+    async completeProfile({ profile, completedAt, allowUpdate = true, deleteOnboardingDraft = false }) {
       try {
         return await withTransaction(pool, async (client) => {
           const participant = await client.query<{ status: Participant["status"] }>(
@@ -184,6 +184,7 @@ export function createPostgresProfileStore(
           if (wasCompleted && !allowUpdate) {
             const existing = await client.query<ProfileRow>("SELECT * FROM minutka_private.profiles WHERE employee_id = $1", [profile.employeeId]);
             if (!existing.rows[0]) throw new PersistenceError("persistence_conflict");
+            if (deleteOnboardingDraft) await client.query("DELETE FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [profile.employeeId]);
             return { profile: toProfile(existing.rows[0]), wasCompleted: true };
           }
           await client.query(
@@ -199,6 +200,7 @@ export function createPostgresProfileStore(
             "UPDATE minutka_private.participants SET status = 'profile_completed', updated_at = $2 WHERE employee_id = $1",
             [profile.employeeId, completedAt],
           );
+          if (deleteOnboardingDraft) await client.query("DELETE FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [profile.employeeId]);
           return { profile, wasCompleted };
         });
       } catch (error) {

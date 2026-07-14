@@ -3,7 +3,7 @@ import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
 export type ClaimConsentResult = { consent: Consent; created: boolean };
-/** `wasCompleted` means this call observed an already-finalized profile. */
+/** `wasCompleted` means the participant was finalized before this call. */
 export type CompleteProfileResult = { profile: UserProfile; wasCompleted: boolean };
 
 /** Owner of participant, consent and profile state. Raw invite codes are inputs only. */
@@ -28,6 +28,8 @@ export type ProfileStore = {
     completedAt: string;
     /** Legacy direct completion may update an existing profile; draft confirmation may not. */
     allowUpdate?: boolean;
+    /** Atomically removes temporary onboarding data when profile completion commits. */
+    deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
   /** Private lookup used only by the atomic Telegram invite-redemption adapter. */

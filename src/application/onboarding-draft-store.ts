@@ -7,4 +7,6 @@ export interface OnboardingDraftStore {
   /** Replaces a draft after an explicit user reset; this intentionally bypasses CAS. */
   replace(draft: OnboardingDraft): Promise<OnboardingDraft>;
   delete(employeeId: string): Promise<void>;
+  /** Deletes expired temporary onboarding data without requiring a user request. */
+  purgeExpired(): Promise<number>;
 }

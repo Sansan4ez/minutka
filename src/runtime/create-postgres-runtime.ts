@@ -21,9 +21,12 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
     await pool.query("SELECT 1");
     const status = await migrationStatus(pool);
     if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
+    const onboardingDraftStore = createPostgresOnboardingDraftStore(pool);
+    // Startup cleanup bounds retention even for employees who never return.
+    await onboardingDraftStore.purgeExpired();
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
-      onboardingDraftStore: createPostgresOnboardingDraftStore(pool),
+      onboardingDraftStore,
       conversationStore: createPostgresConversationStore(pool),
       insightStore: createPostgresInsightStore(pool),
       feedbackStore: createPostgresFeedbackStore(pool),
@@ -42,6 +45,13 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
       ...createMastraMinutkaServiceDeps(),
       ...input.deps,
     });
+    // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.
+    const draftCleanup = setInterval(() => {
+      void onboardingDraftStore.purgeExpired().catch((error: unknown) => {
+        console.warn(`Minutka onboarding draft cleanup failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+      });
+    }, 60 * 60 * 1_000);
+    draftCleanup.unref();
     return {
       service,
       telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
@@ -50,7 +60,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
         catch { return false; }
       },
-      shutdown: () => pool.end(),
+      shutdown: async () => { clearInterval(draftCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
 }
