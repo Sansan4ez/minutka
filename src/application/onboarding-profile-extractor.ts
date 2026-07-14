@@ -4,6 +4,8 @@ import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from ".
 export type OnboardingProfileExtractor = (input: {
   text: string;
   currentDraft: OnboardingDraft;
+  /** The caller aborts slow provider work before falling back deterministically. */
+  signal?: AbortSignal;
 }) => Promise<OnboardingProfilePatch>;
 
 /**
@@ -26,10 +28,13 @@ export function extractDeterministicOnboardingPatch(input: {
     return validatePatch(patch);
   }
 
-  const role = text.match(/(?:роль|я\s+(?:работаю\s+)?(?:как\s+)?)\s*[-—:]?\s*([^.;\n]+)/iu);
+  const role = text.match(/(?:роль|(?:я\s+)?(?:работаю\s+)?как)\s*[-—:]?\s*([^.;\n]+)/iu);
   if (role?.[1] && !/^(?:поддержка|эффективность)$/iu.test(role[1].trim())) patch.role = clean(role[1]);
-  const taskMatch = text.match(/(?:задач[аи]|занимаюсь|делаю|типичн(?:ые|ая)\s+задач[аи])\s*[-—:]?\s*([^\n.]+)/iu);
+  else if (input.currentDraft.pendingField === "role" && !patch.persona && !patch.aiLevel && looksLikeRole(text)) patch.role = text;
+  const taskMatch = text.match(/(?:задач(?:а|и|е|у|ей|ам|ами|ах)?|занимаюсь|делаю|типичн(?:ые|ая)\s+задач(?:а|и|е|у|ей|ам|ами|ах)?)\s*(?:[-—:]\s*|\s+)([^\n.]+)/iu);
   if (taskMatch?.[1]) patch.typicalTasks = tasks(taskMatch[1]);
+  const taskAddition = text.match(/(?:добав(?:ь|ьте))\s+(.+?)\s+(?:к|в)\s+задач(?:а|и|е|у|ей|ам|ами|ах)?\s*[!.]?$/iu);
+  if (taskAddition?.[1]) patch.appendTypicalTasks = tasks(taskAddition[1]);
 
   patch.persona = persona(normalized);
   patch.aiLevel = aiLevel(normalized);
@@ -48,16 +53,16 @@ export function normalizePersona(value: string): Persona | undefined {
 }
 export function normalizeAiLevel(value: string): AiLevel | undefined {
   const text = normalize(value);
-  if (/(?:beginner|нович\w*|не пользовал\w*|только начина\w*)/u.test(text)) return "beginner";
+  if (/(?:beginner|нович\w*|начинающ\w*|не пользовал\w*|только начина\w*)/u.test(text)) return "beginner";
   if (/(?:advanced|продвинут\w*|уверенно использую)/u.test(text)) return "advanced";
-  if (/(?:intermediate|немного работал\w*|базов\w* опыт|средн\w* уровень|работал с ии|работаю с ии)/u.test(text)) return "intermediate";
+  if (/(?:intermediate|немного работал\w*|базов\w* опыт|средн\w*(?:\s+уровень)?|работал с ии|работаю с ии)/u.test(text)) return "intermediate";
   return undefined;
 }
 
 function persona(value: string): Persona | undefined { return normalizePersona(value); }
 function aiLevel(value: string): AiLevel | undefined { return normalizeAiLevel(value); }
 function normalize(value: string): string { return value.toLocaleLowerCase("ru-RU").replace(/[«»"']/g, " ").replace(/\s+/g, " ").trim(); }
-function clean(value: string): string { return value.trim().replace(/^(?:я\s+)?(?:работаю\s+)?(?:как\s+)?/iu, "").trim(); }
+function clean(value: string): string { return value.trim().replace(/^(?:(?:моя\s+)?роль|(?:я\s+)?(?:работаю\s+)?как)\s*[-—:]?\s*/iu, "").trim(); }
 function looksLikeRole(value: string): boolean { return value.trim().split(/\s+/u).length >= 2 && !/^(?:привет|здравствуйте|добрый день)[!. ]*$/iu.test(value.trim()); }
 function tasks(value: string): string[] | undefined {
   const values = value.split(/[;,]|\s+и\s+/iu).map(clean).filter(Boolean);

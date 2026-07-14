@@ -19,6 +19,8 @@ export type OnboardingProfilePatch = {
   typicalTasks?: string[];
   persona?: Persona;
   aiLevel?: AiLevel;
+  /** Explicit additions to the existing task list, used for natural-language corrections. */
+  appendTypicalTasks?: string[];
   ambiguousFields: OnboardingField[];
 };
 export type OnboardingSummary = {

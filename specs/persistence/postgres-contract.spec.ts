@@ -9,6 +9,7 @@ import { createPostgresAuditEventStore } from "../../src/infrastructure/postgres
 import { createPostgresConsentAcceptanceStore } from "../../src/infrastructure/postgres/postgres-consent-acceptance-store.js";
 import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
+import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -176,6 +177,18 @@ describe("PostgreSQL storage contracts", () => {
     expect(events.at(-1)?.id).toBe("evt_current_54");
   });
 
+  it("removes expired onboarding drafts and allows a fresh draft to be created", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const drafts = createPostgresOnboardingDraftStore(pool);
+    await profiles.issueInvite({ employeeId: "emp_draft", inviteCode: "invite_draft", issuedAt: now });
+    const expired = { employeeId: "emp_draft", status: "collecting" as const, pendingField: "role" as const, revision: 1, createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", expiresAt: "2000-02-01T00:00:00.000Z" };
+    await drafts.save(expired, 0);
+    expect(await drafts.get("emp_draft")).toBeUndefined();
+    const fresh = { ...expired, revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" };
+    expect(await drafts.save(fresh, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
+    expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "typicalTasks" })).toMatchObject({ revision: 2, pendingField: "typicalTasks" });
+  });
+
   it("deletes every employee-owned private record", async () => {
     await issueProfileReadyParticipant(pool, "emp_delete", "invite_delete");
     const conversations = createPostgresConversationStore(pool);
@@ -190,8 +203,9 @@ describe("PostgreSQL storage contracts", () => {
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
+    await createPostgresOnboardingDraftStore(pool).save({ employeeId: "emp_delete", status: "collecting", pendingField: "role", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
     await createPostgresProfileStore(pool, config.inviteCodePepper).deleteEmployeePersonalData("emp_delete");
-    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions"]) {
+    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
     }

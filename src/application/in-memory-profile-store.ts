@@ -99,18 +99,19 @@ export function createInMemoryProfileStore(
         updatedAt: shownAt,
       });
     },
-    async completeProfile({ profile, completedAt }) {
+    async completeProfile({ profile, completedAt, allowUpdate = true }) {
       const existing = world.profiles.find((candidate) => candidate.employeeId === profile.employeeId);
-      upsertByEmployeeId(world.profiles, profile);
       const participant = world.participants.find((candidate) => candidate.employeeId === profile.employeeId);
       if (!participant) throw new PersistenceError("participant_not_found");
-      const wasCompleted = participant.status === "profile_completed";
+      const wasCompleted = Boolean(existing && participant.status === "profile_completed");
+      if (wasCompleted && !allowUpdate) return { profile: existing!, wasCompleted: true };
+      upsertByEmployeeId(world.profiles, profile);
       upsertByEmployeeId(world.participants, {
         ...participant,
         status: "profile_completed",
         updatedAt: completedAt,
       });
-      return { profile, wasCompleted: Boolean(existing && wasCompleted) };
+      return { profile, wasCompleted };
     },
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);

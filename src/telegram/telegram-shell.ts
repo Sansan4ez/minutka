@@ -32,11 +32,19 @@ async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: stri
   const refresh = setInterval(() => { void replyPort.sendChatAction(chatId, "typing").catch(() => undefined); }, typingRefreshMilliseconds);
   try { return await action(); } finally { clearInterval(refresh); }
 }
+function onboardingChoiceValue(field: "persona" | "aiLevel", choice: string): string {
+  const values = field === "persona"
+    ? { "Поддержка": "support", "Эффективность": "efficiency" }
+    : { "Начинающий": "beginner", "Средний": "intermediate", "Продвинутый": "advanced" };
+  const value = values[choice as keyof typeof values];
+  if (!value) throw new Error("unsupported onboarding choice");
+  return value;
+}
 async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult): Promise<void> {
   if (progress.status === "needs_answer") return replyPort.sendMessage(chatId, progress.prompt);
   if (progress.status === "needs_choice") {
-    const callbackData = progress.choices.map((choice) => onboardingCallbackData(progress.field, choice)).filter((data): data is string => Boolean(data));
-    return replyPort.sendMessage(chatId, progress.prompt, { replyMarkup: { inlineKeyboard: callbackData.map((data, index) => [{ text: progress.choices[index], callbackData: data }]) } });
+    const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
+    return replyPort.sendMessage(chatId, progress.prompt, { replyMarkup: { inlineKeyboard: choices.map((choice) => [choice]) } });
   }
   if (progress.status === "needs_confirmation") {
     const summary = progress.summary;

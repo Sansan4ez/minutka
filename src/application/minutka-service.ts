@@ -82,6 +82,8 @@ export type MinutkaServiceDeps = {
   profileStore?: ProfileStore;
   onboardingDraftStore?: OnboardingDraftStore;
   onboardingProfileExtractor?: OnboardingProfileExtractor;
+  /** Bounds provider latency; extraction always falls back before the HTTP budget expires. */
+  onboardingExtractionTimeoutMs?: number;
   conversationStore?: ConversationStore;
   insightStore?: InsightStore;
   feedbackStore?: FeedbackStore;
@@ -238,6 +240,10 @@ export class MinutkaService {
   }
 
   async completeOnboarding(input: CompleteOnboardingInput): Promise<CompleteOnboardingResult> {
+    return this.completeOnboardingProfile(input, true);
+  }
+
+  private async completeOnboardingProfile(input: CompleteOnboardingInput, allowUpdate: boolean): Promise<CompleteOnboardingResult> {
     await this.requireParticipant(input.employeeId);
     if (!await this.stores.profileStore.getConsent(input.employeeId)) throw new PersistenceError("consent_required");
     this.validateProfileInput(input);
@@ -249,18 +255,18 @@ export class MinutkaService {
       persona: input.persona, aiLevel: input.aiLevel, responseLength: input.responseLength ?? "balanced",
       preferredCheckinsPerDay: input.preferredCheckinsPerDay, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp,
     };
-    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp });
-    // completeProfile is the storage-level idempotency boundary. A replay with
-    // identical data must not duplicate audit facts, while direct profile edits
-    // retain their existing UserProfileUpdated audit behaviour.
-    const changedFields = getChangedFields(existing, profile);
-    if (!completed.wasCompleted || changedFields.length) await this.audit(requestId, "profile_updated", input.employeeId, undefined, undefined, timestamp, { changedFields });
-    if (!completed.wasCompleted) await this.audit(requestId, "onboarding_completed", input.employeeId, undefined, undefined, timestamp, { persona: input.persona });
-    const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.", profile });
+    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate });
+    // The storage lock is the idempotency boundary. Replays return the
+    // finalized profile and never produce another audit fact or agent run.
+    if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
+    const changedFields = getChangedFields(existing, completed.profile);
+    await this.audit(requestId, "profile_updated", input.employeeId, undefined, undefined, timestamp, { changedFields });
+    await this.audit(requestId, "onboarding_completed", input.employeeId, undefined, undefined, timestamp, { persona: completed.profile.persona });
+    const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.", profile: completed.profile });
     const firstResponse = await this.agentRunner({ employeeId: input.employeeId, threadId: input.employeeId, text: "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику." }, {
-      profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
+      profile: completed.profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
     });
-    return { employeeId: input.employeeId, status: "profile_completed", profile, firstResponse };
+    return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse };
   }
 
   async submitOnboardingAnswer(input: SubmitOnboardingAnswerInput): Promise<OnboardingProgress> {
@@ -271,10 +277,13 @@ export class MinutkaService {
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
     const current = await this.getOrCreateOnboardingDraft(employeeId);
+    if (current.status === "awaiting_confirmation" && isCompleteOnboardingDraft(current) && isAffirmativeOnboardingAnswer(text)) {
+      return { status: "completed", result: await this.confirmOnboarding({ employeeId }) };
+    }
     let extracted: OnboardingProfilePatch;
     try {
       extracted = this.deps.onboardingProfileExtractor
-        ? await this.deps.onboardingProfileExtractor({ text, currentDraft: current })
+        ? await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, this.deps.onboardingExtractionTimeoutMs ?? 10_000)
         : extractDeterministicOnboardingPatch({ text, currentDraft: current });
     } catch (error) {
       logOperationalError("onboarding profile extraction", error);
@@ -293,6 +302,9 @@ export class MinutkaService {
         if (!(error instanceof PersistenceError) || error.code !== "persistence_conflict" || attempt === 1) throw error;
         const refreshed = await this.stores.onboardingDraftStore.get(employeeId);
         if (!refreshed) throw error;
+        // A reset starts a new collection generation. Never replay an answer
+        // that was already in flight when the user discarded the old draft.
+        if (refreshed.createdAt !== current.createdAt) return onboardingProgress(refreshed);
         draft = refreshed;
       }
     }
@@ -304,10 +316,10 @@ export class MinutkaService {
     await this.requireParticipant(employeeId);
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     const existingProfile = await this.stores.profileStore.getProfile(employeeId);
-    if (existingProfile) return this.completeOnboarding({ employeeId, role: existingProfile.role, typicalTasks: existingProfile.typicalTasks, persona: existingProfile.persona, aiLevel: existingProfile.aiLevel, responseLength: existingProfile.responseLength, preferredCheckinsPerDay: existingProfile.preferredCheckinsPerDay });
+    if (existingProfile) return { employeeId, status: "profile_completed", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
     if (!draft || draft.status !== "awaiting_confirmation" || !isCompleteOnboardingDraft(draft)) throw new Error("onboarding draft is incomplete");
-    const result = await this.completeOnboarding({ employeeId, role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel });
+    const result = await this.completeOnboardingProfile({ employeeId, role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel }, false);
     await this.stores.onboardingDraftStore.delete(employeeId);
     return result;
   }
@@ -318,9 +330,11 @@ export class MinutkaService {
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
     const now = this.clock.now();
-    const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "role", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
-    await this.stores.onboardingDraftStore.save(draft, 0);
-    return onboardingProgress(draft);
+    const current = await this.stores.onboardingDraftStore.get(employeeId);
+    // An explicit reset intentionally wins over an in-flight answer; keeping
+    // revisions monotonic prevents that stale CAS write from reviving old data.
+    const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "role", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
+    return onboardingProgress(await this.stores.onboardingDraftStore.replace(draft));
   }
 
   async getProfile(input: { employeeId: string }): Promise<UserProfile> {
@@ -450,14 +464,25 @@ const onboardingFields: OnboardingField[] = ["role", "typicalTasks", "persona", 
 const personaLabels = { support: "Поддержка", efficiency: "Эффективность" } as const;
 const aiLevelLabels = { beginner: "начинающий", intermediate: "средний", advanced: "продвинутый" } as const;
 function onboardingExpiry(now: string): string { const date = new Date(now); date.setDate(date.getDate() + 30); return date.toISOString(); }
+function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да|верно|всё верно|подтверждаю|подтвердить)$/iu.test(text.trim()); }
 function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel">> {
   return Boolean(draft.role && draft.typicalTasks?.length && draft.persona && draft.aiLevel);
 }
 function mergePatches(primary: OnboardingProfilePatch, fallback: OnboardingProfilePatch): OnboardingProfilePatch {
-  return { role: primary.role ?? fallback.role, typicalTasks: primary.typicalTasks ?? fallback.typicalTasks, persona: primary.persona ?? fallback.persona, aiLevel: primary.aiLevel ?? fallback.aiLevel, ambiguousFields: [...new Set([...primary.ambiguousFields, ...fallback.ambiguousFields])] };
+  return {
+    role: primary.role ?? fallback.role, typicalTasks: primary.typicalTasks ?? fallback.typicalTasks,
+    persona: primary.persona ?? fallback.persona, aiLevel: primary.aiLevel ?? fallback.aiLevel,
+    appendTypicalTasks: primary.appendTypicalTasks ?? fallback.appendTypicalTasks,
+    ambiguousFields: [...new Set([...primary.ambiguousFields, ...fallback.ambiguousFields])],
+  };
 }
 function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePatch): Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel"> {
   const next = { role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel };
+  if (draft.status === "awaiting_confirmation" && patch.appendTypicalTasks?.length) {
+    const combined = [...(next.typicalTasks ?? []), ...patch.appendTypicalTasks].map((task) => task.trim()).filter(Boolean);
+    const unique = [...new Set(combined)];
+    if (unique.length >= 1 && unique.length <= 7) next.typicalTasks = unique;
+  }
   for (const field of onboardingFields) {
     const candidate = patch[field];
     if (candidate === undefined || patch.ambiguousFields.includes(field)) continue;
@@ -472,6 +497,22 @@ function makeOnboardingDraft(current: OnboardingDraft, values: Pick<OnboardingDr
   const draft: OnboardingDraft = { ...current, ...values, revision: current.revision + 1, updatedAt: now, expiresAt: onboardingExpiry(now) };
   const pendingField = onboardingFields.find((field) => draft[field] === undefined);
   return pendingField ? { ...draft, status: "collecting", pendingField } : { ...draft, status: "awaiting_confirmation", pendingField: undefined };
+}
+async function extractOnboardingPatchWithTimeout(
+  extractor: OnboardingProfileExtractor,
+  input: { text: string; currentDraft: OnboardingDraft },
+  timeoutMs: number,
+): Promise<OnboardingProfilePatch> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      extractor({ ...input, signal: controller.signal }),
+      new Promise<OnboardingProfilePatch>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error("onboarding_extractor_timeout")); }, timeoutMs);
+      }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
 }
 function onboardingProgress(draft: OnboardingDraft): OnboardingProgress {
   if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", summary: { role: draft.role, typicalTasks: draft.typicalTasks, persona: personaLabels[draft.persona], aiLevel: aiLevelLabels[draft.aiLevel] } };

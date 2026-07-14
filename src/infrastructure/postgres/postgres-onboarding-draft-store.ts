@@ -21,10 +21,18 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
   return {
     async get(employeeId) {
       try {
+        // Remove expired personal data as it is encountered, so a new draft can
+        // safely reuse the employee's primary key.
         const result = await pool.query<DraftRow>(
-          `SELECT * FROM minutka_private.onboarding_drafts WHERE employee_id = $1 AND expires_at > now()`, [employeeId],
+          `DELETE FROM minutka_private.onboarding_drafts
+             WHERE employee_id = $1 AND expires_at <= now()
+           RETURNING *`, [employeeId],
         );
-        return result.rows[0] ? toDraft(result.rows[0]) : undefined;
+        if (result.rowCount) return undefined;
+        const current = await pool.query<DraftRow>(
+          "SELECT * FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [employeeId],
+        );
+        return current.rows[0] ? toDraft(current.rows[0]) : undefined;
       } catch (error) { throw mapPostgresError(error); }
     },
     async save(draft, expectedRevision) {
@@ -42,6 +50,24 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
           [draft.employeeId, draft.role ?? null, draft.typicalTasks ? JSON.stringify(draft.typicalTasks) : null, draft.persona ?? null,
             draft.aiLevel ?? null, draft.status, draft.pendingField ?? null, draft.revision, draft.createdAt, draft.updatedAt,
             draft.expiresAt, expectedRevision ?? null],
+        );
+        if (!result.rows[0]) throw new PersistenceError("persistence_conflict");
+        return toDraft(result.rows[0]);
+      } catch (error) { if (error instanceof PersistenceError) throw error; throw mapPostgresError(error); }
+    },
+    async replace(draft) {
+      try {
+        const result = await pool.query<DraftRow>(
+          `INSERT INTO minutka_private.onboarding_drafts
+             (employee_id, role, typical_tasks, persona, ai_level, status, pending_field, revision, created_at, updated_at, expires_at)
+           VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (employee_id) DO UPDATE SET
+             role=EXCLUDED.role, typical_tasks=EXCLUDED.typical_tasks, persona=EXCLUDED.persona, ai_level=EXCLUDED.ai_level,
+             status=EXCLUDED.status, pending_field=EXCLUDED.pending_field, revision=EXCLUDED.revision,
+             created_at=EXCLUDED.created_at, updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at
+           RETURNING *`,
+          [draft.employeeId, draft.role ?? null, draft.typicalTasks ? JSON.stringify(draft.typicalTasks) : null, draft.persona ?? null,
+            draft.aiLevel ?? null, draft.status, draft.pendingField ?? null, draft.revision, draft.createdAt, draft.updatedAt, draft.expiresAt],
         );
         if (!result.rows[0]) throw new PersistenceError("persistence_conflict");
         return toDraft(result.rows[0]);

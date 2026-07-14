@@ -78,6 +78,18 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
   });
 
+  it("scopes conversational onboarding routes to the service employee", async () => {
+    const { url } = await api();
+    const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
+    const employee = client.forEmployee("emp_a");
+    await employee.acceptConsent({ accepted: true, source: "telegram" });
+    expect(await employee.submitOnboardingAnswer({ text: "Роль — аналитик" })).toMatchObject({ status: "needs_answer", field: "typicalTasks" });
+    expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_answer", field: "role" });
+    await employee.submitOnboardingAnswer({ text: "Аналитик | отчёты | Поддержка | Начинающий" });
+    await employee.confirmOnboarding();
+    expect((await employee.getProfile()).employeeId).toBe("emp_a");
+  });
+
   it("rate-limits employee mutations independently and defaults blank hosts to loopback", async () => {
     const { url } = await api(); const consent = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accepted: true, source: "cli" }) } as const;
     for (let index = 0; index < 60; index += 1) expect((await request(url, "/v1/me/consent", employeeToken, consent)).status).toBe(200);

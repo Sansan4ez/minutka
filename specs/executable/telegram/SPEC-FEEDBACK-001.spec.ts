@@ -532,6 +532,21 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
+  it("10a. Uses canonical callback values so every AI level button completes the fallback flow", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_ai_button", "--employee", "emp_ai_button"]);
+    await telegram.start({ chatId: "chat_ai_button", inviteCode: "invite_ai_button" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_ai_button", text: "Роль — аналитик. Задачи: отчёты. Поддержка" });
+    const beginner = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0];
+    expect(beginner).toMatchObject({ text: "Начинающий", callbackData: "ob:aiLevel:beginner" });
+    await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: beginner!.callbackData });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Проверьте, пожалуйста");
+  });
+
   it("10b. Repeated consent callback is idempotent under concurrent delivery", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

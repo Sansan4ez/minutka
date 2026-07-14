@@ -23,6 +23,13 @@ export function createInMemoryOnboardingDraftStore(world: InMemoryWorld): Onboar
       else world.onboardingDrafts[index] = saved;
       return structuredClone(saved);
     },
+    async replace(draft) {
+      const index = world.onboardingDrafts.findIndex((candidate) => candidate.employeeId === draft.employeeId);
+      const saved = structuredClone(draft);
+      if (index === -1) world.onboardingDrafts.push(saved);
+      else world.onboardingDrafts[index] = saved;
+      return structuredClone(saved);
+    },
     async delete(employeeId) { world.onboardingDrafts = world.onboardingDrafts.filter((candidate) => candidate.employeeId !== employeeId); },
   };
 }
