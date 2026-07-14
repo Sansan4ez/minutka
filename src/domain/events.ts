@@ -8,6 +8,7 @@ export type ChatMessageReceived = {
   employeeId: string;
   threadId: string;
   text: string;
+  inputModality: "text" | "voice";
   timestamp: string;
 };
 

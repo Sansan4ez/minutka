@@ -28,8 +28,9 @@ import type {
 } from "./telegram-invite-redemption-store.js";
 import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
+import type { ChatInputModality } from "../contracts/minutka-api.js";
 
-export type ChatInput = { employeeId: string; threadId: string; text: string };
+export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
 export type AgentRunContext = {
   profile?: UserProfile;
@@ -359,8 +360,10 @@ export class MinutkaService {
     const requestId = this.ids.requestId();
     const messageId = this.ids.messageId();
     const timestamp = this.clock.now();
-    await this.audit(requestId, "chat_received", input.employeeId, input.threadId, messageId, timestamp);
-    const { snapshot, profile } = await this.projectionBuilder.buildChatProc({ ...input, requestId, purpose: "chat" });
+    const inputModality = input.inputModality ?? "text";
+    const chatInput = { ...input, inputModality };
+    await this.audit(requestId, "chat_received", input.employeeId, input.threadId, messageId, timestamp, { inputModality });
+    const { snapshot, profile } = await this.projectionBuilder.buildChatProc({ ...chatInput, requestId, purpose: "chat" });
     const recentTurns = snapshot.thread.data.turns;
     const decision = await this.routeConversationDecisionSafely({ purpose: "chat", text: input.text, profile, recentTurns });
     const decisionProjection = this.projectionBuilder.buildDecision({ ...input, requestId, purpose: "chat" }, decision);
@@ -380,7 +383,7 @@ export class MinutkaService {
         reason: decision.workDecision.reason, selectedProcessIds: built.selectedProcessIds,
       });
     } else {
-      response = await this.agentRunner(input, {
+      response = await this.agentRunner(chatInput, {
         ...(profile ? { profile } : {}),
         systemContext: built.systemContext,
         selectedProcessIds: built.selectedProcessIds, purpose: "chat", decision,
@@ -394,7 +397,7 @@ export class MinutkaService {
     } catch (error) {
       logOperationalError("chat response audit", error);
     }
-    if (decision.insightDecision.candidate) await this.extractInsights({ input, messageId, response, profile, recentTurns, decision, requestId });
+    if (decision.insightDecision.candidate) await this.extractInsights({ input: chatInput, messageId, response, profile, recentTurns, decision, requestId });
     return { messageId, response, selectedProcessIds: built.selectedProcessIds };
   }
 

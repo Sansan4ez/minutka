@@ -6,6 +6,8 @@ import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 import { privacyExplanation } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
+import type { SpeechToTextPort } from "../application/speech-to-text.js";
+import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
 
 export const maxTelegramMessageCharacters = 4_000;
 export function splitTelegramMessage(text: string): string[] {
@@ -15,6 +17,8 @@ export function splitTelegramMessage(text: string): string[] {
 }
 const typingRefreshMilliseconds = 4_000;
 const maxTelegramCallbackDataBytes = 64;
+export const maxVoiceDurationSeconds = 300;
+export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
 const onboardingIntroduction = "Расскажите немного о работе в удобной форме: ваша роль, типичные задачи, предпочитаемый стиль общения — «Поддержка» или «Эффективность» — и опыт работы с ИИ. Можно ответить одним сообщением или по частям.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
@@ -56,8 +60,30 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort }) {
-  const { client, sessionStore, replyPort } = deps; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; speechToText: SpeechToTextPort; voiceFileGateway: TelegramVoiceFileGateway }) {
+  const { client, sessionStore, replyPort, speechToText, voiceFileGateway } = deps; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+  async function authorizedSession(chatId: string, userId?: string) {
+    const session = await sessionStore.getByIdentity(identity(chatId, userId));
+    if (!session) {
+      const existingChat = await sessionStore.getByIdentity(identity(chatId));
+      await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>");
+      return undefined;
+    }
+    if (!session.consentAcceptedAt) {
+      await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+      return undefined;
+    }
+    return session;
+  }
+  async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice") {
+    let profileExists = true;
+    try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
+    if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }));
+    const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality }));
+    const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+    const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
+  }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
       try {
@@ -81,18 +107,21 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     async handleText(chatId: string, text: string, userId?: string) {
       const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
+      try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text"); }
+      catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+    },
+    async handleVoice(chatId: string, voice: { fileId: string; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
+      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
-        const session = await sessionStore.getByIdentity(identity(chatId, userId));
-        if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>"); }
-        if (!session.consentAcceptedAt) return void await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-        let profileExists = true;
-        try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
-        if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text: trimmed }));
-        const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text: trimmed }));
-        const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
-        const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
-        for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
-      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+        const session = await authorizedSession(chatId, userId); if (!session) return;
+        if (voice.durationSeconds > maxVoiceDurationSeconds) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком длинное (максимум 5 минут).");
+        if (voice.fileSizeBytes !== undefined && voice.fileSizeBytes > maxVoiceFileSizeBytes) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком большое (максимум 20 МБ).");
+        const file = await withTypingIndicator(replyPort, chatId, () => voiceFileGateway.openVoiceFile(voice.fileId));
+        const transcript = (await withTypingIndicator(replyPort, chatId, () => speechToText.transcribe({ audio: file.stream, filetype: file.filetype }))).trim();
+        if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
+        if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
+        await dispatchText(chatId, transcript, session, "voice");
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string) {
       try {

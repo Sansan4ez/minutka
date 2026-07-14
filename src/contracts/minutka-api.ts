@@ -20,7 +20,8 @@ export const userProfileSchema = z.strictObject({
   updatedAt: z.string().min(1),
 });
 
-export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: z.string().min(1).max(60_000) });
+export const chatInputModalitySchema = z.enum(["text", "voice"]);
+export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: z.string().min(1).max(60_000), inputModality: chatInputModalitySchema.optional() });
 export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema) });
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
@@ -69,6 +70,7 @@ export const errorCodeSchema = z.enum([
 ]);
 export const errorEnvelopeSchema = z.strictObject({ error: z.strictObject({ code: errorCodeSchema, message: z.string().min(1), requestId: z.string().min(1) }) });
 
+export type ChatInputModality = z.infer<typeof chatInputModalitySchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type SubmitFeedbackRequest = z.infer<typeof submitFeedbackRequestSchema>;

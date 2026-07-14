@@ -8,6 +8,11 @@ import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/m
 import { createDefaultSpecDeps } from "./scripted-deps.js";
 import { encodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import type { FeedbackRating } from "../../../src/domain/feedback.js";
+import { Readable } from "node:stream";
+import type { SpeechToTextPort } from "../../../src/application/speech-to-text.js";
+import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-voice-file-gateway.js";
+
+export type VoiceInput = { chatId: string; userId?: string; fileId: string; durationSeconds: number; fileSizeBytes?: number; transcript?: string; error?: "download" | "transcribe" };
 
 export type SentMessage = { chatId: string; text: string; replyMarkup?: TelegramReplyMarkup };
 export type CallbackAnswer = { callbackQueryId: string; text?: string };
@@ -18,6 +23,12 @@ export class TelegramDriver {
   private readonly callbacks: CallbackAnswer[] = [];
   private readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
   private failNextSend = false;
+  private readonly voiceFiles = new Map<string, Buffer>();
+  private readonly voiceTranscripts = new Map<string, string>();
+  private readonly voiceErrors = new Map<string, "download" | "transcribe">();
+  private readonly voiceFileIds = new WeakMap<NodeJS.ReadableStream, string>();
+  private readonly voiceDownloads: string[] = [];
+  private readonly transcriptions: string[] = [];
 
   constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}) {
     const runtime = createInMemoryRuntime({ world, agentRunner, deps: createDefaultSpecDeps(deps) });
@@ -31,17 +42,43 @@ export class TelegramDriver {
       async sendChatAction(chatId, action) { self.chatActions.push({ chatId, action }); },
       async answerCallbackQuery(callbackQueryId, text) { self.callbacks.push({ callbackQueryId, text }); },
     };
-    this.shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort });
+    const voiceFileGateway: TelegramVoiceFileGateway = {
+      openVoiceFile: async (fileId) => {
+        this.voiceDownloads.push(fileId);
+        if (this.voiceErrors.get(fileId) === "download") throw new Error("simulated voice download failure");
+        const stream = Readable.from(this.voiceFiles.get(fileId) ?? Buffer.from("voice"));
+        this.voiceFileIds.set(stream, fileId);
+        return { stream, filetype: "ogg" };
+      },
+    };
+    const speechToText: SpeechToTextPort = {
+      transcribe: async ({ audio }) => {
+        const fileId = this.voiceFileIds.get(audio) ?? "";
+        this.transcriptions.push(fileId);
+        if (this.voiceErrors.get(fileId) === "transcribe") throw new Error("simulated STT failure");
+        for await (const _chunk of audio) { /* consume fake audio like a real provider */ }
+        return this.voiceTranscripts.get(fileId) ?? "";
+      },
+    };
+    this.shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, speechToText, voiceFileGateway });
   }
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
+  async sendVoice(input: VoiceInput): Promise<void> {
+    this.voiceFiles.set(input.fileId, Buffer.from("voice"));
+    this.voiceTranscripts.set(input.fileId, input.transcript ?? "");
+    if (input.error) this.voiceErrors.set(input.fileId, input.error); else this.voiceErrors.delete(input.fileId);
+    await this.shell.handleVoice(input.chatId, { fileId: input.fileId, durationSeconds: input.durationSeconds, ...(input.fileSizeBytes === undefined ? {} : { fileSizeBytes: input.fileSizeBytes }) }, input.userId ?? this.defaultUserId(input.chatId));
+  }
   async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId)); }
   async clickCallback(input: { chatId: string; userId?: string; callbackData: string }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId)); }
   failNextMessageDelivery(): void { this.failNextSend = true; }
   sentMessages(): SentMessage[] { return this.sent; }
   callbackAnswers(): CallbackAnswer[] { return this.callbacks; }
   sentChatActions(): Array<{ chatId: string; action: "typing" }> { return this.chatActions; }
-  clear() { this.sent.length = 0; this.callbacks.length = 0; this.chatActions.length = 0; }
+  voiceDownloadCalls(): string[] { return [...this.voiceDownloads]; }
+  transcriptionCalls(): string[] { return [...this.transcriptions]; }
+  clear() { this.sent.length = 0; this.callbacks.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; }
   private defaultUserId(chatId: string): string { return `user_${chatId}`; }
 }

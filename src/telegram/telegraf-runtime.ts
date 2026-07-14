@@ -42,6 +42,20 @@ export function createTelegrafBot(deps: {
     await shell.handleText(chatId, text, userId);
   });
 
+  bot.on("voice", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
+      return;
+    }
+
+    const voice = ctx.message.voice;
+    await shell.handleVoice(String(ctx.chat.id), {
+      fileId: voice.file_id,
+      durationSeconds: voice.duration,
+      ...(voice.file_size === undefined ? {} : { fileSizeBytes: voice.file_size }),
+    }, ctx.from ? String(ctx.from.id) : undefined);
+  });
+
   bot.on("callback_query", async (ctx) => {
     if (ctx.chat && ctx.chat.type !== "private") {
       await ctx.answerCbQuery("Для защиты конфиденциальности бот работает только в личном чате.");

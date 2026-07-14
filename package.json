@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mastra/core": "^1.49.0",
+    "@mastra/voice-openai": "^0.13.0",
     "commander": "^14.0.0",
     "mastra": "^1.18.0",
     "pg": "^8.22.0",

@@ -40,7 +40,7 @@ class HttpTransportBase {
 
 /** Employee-only HTTP transport. No privileged operations exist on this class. */
 export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements EmployeeMinutkaTransport {
-  chat(input: ChatRequest) { return this.request("POST", `/v1/me/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text }); }
+  chat(input: ChatRequest) { return this.request("POST", `/v1/me/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text, ...(input.inputModality ? { inputModality: input.inputModality } : {}) }); }
   openInvite(input: OpenInviteRequest) { return this.request("POST", "/v1/onboarding/invites/open", input); }
   acceptConsent(input: AcceptEmployeeConsentRequest) { return this.request("POST", "/v1/me/consent", input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", "/v1/me/onboarding", input); }
@@ -61,7 +61,7 @@ export class HttpServiceMinutkaTransport extends HttpTransportBase implements Se
 class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements ServiceEmployeeMinutkaTransport {
   private readonly prefix: string;
   constructor(options: HttpMinutkaTransportOptions & { employeeId: string }) { super(options); this.prefix = `/v1/service/employees/${encodeURIComponent(options.employeeId)}`; }
-  chat(input: ChatRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text }); }
+  chat(input: ChatRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text, ...(input.inputModality ? { inputModality: input.inputModality } : {}) }); }
   recordPrivacyExplanationShown() { return this.request("POST", `${this.prefix}/privacy-explanation`, {}); }
   acceptConsent(input: AcceptConsentRequest) { return this.request("POST", `${this.prefix}/consent`, input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", `${this.prefix}/onboarding`, input); }

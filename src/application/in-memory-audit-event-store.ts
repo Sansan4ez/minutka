@@ -34,7 +34,7 @@ function toLegacyEvent(event: AuditEventRecord): DomainEvent | undefined {
     case "consent_accepted": return { type: "ConsentAccepted", employeeId, privacyVersion: String(event.metadata.privacyVersion ?? "privacy-v1"), timestamp };
     case "profile_updated": return { type: "UserProfileUpdated", employeeId, changedFields: (event.metadata.changedFields as string[] | undefined) ?? [], timestamp };
     case "onboarding_completed": return { type: "OnboardingCompleted", employeeId, persona: String(event.metadata.persona) as "support" | "efficiency", timestamp };
-    case "chat_received": return { type: "ChatMessageReceived", employeeId, threadId: event.threadId ?? "", text: "[private]", timestamp };
+    case "chat_received": return { type: "ChatMessageReceived", employeeId, threadId: event.threadId ?? "", text: "[private]", inputModality: (event.metadata.inputModality === "voice" ? "voice" : "text"), timestamp };
     case "chat_response_generated": return { type: "ChatResponseGenerated", employeeId, threadId: event.threadId ?? "", response: "[private]", timestamp };
     case "work_boundary_applied": return { type: "WorkBoundaryApplied", employeeId, threadId: event.threadId ?? "", reason: String(event.metadata.reason) as never, selectedProcessIds: event.metadata.selectedProcessIds as never, timestamp };
     case "insight_recorded": return { type: "InsightRecorded", employeeId, threadId: event.threadId ?? "", insightId: String(event.metadata.insightId), kind: String(event.metadata.kind) as never, timestamp };

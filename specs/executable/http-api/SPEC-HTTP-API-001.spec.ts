@@ -67,7 +67,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const { runtime, url } = await api();
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
     const replies: string[] = [];
-    const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort: { async sendMessage(_chatId, text) { replies.push(text); }, async sendChatAction() {}, async answerCallbackQuery() {} } });
+    const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort: { async sendMessage(_chatId, text) { replies.push(text); }, async sendChatAction() {}, async answerCallbackQuery() {} }, speechToText: { async transcribe() { return ""; } }, voiceFileGateway: { async openVoiceFile() { throw new Error("not used in HTTP spec"); } } });
     await shell.handleStart("owner-chat", "invite_a", "owner-user"); await shell.handleStart("other-chat", "invite_a", "other-user");
     expect(replies.at(-1)).toContain("уже привязана к другому Telegram-аккаунту");
     const redeemed = await client.redeemTelegramInvite({ inviteCode: "invite_b", identity: { chatId: "service-chat", userId: "service-user" } });
@@ -75,7 +75,8 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     await employee.recordPrivacyExplanationShown(); await employee.acceptConsent({ accepted: true, source: "telegram", telegramIdentity: { chatId: "service-chat", userId: "service-user" } });
     await employee.completeOnboarding({ role: "manager", typicalTasks: ["planning"], persona: "support", aiLevel: "beginner" });
     expect((await employee.getProfile()).employeeId).toBe("emp_b");
-    const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
+    const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello", inputModality: "voice" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
+    expect(runtime.world.auditEvents.find((event) => event.type === "chat_received" && event.messageId === chat.messageId)?.metadata).toEqual({ inputModality: "voice" });
   });
 
   it("scopes conversational onboarding routes to the service employee", async () => {

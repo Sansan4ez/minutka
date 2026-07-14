@@ -32,7 +32,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   consent_accepted: ["privacyVersion"],
   profile_updated: ["changedFields"],
   onboarding_completed: ["persona"],
-  chat_received: [],
+  chat_received: ["inputModality"],
   chat_response_generated: [],
   work_boundary_applied: ["reason", "selectedProcessIds"],
   insight_recorded: ["insightId", "kind"],
