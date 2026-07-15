@@ -41,3 +41,17 @@ export interface IdeaStore {
   stale(userId: string, days: number): Promise<Idea[]>;
   update(userId: string, id: string, patch: UpdateIdeaInput): Promise<Idea | null>;
 }
+
+export function validateIdeaText(value: string, field: "project" | "summary"): string {
+  if (!value.trim()) throw new Error(`${field} is required`);
+  return value;
+}
+
+export function definedIdeaPatch(patch: UpdateIdeaInput): UpdateIdeaInput {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as UpdateIdeaInput;
+  if (defined.project !== undefined) validateIdeaText(defined.project, "project");
+  if (defined.summary !== undefined) validateIdeaText(defined.summary, "summary");
+  if (defined.source?.kind === "text" && !defined.source.text.trim()) throw new Error("source text is required");
+  if (defined.source?.kind === "blob" && !defined.source.blobKey.trim()) throw new Error("source blob key is required");
+  return defined;
+}

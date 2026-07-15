@@ -35,6 +35,12 @@ export type IngestionService = {
 };
 
 export function createIngestionService(deps: { documentStore: DocumentStore; blobStore: BlobStore; ideaStore?: IdeaStore }): IngestionService {
+  const uploadInboxBlob: IngestionService["uploadInboxBlob"] = async (input) => {
+    const userId = assertUserId(input.userId);
+    const key = assertSafeBlobKey(input.key);
+    if (!key.startsWith("inbox/")) throw new Error("inbox blob key must start with inbox/");
+    return deps.blobStore.put(userId, key, input.body, input.contentType);
+  };
   return {
     async saveContextDocument(input) {
       const userId = assertUserId(input.userId);
@@ -42,16 +48,11 @@ export function createIngestionService(deps: { documentStore: DocumentStore; blo
       if (!input.content.trim()) throw new Error("context document content is required");
       return deps.documentStore.put(userId, path, input.content);
     },
-    async uploadInboxBlob(input) {
-      const userId = assertUserId(input.userId);
-      const key = assertSafeBlobKey(input.key);
-      if (!key.startsWith("inbox/")) throw new Error("inbox blob key must start with inbox/");
-      return deps.blobStore.put(userId, key, input.body, input.contentType);
-    },
+    uploadInboxBlob,
     async captureInboxFile(input) {
       const fileName = input.fileName.trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "upload";
       const digest = createHash("sha256").update(input.body).digest("hex").slice(0, 16);
-      return this.uploadInboxBlob({
+      return uploadInboxBlob({
         userId: input.userId,
         key: `inbox/${digest}-${fileName}`,
         body: input.body,

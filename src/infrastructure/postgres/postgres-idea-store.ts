@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Idea, IdeaStore } from "../../application/idea-store.js";
+import { definedIdeaPatch, validateIdeaText, type Idea, type IdeaStore } from "../../application/idea-store.js";
 import { mapPostgresError } from "../../application/persistence-error.js";
 import type { Pool } from "pg";
 
@@ -47,6 +47,10 @@ function restoreIdea(row: Row): Idea {
 export function createPostgresIdeaStore(pool: Pool): IdeaStore {
   return {
     async add(input) {
+      validateIdeaText(input.project, "project");
+      validateIdeaText(input.summary, "summary");
+      if (input.source?.kind === "text" && !input.source.text.trim()) throw new Error("source text is required");
+      if (input.source?.kind === "blob" && !input.source.blobKey.trim()) throw new Error("source blob key is required");
       try {
         const result = await pool.query<Row>(
           `INSERT INTO minutka_private.ideas
@@ -98,7 +102,7 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
       }
     },
     async update(userId, id, patch) {
-      const fields = Object.entries(patch).filter(([, value]) => value !== undefined);
+      const fields = Object.entries(definedIdeaPatch(patch));
       const column: Record<string, string> = { project: "project", type: "record_type", summary: "summary", source: "source", status: "status" };
       const params: unknown[] = [userId, id];
       const assignments = fields.map(([name, value]) => {

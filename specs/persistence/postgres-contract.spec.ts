@@ -212,6 +212,10 @@ describe("PostgreSQL storage contracts", () => {
     await expect(ideas.list("other_owner")).resolves.toMatchObject([{ id: "idea_other" }]);
     await expect(ideas.add({ id: "idea_owner_raw", userId: "other_owner", project: "БНВ", type: "content", summary: "duplicate", status: "raw" })).rejects.toMatchObject({ code: "persistence_conflict" });
     await expect(ideas.update("other_owner", "idea_owner_raw", { status: "done" })).resolves.toBeNull();
+    await expect(ideas.add({ id: "idea_missing_owner", userId: "missing_owner", project: "АССИСТЕНТ", type: "knowledge", summary: "must fail", status: "raw" })).rejects.toMatchObject({ code: "persistence_conflict" });
+    await expect(ideas.add({ id: "idea_blank_summary", userId: "idea_owner", project: "АССИСТЕНТ", type: "knowledge", summary: " ", status: "raw" })).rejects.toThrow("summary is required");
+    await expect(ideas.update("idea_owner", "idea_owner_raw", { summary: "" })).rejects.toThrow("summary is required");
+    await expect(ideas.update("idea_owner", "idea_owner_raw", { source: undefined })).resolves.toMatchObject({ source: { kind: "text", text: "raw" } });
     const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });

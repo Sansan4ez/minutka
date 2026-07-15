@@ -1,6 +1,6 @@
 import { assertUserId } from "./document-store.js";
 import type { Clock } from "./runtime-primitives.js";
-import type { AddIdeaInput, Idea, IdeaStore, UpdateIdeaInput } from "./idea-store.js";
+import { definedIdeaPatch, validateIdeaText, type AddIdeaInput, type Idea, type IdeaStore, type UpdateIdeaInput } from "./idea-store.js";
 
 /** Hermetic adapter for executable specs; production composition must use PostgreSQL. */
 export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
@@ -11,6 +11,10 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
   return {
     async add(input: AddIdeaInput) {
       const userId = assertUserId(input.userId);
+      validateIdeaText(input.project, "project");
+      validateIdeaText(input.summary, "summary");
+      if (input.source?.kind === "text" && !input.source.text.trim()) throw new Error("source text is required");
+      if (input.source?.kind === "blob" && !input.source.blobKey.trim()) throw new Error("source blob key is required");
       if (globalIds.has(input.id)) throw new Error("idea id already exists");
       const now = clock.now();
       const idea: Idea = { ...input, userId, createdAt: now, lastActivityAt: now };
@@ -46,7 +50,7 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
     async update(userId, id, patch: UpdateIdeaInput) {
       const existing = ideas.get(key(userId, id));
       if (!existing) return null;
-      const updated: Idea = { ...existing, ...patch, lastActivityAt: clock.now() };
+      const updated: Idea = { ...existing, ...definedIdeaPatch(patch), lastActivityAt: clock.now() };
       ideas.set(key(existing.userId, id), updated);
       return { ...updated };
     },
