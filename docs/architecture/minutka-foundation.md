@@ -394,7 +394,7 @@ Specs продолжают использовать in-memory adapters. Shared s
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-1-skeleton`.  
-**Детали:** `phase-1-skeleton-and-test-harness.md`.
+**Детали:** закрытый эпик Phase 1 в `br`; исходный план доступен в git history.
 
 Результат:
 
@@ -410,7 +410,7 @@ Specs продолжают использовать in-memory adapters. Shared s
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-2-onboarding`.  
-**Подробный план:** `phase-2-onboarding-consent-profile.md`.  
+**Подробный план:** закрытый эпик Phase 2 в `br`; исходный план доступен в git history.
 **Цель:** сотрудник может быть зарегистрирован, принять privacy explanation, выбрать persona и получить первый ответ в выбранном стиле.
 
 Минимальный scope:
@@ -434,7 +434,7 @@ Definition of Done:
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-3-context-insights`.  
-**Подробный план:** `phase-3-context-guardrails-insights.md`.  
+**Подробный план:** закрытый эпик Phase 3 в `br`; исходный план доступен в git history.
 **Цель:** агент удерживает контекст дня, соблюдает границы тематики и сохраняет структурированные сигналы.
 
 Минимальный scope:
@@ -454,7 +454,7 @@ Definition of Done:
 ### Phase 3.5 — Agent Vault: бизнес-процессы как код
 
 **Статус:** ✅ завершено.  
-**Подробный план:** `phase-3.5-agent-manual-lite.md`.  
+**Подробный план:** закрытый эпик Phase 3.5 в `br`; исходный план доступен в git history.
 **Цель:** оформить поведение `MinutkaAgent` как проверяемый `vault/` runtime workspace и подключить его к `MinutkaContextBuilder` без тяжёлой PA/versioning-инфраструктуры.
 
 Почему здесь: Phase 1–3 уже дали backend, profile/consent, context, guardrails и insights. До Phase 4 ещё не закреплены Telegram handlers, поэтому сейчас дешевле всего вынести правила агента из монолитных инструкций в agent vault.
@@ -496,7 +496,7 @@ Definition of Done:
 
 ### Phase 4 — Telegram shell: текстовый MVP и feedback
 
-**Подробный план:** `phase-4-telegram-text-feedback.md`.  
+**Подробный план:** закрытый эпик Phase 4 в `br`; исходный план доступен в git history.
 **Цель:** рабочий Telegram-бот с текстовым вводом, `/start`, onboarding entrypoint и feedback buttons.
 
 Минимальный scope:
@@ -520,7 +520,7 @@ Definition of Done:
 
 **Статус:** ✅ завершено.
 **Тег:** `phase-4.1-durable-runtime-foundation`.
-**Подробный план:** `phase-4.1-durable-runtime-foundation.md`.
+**Подробный план:** закрытый эпик Phase 4.1 в `br`; исходный план доступен в git history.
 **Цель:** заменить production-зависимость от `InMemoryWorld` на PostgreSQL application stores, реализовать typed `/proc`/`/run` projections и устранить неоднозначность conversation memory.
 
 Минимальный scope:
@@ -550,7 +550,7 @@ Definition of Done:
 ### Phase 4.2 — HTTP Application API and Shared Runtime
 
 **Статус:** ✅ реализовано; ожидает финального manual multi-process smoke и тега `phase-4.2-http-application-api`.
-**Подробный план:** `phase-4.2-http-application-api.md`.
+**Подробный план:** закрытый эпик Phase 4.2 в `br`; исходный план доступен в git history.
 **Цель:** аутентифицированный versioned HTTP API `/v1` перед `MinutkaService`, transport-neutral SDK contracts и standalone CLI из отдельного процесса; Telegram переходит на тот же HTTP SDK (loopback, service credential) в одном composition root (Stage 1 из RFC).
 
 Минимальный scope:
@@ -572,7 +572,7 @@ Definition of Done:
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
-**Подробный план:** `phase-5-voice-stt.md`.
+**Подробный план:** закрытый эпик Phase 5 в `br`; исходный план доступен в git history.
 **Цель:** voice message обрабатывается как текст после транскрипции.
 
 Минимальный scope:
@@ -608,7 +608,7 @@ Definition of Done:
 
 ### Phase 7 — Расписание и ежедневные касания (опционально для MVP)
 
-**Подробный план:** `phase-7-scheduling.md`.
+**Подробный план:** эпик Phase 7 в `br`; исходный план доступен в git history.
 
 **Цель:** автоматические morning / optional midday / evening prompts.
 
