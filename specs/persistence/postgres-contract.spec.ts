@@ -53,9 +53,7 @@ describe("PostgreSQL storage contracts", () => {
     // Schema ownership stays with the migrator. The runtime role is tested only
     // against an already-migrated database, exactly as it runs in production.
     await migratePostgres(migrationPool);
-    // `ideas` is owner-scoped independently from Minutka participants, so it
-    // cannot be cleaned through the participant FK cascade below.
-    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants; DELETE FROM minutka_private.ideas");
+    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants");
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
@@ -198,6 +196,8 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("keeps IdeaStore owner-scoped and returns only stale raw or discussed ideas", async () => {
+    await issueProfileReadyParticipant(pool, "idea_owner", "invite_idea_owner");
+    await issueProfileReadyParticipant(pool, "other_owner", "invite_other_owner");
     const ideas = createPostgresIdeaStore(pool);
     await ideas.add({ id: "idea_owner_raw", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "raw", source: { kind: "text", text: "raw" }, status: "raw" });
     await ideas.add({ id: "idea_owner_discussed", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "discussed", status: "discussed" });
@@ -206,8 +206,11 @@ describe("PostgreSQL storage contracts", () => {
     await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() - interval '8 days' WHERE idea_id IN ('idea_owner_raw', 'idea_owner_discussed', 'idea_owner_planned', 'idea_other')");
 
     await expect(ideas.list("idea_owner", { project: "АССИСТЕНТ", status: "raw" })).resolves.toMatchObject([{ id: "idea_owner_raw", source: { kind: "text", text: "raw" } }]);
+    await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() WHERE idea_id = 'idea_owner_planned'");
+    await expect(ideas.list("idea_owner", undefined, { limit: 1, order: "activity_desc" })).resolves.toMatchObject([{ id: "idea_owner_planned" }]);
     await expect(ideas.stale("idea_owner", 7)).resolves.toMatchObject([{ id: "idea_owner_discussed" }, { id: "idea_owner_raw" }]);
     await expect(ideas.list("other_owner")).resolves.toMatchObject([{ id: "idea_other" }]);
+    await expect(ideas.add({ id: "idea_owner_raw", userId: "other_owner", project: "БНВ", type: "content", summary: "duplicate", status: "raw" })).rejects.toMatchObject({ code: "persistence_conflict" });
     await expect(ideas.update("other_owner", "idea_owner_raw", { status: "done" })).resolves.toBeNull();
     const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
@@ -238,12 +241,14 @@ describe("PostgreSQL storage contracts", () => {
       identity: { chatId: "chat_delete", userId: "user_delete" },
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
+    await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
     await profiles.deleteEmployeePersonalData("emp_delete");
     for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
     }
+    expect((await pool.query("SELECT 1 FROM minutka_private.ideas WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb"))).toMatchObject({ rowCount: 1 });
   });

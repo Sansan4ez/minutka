@@ -23,6 +23,12 @@ export type IdeaFilter = Partial<Classified> & {
   status?: IdeaStatus;
 };
 
+export type IdeaListOptions = {
+  /** Optional bounded read. */
+  limit?: number;
+  order?: "created_asc" | "activity_desc";
+};
+
 export type UpdateIdeaInput = Partial<Pick<Idea, "project" | "type" | "summary" | "source" | "status">>;
 
 /**
@@ -31,7 +37,7 @@ export type UpdateIdeaInput = Partial<Pick<Idea, "project" | "type" | "summary" 
  */
 export interface IdeaStore {
   add(input: AddIdeaInput): Promise<Idea>;
-  list(userId: string, filter?: IdeaFilter): Promise<Idea[]>;
+  list(userId: string, filter?: IdeaFilter, options?: IdeaListOptions): Promise<Idea[]>;
   stale(userId: string, days: number): Promise<Idea[]>;
   update(userId: string, id: string, patch: UpdateIdeaInput): Promise<Idea | null>;
 }

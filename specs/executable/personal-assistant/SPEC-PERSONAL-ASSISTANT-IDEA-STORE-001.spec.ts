@@ -28,6 +28,12 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-STORE-001: owner-scoped idea bank", () =>
     await expect(store.stale("maxim", -1)).rejects.toThrow("days must be a non-negative finite number");
   });
 
+  it("matches PostgreSQL global idea-id uniqueness", async () => {
+    const store = createInMemoryIdeaStore({ now: () => "2026-07-15T09:00:00.000Z" });
+    await store.add({ id: "shared", userId: "maxim", project: "АССИСТЕНТ", type: "development", summary: "Первый", status: "raw" });
+    await expect(store.add({ id: "shared", userId: "other", project: "БНВ", type: "content", summary: "Второй", status: "raw" })).rejects.toThrow("idea id already exists");
+  });
+
   it("updates an idea in its owner scope and renews its activity timestamp", async () => {
     let now = "2026-07-01T00:00:00.000Z";
     const store = createInMemoryIdeaStore({ now: () => now });

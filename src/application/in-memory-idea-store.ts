@@ -6,17 +6,21 @@ import type { AddIdeaInput, Idea, IdeaStore, UpdateIdeaInput } from "./idea-stor
 export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
   const ideas = new Map<string, Idea>();
   const key = (userId: string, id: string) => `${assertUserId(userId)}\u0000${id}`;
+  const globalIds = new Set<string>();
 
   return {
     async add(input: AddIdeaInput) {
       const userId = assertUserId(input.userId);
+      if (globalIds.has(input.id)) throw new Error("idea id already exists");
       const now = clock.now();
       const idea: Idea = { ...input, userId, createdAt: now, lastActivityAt: now };
       ideas.set(key(userId, idea.id), idea);
+      globalIds.add(idea.id);
       return { ...idea };
     },
-    async list(userId, filter) {
+    async list(userId, filter, options) {
       const safeUserId = assertUserId(userId);
+      const limit = validateLimit(options?.limit);
       return [...ideas.values()]
         .filter((idea) =>
           idea.userId === safeUserId &&
@@ -24,7 +28,10 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
           (!filter?.type || idea.type === filter.type) &&
           (!filter?.status || idea.status === filter.status),
         )
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+        .sort((left, right) => options?.order === "activity_desc"
+          ? right.lastActivityAt.localeCompare(left.lastActivityAt) || right.id.localeCompare(left.id)
+          : left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+        .slice(0, limit)
         .map((idea) => ({ ...idea }));
     },
     async stale(userId, days) {
@@ -44,4 +51,10 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       return { ...updated };
     },
   };
+}
+
+function validateLimit(limit: number | undefined): number | undefined {
+  if (limit === undefined) return undefined;
+  if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("limit must be a positive safe integer");
+  return limit;
 }

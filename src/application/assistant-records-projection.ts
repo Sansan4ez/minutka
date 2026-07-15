@@ -18,7 +18,8 @@ export const assistantRecordsLimits = {
 export function createAssistantRecordsProjectionBuilder(deps: { ideaStore: IdeaStore; now: () => string }) {
   return {
     async build(input: { userId: string; requestId: string }): Promise<AssistantRecordsProjection> {
-      const source = await deps.ideaStore.list(input.userId);
+      // Read one extra row so truncation is known without loading the owner's full history.
+      const source = await deps.ideaStore.list(input.userId, undefined, { limit: assistantRecordsLimits.records + 1, order: "activity_desc" });
       const records: AssistantRecordsProjection["data"]["records"] = [];
       let characters = 0;
       let truncated = source.length > assistantRecordsLimits.records;

@@ -60,14 +60,18 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
         throw mapPostgresError(error);
       }
     },
-    async list(userId, filter) {
+    async list(userId, filter, options) {
       const clauses = ["user_id=$1"];
-      const params: string[] = [userId];
+      const params: unknown[] = [userId];
       if (filter?.project) { params.push(filter.project); clauses.push(`project=$${params.length}`); }
       if (filter?.type) { params.push(filter.type); clauses.push(`record_type=$${params.length}`); }
       if (filter?.status) { params.push(filter.status); clauses.push(`status=$${params.length}`); }
+      const limit = validateLimit(options?.limit);
+      const order = options?.order === "activity_desc" ? "last_activity_at DESC, idea_id DESC" : "created_at ASC, idea_id ASC";
+      if (limit !== undefined) params.push(limit);
+      const limitClause = limit === undefined ? "" : ` LIMIT $${params.length}`;
       try {
-        const result = await pool.query<Row>(`SELECT * FROM minutka_private.ideas WHERE ${clauses.join(" AND ")} ORDER BY created_at ASC, idea_id ASC`, params);
+        const result = await pool.query<Row>(`SELECT * FROM minutka_private.ideas WHERE ${clauses.join(" AND ")} ORDER BY ${order}${limitClause}`, params);
         return result.rows.flatMap((row) => {
           try { return [restoreIdea(row)]; }
           catch { console.warn("Skipped invalid persisted idea."); return []; }
@@ -113,4 +117,10 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
       }
     },
   };
+}
+
+function validateLimit(limit: number | undefined): number | undefined {
+  if (limit === undefined) return undefined;
+  if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("limit must be a positive safe integer");
+  return limit;
 }
