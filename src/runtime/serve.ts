@@ -5,7 +5,8 @@ import { apiAuthConfigFromEnv } from "../server/http/auth.js";
 import { listenHttpServer } from "../server/http/http-server.js";
 import { createPostgresRuntime } from "./create-postgres-runtime.js";
 import { sttConfigFromEnv } from "./stt-config.js";
-import { runMinutkaAgent } from "../mastra/agent-runner.js";
+import { createAssistantAgentRunner, runMinutkaAgent } from "../mastra/agent-runner.js";
+import { minutkaAgent } from "../mastra/agents/minutka-agent.js";
 import { createOpenAiSpeechToText } from "../mastra/voice-transcriber.js";
 import { createTelegramShell, maxTelegramMessageCharacters } from "../telegram/telegram-shell.js";
 import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
@@ -14,16 +15,18 @@ import { parseInviteSeeds } from "../telegram/invite-seeds.js";
 import { Telegraf } from "telegraf";
 import { loadDotEnv } from "../config/env.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
+import { downloadBoundedTelegramPhoto, type TelegramPhotoFileGateway } from "../telegram/telegram-photo-file-gateway.js";
 
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
 async function main(): Promise<void> {
-  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ agentRunner: runMinutkaAgent, env: process.env });
+  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ agentRunner: runMinutkaAgent, assistantAgentRunner: createAssistantAgentRunner(minutkaAgent), env: process.env });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
       service: runtime.service,
+      assistant: runtime.assistant,
       auth,
       health: runtime.health,
       host: process.env.MINUTKA_API_HOST,
@@ -68,7 +71,14 @@ async function main(): Promise<void> {
         },
       } : undefined;
       const speechToText = stt ? createOpenAiSpeechToText(stt) : undefined;
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
+      const photoFileGateway: TelegramPhotoFileGateway = {
+        async downloadPhoto(fileId) {
+          if (!activeBot) throw new Error("Bot not running");
+          const url = await activeBot.telegram.getFileLink(fileId);
+          return downloadBoundedTelegramPhoto({ url, fileId });
+        },
+      };
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, assistant: runtime.assistant, ingestion: runtime.ingestion, photoFileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {
@@ -77,7 +87,7 @@ async function main(): Promise<void> {
   }
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
-    if (shuttingDown) { process.exit(1); return; }
+    if (shuttingDown) return process.exit(1);
     shuttingDown = true;
     console.log(`Stopping Minutka (${signal})...`);
     try {

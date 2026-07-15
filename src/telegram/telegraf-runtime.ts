@@ -42,6 +42,16 @@ export function createTelegrafBot(deps: {
     await shell.handleText(chatId, text, userId);
   });
 
+  bot.on("photo", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
+      return;
+    }
+    const photo = ctx.message.photo.at(-1);
+    if (!photo) return;
+    await shell.handlePhoto(String(ctx.chat.id), { fileId: photo.file_id, ...(ctx.message.caption ? { caption: ctx.message.caption } : {}) }, ctx.from ? String(ctx.from.id) : undefined);
+  });
+
   bot.on("voice", async (ctx) => {
     if (ctx.chat.type !== "private") {
       await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");

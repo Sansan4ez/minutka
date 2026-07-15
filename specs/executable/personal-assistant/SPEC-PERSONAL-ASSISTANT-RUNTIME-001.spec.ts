@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import type { AgentRunner } from "../../../src/application/minutka-service.js";
+import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
+import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
+import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
+import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
+import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createDefaultSpecDeps } from "../support/scripted-deps.js";
+import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
+import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
+
+const noOpAgent: AgentRunner = async () => "legacy";
+
+describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram composition", () => {
+  it("uses AssistantService for a profile-ready Telegram text message", async () => {
+    const world = createInMemoryWorld(() => "2026-07-15T09:00:00.000Z");
+    const legacy = createInMemoryRuntime({ world, agentRunner: noOpAgent, deps: createDefaultSpecDeps() });
+    await legacy.service.issueInvite({ employeeId: "maxim", inviteCode: "invite" });
+    await legacy.service.redeemTelegramInvite({ inviteCode: "invite", identity: { chatId: "1", userId: "user-1" } });
+    await legacy.service.acceptConsent({ employeeId: "maxim", accepted: true, source: "test", telegramIdentity: { chatId: "1", userId: "user-1" } });
+    await legacy.service.completeOnboarding({ employeeId: "maxim", role: "Owner", typicalTasks: ["ideas"], persona: "efficiency", aiLevel: "advanced" });
+
+    const clock = { now: world.now };
+    const documents = createInMemoryDocumentStore(clock);
+    const blobs = createInMemoryBlobStore(clock);
+    const ideas = createInMemoryIdeaStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: blobs, ideaStore: ideas });
+    const assistant = new AssistantService(async (_input, context) => {
+      const saved = await context.captureIdea({ project: "АССИСТЕНТ", type: "development", summary: "Runtime подключён", suggestedNextStep: "Проверить запись.", needsProjectClarification: false });
+      return saved.response;
+    }, {
+      documentStore: documents,
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService: ingestion,
+      ideaStore: ideas,
+      auditEventStore: createInMemoryAuditEventStore(world),
+      clock,
+      idGenerator: createDeterministicIdGenerator(),
+    });
+    const replies: Array<{ text: string; options?: unknown }> = [];
+    const downloadedPhotos: string[] = [];
+    const client = new ServiceMinutkaClient(createInProcessServiceTransport(legacy.service, { kind: "service", serviceId: "telegram" }));
+    const shell = createTelegramShell({
+      client,
+      sessionStore: legacy.telegramSessionStore,
+      assistant,
+      ingestion,
+      photoFileGateway: { async downloadPhoto(fileId) { downloadedPhotos.push(fileId); return { body: Buffer.from("photo"), contentType: "image/jpeg", fileName: "photo.jpg" }; } },
+      replyPort: { async sendMessage(_chatId, text, options) { replies.push({ text, options }); }, async sendChatAction() {}, async answerCallbackQuery() {} },
+    });
+
+    await shell.handleText("1", "Не потеряй мысль", "user-1");
+
+    await expect(ideas.list("maxim")).resolves.toMatchObject([{ summary: "Runtime подключён", source: { kind: "text", text: "Не потеряй мысль" } }]);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]?.text).toBe("Сохранил идею: Runtime подключён. Следующий шаг: Проверить запись.");
+    expect(replies[0]?.options).toMatchObject({ replyMarkup: { inlineKeyboard: [[{ text: "👍" }, { text: "👌" }, { text: "👎" }]] } });
+
+    replies.length = 0;
+    await shell.handlePhoto("1", { fileId: "photo-1", caption: "Фото мысли" }, "user-1");
+    expect(downloadedPhotos).toEqual(["photo-1"]);
+    const captured = await ideas.list("maxim");
+    expect(captured.at(-1)?.source).toMatchObject({ kind: "blob", blobKey: expect.stringMatching(/^inbox\//) });
+  });
+});

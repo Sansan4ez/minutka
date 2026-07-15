@@ -15,7 +15,7 @@ function setup() {
   const blobs = createInMemoryBlobStore(clock);
   const ingestion = createIngestionService({ documentStore: createInMemoryDocumentStore(clock), blobStore: blobs, ideaStore: ideas });
   const assistant = new AssistantService(async (_input, context) => {
-    const result = await context.captureIdea({ project: "БЕЗ_ПРОЕКТА", type: "knowledge", summary: "Сохранено", suggestedNextStep: "Разобрать.", needsProjectClarification: true, source: context.source });
+    const result = await context.captureIdea({ project: "БЕЗ_ПРОЕКТА", type: "knowledge", summary: "Сохранено", suggestedNextStep: "Разобрать.", needsProjectClarification: true });
     return result.response;
   }, {
     documentStore: createInMemoryDocumentStore(clock),
