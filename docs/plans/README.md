@@ -2,8 +2,8 @@
 
 Навигация по `docs/plans/`. Проект пивотнул из узкого продукта **«Минутка»** (`time-agent`) в **персонального AI-ассистента**; ассистент **переиспользует** фундамент «Минутки» (application-слой, stores, decision router, Agent Vault, runtime). Поэтому здесь соседствуют активный roadmap ассистента и исторические планы фундамента.
 
-- **Текущая целевая архитектура:** [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md)
-- **Правило:** при составлении плана каждой следующей фазы ассистента сверяться с [fix-routing-catalog.md](./fix-routing-catalog.md) (какие из F1–F8 — её предусловия).
+- **Текущая целевая архитектура:** [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) (агент-ведомый роутинг — уточняет §8, основной для роутинга навыков).
+- **Правило:** при составлении плана каждой следующей фазы держаться агент-ведомой модели (`rfc-agent-led-routing.md`): агент сам роутит в один ход, машинерию не наращивать. Заход F1–F8 как предусловие фаз **не делать** — большинство пунктов растворяется (см. §6 нового RFC).
 
 ---
 
@@ -13,8 +13,8 @@
 
 | Документ | Что | Статус |
 |---|---|---|
-| [fix-routing-catalog.md](./fix-routing-catalog.md) | Исправление роутинга/каталога процессов (F1–F8); **P1/F2 — предшественник Фазы B** | proposed |
-| [phase-b-idea-bank.md](./phase-b-idea-bank.md) | Фаза B «Банк идей»: `inbox_capture`, `IdeaStore`, классификатор | proposed |
+| [fix-routing-catalog.md](./fix-routing-catalog.md) | Исправление роутинга/каталога процессов (F1–F8) | **superseded** [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md): большинство пунктов растворяется, F2 больше не предшественник B; остаются F1/F4 как гигиена |
+| [phase-b-idea-bank.md](./phase-b-idea-bank.md) | Фаза B «Банк идей»: `IdeaStore`, `Classified`, инструмент `captureIdea` | **rewriting → slim** (агент + один tool, без классификатора-агента и без предусловия F2) |
 
 > Фаза A (каркас личного vault: MinIO-адаптеры, `IngestionService`, `AssistantService`, `/proc/context`) **реализована** — коммит `500cc65`, отдельного плана-документа не имеет (описана в RFC §13). Планы фаз C–G появятся здесь по мере подхода к ним.
 

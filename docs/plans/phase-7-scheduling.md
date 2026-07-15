@@ -9,7 +9,7 @@
 > **Дельта порта при реализации Фазы D:**
 > - `MinutkaService.runScheduledProcess` → `AssistantService`; `employeeId` → `userId`; guard consent/lifecycle → single-owner-модель (RFC §11).
 > - Процессы: `evening_reflection`/`morning_brief` → навыки ассистента с триггером `scheduled` (`morning_digest`, `evening_reflection`, недельный обзор банка идей — RFC §8.1, §10).
-> - Триггер `scheduled` **строится на едином каталоге** из [fix-routing-catalog.md](./fix-routing-catalog.md): **P1/F2** уже добавляет `scheduled` (и `file_uploaded`) в `assertPurpose`, поэтому расширение `AgentManualPurpose`/`DecisionProcessId` в §4.4 этого плана к моменту Фазы D будет уже сделано — не дублировать.
+> - Триггер `scheduled` в агент-ведомой модели ([rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md)) — **детерминированный гейт входа** (расписание ⇒ запуск навыка планировщиком), а не purpose пре-флайт-роутера. Заход F2 из [fix-routing-catalog.md](./fix-routing-catalog.md) **snят** — расширять `assertPurpose`/`DecisionProcessId` для этого не нужно; к Фазе D роутинг уже агент-ведомый.
 > - Схема БД: `minutka_private` — переиспользуемая физическая схема (решение RFC §14.1), но проверить owner-constraint по `userId`, а не `employeeId`.
 > - **Перед реализацией — переоценить встроенный примитив Mastra Schedules** как альтернативу ручному воркеру (обязательное условие RFC §14.3); §4.7 ниже решает это в терминах «Минутки» и требует пересмотра.
 >

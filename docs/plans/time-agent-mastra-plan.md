@@ -2,14 +2,14 @@
 
 > ## ⚠️ Исторический документ (foundation), не активный roadmap
 >
-> Это мастер-план **старого продукта «Минутка»**. Проект с тех пор пивотнул в **персонального ассистента** — см. [rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) (текущая целевая архитектура) и активный roadmap: [phase-b-idea-bank.md](./phase-b-idea-bank.md) + предшественник [fix-routing-catalog.md](./fix-routing-catalog.md). Фаза A ассистента уже реализована (коммит `500cc65`).
+> Это мастер-план **старого продукта «Минутка»**. Проект с тех пор пивотнул в **персонального ассистента** — см. [rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) (текущая целевая архитектура) и активный roadmap: [phase-b-idea-bank.md](./phase-b-idea-bank.md). Заход [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8) **superseded** — большинство пунктов растворяется в агент-ведомой модели. Фаза A ассистента уже реализована (коммит `500cc65`).
 >
 > Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны, теги существуют, и ассистент строится поверх этого кода (application-слой, stores, decision router, Agent Vault, runtime). Что здесь **устарело относительно ассистента**:
 >
 > - **Роль и privacy.** Узкая роль «вечерний дневник» и **трёхсторонняя** модель (сотрудник/методолог/компания, агрегаты ≥5) заменены на полноценного ассистента с **single-owner** privacy (RFC §1.1, §11). `employeeId` → `userId`.
 > - **Модель.** `openai/gpt-5.4-mini` здесь → `openai/gpt-5.5` (RFC §14.5).
 > - **Фазы 6–8 отменены/переотображены на фазы ассистента:** Phase 6 «Карта автоматизации» (агрегаты ≥5) → RFC **Фаза G** `context_insights` (индивидуальная карта, без company-агрегации); Phase 7 «Расписание» → RFC **Фаза D** «Дайджест» (`SchedulerService`) — см. баннер в [phase-7-scheduling.md](./phase-7-scheduling.md); Phase 8 «Панель методолога» — в single-owner-продукте не нужна.
-> - **Каталог процессов.** Дефекты роутинга/каталога, найденные в этом фундаменте, сведены в [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8) и чинятся по ходу фаз ассистента.
+> - **Каталог процессов.** Дефекты роутинга/каталога сведены в [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8), но заход **superseded** [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md): большинство — техдолг пре-флайт-роутера и растворяется вместе с ним; остаются F1/F4 как гигиена.
 >
 > Ниже — оригинальный текст плана «Минутки» без изменений (внутренние статусы фаз отражают состояние на момент написания).
 
