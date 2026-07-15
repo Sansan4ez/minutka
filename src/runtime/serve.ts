@@ -12,7 +12,7 @@ import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
 import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { parseInviteSeeds } from "../telegram/invite-seeds.js";
 import { Telegraf } from "telegraf";
-import { loadDotEnv } from "../config/llm.js";
+import { loadDotEnv } from "../config/env.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
 
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
