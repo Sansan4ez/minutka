@@ -25,14 +25,14 @@ export function createMinioClient(config: MinioConfig): Minio.Client {
   return new Minio.Client({ endPoint: config.endpoint, port: config.port, useSSL: config.useSSL, accessKey: config.accessKey, secretKey: config.secretKey });
 }
 
-async function ensureBucket(client: Minio.Client, bucket: string): Promise<void> {
-  if (!await client.bucketExists(bucket)) await client.makeBucket(bucket);
-}
-
-/** Startup boundary: creates the configured bucket and enables versioning where supported. */
+/**
+ * Verifies the bucket prepared by infrastructure bootstrap. The runtime uses a
+ * least-privilege application account, so it must not create buckets or alter
+ * their versioning configuration.
+ */
 export async function prepareMinioBucket(client: Minio.Client, bucket: string): Promise<void> {
-  await ensureBucket(client, bucket);
-  await client.setBucketVersioning(bucket, { Status: "Enabled" });
+  if (!await client.bucketExists(bucket)) throw new Error(`MinIO bucket ${bucket} is not provisioned`);
+  if ((await client.getBucketVersioning(bucket)).Status !== "Enabled") throw new Error(`MinIO bucket ${bucket} must have versioning enabled`);
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {

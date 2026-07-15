@@ -13,11 +13,29 @@ services:
     volumes:
       - personal-assistant-minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # The server image exposes this built-in readiness endpoint; unlike `mc`,
+      # it requires neither a client binary nor an alias configuration.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in .env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in .env}
+      MINIO_BUCKET: ${MINIO_BUCKET:-personal-assistant}
+    volumes:
+      - ./docker/minio/init.sh:/usr/local/bin/init-minio:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/init-minio"]
 
   postgres:
     image: postgres:16-alpine
