@@ -1,5 +1,18 @@
 # План реализации прототипа «Минута» / `time-agent` на базе Mastra
 
+> ## ⚠️ Исторический документ (foundation), не активный roadmap
+>
+> Это мастер-план **старого продукта «Минутка»**. Проект с тех пор пивотнул в **персонального ассистента** — см. [rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) (текущая целевая архитектура) и активный roadmap: [phase-b-idea-bank.md](./phase-b-idea-bank.md) + предшественник [fix-routing-catalog.md](./fix-routing-catalog.md). Фаза A ассистента уже реализована (коммит `500cc65`).
+>
+> Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны, теги существуют, и ассистент строится поверх этого кода (application-слой, stores, decision router, Agent Vault, runtime). Что здесь **устарело относительно ассистента**:
+>
+> - **Роль и privacy.** Узкая роль «вечерний дневник» и **трёхсторонняя** модель (сотрудник/методолог/компания, агрегаты ≥5) заменены на полноценного ассистента с **single-owner** privacy (RFC §1.1, §11). `employeeId` → `userId`.
+> - **Модель.** `openai/gpt-5.4-mini` здесь → `openai/gpt-5.5` (RFC §14.5).
+> - **Фазы 6–8 отменены/переотображены на фазы ассистента:** Phase 6 «Карта автоматизации» (агрегаты ≥5) → RFC **Фаза G** `context_insights` (индивидуальная карта, без company-агрегации); Phase 7 «Расписание» → RFC **Фаза D** «Дайджест» (`SchedulerService`) — см. баннер в [phase-7-scheduling.md](./phase-7-scheduling.md); Phase 8 «Панель методолога» — в single-owner-продукте не нужна.
+> - **Каталог процессов.** Дефекты роутинга/каталога, найденные в этом фундаменте, сведены в [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8) и чинятся по ходу фаз ассистента.
+>
+> Ниже — оригинальный текст плана «Минутки» без изменений (внутренние статусы фаз отражают состояние на момент написания).
+
 > **Статус:** Phase 4.1 durable runtime foundation завершена: PostgreSQL adapters/migrations, typed runtime projections и production Telegram composition реализованы; `verify:persistence` зелёный против реального PostgreSQL, ручной Telegram restart smoke подтвердил сохранность state. Тег `phase-4.1-durable-runtime-foundation` создан. Следующий этап — Phase 4.2 HTTP Application API.
 > **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
 > **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  

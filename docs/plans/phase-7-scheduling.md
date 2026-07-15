@@ -1,5 +1,20 @@
 # Этап 7: Запуск бизнес-процессов по расписанию
 
+> ## ⚠️ Reference-дизайн «Минутки», не портирован под ассистента
+>
+> Документ написан в терминах старого продукта (`MinutkaService`, `employeeId`, трёхсторонняя privacy, `minutka_private`, `evening_reflection`/`morning_brief`) и **не является активным планом**. В roadmap ассистента планировщик — это **RFC Фаза D «Дайджест»** (`SchedulerService`, RFC §10), которая идёт **после** Фаз B (банк идей) и C (планирование). Реализовывать сейчас преждевременно.
+>
+> **Ядро дизайна переживает порт** и остаётся рекомендацией: планировщик как driving-адаптер поверх одной таблицы правил + леджер срабатываний в Postgres; тик + claim через `FOR UPDATE SKIP LOCKED`; правило — декларативная zod-схема (не cron/RRULE); `next_fire_at` — чистая функция на luxon; scheduled-запуск минует LLM-роутер и пишет ход в историю; Mastra — исполнитель, не планировщик.
+>
+> **Дельта порта при реализации Фазы D:**
+> - `MinutkaService.runScheduledProcess` → `AssistantService`; `employeeId` → `userId`; guard consent/lifecycle → single-owner-модель (RFC §11).
+> - Процессы: `evening_reflection`/`morning_brief` → навыки ассистента с триггером `scheduled` (`morning_digest`, `evening_reflection`, недельный обзор банка идей — RFC §8.1, §10).
+> - Триггер `scheduled` **строится на едином каталоге** из [fix-routing-catalog.md](./fix-routing-catalog.md): **P1/F2** уже добавляет `scheduled` (и `file_uploaded`) в `assertPurpose`, поэтому расширение `AgentManualPurpose`/`DecisionProcessId` в §4.4 этого плана к моменту Фазы D будет уже сделано — не дублировать.
+> - Схема БД: `minutka_private` — переиспользуемая физическая схема (решение RFC §14.1), но проверить owner-constraint по `userId`, а не `employeeId`.
+> - **Перед реализацией — переоценить встроенный примитив Mastra Schedules** как альтернативу ручному воркеру (обязательное условие RFC §14.3); §4.7 ниже решает это в терминах «Минутки» и требует пересмотра.
+>
+> Ссылки `phase-5`/теги ниже — из контекста «Минутки»; для ассистента целевого тега `phase-7-scheduling` не будет, работа пойдёт под Фазой D.
+
 > **Родительский план:** [time-agent-mastra-plan.md](./time-agent-mastra-plan.md)
 > **Предыдущий этап:** [phase-5-voice-stt.md](./phase-5-voice-stt.md)
 > **Стартовый тег:** `phase-5-voice-stt`
