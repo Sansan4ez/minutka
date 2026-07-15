@@ -10,6 +10,9 @@ import { createPostgresConsentAcceptanceStore } from "../../src/infrastructure/p
 import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
+import { Readable } from "node:stream";
+import { createInMemoryArtifactContentStore } from "../../src/application/in-memory-artifact-content-store.js";
+import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -220,6 +223,35 @@ describe("PostgreSQL storage contracts", () => {
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });
 
+  it("persists owner-scoped artifact references with delivery and content dedup", async () => {
+    await issueProfileReadyParticipant(pool, "artifact_owner", "invite_artifact_owner");
+    await issueProfileReadyParticipant(pool, "artifact_other", "invite_artifact_other");
+    const artifactContentStore = createInMemoryArtifactContentStore({ now: () => now });
+    const artifacts = createPostgresArtifactStore({
+      pool,
+      contentStore: artifactContentStore,
+      limits: { maximumBytes: 1024, timeoutMs: 1_000 },
+    });
+    const save = (ownerId: string, artifactId: string, deliveryKey: string, fileName: string) => artifacts.save({
+      ownerId, artifactId, originalFileName: fileName, declaredMediaType: "text/plain",
+      source: { kind: "http_upload", deliveryKey },
+      body: { size: 4, openStream: () => Readable.from("same") },
+    });
+    const first = await save("artifact_owner", "artifact-1", "delivery-1", "first.txt");
+    const renamed = await save("artifact_owner", "artifact-2", "delivery-2", "renamed.txt");
+    const retry = await save("artifact_owner", "artifact-retry", "delivery-1", "ignored.txt");
+    const other = await save("artifact_other", "artifact-1", "delivery-1", "first.txt");
+    expect(first.contentDisposition).toBe("stored");
+    expect(renamed.contentDisposition).toBe("reused");
+    expect(retry).toMatchObject({ deliveryDisposition: "duplicate_delivery", artifact: { artifactId: "artifact-1" } });
+    expect(other.contentDisposition).toBe("stored");
+    await expect(artifacts.get("artifact_other", "artifact-1")).resolves.toMatchObject({ ownerId: "artifact_other" });
+    await expect(artifactContentStore.presignGet("artifact_other", first.artifact.contentDigest, 60)).resolves.toContain("artifact_other");
+    await expect(artifactContentStore.presignGet("artifact_owner", first.artifact.contentDigest, 60)).resolves.toContain("artifact_owner");
+    await expect(artifacts.delete("artifact_owner", "artifact-1")).resolves.toMatchObject({ status: "deleted" });
+    await expect(artifacts.list("artifact_owner")).resolves.toMatchObject([{ artifactId: "artifact-2" }]);
+  });
+
   it("deletes every employee-owned private record", async () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const drafts = createPostgresOnboardingDraftStore(pool);
@@ -246,6 +278,11 @@ describe("PostgreSQL storage contracts", () => {
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
     await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
+    await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
+      ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",
+      source: { kind: "http_upload", deliveryKey: "delete-delivery" },
+      body: { size: 7, openStream: () => Readable.from("private") },
+    });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
     await profiles.deleteEmployeePersonalData("emp_delete");
     for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "onboarding_drafts"]) {
@@ -253,6 +290,8 @@ describe("PostgreSQL storage contracts", () => {
       expect(result.rowCount).toBe(0);
     }
     expect((await pool.query("SELECT 1 FROM minutka_private.ideas WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb"))).toMatchObject({ rowCount: 1 });
   });

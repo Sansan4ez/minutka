@@ -15,6 +15,8 @@ import { createPostgresPool } from "../infrastructure/postgres/postgres-pool.js"
 import { createPostgresProfileStore } from "../infrastructure/postgres/postgres-profile-store.js";
 import { createPostgresOnboardingDraftStore } from "../infrastructure/postgres/postgres-onboarding-draft-store.js";
 import { createPostgresIdeaStore } from "../infrastructure/postgres/postgres-idea-store.js";
+import { createPostgresArtifactStore } from "../infrastructure/postgres/postgres-artifact-store.js";
+import { createMinioArtifactContentStore } from "../infrastructure/minio/minio-artifact-content-store.js";
 import { createMinioBlobStore } from "../infrastructure/minio/minio-blob-store.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
@@ -39,6 +41,12 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
     await prepareMinioBucket(minioClient, minioConfig.bucket);
     const documentStore = createMinioDocumentStore({ client: minioClient, bucket: minioConfig.bucket });
     const blobStore = createMinioBlobStore({ client: minioClient, bucket: minioConfig.bucket });
+    const artifactContentStore = createMinioArtifactContentStore({ client: minioClient, bucket: minioConfig.bucket });
+    const artifactStore = createPostgresArtifactStore({
+      pool,
+      contentStore: artifactContentStore,
+      limits: { maximumBytes: 100 * 1024 * 1024, timeoutMs: 60_000 },
+    });
     const ideaStore = createPostgresIdeaStore(pool);
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
@@ -84,6 +92,8 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       service,
       assistant,
       ingestion,
+      artifactStore,
+      artifactContentStore,
       telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {

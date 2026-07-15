@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   assertArtifactMediaType,
@@ -25,7 +26,7 @@ describe("SPEC-PERSONAL-ASSISTANT-ARTIFACT-CONTRACT-001: durable artifact contra
         fileUniqueId: "file-unique-1",
       },
       caption: "Клиентское КП",
-      body: Buffer.from("pdf"),
+      body: { size: 3, openStream: () => Readable.from("pdf") },
     });
 
     const reference: ArtifactReference = {
@@ -34,7 +35,7 @@ describe("SPEC-PERSONAL-ASSISTANT-ARTIFACT-CONTRACT-001: durable artifact contra
       contentDigest: "a".repeat(64),
       originalFileName: input.originalFileName,
       declaredMediaType: input.declaredMediaType,
-      size: input.body.byteLength,
+      size: input.body.size!,
       source: input.source,
       caption: input.caption,
       status: "active",

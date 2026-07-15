@@ -1,3 +1,4 @@
+import type { Readable } from "node:stream";
 import { assertUserId } from "./document-store.js";
 
 export type ArtifactReferenceStatus = "active" | "deleted";
@@ -49,6 +50,13 @@ export type ArtifactReference = {
   deletedAt?: string;
 };
 
+export type ArtifactBody = {
+  /** Known transport size enables rejection before the first byte is read. */
+  size?: number;
+  /** Must return a fresh stream; save may read once for hashing and once for upload. */
+  openStream(): Readable;
+};
+
 export type SaveArtifactInput = {
   ownerId: string;
   artifactId: string;
@@ -58,7 +66,8 @@ export type SaveArtifactInput = {
   source: ArtifactSource;
   caption?: string;
   /** Transient input. Implementations must not persist it in PostgreSQL or audit. */
-  body: Buffer;
+  body: ArtifactBody;
+  signal?: AbortSignal;
 };
 
 export type SaveArtifactResult = {
@@ -163,7 +172,10 @@ export function validateSaveArtifactInput(input: SaveArtifactInput): SaveArtifac
   if (input.detectedMediaType !== undefined) assertArtifactMediaType(input.detectedMediaType);
   assertArtifactSource(input.source);
   if (input.caption !== undefined && /[\u0000]/.test(input.caption)) throw new Error("invalid artifact caption");
-  if (!Buffer.isBuffer(input.body)) throw new Error("artifact body must be a Buffer");
+  if (!input.body || typeof input.body.openStream !== "function") throw new Error("artifact body must provide openStream");
+  if (input.body.size !== undefined && (!Number.isSafeInteger(input.body.size) || input.body.size < 0)) {
+    throw new Error("artifact body size must be a non-negative safe integer");
+  }
   return input;
 }
 

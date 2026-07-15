@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ownerScopedArtifactContentKey } from "../../src/application/artifact-content-store.js";
+import { createMinioArtifactContentStore } from "../../src/infrastructure/minio/minio-artifact-content-store.js";
 import { createMinioBlobStore } from "../../src/infrastructure/minio/minio-blob-store.js";
 import { loadDotEnv } from "../../src/config/env.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../../src/infrastructure/minio/minio-config.js";
@@ -21,6 +25,7 @@ describeMinio("MinIO personal-vault contracts", () => {
   let client: ReturnType<typeof createMinioClient>;
   let documents: ReturnType<typeof createMinioDocumentStore>;
   let blobs: ReturnType<typeof createMinioBlobStore>;
+  let artifactContents: ReturnType<typeof createMinioArtifactContentStore>;
   let setupComplete = false;
   const suffix = `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const owner = `owner-${suffix}`;
@@ -31,6 +36,7 @@ describeMinio("MinIO personal-vault contracts", () => {
     client = createMinioClient(config);
     documents = createMinioDocumentStore({ client, bucket: config.bucket });
     blobs = createMinioBlobStore({ client, bucket: config.bucket });
+    artifactContents = createMinioArtifactContentStore({ client, bucket: config.bucket });
     await prepareMinioBucket(client, config.bucket);
     setupComplete = true;
   });
@@ -55,6 +61,19 @@ describeMinio("MinIO personal-vault contracts", () => {
     expect((await documents.list(owner, "context/")).map((document) => document.path)).toEqual(["context/01_profile.md"]);
     expect((await documents.list(otherOwner, "context/")).map((document) => document.path)).toEqual(["context/private.md"]);
     expect((await client.getBucketVersioning(config.bucket)).Status).toBe("Enabled");
+  });
+
+  it("does not create another CAS object version when the same owner retries identical content", async () => {
+    const body = Buffer.from("immutable artifact");
+    const contentDigest = createHash("sha256").update(body).digest("hex");
+    const key = ownerScopedArtifactContentKey(owner, contentDigest);
+    const first = await artifactContents.put({ ownerId: owner, contentDigest, size: body.byteLength, openStream: () => Readable.from(body) });
+    const second = await artifactContents.put({ ownerId: owner, contentDigest, size: body.byteLength, openStream: () => Readable.from(body) });
+    const stat = await client.statObject(config.bucket, key);
+    expect(second.versionId).toBe(first.versionId);
+    expect(stat.versionId).toBe(first.versionId);
+    await expect(artifactContents.stat(otherOwner, contentDigest)).resolves.toBeNull();
+    await expect(artifactContents.presignGet(owner, contentDigest, 60)).resolves.toMatch(/^https?:\/\//);
   });
 
   it("returns null for missing documents and validates blob presigning against stored objects", async () => {
