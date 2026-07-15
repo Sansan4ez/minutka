@@ -40,7 +40,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   insight_extraction_failed: [],
   feedback_received: ["feedbackId", "rating", "source", "selectedProcessIds"],
   agent_manual_load_failed: [],
-  idea_captured: ["ideaId", "project", "recordType", "sourceKind"],
+  idea_captured: ["ideaId", "recordType", "sourceKind"],
   employee_data_deleted: [],
 };
 

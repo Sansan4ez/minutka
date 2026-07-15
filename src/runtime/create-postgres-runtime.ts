@@ -1,4 +1,5 @@
 import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
 import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
@@ -21,6 +22,9 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { createMastraMinutkaServiceDeps } from "../mastra/runtime-deps.js";
 
 export async function createPostgresRuntime(input: { agentRunner: AgentRunner; assistantAgentRunner: AssistantAgentRunner; env: NodeJS.ProcessEnv; deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator"> }) {
+  // The process manual is deployment configuration: validate it before opening
+  // external resources or accepting traffic, then reuse the immutable snapshot.
+  const agentInstructions = loadAssistantAgentInstructions();
   const config = postgresConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
@@ -64,8 +68,10 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       ingestionService: ingestion,
       ideaStore,
       auditEventStore: stores.auditEventStore,
+      participantStore: stores.profileStore,
       clock: systemClock,
       idGenerator: randomIdGenerator,
+      agentInstructions,
     });
     // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.
     const draftCleanup = setInterval(() => {

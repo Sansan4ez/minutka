@@ -80,17 +80,34 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect(runtime.world.auditEvents.find((event) => event.type === "chat_received" && event.messageId === chat.messageId)?.metadata).toEqual({ inputModality: "voice" });
   });
 
-  it("serializes AssistantService results to the stable public chat contract", async () => {
+  it("serializes AssistantService results and binds both chat planes to their trusted identity", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
-    const assistant = { async chat() { return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], personalContextDocuments: ["context/private.md"] }; } };
-    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
+    const calls: unknown[] = [];
+    const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], personalContextDocuments: ["context/private.md"] }; } };
+    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["emp_a", employeeToken]]) } });
     running.push(server);
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken }));
 
-    await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "hello" })).resolves.toEqual({
+    await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "hello", inputModality: "voice" })).resolves.toEqual({
       messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"],
     });
+    const employeeResponse = await request(server.url, "/v1/me/threads/me-thread/messages", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "private", inputModality: "text" }) });
+    expect(employeeResponse.status).toBe(200);
+    expect(calls).toEqual([
+      { userId: "emp_a", threadId: "thread", text: "hello", inputModality: "voice" },
+      { userId: "emp_a", threadId: "me-thread", text: "private", inputModality: "text" },
+    ]);
     expect(chatResponseSchema.safeParse(await (await request(server.url, "/v1/service/employees/emp_a/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) })).json()).success).toBe(true);
+  });
+
+  it("rejects assistant capture for an unknown service employee before invoking the agent", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    const assistant = { async chat() { throw new PersistenceError("participant_not_found"); } };
+    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
+    running.push(server);
+    const response = await request(server.url, "/v1/service/employees/missing/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not be captured" }) });
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toMatchObject({ code: "participant_not_found" });
   });
 
   it("scopes conversational onboarding routes to the service employee", async () => {
