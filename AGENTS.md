@@ -139,4 +139,10 @@ git commit -m "..."     # Commit everything
 git push                # Push to remote
 ```
 
+### After task implementation
+
+- mark task as Done in `br`
+- create atomic commits with task ID from `br`
+- define next step/task
+
 <!-- end-bv-agent-instructions -->
