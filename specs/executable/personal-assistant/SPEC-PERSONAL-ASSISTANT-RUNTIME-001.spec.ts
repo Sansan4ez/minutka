@@ -14,6 +14,9 @@ import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
+import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
+import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
+import { Readable } from "node:stream";
 
 const noOpAgent: AgentRunner = async () => "legacy";
 
@@ -44,14 +47,15 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
       idGenerator: createDeterministicIdGenerator(),
     });
     const replies: Array<{ text: string; options?: unknown }> = [];
-    const downloadedPhotos: string[] = [];
+    const downloadedFiles: string[] = [];
+    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
     const client = new ServiceMinutkaClient(createInProcessServiceTransport(legacy.service, { kind: "service", serviceId: "telegram" }));
     const shell = createTelegramShell({
       client,
       sessionStore: legacy.telegramSessionStore,
       assistant,
-      ingestion,
-      photoFileGateway: { async downloadPhoto(fileId) { downloadedPhotos.push(fileId); return { body: Buffer.from("photo"), contentType: "image/jpeg", fileName: "photo.jpg" }; } },
+      artifactStore,
+      fileGateway: { createFileBody({ fileId, fileSizeBytes }) { downloadedFiles.push(fileId); return { ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from("photo") }; } },
       replyPort: { async sendMessage(_chatId, text, options) { replies.push({ text, options }); }, async sendChatAction() {}, async answerCallbackQuery() {} },
     });
 
@@ -63,9 +67,10 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     expect(replies[0]?.options).toMatchObject({ replyMarkup: { inlineKeyboard: [[{ text: "👍" }, { text: "👌" }, { text: "👎" }]] } });
 
     replies.length = 0;
-    await shell.handlePhoto("1", { fileId: "photo-1", caption: "Фото мысли" }, "user-1");
-    expect(downloadedPhotos).toEqual(["photo-1"]);
-    const captured = await ideas.list("maxim");
-    expect(captured.at(-1)?.source).toMatchObject({ kind: "blob", blobKey: expect.stringMatching(/^inbox\//) });
+    await shell.handleFile("1", { fileId: "photo-1", fileUniqueId: "photo-unique-1", messageId: 2, payloadKind: "photo", fileName: "photo.jpg", declaredMediaType: "image/jpeg", caption: "Фото мысли", fileSizeBytes: 5, forwarded: false }, "user-1");
+    expect(downloadedFiles).toEqual(["photo-1"]);
+    await expect(ideas.list("maxim")).resolves.toHaveLength(1);
+    await expect(artifactStore.list("maxim")).resolves.toMatchObject([{ originalFileName: "photo.jpg", caption: "Фото мысли", source: { payloadKind: "photo" } }]);
+    expect(replies.at(-1)?.text).toBe("Файл сохранён.");
   });
 });

@@ -15,7 +15,7 @@ import { parseInviteSeeds } from "../telegram/invite-seeds.js";
 import { Telegraf } from "telegraf";
 import { loadDotEnv } from "../config/env.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
-import { downloadBoundedTelegramPhoto, type TelegramPhotoFileGateway } from "../telegram/telegram-photo-file-gateway.js";
+import { createTelegramFileGateway } from "../telegram/telegram-file-gateway.js";
 
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
@@ -71,14 +71,13 @@ async function main(): Promise<void> {
         },
       } : undefined;
       const speechToText = stt ? createOpenAiSpeechToText(stt) : undefined;
-      const photoFileGateway: TelegramPhotoFileGateway = {
-        async downloadPhoto(fileId) {
+      const fileGateway = createTelegramFileGateway({
+        async getFileLink(fileId) {
           if (!activeBot) throw new Error("Bot not running");
-          const url = await activeBot.telegram.getFileLink(fileId);
-          return downloadBoundedTelegramPhoto({ url, fileId });
+          return activeBot.telegram.getFileLink(fileId);
         },
-      };
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, assistant: runtime.assistant, ingestion: runtime.ingestion, photoFileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
+      });
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, assistant: runtime.assistant, artifactStore: runtime.artifactStore, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {

@@ -1,5 +1,5 @@
 import { Telegraf } from "telegraf";
-import type { createTelegramShell } from "./telegram-shell.js";
+import type { createTelegramShell, TelegramFileAttachment } from "./telegram-shell.js";
 
 export function createTelegrafBot(deps: {
   token: string;
@@ -14,54 +14,99 @@ export function createTelegrafBot(deps: {
     console.error(`Telegraf update handling failed (${error instanceof Error ? error.name : "UnknownError"}).`);
   });
 
+  const privateChat = async (ctx: { chat?: { type: string }; reply(text: string): Promise<unknown> }): Promise<boolean> => {
+    if (ctx.chat?.type === "private") return true;
+    await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
+    return false;
+  };
+  const forwarded = (message: object): boolean => "forward_origin" in message || "forward_date" in message;
+  const handleFile = async (ctx: any, attachment: TelegramFileAttachment): Promise<void> => {
+    if (!await privateChat(ctx)) return;
+    await shell.handleFile(String(ctx.chat.id), attachment, ctx.from ? String(ctx.from.id) : undefined);
+  };
+
   bot.start(async (ctx) => {
-    if (ctx.chat.type !== "private") {
-      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
-      return;
-    }
-
-    const chatId = String(ctx.chat.id);
-    const userId = ctx.from ? String(ctx.from.id) : undefined;
+    if (!await privateChat(ctx)) return;
     const text = ctx.message.text || "";
-    const parts = text.split(/\s+/);
-    const inviteCode = parts[1] || undefined;
-
-    await shell.handleStart(chatId, inviteCode, userId);
+    await shell.handleStart(String(ctx.chat.id), text.split(/\s+/)[1] || undefined, ctx.from ? String(ctx.from.id) : undefined);
   });
 
   bot.on("text", async (ctx) => {
-    if (ctx.chat.type !== "private") {
-      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
-      return;
-    }
-
-    const chatId = String(ctx.chat.id);
-    const userId = ctx.from ? String(ctx.from.id) : undefined;
-    const text = ctx.message.text;
-
-    await shell.handleText(chatId, text, userId);
+    if (!await privateChat(ctx)) return;
+    await shell.handleText(String(ctx.chat.id), ctx.message.text, ctx.from ? String(ctx.from.id) : undefined);
   });
 
   bot.on("photo", async (ctx) => {
-    if (ctx.chat.type !== "private") {
-      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
-      return;
-    }
     const photo = ctx.message.photo.at(-1);
     if (!photo) return;
-    await shell.handlePhoto(String(ctx.chat.id), {
+    await handleFile(ctx, {
       fileId: photo.file_id,
+      fileUniqueId: photo.file_unique_id,
+      messageId: ctx.message.message_id,
+      payloadKind: "photo",
+      fileName: `telegram-photo-${photo.file_unique_id}.jpg`,
+      declaredMediaType: "image/jpeg",
       ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
       ...(ctx.message.media_group_id ? { mediaGroupId: ctx.message.media_group_id } : {}),
-    }, ctx.from ? String(ctx.from.id) : undefined);
+      ...(photo.file_size === undefined ? {} : { fileSizeBytes: photo.file_size }),
+      forwarded: forwarded(ctx.message),
+    });
+  });
+
+  bot.on("document", async (ctx) => {
+    const file = ctx.message.document;
+    await handleFile(ctx, {
+      fileId: file.file_id, fileUniqueId: file.file_unique_id, messageId: ctx.message.message_id, payloadKind: "document",
+      fileName: file.file_name || `telegram-document-${file.file_unique_id}`,
+      ...(file.mime_type ? { declaredMediaType: file.mime_type } : {}),
+      ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
+      ...(ctx.message.media_group_id ? { mediaGroupId: ctx.message.media_group_id } : {}),
+      ...(file.file_size === undefined ? {} : { fileSizeBytes: file.file_size }), forwarded: forwarded(ctx.message),
+    });
+  });
+
+  bot.on("audio", async (ctx) => {
+    const file = ctx.message.audio;
+    await handleFile(ctx, {
+      fileId: file.file_id, fileUniqueId: file.file_unique_id, messageId: ctx.message.message_id, payloadKind: "audio",
+      fileName: file.file_name || `telegram-audio-${file.file_unique_id}`,
+      ...(file.mime_type ? { declaredMediaType: file.mime_type } : {}),
+      ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
+      ...(ctx.message.media_group_id ? { mediaGroupId: ctx.message.media_group_id } : {}),
+      ...(file.file_size === undefined ? {} : { fileSizeBytes: file.file_size }), forwarded: forwarded(ctx.message),
+    });
+  });
+
+  bot.on("video", async (ctx) => {
+    const file = ctx.message.video;
+    await handleFile(ctx, {
+      fileId: file.file_id, fileUniqueId: file.file_unique_id, messageId: ctx.message.message_id, payloadKind: "video",
+      fileName: file.file_name || `telegram-video-${file.file_unique_id}.mp4`,
+      ...(file.mime_type ? { declaredMediaType: file.mime_type } : {}),
+      ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
+      ...(ctx.message.media_group_id ? { mediaGroupId: ctx.message.media_group_id } : {}),
+      ...(file.file_size === undefined ? {} : { fileSizeBytes: file.file_size }), forwarded: forwarded(ctx.message),
+    });
+  });
+
+  bot.on("animation", async (ctx) => {
+    const file = ctx.message.animation;
+    await handleFile(ctx, {
+      fileId: file.file_id, fileUniqueId: file.file_unique_id, messageId: ctx.message.message_id, payloadKind: "animation",
+      fileName: file.file_name || `telegram-animation-${file.file_unique_id}.mp4`,
+      ...(file.mime_type ? { declaredMediaType: file.mime_type } : {}),
+      ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
+      ...(file.file_size === undefined ? {} : { fileSizeBytes: file.file_size }), forwarded: forwarded(ctx.message),
+    });
+  });
+
+  bot.on("video_note", async (ctx) => {
+    if (!await privateChat(ctx)) return;
+    await shell.handleUnsupportedAttachment(String(ctx.chat.id), ctx.from ? String(ctx.from.id) : undefined);
   });
 
   bot.on("voice", async (ctx) => {
-    if (ctx.chat.type !== "private") {
-      await ctx.reply("Для защиты конфиденциальности бот работает только в личном чате.");
-      return;
-    }
-
+    if (!await privateChat(ctx)) return;
     const voice = ctx.message.voice;
     await shell.handleVoice(String(ctx.chat.id), {
       fileId: voice.file_id,
@@ -76,18 +121,10 @@ export function createTelegrafBot(deps: {
       await ctx.answerCbQuery("Для защиты конфиденциальности бот работает только в личном чате.");
       return;
     }
-
-    const chatId = ctx.chat ? String(ctx.chat.id) : "";
-    const userId = ctx.from ? String(ctx.from.id) : undefined;
     const callbackQueryId = ctx.callbackQuery.id;
     const data = ("data" in ctx.callbackQuery) ? ctx.callbackQuery.data : "";
-
-    let finalChatId = chatId;
-    if (!finalChatId && ctx.callbackQuery.message) {
-      finalChatId = String(ctx.callbackQuery.message.chat.id);
-    }
-
-    await shell.handleCallback(finalChatId, callbackQueryId, data || "", userId);
+    const chatId = ctx.chat ? String(ctx.chat.id) : ctx.callbackQuery.message ? String(ctx.callbackQuery.message.chat.id) : "";
+    await shell.handleCallback(chatId, callbackQueryId, data || "", ctx.from ? String(ctx.from.id) : undefined);
   });
 
   return bot;

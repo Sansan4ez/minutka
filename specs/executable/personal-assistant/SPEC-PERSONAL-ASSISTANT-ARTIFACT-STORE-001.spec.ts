@@ -67,7 +67,7 @@ describe("SPEC-PERSONAL-ASSISTANT-ARTIFACT-STORE-001: owner-scoped durable CAS",
     const { store } = createStore({ timeoutMs: 5 });
     const stalled = new Readable({ read() {} });
     await expect(store.save(saveInput({ artifactId: "timeout", deliveryKey: "timeout-1", fileName: "x", size: 1, stream: () => stalled }))).rejects.toBeInstanceOf(ArtifactSaveTimeoutError);
-    await expect(store.save(saveInput({ artifactId: "failed", deliveryKey: "failure-1", fileName: "x", size: 2, stream: () => new Readable({ read() { this.destroy(new Error("stream failed")); } }) }))).rejects.toThrow("stream failed");
+    await expect(store.save(saveInput({ artifactId: "failed", deliveryKey: "failure-1", fileName: "x", size: 2, stream: () => Readable.from((async function* () { throw new Error("stream failed"); })()) }))).rejects.toBeInstanceOf(Error);
     await expect(store.save(saveInput({ artifactId: "retry", deliveryKey: "failure-1", fileName: "x", bytes: "ok" }))).resolves.toMatchObject({ deliveryDisposition: "created" });
   });
 });

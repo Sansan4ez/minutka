@@ -1,5 +1,4 @@
 import type { AssistantService } from "../application/assistant-service.js";
-import type { IngestionService } from "../application/ingestion-service.js";
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
@@ -10,7 +9,10 @@ import { privacyExplanation } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
-import { photoDownloadTimeoutMs, PhotoDownloadTimeoutError, PhotoFileTooLargeError, UnsupportedPhotoContentTypeError, type TelegramPhotoFileGateway } from "./telegram-photo-file-gateway.js";
+import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../application/artifact-body-stager.js";
+import type { ArtifactStore, TelegramArtifactPayloadKind } from "../application/artifact-store.js";
+import type { TelegramFileGateway } from "./telegram-file-gateway.js";
+import { randomUUID } from "node:crypto";
 import { pipeline, Transform } from "node:stream";
 
 export const maxTelegramMessageCharacters = 4_000;
@@ -23,6 +25,7 @@ const typingRefreshMilliseconds = 4_000;
 const maxTelegramCallbackDataBytes = 64;
 export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
+export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
@@ -104,8 +107,21 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; assistant?: Pick<AssistantService, "chat">; ingestion?: Pick<IngestionService, "captureInboxFile">; photoFileGateway?: TelegramPhotoFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number; photoProcessingTimeoutMs?: number }) {
-  const { client, sessionStore, replyPort, assistant, ingestion, photoFileGateway, speechToText, voiceFileGateway } = deps; const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs; const photoTimeoutMs = deps.photoProcessingTimeoutMs ?? photoDownloadTimeoutMs; const inFlightChatIds = new Set<string>(); const processedPhotoMediaGroups = new Map<string, string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+export type TelegramFileAttachment = {
+  fileId: string;
+  fileUniqueId?: string;
+  messageId: number;
+  payloadKind: Exclude<TelegramArtifactPayloadKind, "voice" | "sticker">;
+  fileName: string;
+  declaredMediaType?: string;
+  caption?: string;
+  mediaGroupId?: string;
+  fileSizeBytes?: number;
+  forwarded: boolean;
+};
+
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; assistant?: Pick<AssistantService, "chat">; artifactStore?: Pick<ArtifactStore, "save">; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+  const { client, sessionStore, replyPort, assistant, artifactStore, fileGateway, speechToText, voiceFileGateway } = deps; const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
   async function authorizedSession(chatId: string, userId?: string) {
     const session = await sessionStore.getByIdentity(identity(chatId, userId));
     if (!session) {
@@ -156,33 +172,44 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text"); }
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
-    async handlePhoto(chatId: string, photo: { fileId: string; caption?: string; mediaGroupId?: string }, userId?: string) {
-      const mediaGroupKey = photo.mediaGroupId ? `${chatId}\u0000${photo.mediaGroupId}` : undefined;
-      if (mediaGroupKey && processedPhotoMediaGroups.has(mediaGroupKey)) return;
+    async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
         const session = await authorizedSession(chatId, userId); if (!session) return;
-        if (!assistant || !ingestion || !photoFileGateway) return void await replyPort.sendMessage(chatId, "Фотографии сейчас недоступны. Пожалуйста, отправьте описание текстом.");
-        if (mediaGroupKey) {
-          const timer = setTimeout(() => processedPhotoMediaGroups.delete(mediaGroupKey), 60_000);
-          timer.unref();
-          processedPhotoMediaGroups.set(mediaGroupKey, photo.fileId);
-        }
-        await withVoiceTimeout(photoTimeoutMs, async () => {
-          const file = await photoFileGateway.downloadPhoto(photo.fileId);
-          const blob = await ingestion.captureInboxFile({ userId: session.employeeId, fileName: file.fileName, body: file.body, contentType: file.contentType });
-          const text = photo.caption?.trim() || "Фото без подписи";
-          await dispatchText(chatId, text, session, "text", { kind: "blob", blobKey: blob.key });
-        }).catch((error) => { if (error instanceof VoiceProcessingTimeoutError) throw new PhotoDownloadTimeoutError(); throw error; });
+        if (!artifactStore || !fileGateway) return void await replyPort.sendMessage(chatId, "Сохранение файлов сейчас недоступно. Попробуйте ещё раз позже.");
+        if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > maxTelegramArtifactFileSizeBytes) return void await replyPort.sendMessage(chatId, "Файл слишком большой (максимум 100 МБ).");
+        const deliveryKey = `telegram:${chatId}:${attachment.messageId}:${attachment.payloadKind}:${attachment.fileUniqueId ?? attachment.fileId}`;
+        await artifactStore.save({
+          ownerId: session.employeeId,
+          artifactId: `artifact_${randomUUID()}`,
+          originalFileName: attachment.fileName,
+          ...(attachment.declaredMediaType === undefined ? {} : { declaredMediaType: attachment.declaredMediaType }),
+          source: {
+            kind: "telegram",
+            deliveryKey,
+            chatId,
+            messageId: attachment.messageId,
+            payloadKind: attachment.payloadKind,
+            forwarded: attachment.forwarded,
+            fileId: attachment.fileId,
+            ...(attachment.fileUniqueId === undefined ? {} : { fileUniqueId: attachment.fileUniqueId }),
+            ...(attachment.mediaGroupId === undefined ? {} : { mediaGroupId: attachment.mediaGroupId }),
+          },
+          ...(attachment.caption?.trim() ? { caption: attachment.caption.trim() } : {}),
+          body: fileGateway.createFileBody({ fileId: attachment.fileId, fileSizeBytes: attachment.fileSizeBytes }),
+        });
+        await replyPort.sendMessage(chatId, "Файл сохранён.");
       } catch (error) {
-        if (mediaGroupKey) processedPhotoMediaGroups.delete(mediaGroupKey);
-        logShellError("photo message", error);
-        const message = error instanceof PhotoFileTooLargeError ? "Фотография слишком большая (максимум 10 МБ)."
-          : error instanceof UnsupportedPhotoContentTypeError ? "Поддерживаются только фотографии JPEG и PNG."
-          : error instanceof PhotoDownloadTimeoutError ? "Не удалось загрузить фотографию вовремя. Попробуйте ещё раз позже."
-          : "Не удалось обработать фотографию. Попробуйте ещё раз позже.";
+        logShellError("file message", error);
+        const message = error instanceof ArtifactTooLargeError ? "Файл слишком большой (максимум 100 МБ)."
+          : error instanceof ArtifactSaveTimeoutError || (error instanceof Error && error.name === "AbortError") ? "Не удалось сохранить файл вовремя. Попробуйте ещё раз позже."
+          : "Не удалось сохранить файл. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
       } finally { inFlightChatIds.delete(chatId); }
+    },
+    async handleUnsupportedAttachment(chatId: string, userId?: string) {
+      try { if (await authorizedSession(chatId, userId)) await replyPort.sendMessage(chatId, "Этот тип вложения пока не поддерживается."); }
+      catch (error) { logShellError("unsupported attachment", error); await replyPort.sendMessage(chatId, "Не удалось обработать вложение. Попробуйте ещё раз позже."); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
