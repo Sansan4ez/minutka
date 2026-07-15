@@ -85,5 +85,8 @@ function collectObjects(stream: NodeJS.ReadableStream): Promise<Minio.BucketItem
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error.code === "NoSuchKey" || error.code === "NoSuchObject");
+  // MinIO returns `NotFound` for a missing object on HEAD/statObject, while
+  // S3-compatible providers may use the more specific NoSuch* codes.
+  return typeof error === "object" && error !== null && "code" in error
+    && (error.code === "NotFound" || error.code === "NoSuchKey" || error.code === "NoSuchObject");
 }

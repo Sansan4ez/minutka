@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createMinioBlobStore } from "../../src/infrastructure/minio/minio-blob-store.js";
+import { loadDotEnv } from "../../src/config/env.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../../src/infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../../src/infrastructure/minio/minio-document-store.js";
+
+// Unlike the runtime entry point, Vitest does not load local configuration.
+// Preserve shell-provided values while making `MINIO_SMOKE=true npm run …`
+// use the project's ignored .env file as documented.
+loadDotEnv();
 
 const smokeEnabled = process.env.MINIO_SMOKE === "true";
 const describeMinio = smokeEnabled ? describe : describe.skip;
@@ -15,6 +21,7 @@ describeMinio("MinIO personal-vault contracts", () => {
   let client: ReturnType<typeof createMinioClient>;
   let documents: ReturnType<typeof createMinioDocumentStore>;
   let blobs: ReturnType<typeof createMinioBlobStore>;
+  let setupComplete = false;
   const suffix = `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const owner = `owner-${suffix}`;
   const otherOwner = `other-${suffix}`;
@@ -25,9 +32,13 @@ describeMinio("MinIO personal-vault contracts", () => {
     documents = createMinioDocumentStore({ client, bucket: config.bucket });
     blobs = createMinioBlobStore({ client, bucket: config.bucket });
     await prepareMinioBucket(client, config.bucket);
+    setupComplete = true;
   });
 
   afterAll(async () => {
+    // Do not mask a configuration or connection failure in beforeAll with a
+    // second exception from cleanup against an uninitialised client.
+    if (!setupComplete) return;
     const objects = await collectObjectNames(client.listObjectsV2(config.bucket, `${owner}/`, true));
     const otherObjects = await collectObjectNames(client.listObjectsV2(config.bucket, `${otherOwner}/`, true));
     await Promise.all([...objects, ...otherObjects].map((object) => client.removeObject(config.bucket, object, { forceDelete: true })));
@@ -54,7 +65,7 @@ describeMinio("MinIO personal-vault contracts", () => {
     await expect(blobs.presignGet(owner, "inbox/missing.txt", 60)).rejects.toThrow("blob_not_found");
     await expect(blobs.presignGet(owner, "inbox/note.txt", 60)).resolves.toMatch(/^https?:\/\//);
     expect(await blobs.get(owner, "inbox/note.txt")).toMatchObject({ body: Buffer.from("private blob") });
-    expect(await blobs.get(owner, "inbox/missing.txt")).resolves.toBeNull();
+    await expect(blobs.get(owner, "inbox/missing.txt")).resolves.toBeNull();
     expect((await blobs.list(owner, "inbox/")).map((blob) => blob.key)).toEqual(["inbox/note.txt"]);
   });
 });
