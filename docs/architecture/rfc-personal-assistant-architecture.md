@@ -367,7 +367,7 @@ Router по-прежнему возвращает strict JSON: выбранны�
 
 | Фаза | Содержание | Проверяемый результат |
 |---|---|---|
-| A. Каркас | MinIO-адаптеры (`DocumentStore`, `BlobStore`), `IngestionService`, `AssistantService` поверх application-слоя, vault-неймспейс ассистента, `/proc/context` + `/proc/records` проекции | Пилотный пользователь (Максим): онбординг пишет конституцию в vault, агент читает контекст |
+| A. Каркас | MinIO-адаптеры (`DocumentStore`, `BlobStore`), `IngestionService`, `AssistantService` поверх application-слоя, vault-неймспейс ассистента, `/proc/context` проекция | Пилотный пользователь (Максим): онбординг пишет конституцию в vault, агент читает контекст |
 | B. Банк идей | Навык `inbox_capture`, `IdeaStore`, классификатор, запись из Telegram (текст/голос/ссылка/фото) | «Ничего не терять»: любое входящее классифицировано и сохранено |
 | C. Планирование | Навык `day_focus`, `TaskStore`, подключение Google Calendar через use-case | «Что мне делать сейчас» за 2–5 минут |
 | D. Дайджест | `SchedulerService`, навык `morning_digest`, источники из vault, HTML-артефакт в `BlobStore` | Автоматический дайджест 09:00 в Telegram |

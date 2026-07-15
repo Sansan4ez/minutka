@@ -21,16 +21,19 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
       const source = await deps.documentStore.list(input.userId, "context/");
       let characters = 0;
       let truncated = source.length > assistantContextLimits.documents;
-      const documents = source.slice(0, assistantContextLimits.documents).flatMap((document) => {
+      const documents: AssistantContextProjection["data"]["documents"] = [];
+      for (const document of source.slice(0, assistantContextLimits.documents)) {
         const content = [...document.content].slice(0, assistantContextLimits.documentCharacters).join("");
         if (content.length !== document.content.length) truncated = true;
+        // Paths are sorted by the store, so preserve their priority rather than
+        // silently dropping an earlier document in favour of a later one.
         if (characters + content.length > assistantContextLimits.characters) {
           truncated = true;
-          return [];
+          break;
         }
         characters += content.length;
-        return [{ path: document.path, content, version: document.version, updatedAt: document.updatedAt }];
-      });
+        documents.push({ path: document.path, content, version: document.version, updatedAt: document.updatedAt });
+      }
       return {
         schemaVersion: 1,
         path: "/proc/context",

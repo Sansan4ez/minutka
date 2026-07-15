@@ -30,7 +30,9 @@ export function assertSafeVaultPath(path: string, allowedPrefix?: string): strin
 
 export function assertUserId(userId: string): string {
   const normalized = userId.trim();
-  if (!normalized || normalized.includes("/") || normalized.includes("\\") || normalized.includes("..")) throw new Error("invalid userId");
+  // User IDs form the storage isolation boundary and must be one printable
+  // segment. This also reserves the NUL separator used by in-memory adapters.
+  if (!normalized || normalized === "." || normalized === ".." || /[\\/\u0000-\u001f\u007f]/.test(normalized)) throw new Error("invalid userId");
   return normalized;
 }
 

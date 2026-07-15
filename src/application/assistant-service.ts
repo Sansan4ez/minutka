@@ -1,6 +1,7 @@
 import type { ConversationStore } from "./conversation-store.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
-import { assertSafeVaultPath, assertUserId } from "./document-store.js";
+import { assertUserId } from "./document-store.js";
+import type { IngestionService } from "./ingestion-service.js";
 import { createAssistantContextProjectionBuilder, renderAssistantContextProjection, type AssistantContextProjection } from "./assistant-context-projection.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
@@ -22,19 +23,16 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; clock?: Clock; idGenerator?: IdGenerator },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument">; clock?: Clock; idGenerator?: IdGenerator },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
     this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now() });
   }
 
-  /** Explicit onboarding write: a caller supplies reviewed Markdown, never a raw agent filesystem operation. */
+  /** Explicit onboarding write: reviewed Markdown flows through the ingestion boundary. */
   async saveOnboardingContext(input: { userId: string; path: string; content: string }): Promise<UserDocument> {
-    const userId = assertUserId(input.userId);
-    const path = assertSafeVaultPath(input.path, "context/");
-    if (!input.content.trim()) throw new Error("onboarding context content is required");
-    return this.deps.documentStore.put(userId, path, input.content);
+    return this.deps.ingestionService.saveContextDocument(input);
   }
 
   async chat(input: AssistantChatInput): Promise<AssistantChatResult> {
