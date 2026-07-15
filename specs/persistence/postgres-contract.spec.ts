@@ -53,7 +53,9 @@ describe("PostgreSQL storage contracts", () => {
     // Schema ownership stays with the migrator. The runtime role is tested only
     // against an already-migrated database, exactly as it runs in production.
     await migratePostgres(migrationPool);
-    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants");
+    // `ideas` is owner-scoped independently from Minutka participants, so it
+    // cannot be cleaned through the participant FK cascade below.
+    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants; DELETE FROM minutka_private.ideas");
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
