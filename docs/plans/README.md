@@ -24,9 +24,10 @@ br show <id>                # детали задачи: description / ## Design
 
 | Эпик | id | Статус |
 |---|---|---|
-| Фаза B — банк идей (slim) | `personal-assistant-2yr` | open, 1/5 (B1 закрыт) |
-| Гигиена роутинга/каталога (F1/F4, ex F1–F8) | `personal-assistant-x5q` | open (superseded-остаток) |
-| Фаза D — дайджест/планировщик (ex phase-7) | `personal-assistant-yjl` | deferred |
+| Фаза B — банк идей (slim) | `pers-assist-2yr` | closed |
+| Универсальный файловый intake и owner-scoped CAS | `pers-assist-sb1` | open |
+| Гигиена роутинга/каталога (F1/F4, ex F1–F8) | `pers-assist-x5q` | open (superseded-остаток) |
+| Фаза D — дайджест/планировщик (ex phase-7) | `pers-assist-yjl` | deferred |
 
 **Закрытые (фундамент «Минутки»):** Фазы 1, 2, 3, 3.5, 4, 4.1, 4.2, 5 — `br list --status=closed -t epic`.
 
