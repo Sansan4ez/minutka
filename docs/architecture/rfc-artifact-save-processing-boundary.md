@@ -7,7 +7,7 @@
 Related:
 - [RFC архитектуры персонального ассистента](./rfc-personal-assistant-architecture.md) (§5–7)
 - [RFC агент-ведомого роутинга](./rfc-agent-led-routing.md) (§2–3)
-- br-эпик `pers-assist-sb1` и задача `pers-assist-sb1.1`
+- br-эпик `prs-sb1` и задача `prs-sb1.1`
 
 ---
 
