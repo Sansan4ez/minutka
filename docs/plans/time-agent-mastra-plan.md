@@ -9,6 +9,7 @@
 > **Подробный план Phase 4.1:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
 > **Подробный план Phase 4.2:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
 > **Подробный план Phase 5:** [`phase-5-voice-stt.md`](./phase-5-voice-stt.md).
+> **Подробный план Phase 7:** [`phase-7-scheduling.md`](./phase-7-scheduling.md).
 > **Architecture RFCs:** [`rfc-runtime-projections.md`](../architecture/rfc-runtime-projections.md), [`rfc-http-application-api.md`](../architecture/rfc-http-application-api.md).
 > **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
 > **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
@@ -603,14 +604,18 @@ Definition of Done:
 
 ### Phase 7 — Расписание и ежедневные касания (опционально для MVP)
 
+**Подробный план:** [`phase-7-scheduling.md`](./phase-7-scheduling.md).
+
 **Цель:** автоматические morning / optional midday / evening prompts.
+
+**Архитектурный итог детального плана:** планировщик — driving-адаптер наравне с Telegram/CLI/админкой; одна таблица правил (`process_schedules`) + леджер срабатываний (`schedule_fires`) в Postgres; тик 45–60с с claim через `FOR UPDATE SKIP LOCKED` (multi-instance без leader election); правило — декларативная zod-схема, а не cron/RRULE; расчёт `next_fire_at` — чистая функция на luxon; новый use-case `runScheduledProcess` минует LLM-роутер и пишет ход в `ConversationStore`; Mastra остаётся исполнителем, не планировщиком.
 
 Минимальный scope:
 
-1. Scheduler boundary (`node-cron` или platform scheduler).
-2. Настройки времени и timezone сотрудника.
-3. Idempotency: не отправлять дубликаты.
-4. Spec на scheduled prompt без реального времени через fake clock.
+1. Scheduler boundary — **свой DB-backed dispatcher** (не `node-cron`, не встроенный `mastra.schedules`).
+2. Настройки времени и timezone сотрудника — `timezone` в профиль/онбординг.
+3. Idempotency: не отправлять дубликаты — `UNIQUE (schedule_id, scheduled_for)`.
+4. Spec на scheduled prompt без реального времени через fake clock — `SPEC-SCHEDULE-001`.
 
 Definition of Done:
 
