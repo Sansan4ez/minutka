@@ -2,6 +2,7 @@
   "version": 1,
   "manualId": "personal-assistant-vault",
   "core": { "id": "core", "path": "vault/assistant/AGENTS.md" },
+  "index": { "path": "vault/assistant/processes/index.md" },
   "processes": [
     {
       "id": "onboarding",
