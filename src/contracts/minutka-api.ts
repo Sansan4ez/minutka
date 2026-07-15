@@ -28,6 +28,24 @@ export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
 export const submitFeedbackRequestSchema = z.strictObject({ threadId: threadIdSchema, targetMessageId: z.string().min(1), rating: feedbackRatingSchema, source: feedbackSourceSchema });
 export const submitFeedbackResponseSchema = z.strictObject({ accepted: z.literal(true), feedbackId: z.string().min(1), selectedProcessIds: z.array(agentManualProcessIdSchema) });
 export const insightKindSchema = z.enum(["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"]);
+
+// Сквозной классификатор записей (RFC §6.1; domain/classification.ts). `type` —
+// закрытый enum (LLM не выдумает тип); `project` — непустая строка (список
+// проектов — пользовательские данные vault, неизвестный проект схлопывается в
+// NO_PROJECT на уровне use-case, а не отвергается здесь).
+export const recordTypeSchema = z.enum([
+  "money",
+  "development",
+  "content",
+  "people",
+  "operations",
+  "knowledge",
+  "personal",
+]);
+export const classifiedSchema = z.strictObject({
+  project: z.string().min(1),
+  type: recordTypeSchema,
+});
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
 export const structuredInsightSchema = z.discriminatedUnion("kind", [
