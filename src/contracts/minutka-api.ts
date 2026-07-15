@@ -4,7 +4,7 @@ import { z } from "zod";
 export const personaSchema = z.enum(["support", "efficiency"]);
 export const aiLevelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 export const responseLengthSchema = z.enum(["short", "balanced", "detailed"]);
-export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "feedback"]);
+export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "feedback", "inbox_capture"]);
 export const employeeIdSchema = z.string().min(1).max(128);
 export const threadIdSchema = z.string().min(1).max(128);
 
@@ -31,8 +31,8 @@ export const insightKindSchema = z.enum(["task_category", "routine_pattern", "en
 
 // Сквозной классификатор записей (RFC §6.1; domain/classification.ts). `type` —
 // закрытый enum (LLM не выдумает тип); `project` — непустая строка (список
-// проектов — пользовательские данные vault, неизвестный проект схлопывается в
-// NO_PROJECT на уровне use-case, а не отвергается здесь).
+// проектов — пользовательские данные vault, которые читает и интерпретирует
+// агент. Application-слой валидирует DTO, но не разбирает Markdown-классификатор.
 export const recordTypeSchema = z.enum([
   "money",
   "development",

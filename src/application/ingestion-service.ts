@@ -19,8 +19,6 @@ export type CaptureIdeaInput = {
   suggestedNextStep: string;
   needsProjectClarification: boolean;
   source?: IdeaSource;
-  /** The owner-maintained project set, when available in the bounded context. */
-  knownProjects?: readonly string[];
 };
 
 export type CaptureIdeaResult = {
@@ -67,8 +65,7 @@ export function createIngestionService(deps: { documentStore: DocumentStore; blo
       if (!summary) throw new Error("idea summary is required");
       if (!suggestedNextStep) throw new Error("suggested next step is required");
       const requestedProject = input.project.trim();
-      const unknownProject = !requestedProject || (input.knownProjects !== undefined && !input.knownProjects.includes(requestedProject));
-      const needsProjectClarification = input.needsProjectClarification || unknownProject;
+      const needsProjectClarification = input.needsProjectClarification || !requestedProject || requestedProject === NO_PROJECT;
       const project = needsProjectClarification ? NO_PROJECT : requestedProject;
       const ideaStore = deps.ideaStore;
       if (!ideaStore) throw new Error("ideaStore is required for idea capture");

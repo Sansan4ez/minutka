@@ -6,6 +6,8 @@ import { NO_PROJECT } from "../domain/classification.js";
 import { createAssistantContextProjectionBuilder, renderAssistantContextProjection, type AssistantContextProjection } from "./assistant-context-projection.js";
 import { createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection, type AssistantRecordsProjection } from "./assistant-records-projection.js";
 import type { IdeaSource, IdeaStore } from "./idea-store.js";
+import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
+import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
 
@@ -16,11 +18,11 @@ export type AssistantAgentContext = {
   records: AssistantRecordsProjection;
   /** Sanitized source metadata for capture; it contains no transport identity. */
   source: IdeaSource;
-  /** Typed, reversible owner-scoped action; a runner must invoke this to save a classified idea. */
-  captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId">): Promise<CaptureIdeaResult>;
+  /** Typed, reversible owner-scoped action. Source provenance is bound by AssistantService. */
+  captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId" | "source">): Promise<CaptureIdeaResult>;
 };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
-export type AssistantChatResult = { messageId: string; response: string; personalContextDocuments: string[] };
+export type AssistantChatResult = { messageId: string; response: string; selectedProcessIds: ["core"] | ["core", "inbox_capture"]; personalContextDocuments?: string[] };
 
 /**
  * Product-level orchestration for the personal assistant.
@@ -35,7 +37,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; ideaStore?: IdeaStore; clock?: Clock; idGenerator?: IdGenerator },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -60,31 +62,61 @@ export class AssistantService {
     const personalContext = await this.projectionBuilder.build({ userId, requestId });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
-    const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId">) => {
-      captureResult = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId });
-      return captureResult;
+    const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
+      const captured = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+      captureResult = captured;
+      if (this.deps.auditEventStore) {
+        try {
+          await this.deps.auditEventStore.append({
+            id: this.ids.auditEventId(),
+            requestId,
+            type: "idea_captured",
+            employeeId: userId,
+            threadId,
+            messageId,
+            occurredAt: this.clock.now(),
+            metadata: safeAuditMetadata("idea_captured", {
+              ideaId: captured.idea.id,
+              project: captured.idea.project,
+              recordType: captured.idea.type,
+              sourceKind: source.kind,
+            }),
+          });
+        } catch (error) {
+          logAssistantOperationalError("idea capture audit", error);
+        }
+      }
+      return captured;
     };
-    const response = await this.agentRunner({ userId, threadId, text }, {
-      personalContext,
-      records,
-      source,
-      systemContext: buildAssistantSystemContext(personalContext, records),
-      captureIdea,
-    });
-    // A provider failure or an answer that did not use the typed action must
-    // never discard owner input. Capture a neutral raw record instead.
-    if (!captureResult) {
-      // Preserve the conversational response even when the optional Phase B
-      // store is not part of an older runtime composition.
-      await captureIdea({
+    let response: string | undefined;
+    let agentError: unknown;
+    try {
+      response = await this.agentRunner({ userId, threadId, text }, {
+        personalContext,
+        records,
+        source,
+        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions),
+        captureIdea,
+      });
+    } catch (error) {
+      agentError = error;
+    }
+    // Infrastructure failures must not discard owner input. File uploads are
+    // also a deterministic capture gate; semantic routing of successful text
+    // turns remains the agent's responsibility.
+    if (!captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+      const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
         summary: text,
         suggestedNextStep: "Уточнить проект и следующий шаг.",
         needsProjectClarification: true,
-        source,
-      }).catch(() => undefined);
+      });
+      if (agentError !== undefined) response = fallback.response;
     }
+    if (agentError !== undefined && response === undefined && captureResult) response = captureResult.response;
+    if (agentError !== undefined && response === undefined) throw agentError;
+    if (response === undefined) throw new Error("Agent returned no response");
     await this.deps.conversationStore.appendTurn({
       messageId,
       // The existing application history store uses employeeId as its neutral
@@ -95,18 +127,22 @@ export class AssistantService {
       agentResponse: response,
       timestamp: this.clock.now(),
     });
-    return { messageId, response, personalContextDocuments: personalContext.data.documents.map((document) => document.path) };
+    const selectedProcessIds: AssistantChatResult["selectedProcessIds"] = captureResult ? ["core", "inbox_capture"] : ["core"];
+    return { messageId, response, selectedProcessIds, personalContextDocuments: personalContext.data.documents.map((document) => document.path) };
   }
 }
 
-export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection): string {
+export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions()): string {
   return [
     "# Personal assistant runtime context",
-    "You are a personal assistant. Create useful drafts when requested, but never send external messages, publish, change a calendar, or make financial actions without an explicit confirmation step handled by the application.",
-    "Facts such as names, prices, and deadlines must come from supplied context or be clarified; do not invent them.",
+    agentInstructions,
     renderAssistantContextProjection(personalContext),
     ...(records === undefined ? [] : [renderAssistantRecordsProjection(records)]),
   ].filter(Boolean).join("\n\n");
+}
+
+function logAssistantOperationalError(operation: string, error: unknown): void {
+  console.warn(`Assistant ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`);
 }
 
 function emptyRecordsProjection(input: { userId: string; requestId: string; now: string }): AssistantRecordsProjection {

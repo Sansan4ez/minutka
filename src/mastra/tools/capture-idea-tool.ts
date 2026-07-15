@@ -9,10 +9,6 @@ const captureIdeaInputSchema = z.strictObject({
   summary: z.string().min(1),
   suggestedNextStep: z.string().min(1),
   needsProjectClarification: z.boolean(),
-  source: z.discriminatedUnion("kind", [
-    z.strictObject({ kind: z.literal("text"), text: z.string().min(1) }),
-    z.strictObject({ kind: z.literal("blob"), blobKey: z.string().min(1) }),
-  ]).optional(),
 });
 
 const captureIdeaOutputSchema = z.strictObject({
