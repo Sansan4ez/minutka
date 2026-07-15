@@ -18,7 +18,7 @@
 
 ## Ключевые папки
 
-- [`docs/`](docs) — [`architecture/`](docs/architecture) (RFC), [`plans/`](docs/plans) (фазовые планы + [индекс](docs/plans/README.md)), [`product/`](docs/product) (бриф), [`runbooks/`](docs/runbooks).
+- [`docs/`](docs) — [`architecture/`](docs/architecture) (RFC), [`CONVENTIONS.md`](docs/CONVENTIONS.md) (правила доков), [`plans/`](docs/plans) ([индекс](docs/plans/README.md); планы ведутся **эпиками в `br`**, папка держит только шаблон/README/TODO), [`product/`](docs/product) (бриф), [`runbooks/`](docs/runbooks).
 - [`vault/`](vault) — Agent Vault: роль ([`AGENTS.md`](vault/AGENTS.md)), навыки [`processes/`](vault/processes), typed-действия [`bin/`](vault/bin), проекции `proc/`.
 - [`specs/`](specs) — executable specs ([`executable/`](specs/executable)), [`persistence/`](specs/persistence), [`smoke/`](specs/smoke). Гоняются без LLM/сети через in-memory адаптеры.
 - [`migrations/`](migrations) — SQL-миграции PostgreSQL.
