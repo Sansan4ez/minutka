@@ -6,7 +6,7 @@ import { minutkaAgent } from "./agents/minutka-agent.js";
 export type MinutkaAgentLike = {
   generate(
     text: string,
-    options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>> },
+    options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>>; activeTools?: string[] },
   ): Promise<{ text?: string }>;
 };
 
@@ -43,6 +43,9 @@ export function createAssistantAgentRunner(agent: MinutkaAgentLike): AssistantAg
       system: context.systemContext,
       toolChoice: "auto",
       toolsets: { inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) } },
+      // `activeTools` is applied after all toolsets are resolved, so legacy
+      // agent-level tools cannot be selected during personal inbox capture.
+      activeTools: ["captureIdea"],
       maxSteps: 2,
     });
     return result.text ?? "";
