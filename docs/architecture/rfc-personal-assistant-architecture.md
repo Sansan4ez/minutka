@@ -14,6 +14,7 @@ Related documents:
 - [RFC: runtime projections](./rfc-runtime-projections.md)
 - [RFC: HTTP application API](./rfc-http-application-api.md)
 - [Process authoring contract](./process-authoring.md)
+- [RFC: контракт входящего артефакта и граница save/process](./rfc-artifact-save-processing-boundary.md)
 
 ## 1. Контекст и задача
 
@@ -210,24 +211,11 @@ interface DocumentStore {
 }
 ```
 
-### 6.3. BlobStore (MinIO — блобы и артефакты)
+### 6.3. BlobStore и ArtifactStore (MinIO + PostgreSQL index)
 
-```ts
-interface StoredBlob {
-  userId: string;
-  key: string;           // "inbox/2026-07-15/receipt-8a1f.jpg"
-  contentType: string;
-  size: number;
-  createdAt: string;
-}
+`BlobStore` остаётся низкоуровневым owner-scoped object-store портом для существующих документов и generated blobs. Универсальный файловый intake использует отдельный `ArtifactStore`: immutable content хранится в owner-scoped CAS по полному SHA-256, а имя, transport provenance, caption, status и logical `artifactId` — в отдельной owner-scoped reference.
 
-interface BlobStore {
-  put(userId: string, key: string, body: Buffer, contentType: string): Promise<StoredBlob>;
-  get(userId: string, key: string): Promise<{ blob: StoredBlob; body: Buffer } | null>;
-  presignGet(userId: string, key: string, ttlSeconds: number): Promise<string>;
-  list(userId: string, prefix?: string): Promise<StoredBlob[]>;
-}
-```
+Durable save и необязательная постобработка не смешиваются. Канонический контракт, правила delivery/content dedup, deletion/retention и миграция с `IdeaSource.blobKey` определены в [RFC входящего артефакта](./rfc-artifact-save-processing-boundary.md).
 
 ### 6.4. Record stores (PostgreSQL — рабочие записи)
 
