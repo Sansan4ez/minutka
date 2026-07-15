@@ -1,12 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
+import type { AssistantService } from "../../application/assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
-  submitFeedbackRequestSchema, threadIdSchema,
+  submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
 } from "../../contracts/minutka-api.js";
 import { authenticateBearer, type ApiAuthConfig, type AuthenticatedPrincipal } from "./auth.js";
 import { RequestError, httpError, mapError, requestId } from "./error-mapping.js";
@@ -20,7 +21,7 @@ export const defaultHandlerTimeoutMs = 15_000;
 type Principal = AuthenticatedPrincipal;
 type AccessLogEntry = { method: string; path: string; status: number; durationMs: number; requestId: string; principal?: Principal["kind"] };
 type ErrorLogEntry = { method: string; path: string; requestId: string; error: { name: string; message: string; stack?: string } };
-export type HttpServerOptions = { service: MinutkaService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void }; 
+export type HttpServerOptions = { service: MinutkaService; assistant?: Pick<AssistantService, "chat">; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw httpError(400, "invalid_request", "Request validation failed."); return result.data; }
@@ -35,6 +36,9 @@ function query(url: URL): Record<string, string | undefined> { return Object.fro
 function requirePrincipal(principal: Principal | undefined): Principal { if (!principal) throw httpError(401, "unauthorized", "Authentication is required."); return principal; }
 function requireKind<K extends Principal["kind"]>(principal: Principal | undefined, kind: K): Extract<Principal, { kind: K }> { const authenticated = requirePrincipal(principal); if (authenticated.kind !== kind) throw httpError(403, "forbidden", "This operation is not permitted."); return authenticated as Extract<Principal, { kind: K }>; }
 function send(res: ServerResponse, status: number, value: unknown, id: string): void { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "x-request-id": id }); res.end(status === 204 ? undefined : JSON.stringify(value)); }
+function publicChatResponse(result: Awaited<ReturnType<AssistantService["chat"]>>): ChatResponse {
+  return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds };
+}
 function pathEmployee(pathname: string, suffix: string): string | undefined { const match = pathname.match(new RegExp(`^/v1/service/employees/([^/]+)${suffix}$`)); return match?.[1] ? decodeURIComponent(match[1]) : undefined; }
 function mutationRateLimitKey(principal: Principal, pathname: string): string | undefined {
   if (principal.kind === "service") {
@@ -99,7 +103,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.service.chat({ ...input, employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text })) : options.service.chat({ ...input, employeeId: employee.employeeId })), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && meFeedback) { template = "/v1/me/threads/:threadId/feedback"; const employee = requireKind(principal, "employee"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meFeedback[1])) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: employee.employeeId })), id); }
 
@@ -119,7 +123,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       const serviceOnboarding = pathEmployee(url.pathname, "/onboarding");
       if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.service.chat({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])) })), id); }
+      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text })) : options.service.chat({ ...input, employeeId })), id); }
       const serviceFeedback = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && serviceFeedback) { template = "/v1/service/employees/:employeeId/threads/:threadId/feedback"; requireKind(principal, "service"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceFeedback[2]) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceFeedback[1])) })), id); }
       throw httpError(404, "invalid_request", "Route not found.");

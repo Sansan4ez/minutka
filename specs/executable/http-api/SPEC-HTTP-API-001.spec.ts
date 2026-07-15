@@ -8,6 +8,7 @@ import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js"
 import { HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
+import { chatResponseSchema } from "../../../src/contracts/minutka-api.js";
 
 const employeeToken = "a".repeat(64); const otherToken = "b".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64);
 const running: RunningHttpServer[] = [];
@@ -77,6 +78,19 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect((await employee.getProfile()).employeeId).toBe("emp_b");
     const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello", inputModality: "voice" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
     expect(runtime.world.auditEvents.find((event) => event.type === "chat_received" && event.messageId === chat.messageId)?.metadata).toEqual({ inputModality: "voice" });
+  });
+
+  it("serializes AssistantService results to the stable public chat contract", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    const assistant = { async chat() { return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], personalContextDocuments: ["context/private.md"] }; } };
+    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
+    running.push(server);
+    const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken }));
+
+    await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "hello" })).resolves.toEqual({
+      messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"],
+    });
+    expect(chatResponseSchema.safeParse(await (await request(server.url, "/v1/service/employees/emp_a/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) })).json()).success).toBe(true);
   });
 
   it("scopes conversational onboarding routes to the service employee", async () => {

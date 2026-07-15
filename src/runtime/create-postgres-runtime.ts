@@ -1,3 +1,5 @@
+import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { createIngestionService } from "../application/ingestion-service.js";
 import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
@@ -11,10 +13,14 @@ import { migrationStatus } from "../infrastructure/postgres/postgres-migrator.js
 import { createPostgresPool } from "../infrastructure/postgres/postgres-pool.js";
 import { createPostgresProfileStore } from "../infrastructure/postgres/postgres-profile-store.js";
 import { createPostgresOnboardingDraftStore } from "../infrastructure/postgres/postgres-onboarding-draft-store.js";
+import { createPostgresIdeaStore } from "../infrastructure/postgres/postgres-idea-store.js";
+import { createMinioBlobStore } from "../infrastructure/minio/minio-blob-store.js";
+import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
+import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
 import { createMastraMinutkaServiceDeps } from "../mastra/runtime-deps.js";
 
-export async function createPostgresRuntime(input: { agentRunner: AgentRunner; env: NodeJS.ProcessEnv; deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator"> }) {
+export async function createPostgresRuntime(input: { agentRunner: AgentRunner; assistantAgentRunner: AssistantAgentRunner; env: NodeJS.ProcessEnv; deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator"> }) {
   const config = postgresConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
@@ -24,6 +30,12 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
     const onboardingDraftStore = createPostgresOnboardingDraftStore(pool);
     // Startup cleanup bounds retention even for employees who never return.
     await onboardingDraftStore.purgeExpired();
+    const minioConfig = minioConfigFromEnv(input.env);
+    const minioClient = createMinioClient(minioConfig);
+    await prepareMinioBucket(minioClient, minioConfig.bucket);
+    const documentStore = createMinioDocumentStore({ client: minioClient, bucket: minioConfig.bucket });
+    const blobStore = createMinioBlobStore({ client: minioClient, bucket: minioConfig.bucket });
+    const ideaStore = createPostgresIdeaStore(pool);
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
       onboardingDraftStore,
@@ -45,6 +57,16 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
       ...createMastraMinutkaServiceDeps(),
       ...input.deps,
     });
+    const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
+    const assistant = new AssistantService(input.assistantAgentRunner, {
+      documentStore,
+      conversationStore: stores.conversationStore,
+      ingestionService: ingestion,
+      ideaStore,
+      auditEventStore: stores.auditEventStore,
+      clock: systemClock,
+      idGenerator: randomIdGenerator,
+    });
     // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.
     const draftCleanup = setInterval(() => {
       void onboardingDraftStore.purgeExpired().catch((error: unknown) => {
@@ -54,6 +76,8 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; e
     draftCleanup.unref();
     return {
       service,
+      assistant,
+      ingestion,
       telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {
