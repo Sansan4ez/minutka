@@ -8,8 +8,8 @@
 
 Related documents:
 
-- [Phase 2: onboarding, consent and profile](../plans/phase-2-onboarding-consent-profile.md)
-- [Phase 4: Telegram text and feedback](../plans/phase-4-telegram-text-feedback.md)
+- [Phase 2: onboarding, consent and profile](./minutka-foundation.md)
+- [Phase 4: Telegram text and feedback](./minutka-foundation.md)
 - [HTTP application API RFC](./rfc-http-application-api.md)
 - [Runtime projections RFC](./rfc-runtime-projections.md)
 - [HTTP API runtime runbook](../runbooks/http-api-runtime.md)

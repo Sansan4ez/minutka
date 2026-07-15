@@ -8,8 +8,8 @@ panel can use the same long-lived application runtime and persistent data.
 
 Related documents:
 
-- [Master Mastra plan](../plans/time-agent-mastra-plan.md)
-- [Phase 4: Telegram text and feedback](../plans/phase-4-telegram-text-feedback.md)
+- [Master Mastra plan](./minutka-foundation.md)
+- [Phase 4: Telegram text and feedback](./minutka-foundation.md)
 - [Agent Vault architecture](./agent-vault.md)
 - [Runtime projections RFC](./rfc-runtime-projections.md)
 - [Data Storage and Privacy Layer](../diagram_modules/product-parts/data-storage-and-privacy-layer.md)

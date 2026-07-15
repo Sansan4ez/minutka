@@ -34,7 +34,7 @@ Every process file must use this exact structure:
 - Useful dependency examples:
   - `docs/product/Final_Description.md#scenario-1-employee-joins-the-program`
   - `docs/product/virtual-simulation.md#scenario-6-evening-voice-reflection`
-  - `docs/plans/time-agent-mastra-plan.md#45-виртуальная-unix-like-среда-агента`
+  - `docs/architecture/minutka-foundation.md#45-виртуальная-unix-like-среда-агента`
   - `specs/executable/context/SPEC-CONTEXT-001.spec.ts`
 - Never store secrets, raw employee transcripts, real Telegram IDs, phone numbers, emails, or other direct PII.
 - Keep the process small. If it grows beyond roughly 150 lines, split it or move background material to dependencies.

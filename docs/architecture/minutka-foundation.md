@@ -2,30 +2,21 @@
 
 > ## ⚠️ Исторический документ (foundation), не активный roadmap
 >
-> Это мастер-план **старого продукта «Минутка»**. Проект с тех пор пивотнул в **персонального ассистента** — см. [rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) (текущая целевая архитектура) и активный roadmap: [phase-b-idea-bank.md](./phase-b-idea-bank.md). Заход [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8) **superseded** — большинство пунктов растворяется в агент-ведомой модели. Фаза A ассистента уже реализована (коммит `500cc65`).
+> Это мастер-план **старого продукта «Минутка»**. Проект пивотнул в **персонального ассистента** — текущая целевая архитектура: [rfc-personal-assistant-architecture.md](./rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](./rfc-agent-led-routing.md). Активный roadmap ведётся в **beads** (`br epic status`), см. [../plans/README.md](../plans/README.md). Фаза A ассистента реализована (коммит `500cc65`).
 >
-> Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны, теги существуют, и ассистент строится поверх этого кода (application-слой, stores, decision router, Agent Vault, runtime). Что здесь **устарело относительно ассистента**:
+> Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны (теги существуют, эпики закрыты в br), ассистент строится поверх этого кода (application-слой, stores, decision router, Agent Vault, runtime). Что **устарело относительно ассистента**:
 >
-> - **Роль и privacy.** Узкая роль «вечерний дневник» и **трёхсторонняя** модель (сотрудник/методолог/компания, агрегаты ≥5) заменены на полноценного ассистента с **single-owner** privacy (RFC §1.1, §11). `employeeId` → `userId`.
+> - **Роль и privacy.** Узкая роль «вечерний дневник» и трёхсторонняя модель (сотрудник/методолог/компания, агрегаты ≥5) заменены на полноценного ассистента с **single-owner** privacy (RFC §1.1, §11). `employeeId` → `userId`.
 > - **Модель.** `openai/gpt-5.4-mini` здесь → `openai/gpt-5.5` (RFC §14.5).
-> - **Фазы 6–8 отменены/переотображены на фазы ассистента:** Phase 6 «Карта автоматизации» (агрегаты ≥5) → RFC **Фаза G** `context_insights` (индивидуальная карта, без company-агрегации); Phase 7 «Расписание» → RFC **Фаза D** «Дайджест» (`SchedulerService`) — см. баннер в [phase-7-scheduling.md](./phase-7-scheduling.md); Phase 8 «Панель методолога» — в single-owner-продукте не нужна.
-> - **Каталог процессов.** Дефекты роутинга/каталога сведены в [fix-routing-catalog.md](./fix-routing-catalog.md) (F1–F8), но заход **superseded** [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md): большинство — техдолг пре-флайт-роутера и растворяется вместе с ним; остаются F1/F4 как гигиена.
+> - **Фазы 6–8:** Phase 6 «Карта автоматизации» (агрегаты ≥5) → RFC **Фаза G** `context_insights` (индивидуальная, без company-агрегации); Phase 7 «Расписание» → RFC **Фаза D** «Дайджест» (эпик «Фаза D» в br, deferred); Phase 8 «Панель методолога» — в single-owner не нужна.
+> - **Каталог/роутинг.** Дефекты F1–F8 (бывш. `fix-routing-catalog`) **superseded** [rfc-agent-led-routing.md](./rfc-agent-led-routing.md); остаток — эпик «Гигиена роутинга/каталога» в br (F1/F4).
 >
-> Ниже — оригинальный текст плана «Минутки» без изменений (внутренние статусы фаз отражают состояние на момент написания).
+> Ниже — оригинальный текст плана «Минутки» (ссылки на удалённые phase-доки сняты до code-span; внутренние статусы фаз отражают состояние на момент написания).
 
-> **Статус:** Phase 4.1 durable runtime foundation завершена: PostgreSQL adapters/migrations, typed runtime projections и production Telegram composition реализованы; `verify:persistence` зелёный против реального PostgreSQL, ручной Telegram restart smoke подтвердил сохранность state. Тег `phase-4.1-durable-runtime-foundation` создан. Следующий этап — Phase 4.2 HTTP Application API.
-> **Подробный план Phase 1:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).  
-> **Подробный план Phase 2:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
-> **Подробный план Phase 3:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
-> **Подробный план Phase 3.5:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
-> **Подробный план Phase 4:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
-> **Подробный план Phase 4.1:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
-> **Подробный план Phase 4.2:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
-> **Подробный план Phase 5:** [`phase-5-voice-stt.md`](./phase-5-voice-stt.md).
-> **Подробный план Phase 7:** [`phase-7-scheduling.md`](./phase-7-scheduling.md).
-> **Architecture RFCs:** [`rfc-runtime-projections.md`](../architecture/rfc-runtime-projections.md), [`rfc-http-application-api.md`](../architecture/rfc-http-application-api.md).
-> **Research/RFC:** [`researches/rfc-ecom1-process-architect-lessons-for-time-agent.md`](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).  
-> **Технический принцип:** docs-first Mastra workflow: перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry; агентные инструкции оформлять как проверяемые бизнес-процессы as code.
+> **Статус фаз** ведётся в beads (`br epic status`): фазы 1–5/4.1/4.2 — закрытые эпики; активная работа — эпик «Фаза B». Детальные фазовые планы вынесены в эпики и git history (отдельных `docs/plans/phase-*.md` больше нет).
+> **Актуальные Architecture RFCs:** [rfc-runtime-projections.md](./rfc-runtime-projections.md), [rfc-http-application-api.md](./rfc-http-application-api.md).
+> **Research:** [researches/rfc-ecom1-process-architect-lessons-for-time-agent.md](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md).
+> **Технический принцип:** docs-first Mastra workflow — перед изменением Mastra API сверяться с embedded docs установленной версии и provider registry.
 
 ---
 
@@ -403,7 +394,7 @@ Specs продолжают использовать in-memory adapters. Shared s
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-1-skeleton`.  
-**Детали:** [`phase-1-skeleton-and-test-harness.md`](./phase-1-skeleton-and-test-harness.md).
+**Детали:** `phase-1-skeleton-and-test-harness.md`.
 
 Результат:
 
@@ -419,7 +410,7 @@ Specs продолжают использовать in-memory adapters. Shared s
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-2-onboarding`.  
-**Подробный план:** [`phase-2-onboarding-consent-profile.md`](./phase-2-onboarding-consent-profile.md).  
+**Подробный план:** `phase-2-onboarding-consent-profile.md`.  
 **Цель:** сотрудник может быть зарегистрирован, принять privacy explanation, выбрать persona и получить первый ответ в выбранном стиле.
 
 Минимальный scope:
@@ -443,7 +434,7 @@ Definition of Done:
 
 **Статус:** ✅ завершено.  
 **Тег:** `phase-3-context-insights`.  
-**Подробный план:** [`phase-3-context-guardrails-insights.md`](./phase-3-context-guardrails-insights.md).  
+**Подробный план:** `phase-3-context-guardrails-insights.md`.  
 **Цель:** агент удерживает контекст дня, соблюдает границы тематики и сохраняет структурированные сигналы.
 
 Минимальный scope:
@@ -463,7 +454,7 @@ Definition of Done:
 ### Phase 3.5 — Agent Vault: бизнес-процессы как код
 
 **Статус:** ✅ завершено.  
-**Подробный план:** [`phase-3.5-agent-manual-lite.md`](./phase-3.5-agent-manual-lite.md).  
+**Подробный план:** `phase-3.5-agent-manual-lite.md`.  
 **Цель:** оформить поведение `MinutkaAgent` как проверяемый `vault/` runtime workspace и подключить его к `MinutkaContextBuilder` без тяжёлой PA/versioning-инфраструктуры.
 
 Почему здесь: Phase 1–3 уже дали backend, profile/consent, context, guardrails и insights. До Phase 4 ещё не закреплены Telegram handlers, поэтому сейчас дешевле всего вынести правила агента из монолитных инструкций в agent vault.
@@ -505,7 +496,7 @@ Definition of Done:
 
 ### Phase 4 — Telegram shell: текстовый MVP и feedback
 
-**Подробный план:** [`phase-4-telegram-text-feedback.md`](./phase-4-telegram-text-feedback.md).  
+**Подробный план:** `phase-4-telegram-text-feedback.md`.  
 **Цель:** рабочий Telegram-бот с текстовым вводом, `/start`, onboarding entrypoint и feedback buttons.
 
 Минимальный scope:
@@ -529,7 +520,7 @@ Definition of Done:
 
 **Статус:** ✅ завершено.
 **Тег:** `phase-4.1-durable-runtime-foundation`.
-**Подробный план:** [`phase-4.1-durable-runtime-foundation.md`](./phase-4.1-durable-runtime-foundation.md).
+**Подробный план:** `phase-4.1-durable-runtime-foundation.md`.
 **Цель:** заменить production-зависимость от `InMemoryWorld` на PostgreSQL application stores, реализовать typed `/proc`/`/run` projections и устранить неоднозначность conversation memory.
 
 Минимальный scope:
@@ -559,7 +550,7 @@ Definition of Done:
 ### Phase 4.2 — HTTP Application API and Shared Runtime
 
 **Статус:** ✅ реализовано; ожидает финального manual multi-process smoke и тега `phase-4.2-http-application-api`.
-**Подробный план:** [`phase-4.2-http-application-api.md`](./phase-4.2-http-application-api.md).
+**Подробный план:** `phase-4.2-http-application-api.md`.
 **Цель:** аутентифицированный versioned HTTP API `/v1` перед `MinutkaService`, transport-neutral SDK contracts и standalone CLI из отдельного процесса; Telegram переходит на тот же HTTP SDK (loopback, service credential) в одном composition root (Stage 1 из RFC).
 
 Минимальный scope:
@@ -581,7 +572,7 @@ Definition of Done:
 
 ### Phase 5 — Голосовые сообщения и STT boundary
 
-**Подробный план:** [`phase-5-voice-stt.md`](./phase-5-voice-stt.md).
+**Подробный план:** `phase-5-voice-stt.md`.
 **Цель:** voice message обрабатывается как текст после транскрипции.
 
 Минимальный scope:
@@ -617,7 +608,7 @@ Definition of Done:
 
 ### Phase 7 — Расписание и ежедневные касания (опционально для MVP)
 
-**Подробный план:** [`phase-7-scheduling.md`](./phase-7-scheduling.md).
+**Подробный план:** `phase-7-scheduling.md`.
 
 **Цель:** автоматические morning / optional midday / evening prompts.
 

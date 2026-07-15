@@ -9,8 +9,8 @@
 Related:
 - [RFC ассистента](./rfc-personal-assistant-architecture.md) (§8 реестр навыков, §9 автономность)
 - [Research: уроки ecom1-process-architect](../../researches/rfc-ecom1-process-architect-lessons-for-time-agent.md) (§3.2.1 роутинг, §7 уроки)
-- [Фаза B — банк идей](../plans/phase-b-idea-bank.md) (переписывается на слим-вариант, см. §5)
-- [Fix routing/catalog F1–F8](../plans/fix-routing-catalog.md) (приоритет пересмотрен, см. §6)
+- Фаза B — банк идей: br-эпик `personal-assistant-2yr` (slim, декомпозиция B1–B5; см. §5)
+- Гигиена роутинга/каталога (ex F1–F8): br-эпик `personal-assistant-x5q` (приоритет пересмотрен; см. §6)
 
 ---
 
@@ -74,7 +74,7 @@ Related:
 
 ## 5. Влияние на Phase B
 
-План B (`phase-b-idea-bank.md`) переписывается на слим-вариант:
+План B (br-эпик `personal-assistant-2yr`, задачи B1–B5) — слим-вариант:
 
 - **Оставляем:** доменный `Classified`, порт `IdeaStore` + in-memory + PostgreSQL-адаптер, миграцию `0011`, изоляцию по `userId`, `SPEC-PERSONAL-ASSISTANT-INBOX-001`.
 - **Схлопываем** отдельный `InboxClassifierRunner` (третий агент) + `IngestionService.captureInbox` + детерминированный форс `inbox_capture` → **агент + один инструмент** `captureIdea(project, type, summary, nextStep, needsClarification)`, хендлер = use-case `IngestionService` (запись в `IdeaStore`, изоляция, аудит, сборка ответа, схлопывание неизвестного проекта в `БЕЗ_ПРОЕКТА`). Агент классифицирует сам (у него есть `06_классификатор.md` через проекцию) и зовёт инструмент.
@@ -86,7 +86,7 @@ Related:
 
 ## 6. Влияние на F1–F8 и порядок работ
 
-`fix-routing-catalog.md` пересматривается: большая часть пунктов **растворяется**, а не выполняется.
+Заход F1–F8 (ex `fix-routing-catalog`, теперь br-эпик `personal-assistant-x5q`) пересматривается: большая часть пунктов **растворяется**, а не выполняется.
 
 | Пункт | Судьба при агент-ведомом роутинге |
 |---|---|

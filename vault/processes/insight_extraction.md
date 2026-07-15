@@ -45,4 +45,4 @@ Use when the SO-CoT conversation decision router marks an allowed turn as an ins
 - `src/domain/insights.ts`
 - `src/domain/conversation-decision.ts`
 - `specs/executable/context/SPEC-CONTEXT-001.spec.ts`
-- `docs/plans/phase-3-context-guardrails-insights.md`
+- `docs/architecture/minutka-foundation.md`

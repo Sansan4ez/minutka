@@ -1,55 +1,46 @@
-# Индекс планов реализации
+# Планирование
 
-Навигация по `docs/plans/`. Проект пивотнул из узкого продукта **«Минутка»** (`time-agent`) в **персонального AI-ассистента**; ассистент **переиспользует** фундамент «Минутки» (application-слой, stores, decision router, Agent Vault, runtime). Поэтому здесь соседствуют активный roadmap ассистента и исторические планы фундамента.
+Планирование ведётся в **beads** (`br` — issue-трекер, `bv` — граф-триаж; данные в `.beads/`, tracked в git через `issues.jsonl`). Эта папка держит только **шаблон**, этот **README** и **TODO** ручных проверок. Детальные фазовые планы — это **эпики в br** + git history (отдельных `phase-*.md` больше нет).
 
-- **Текущая целевая архитектура:** [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) (агент-ведомый роутинг — уточняет §8, основной для роутинга навыков).
-- **Правило:** при составлении плана каждой следующей фазы держаться агент-ведомой модели (`rfc-agent-led-routing.md`): агент сам роутит в один ход, машинерию не наращивать. Заход F1–F8 как предусловие фаз **не делать** — большинство пунктов растворяется (см. §6 нового RFC).
+Правила формата — [../CONVENTIONS.md](../CONVENTIONS.md) (раздел «План → задачи beads»). Шаблон плана (для справки/чернового наброска) — [_plan-template.md](./_plan-template.md).
 
----
+## Как смотреть план
 
-## 🟢 Активные планы (ассистент)
+```bash
+br epic status              # прогресс по эпикам (= фазам)
+br ready                    # что готово к работе (без блокеров)
+bv --robot-triage          # граф-триаж: топ-пики, quick wins, блокеры
+br show <id>                # детали задачи: description / ## Design / ## Acceptance Criteria
+```
 
-Актуальный roadmap. Строятся на RFC; фазы идут по буквам (A–G, RFC §13).
+## Целевая архитектура
 
-| Документ | Что | Статус |
+- [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [../architecture/rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) — текущая.
+- [../architecture/minutka-foundation.md](../architecture/minutka-foundation.md) — исторический мастер-план фундамента «Минутки» (провенанс переиспользуемого кода).
+
+## Эпики (снимок 2026-07-15)
+
+**Активные:**
+
+| Эпик | id | Статус |
 |---|---|---|
-| [fix-routing-catalog.md](./fix-routing-catalog.md) | Исправление роутинга/каталога процессов (F1–F8) | **superseded** [rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md): большинство пунктов растворяется, F2 больше не предшественник B; остаются F1/F4 как гигиена |
-| [phase-b-idea-bank.md](./phase-b-idea-bank.md) | Фаза B «Банк идей»: `IdeaStore`, `Classified`, инструмент `captureIdea` | **rewriting → slim** (агент + один tool, без классификатора-агента и без предусловия F2) |
+| Фаза B — банк идей (slim) | `personal-assistant-2yr` | open, 1/5 (B1 закрыт) |
+| Гигиена роутинга/каталога (F1/F4, ex F1–F8) | `personal-assistant-x5q` | open (superseded-остаток) |
+| Фаза D — дайджест/планировщик (ex phase-7) | `personal-assistant-yjl` | deferred |
 
-> Фаза A (каркас личного vault: MinIO-адаптеры, `IngestionService`, `AssistantService`, `/proc/context`) **реализована** — коммит `500cc65`, отдельного плана-документа не имеет (описана в RFC §13). Планы фаз C–G появятся здесь по мере подхода к ним.
+**Закрытые (фундамент «Минутки»):** Фазы 1, 2, 3, 3.5, 4, 4.1, 4.2, 5 — `br list --status=closed -t epic`.
 
----
+**Будущие фазы RFC** (C — планирование, E — встречи, F — совет директоров, G — инсайты) заводятся эпиками по мере подхода — см. roadmap в [RFC §13](../architecture/rfc-personal-assistant-architecture.md#13-фазовый-план).
 
-## 📜 Фундамент «Минутки» (historical, не активный roadmap)
+## Как заводить новый план
 
-Провенанс переиспользуемого кода. Фазы 1–5 / 4.1 / 4.2 **сделаны**, теги существуют. Не расширять в терминах «Минутки» — новое строится по RFC.
+- **Новая фаза** = epic (`br create -t epic`); шаги = задачи (`--parent <epic>`, зависимости `br dep add <шаг> <предшественник>`).
+- Описание — markdown с заголовками `## Design` и `## Acceptance Criteria` (у epic — `## Success Criteria`); `br lint` держать зелёным.
+- **Старые/сделанные планы** переносятся целиком — один эпик без разбивки на задачи, закрытый с reason (тег/коммит).
 
-| Документ | Что | Статус |
-|---|---|---|
-| [time-agent-mastra-plan.md](./time-agent-mastra-plan.md) | **Мастер-план «Минутки»** (фазы 1–8); содержит баннер о пивоте и отображение старых фаз на фазы ассистента | historical |
-| [phase-1-skeleton-and-test-harness.md](./phase-1-skeleton-and-test-harness.md) | Каркас, слои, `AgentRunner`, executable specs | ✅ done (`phase-1-skeleton`) |
-| [phase-2-onboarding-consent-profile.md](./phase-2-onboarding-consent-profile.md) | Онбординг, consent, профиль, persona | ✅ done (`phase-2-onboarding`) |
-| [phase-3-context-guardrails-insights.md](./phase-3-context-guardrails-insights.md) | Контекст, guardrails, извлечение инсайтов | ✅ done (`phase-3-context-insights`) |
-| [phase-3.5-agent-manual-lite.md](./phase-3.5-agent-manual-lite.md) | Agent Vault: бизнес-процессы как код | ✅ done (`phase-3.5-agent-manual-lite`) |
-| [phase-4-telegram-text-feedback.md](./phase-4-telegram-text-feedback.md) | Telegram shell: текст + feedback | ✅ done (`phase-4-telegram-text-feedback`) |
-| [phase-4.1-durable-runtime-foundation.md](./phase-4.1-durable-runtime-foundation.md) | PostgreSQL stores, `/proc`/`/run` projections | ✅ done (`phase-4.1-durable-runtime-foundation`) |
-| [phase-4.2-http-application-api.md](./phase-4.2-http-application-api.md) | Authenticated HTTP API `/v1`, shared runtime | ✅ done (`phase-4.2-http-application-api`) |
-| [phase-5-voice-stt.md](./phase-5-voice-stt.md) | Голос → STT → тот же chat-путь | ✅ done (`phase-5-voice-stt`) |
+## Файлы папки
 
----
-
-## 🟡 Отложено / к порту
-
-| Документ | Что | Статус |
-|---|---|---|
-| [phase-7-scheduling.md](./phase-7-scheduling.md) | Reference-дизайн планировщика (в терминах «Минутки») | **не портирован**; реализуется как RFC **Фаза D «Дайджест»** после B и C. Ядро (таблица + тик + `SKIP LOCKED` + luxon) переживает порт; дельта — в баннере документа |
-
-> Старые Phase 6 «Карта автоматизации» и Phase 8 «Панель методолога» из мастер-плана отдельных документов не имеют: Phase 6 → RFC **Фаза G** `context_insights` (индивидуальная карта, без company-агрегации); Phase 8 в single-owner-продукте не нужна.
-
----
-
-## 🧪 Ручные проверки
-
-| Документ | Что |
+| Файл | Назначение |
 |---|---|
-| [TODO.md](./TODO.md) | План **ручных проверок** (smoke/E2E), которые нельзя закрыть executable specs: реальный онбординг и заполнение профиля и т.п. Дополняется по ходу фаз |
+| [_plan-template.md](./_plan-template.md) | Шаблон плана (справочно; исполнение — в br) |
+| [TODO.md](./TODO.md) | Ручные проверки (smoke/E2E), не покрываемые executable specs |

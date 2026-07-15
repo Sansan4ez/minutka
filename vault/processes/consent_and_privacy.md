@@ -43,5 +43,5 @@ Use during onboarding, when the employee asks about company visibility, methodol
 
 - `docs/product/Final_Description.md#44-data-and-privacy-requirements`
 - `docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации`
-- `docs/plans/phase-2-onboarding-consent-profile.md`
-- `docs/plans/phase-3-context-guardrails-insights.md`
+- `docs/architecture/minutka-foundation.md`
+- `docs/architecture/minutka-foundation.md`

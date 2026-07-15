@@ -12,7 +12,7 @@ Related documents:
 - [Agent Vault architecture](./agent-vault.md)
 - [`vault/proc/README.md`](../../vault/proc/README.md)
 - [`vault/run/README.md`](../../vault/run/README.md)
-- [Phase 3.5 plan](../plans/phase-3.5-agent-manual-lite.md)
+- [Phase 3.5 plan](./minutka-foundation.md)
 - [Unix dependency-model research](../../researches/report-instruction-version-store-unix-dependency-model.md)
 
 ## Context and problem

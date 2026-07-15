@@ -23,8 +23,8 @@
       "dependencies": [
         "docs/product/Final_Description.md#44-data-and-privacy-requirements",
         "docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации",
-        "docs/plans/phase-2-onboarding-consent-profile.md",
-        "docs/plans/phase-3-context-guardrails-insights.md"
+        "docs/architecture/minutka-foundation.md",
+        "docs/architecture/minutka-foundation.md"
       ]
     },
     {
@@ -54,7 +54,7 @@
       "dependencies": [
         "src/domain/insights.ts",
         "specs/executable/context/SPEC-CONTEXT-001.spec.ts",
-        "docs/plans/phase-3-context-guardrails-insights.md"
+        "docs/architecture/minutka-foundation.md"
       ]
     },
     {
@@ -62,7 +62,7 @@
       "path": "vault/processes/feedback.md",
       "appliesTo": ["feedback"],
       "dependencies": [
-        "docs/plans/phase-4-telegram-text-feedback.md",
+        "docs/architecture/minutka-foundation.md",
         "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
         "docs/product/Final_Description.md#65-reporting-and-automation-map-generation"
       ]
