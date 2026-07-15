@@ -49,7 +49,11 @@ export function createTelegrafBot(deps: {
     }
     const photo = ctx.message.photo.at(-1);
     if (!photo) return;
-    await shell.handlePhoto(String(ctx.chat.id), { fileId: photo.file_id, ...(ctx.message.caption ? { caption: ctx.message.caption } : {}) }, ctx.from ? String(ctx.from.id) : undefined);
+    await shell.handlePhoto(String(ctx.chat.id), {
+      fileId: photo.file_id,
+      ...(ctx.message.caption ? { caption: ctx.message.caption } : {}),
+      ...(ctx.message.media_group_id ? { mediaGroupId: ctx.message.media_group_id } : {}),
+    }, ctx.from ? String(ctx.from.id) : undefined);
   });
 
   bot.on("voice", async (ctx) => {
