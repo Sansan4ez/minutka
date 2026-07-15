@@ -29,6 +29,8 @@
 ```bash
 npm run typecheck      # tsc --noEmit
 npm run specs          # executable specs (без сети)
+set -a; . ./.env; set +a
+npm run specs:persistence # executable specs for storage
 npm run verify         # typecheck + specs
 npm run db:migrate     # применить миграции
 npm run telegram:dev   # локальный Telegram-бот (polling)
