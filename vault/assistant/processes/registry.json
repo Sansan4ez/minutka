@@ -8,6 +8,12 @@
       "path": "vault/assistant/processes/onboarding.md",
       "appliesTo": ["onboarding_first_response"],
       "dependencies": ["docs/architecture/rfc-personal-assistant-architecture.md#4-роль-агента-и-профиль-пользователя"]
+    },
+    {
+      "id": "inbox_capture",
+      "path": "vault/assistant/processes/inbox_capture.md",
+      "appliesTo": ["inbound_record"],
+      "dependencies": ["docs/architecture/rfc-personal-assistant-architecture.md#6-классификация-записей"]
     }
   ]
 }

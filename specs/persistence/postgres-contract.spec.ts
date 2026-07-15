@@ -10,6 +10,7 @@ import { createPostgresConsentAcceptanceStore } from "../../src/infrastructure/p
 import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
+import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -192,6 +193,22 @@ describe("PostgreSQL storage contracts", () => {
     await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     await expect(drafts.save({ ...fresh, revision: 3 }, 0)).rejects.toMatchObject({ code: "persistence_conflict" });
+  });
+
+  it("keeps IdeaStore owner-scoped and returns only stale raw or discussed ideas", async () => {
+    const ideas = createPostgresIdeaStore(pool);
+    await ideas.add({ id: "idea_owner_raw", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "raw", source: { kind: "text", text: "raw" }, status: "raw" });
+    await ideas.add({ id: "idea_owner_discussed", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "discussed", status: "discussed" });
+    await ideas.add({ id: "idea_owner_planned", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "planned", status: "planned" });
+    await ideas.add({ id: "idea_other", userId: "other_owner", project: "АССИСТЕНТ", type: "development", summary: "private", status: "raw" });
+    await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() - interval '8 days' WHERE idea_id IN ('idea_owner_raw', 'idea_owner_discussed', 'idea_owner_planned', 'idea_other')");
+
+    await expect(ideas.list("idea_owner", { project: "АССИСТЕНТ", status: "raw" })).resolves.toMatchObject([{ id: "idea_owner_raw", source: { kind: "text", text: "raw" } }]);
+    await expect(ideas.stale("idea_owner", 7)).resolves.toMatchObject([{ id: "idea_owner_discussed" }, { id: "idea_owner_raw" }]);
+    await expect(ideas.list("other_owner")).resolves.toMatchObject([{ id: "idea_other" }]);
+    await expect(ideas.update("other_owner", "idea_owner_raw", { status: "done" })).resolves.toBeNull();
+    const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
+    expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });
 
   it("deletes every employee-owned private record", async () => {
