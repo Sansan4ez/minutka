@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "manualId": "personal-assistant-vault",
+  "core": { "id": "core", "path": "vault/assistant/AGENTS.md" },
+  "processes": [
+    {
+      "id": "onboarding",
+      "path": "vault/assistant/processes/onboarding.md",
+      "appliesTo": ["onboarding_first_response"],
+      "dependencies": ["docs/architecture/rfc-personal-assistant-architecture.md#4-роль-агента-и-профиль-пользователя"]
+    }
+  ]
+}
