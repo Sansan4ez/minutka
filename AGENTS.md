@@ -34,6 +34,15 @@ npm run db:migrate     # применить миграции
 npm run telegram:dev   # локальный Telegram-бот (polling)
 ```
 
+## Ограничения на тяжёлые операции
+
+Без явного разрешения пользователя **не запускать**:
+
+- `nix search`
+- `nix eval`
+- `nix run`
+- `nix shell`
+
 <!-- bv-agent-instructions-v2 -->
 
 ---
