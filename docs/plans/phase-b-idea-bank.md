@@ -2,6 +2,7 @@
 
 > **Родительский документ:** [rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) (§6, §7, §8, §13 фаза B)
 > **Предыдущая фаза:** Фаза A — каркас личного vault (коммит `500cc65`)
+> **Жёсткий предшественник:** [fix-routing-catalog.md](./fix-routing-catalog.md) **P1/F2** (единый process-каталог + `assertPurpose` с триггером `file_uploaded`). Без него навык `inbox_capture` не проходит loader/router. F3/F1 из того же захода — по удобству.
 > **Продукт:** персональный ассистент (`AssistantService`, single-owner, `userId`), **не** «Минутка»
 > **Целевой результат RFC:** «любое входящее классифицировано и сохранено»
 
@@ -30,7 +31,7 @@
 - [ ] `AssistantService` инициирует capture-путь для `chat` и `file_uploaded`; агент не получает доступа к `IdeaStore`.
 - [ ] Проекция `/proc/records` наполняется реальными идеями через bounded read-model (лимиты по числу и символам, как в `assistant-context-projection.ts`).
 - [ ] Ветвление входящих каналов из Telegram: голос → STT → текстовый путь; фото/ссылка/пересланное → блоб в `BlobStore` (`inbox/*`, путь Фазы A) + `Idea.source` = ключ блоба.
-- [ ] Новый триггер router `file_uploaded` учтён в контрактах/типах (для этой фазы — детерминированный форс `inbox_capture`, без обязательного LLM-роутера).
+- [ ] Триггер `file_uploaded` и id `inbox_capture` проходят loader/router **благодаря P1/F2** (единый каталог + расширенный `assertPurpose`); для этой фазы выбор навыка — детерминированный форс, без обязательного LLM-роутера.
 - [ ] PostgreSQL-адаптер `IdeaStore` + миграция `0011_create_ideas.sql` + гранты `minutka_runtime` (по образцу `0009`); owner-constraint по `userId`.
 - [ ] `SPEC-PERSONAL-ASSISTANT-INBOX-001` через mock-классификатор: текст → идея классифицирована и сохранена; `БЕЗ_ПРОЕКТА` → уточняющий вопрос; чужой `userId` не виден; невалидный ответ LLM → фолбэк без потери.
 - [ ] Persistence-spec: контракт `IdeaStore` (тот же, что у in-memory) на реальном PostgreSQL; `stale(days)` и фильтр по `Classified`.
@@ -228,6 +229,7 @@ CREATE INDEX ideas_owner_status_idx   ON minutka_private.ideas (user_id, status)
 
 Вертикальные срезы; каждый шаг — отдельный коммит, заканчивается зелёными typecheck + specs. B1–B3 дают работающий путь «текст → идея → подтверждение» **без единого обращения к БД и сети**; реальный PostgreSQL — последним, за уже проверенным портом.
 
+0. **B0 — предшественник: [P1/F2](./fix-routing-catalog.md#2-p1--cleanup-заход-перед-фазой-b).** Единый process-каталог + `assertPurpose` с `file_uploaded`. Без этого шага B3 (`registry.json` c `appliesTo: ["chat","file_uploaded"]`) отвергается loader’ом. F3/F1 — в том же заходе по удобству. Проверка: новый process-файл заводится только правкой registry; specs «Минутки» зелёные.
 1. **B1 — классификатор как тип.** `src/domain/classification.ts` + `classifiedSchema` в contracts. Проверка: unit на схему/сентинел. *Самостоятелен, ничего не ломает.*
 2. **B2 — `IdeaStore` порт + in-memory.** `idea-store.ts` + `in-memory-idea-store.ts`. Проверка: unit на `stale(days)` и фильтр по `Classified`.
 3. **B3 — навык + use-case на in-memory.** `inbox_capture.md` + `registry.json`; контракт `InboxClassification`; `IngestionService.captureInbox`; подключение в `AssistantService` (детерминированный форс). Проверка: `SPEC-PERSONAL-ASSISTANT-INBOX-001` на mock-классификаторе. **Полностью работающий срез без БД/сети.**
