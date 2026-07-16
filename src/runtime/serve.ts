@@ -48,10 +48,15 @@ async function main(): Promise<void> {
         async sendMessage(chatId, text, options) {
           if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000-character limit");
           if (!activeBot) throw new Error("Bot not running");
-          await activeBot.telegram.sendMessage(chatId, text, {
+          const sent = await activeBot.telegram.sendMessage(chatId, text, {
             ...(options?.replyToMessageId === undefined ? {} : { reply_parameters: { message_id: options.replyToMessageId } }),
             reply_markup: options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined,
           });
+          return { messageId: sent.message_id };
+        },
+        async editReplyMarkup(chatId, messageId, replyMarkup) {
+          if (!activeBot) throw new Error("Bot not running");
+          await activeBot.telegram.editMessageReplyMarkup(chatId, messageId, undefined, replyMarkup ? { inline_keyboard: replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : { inline_keyboard: [] });
         },
         async sendChatAction(chatId, action) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendChatAction(chatId, action); },
         async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },

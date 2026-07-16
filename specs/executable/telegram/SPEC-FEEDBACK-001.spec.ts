@@ -426,7 +426,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     );
   });
 
-  it("6. Repeated feedback callback on the same targetMessageId does not create duplicate (upserts rating)", async () => {
+  it("6. Repeated feedback callback from the same action message is acknowledged without a duplicate side effect", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await onboardTestEmployee(spec);
@@ -447,11 +447,38 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.feedback).toHaveLength(1);
     expect(spec.world.feedback[0].rating).toBe("positive");
 
-    // Second feedback click: negative
-    await telegram.clickFeedback({ chatId: "chat_1", rating: "negative", targetMessageId });
-    // Should still have length 1, but updated rating
+    // A stale second callback from the same Telegram message is ignored.
+    await telegram.clickFeedback({ chatId: "chat_1", rating: "negative", targetMessageId, messageId: sent[0].messageId });
     expect(spec.world.feedback).toHaveLength(1);
-    expect(spec.world.feedback[0].rating).toBe("negative");
+    expect(spec.world.feedback[0].rating).toBe("positive");
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
+  });
+
+  it("6b. Removes action keyboards after callbacks, on the next message, and keeps domain success when cleanup fails", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_cleanup", inviteCode: testInvite.inviteCode });
+    const consentMessage = telegram.sentMessages()[0];
+    const consentCallback = consentMessage.replyMarkup?.inlineKeyboard[0][0].callbackData;
+
+    await telegram.clickCallback({ chatId: "chat_cleanup", callbackData: consentCallback!, messageId: consentMessage.messageId });
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_cleanup", messageId: consentMessage.messageId, replyMarkup: undefined });
+
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_cleanup", text: "Первый вопрос" });
+    const feedbackMessage = telegram.sentMessages()[0];
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_cleanup", text: "Следующий вопрос" });
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_cleanup", messageId: feedbackMessage.messageId, replyMarkup: undefined });
+
+    const latest = telegram.sentMessages().at(-1)!;
+    const callback = latest.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    const targetMessageId = decodeFeedbackCallbackData(callback!)!.targetMessageId;
+    telegram.failNextReplyMarkupEdit();
+    await telegram.clickFeedback({ chatId: "chat_cleanup", rating: "positive", targetMessageId, messageId: latest.messageId });
+    expect(spec.world.feedback).toContainEqual(expect.objectContaining({ targetMessageId, rating: "positive" }));
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Спасибо, учту 👍");
   });
 
   it("7 & 8. Repeated /start for already linked chat / different invite behavior", async () => {

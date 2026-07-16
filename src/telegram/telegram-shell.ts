@@ -114,15 +114,17 @@ async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string,
   for (const chunk of splitTelegramMessage(`Распознано:\n${transcript}`)) await replyPort.sendMessage(chatId, chunk, { replyToMessageId });
 }
 async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult): Promise<void> {
-  if (progress.status === "needs_answer") return replyPort.sendMessage(chatId, progress.prompt);
+  if (progress.status === "needs_answer") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_choice") {
     const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
-    return replyPort.sendMessage(chatId, progress.prompt, { replyMarkup: { inlineKeyboard: choices.map((choice) => [choice]) } });
+    await replyPort.sendMessage(chatId, progress.prompt, { replyMarkup: { inlineKeyboard: choices.map((choice) => [choice]) } });
+    return;
   }
-  if (progress.status === "needs_correction") return replyPort.sendMessage(chatId, progress.prompt);
+  if (progress.status === "needs_correction") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_confirmation") {
     const summary = progress.summary;
-    return replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+    await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+    return;
   }
   const response = progress.result.firstResponse.trim();
   if (!response) throw new Error("Agent returned an empty onboarding response");
@@ -145,7 +147,59 @@ export type TelegramFileAttachment = {
 export type TelegramArtifactIntake = { saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> };
 
 export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
-  const { client, sessionStore, replyPort, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps; const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs; const inFlightChatIds = new Set<string>(); const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+  const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
+  const rawReplyPort = deps.replyPort;
+  const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs;
+  const inFlightChatIds = new Set<string>();
+  const activeActionMessageIds = new Map<string, number>();
+  const handledActionMessages = new Set<string>();
+  const inFlightActionMessages = new Set<string>();
+  const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+  async function removeReplyMarkup(chatId: string, messageId: number): Promise<void> {
+    try {
+      await rawReplyPort.editReplyMarkup(chatId, messageId);
+      if (activeActionMessageIds.get(chatId) === messageId) activeActionMessageIds.delete(chatId);
+    } catch (error) {
+      logShellError("reply markup cleanup", error);
+    }
+  }
+  async function removeActiveReplyMarkup(chatId: string): Promise<void> {
+    const messageId = activeActionMessageIds.get(chatId);
+    if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+  }
+  const replyPort: TelegramReplyPort = {
+    async sendMessage(chatId, text, options) {
+      if (options?.replyMarkup) await removeActiveReplyMarkup(chatId);
+      const sent = await rawReplyPort.sendMessage(chatId, text, options);
+      if (options?.replyMarkup) activeActionMessageIds.set(chatId, sent.messageId);
+      return sent;
+    },
+    editReplyMarkup: (chatId, messageId, replyMarkup) => rawReplyPort.editReplyMarkup(chatId, messageId, replyMarkup),
+    sendChatAction: (chatId, action) => rawReplyPort.sendChatAction(chatId, action),
+    answerCallbackQuery: (callbackQueryId, text) => rawReplyPort.answerCallbackQuery(callbackQueryId, text),
+  };
+  async function runCallbackAction<T>(chatId: string, messageId: number | undefined, callbackQueryId: string, action: () => Promise<T>): Promise<{ repeated: true } | { repeated: false; result: T }> {
+    if (messageId === undefined) return { repeated: false, result: await action() };
+    const key = `${chatId}:${messageId}`;
+    if (handledActionMessages.has(key)) {
+      await replyPort.answerCallbackQuery(callbackQueryId, "Уже обработано.");
+      await removeReplyMarkup(chatId, messageId);
+      return { repeated: true };
+    }
+    if (inFlightActionMessages.has(key)) {
+      await replyPort.answerCallbackQuery(callbackQueryId, "Уже обработано.");
+      return { repeated: true };
+    }
+    inFlightActionMessages.add(key);
+    try {
+      const result = await action();
+      handledActionMessages.add(key);
+      if (handledActionMessages.size > 1_000) handledActionMessages.delete(handledActionMessages.values().next().value!);
+      return { repeated: false, result };
+    } finally {
+      inFlightActionMessages.delete(key);
+    }
+  }
   async function authorizedSession(chatId: string, userId?: string) {
     const session = await sessionStore.getByIdentity(identity(chatId, userId));
     if (!session) {
@@ -170,6 +224,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
+      await removeActiveReplyMarkup(chatId);
       try {
         if (!userId) return void await replyPort.sendMessage(chatId, "Не удалось определить аккаунт Telegram.");
         const telegramIdentity = identity(chatId, userId); const existing = await sessionStore.getByIdentity(telegramIdentity);
@@ -189,12 +244,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       }
     },
     async handleText(chatId: string, text: string, userId?: string) {
+      await removeActiveReplyMarkup(chatId);
       const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text"); }
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
+      await removeActiveReplyMarkup(chatId);
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
         const session = await authorizedSession(chatId, userId); if (!session) return;
@@ -230,10 +287,12 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       } finally { inFlightChatIds.delete(chatId); }
     },
     async handleUnsupportedAttachment(chatId: string, userId?: string) {
+      await removeActiveReplyMarkup(chatId);
       try { if (await authorizedSession(chatId, userId)) await replyPort.sendMessage(chatId, "Этот тип вложения пока не поддерживается."); }
       catch (error) { logShellError("unsupported attachment", error); await replyPort.sendMessage(chatId, "Не удалось обработать вложение. Попробуйте ещё раз позже."); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
+      await removeActiveReplyMarkup(chatId);
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
       try {
         const session = await authorizedSession(chatId, userId); if (!session) return;
@@ -266,12 +325,15 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         }
       } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
-    async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string) {
+    async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
       try {
         const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
         if (data.startsWith("tg:consent:")) {
           const employeeId = data.slice("tg:consent:".length); if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
-          await employeeClient(employeeId).acceptConsent({ accepted: true, source: "telegram", telegramIdentity }); await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
+          const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(employeeId).acceptConsent({ accepted: true, source: "telegram", telegramIdentity }));
+          if (handled.repeated) return;
+          await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
+          if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
           try { await replyPort.sendMessage(chatId, onboardingIntroduction); } catch (error) { logShellError("consent follow-up delivery", error); }
           return;
         }
@@ -280,15 +342,37 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
           const [prefix, action, value, ...extra] = data.split(":");
           if (prefix !== "ob" || extra.length || !action) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
-          if (action === "confirm" && !value) { const result = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()); await replyPort.answerCallbackQuery(callbackQueryId, "Профиль сохранён!"); for (const chunk of splitTelegramMessage(result.firstResponse)) await replyPort.sendMessage(chatId, chunk); return; }
-          if (action === "reset" && !value) { const progress = await employeeClient(session.employeeId).submitOnboardingAnswer({ text: "Исправить" }); await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?"); return renderOnboardingProgress(replyPort, chatId, progress); }
-          if ((action === "addressForm" || action === "persona" || action === "responseLength") && value) { await replyPort.answerCallbackQuery(callbackQueryId); return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text: value })); }
+          if (action === "confirm" && !value) {
+            const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()));
+            if (handled.repeated) return;
+            await replyPort.answerCallbackQuery(callbackQueryId, "Профиль сохранён!");
+            if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+            for (const chunk of splitTelegramMessage(handled.result.firstResponse)) await replyPort.sendMessage(chatId, chunk);
+            return;
+          }
+          if (action === "reset" && !value) {
+            const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(session.employeeId).submitOnboardingAnswer({ text: "Исправить" }));
+            if (handled.repeated) return;
+            await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?");
+            if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+            return renderOnboardingProgress(replyPort, chatId, handled.result);
+          }
+          if ((action === "addressForm" || action === "persona" || action === "responseLength") && value) {
+            const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(session.employeeId).submitOnboardingAnswer({ text: value }));
+            if (handled.repeated) return;
+            await replyPort.answerCallbackQuery(callbackQueryId);
+            if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+            return renderOnboardingProgress(replyPort, chatId, handled.result);
+          }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
         if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
         if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-        await employeeClient(session.employeeId).submitFeedback({ threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }); await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
+        const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(session.employeeId).submitFeedback({ threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }));
+        if (handled.repeated) return;
+        await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
+        if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
         logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       }

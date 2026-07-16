@@ -124,7 +124,8 @@ export function createTelegrafBot(deps: {
     const callbackQueryId = ctx.callbackQuery.id;
     const data = ("data" in ctx.callbackQuery) ? ctx.callbackQuery.data : "";
     const chatId = ctx.chat ? String(ctx.chat.id) : ctx.callbackQuery.message ? String(ctx.callbackQuery.message.chat.id) : "";
-    await shell.handleCallback(chatId, callbackQueryId, data || "", ctx.from ? String(ctx.from.id) : undefined);
+    const messageId = ctx.callbackQuery.message?.message_id;
+    await shell.handleCallback(chatId, callbackQueryId, data || "", ctx.from ? String(ctx.from.id) : undefined, messageId);
   });
 
   return bot;

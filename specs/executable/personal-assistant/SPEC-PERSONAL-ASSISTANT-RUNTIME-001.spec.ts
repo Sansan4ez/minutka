@@ -75,7 +75,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
       sessionStore: legacy.telegramSessionStore,
       artifactIntake: { saveArtifact: (input) => artifactStore.save(input) },
       fileGateway: { createFileBody({ fileId, fileSizeBytes }) { downloadedFiles.push(fileId); return { ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from("photo") }; } },
-      replyPort: { async sendMessage(_chatId, text, options) { replies.push({ text, options }); }, async sendChatAction() {}, async answerCallbackQuery() {} },
+      replyPort: { async sendMessage(_chatId, text, options) { replies.push({ text, options }); return { messageId: replies.length }; }, async sendChatAction() {}, async editReplyMarkup() {}, async answerCallbackQuery() {} },
     });
 
     await shell.handleText("1", "Не потеряй мысль", "user-1");

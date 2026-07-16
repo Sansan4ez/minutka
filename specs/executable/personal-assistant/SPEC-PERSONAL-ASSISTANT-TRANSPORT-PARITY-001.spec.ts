@@ -91,9 +91,9 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
         createFileBody: () => ({ size: 7, openStream: () => Readable.from("private") }),
       },
       replyPort: {
-        async sendMessage(_chatId, text) { telegramReplies.push(text); },
+        async sendMessage(_chatId, text) { telegramReplies.push(text); return { messageId: telegramReplies.length }; },
         async sendChatAction() {},
-        async answerCallbackQuery() {},
+        async editReplyMarkup() {}, async answerCallbackQuery() {},
       },
     });
     await telegram.handleText("chat-a", "from Telegram", "telegram-a");

@@ -62,7 +62,7 @@ async function setup(input: { saveError?: Error } = {}) {
     fileGateway: { createFileBody(file) { createdBodies.push(file.fileId); return { ...(file.fileSizeBytes === undefined ? {} : { size: file.fileSizeBytes }), openStream: () => { downloads.push(file.fileId); return Readable.from("file"); } }; } },
     speechToText: { async transcribe() { transcriptions.push("voice"); return "Голосовая мысль"; } },
     voiceFileGateway: { async openVoiceFile() { return { stream: Readable.from("voice"), filetype: "ogg" }; } },
-    replyPort: { async sendMessage(_chatId, text) { replies.push(text); }, async sendChatAction() {}, async answerCallbackQuery() {} },
+    replyPort: { async sendMessage(_chatId, text) { replies.push(text); return { messageId: replies.length }; }, async sendChatAction() {}, async editReplyMarkup() {}, async answerCallbackQuery() {} },
   });
   return { shell, calls, saved, createdBodies, downloads, transcriptions, replies };
 }

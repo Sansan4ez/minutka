@@ -14,15 +14,19 @@ import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-vo
 
 export type VoiceInput = { chatId: string; userId?: string; fileId: string; messageId?: number; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "download-hang" | "transcribe" | "stream" | "hang" };
 
-export type SentMessage = { chatId: string; text: string; replyMarkup?: TelegramReplyMarkup; replyToMessageId?: number };
+export type SentMessage = { messageId: number; chatId: string; text: string; replyMarkup?: TelegramReplyMarkup; replyToMessageId?: number };
 export type CallbackAnswer = { callbackQueryId: string; text?: string };
+export type ReplyMarkupEdit = { chatId: string; messageId: number; replyMarkup?: TelegramReplyMarkup };
 
 export class TelegramDriver {
   private readonly shell: ReturnType<typeof createTelegramShell>;
   private readonly sent: SentMessage[] = [];
   private readonly callbacks: CallbackAnswer[] = [];
+  private readonly replyMarkupEdits: ReplyMarkupEdit[] = [];
   private readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
+  private nextMessageId = 1;
   private failNextSend = false;
+  private failNextMarkupEdit = false;
   private readonly voiceFiles = new Map<string, Buffer>();
   private readonly voiceTranscripts = new Map<string, string>();
   private readonly voiceErrors = new Map<string, "download" | "download-hang" | "transcribe" | "stream" | "hang">();
@@ -38,7 +42,13 @@ export class TelegramDriver {
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
         if (self.failNextSend) { self.failNextSend = false; throw new Error("simulated Telegram delivery failure"); }
-        self.sent.push({ chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        const messageId = self.nextMessageId++;
+        self.sent.push({ messageId, chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        return { messageId };
+      },
+      async editReplyMarkup(chatId, messageId, replyMarkup) {
+        if (self.failNextMarkupEdit) { self.failNextMarkupEdit = false; throw new Error("simulated Telegram markup cleanup failure"); }
+        self.replyMarkupEdits.push({ chatId, messageId, replyMarkup });
       },
       async sendChatAction(chatId, action) { self.chatActions.push({ chatId, action }); },
       async answerCallbackQuery(callbackQueryId, text) { self.callbacks.push({ callbackQueryId, text }); },
@@ -85,15 +95,24 @@ export class TelegramDriver {
     if (input.error) this.voiceErrors.set(input.fileId, input.error); else this.voiceErrors.delete(input.fileId);
     await this.shell.handleVoice(input.chatId, { fileId: input.fileId, messageId: input.messageId ?? 1, durationSeconds: input.durationSeconds, ...(input.fileSizeBytes === undefined ? {} : { fileSizeBytes: input.fileSizeBytes }) }, input.userId ?? this.defaultUserId(input.chatId));
   }
-  async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId)); }
-  async clickCallback(input: { chatId: string; userId?: string; callbackData: string }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId)); }
+  async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
+  async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   failNextMessageDelivery(): void { this.failNextSend = true; }
+  failNextReplyMarkupEdit(): void { this.failNextMarkupEdit = true; }
   sentMessages(): SentMessage[] { return this.sent; }
   callbackAnswers(): CallbackAnswer[] { return this.callbacks; }
+  replyMarkupEditCalls(): ReplyMarkupEdit[] { return this.replyMarkupEdits; }
   sentChatActions(): Array<{ chatId: string; action: "typing" }> { return this.chatActions; }
   voiceDownloadCalls(): string[] { return [...this.voiceDownloads]; }
   transcriptionCalls(): string[] { return [...this.transcriptions]; }
   closedVoiceStreamIds(): string[] { return [...this.closedVoiceStreams]; }
-  clear() { this.sent.length = 0; this.callbacks.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
+  clear() { this.sent.length = 0; this.callbacks.length = 0; this.replyMarkupEdits.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
+  private latestActionMessageId(chatId: string): number | undefined {
+    for (let index = this.sent.length - 1; index >= 0; index--) {
+      const message = this.sent[index];
+      if (message.chatId === chatId && message.replyMarkup) return message.messageId;
+    }
+    return undefined;
+  }
   private defaultUserId(chatId: string): string { return `user_${chatId}`; }
 }
