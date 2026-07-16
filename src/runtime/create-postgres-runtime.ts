@@ -22,6 +22,7 @@ import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../in
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
 import { createMastraMinutkaServiceDeps } from "../mastra/runtime-deps.js";
+import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 
 export async function createPostgresRuntime(input: { agentRunner: AgentRunner; assistantAgentRunner: AssistantAgentRunner; env: NodeJS.ProcessEnv; deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -77,6 +78,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       ideaStore,
       auditEventStore: stores.auditEventStore,
       participantStore: stores.profileStore,
+      requestIntegrityGuard: evaluateRequestIntegrity,
       clock: systemClock,
       idGenerator: randomIdGenerator,
       agentInstructions,

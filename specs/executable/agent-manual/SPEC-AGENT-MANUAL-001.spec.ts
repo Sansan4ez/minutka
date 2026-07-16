@@ -33,14 +33,15 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(validation.errors).toEqual([]);
     expect(validation.ok).toBe(true);
     expect(manual.version).toBe(1);
-    expect(manual.manualId).toBe("minutka-agent-vault");
-    expect(manual.core.path).toBe("vault/AGENTS.md");
+    expect(manual.manualId).toBe("personal-assistant-vault");
+    expect(manual.core.path).toBe("vault/assistant/AGENTS.md");
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
       "consent_and_privacy",
       "evening_reflection",
       "feedback",
+      "inbox_capture",
       "insight_extraction",
       "onboarding",
       "workday_guardrails",
@@ -58,7 +59,7 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
   it("keeps process index and virtual namespace contract in sync", () => {
     const manual = loadAgentManualFromDisk();
     const processIndex = readFileSync(
-      "vault/processes/index.md",
+      "vault/assistant/processes/index.md",
       "utf8",
     );
 
@@ -73,10 +74,10 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
 
   it("keeps /proc projection schemas aligned with runtime discriminators", () => {
     const insightSchema = JSON.parse(
-      readFileSync("vault/proc/schemas/insight.schema.json", "utf8"),
+      readFileSync("vault/assistant/proc/schemas/insight.schema.json", "utf8"),
     );
     const decisionSchema = JSON.parse(
-      readFileSync("vault/proc/schemas/conversation-decision.schema.json", "utf8"),
+      readFileSync("vault/assistant/proc/schemas/conversation-decision.schema.json", "utf8"),
     );
 
     expect(JSON.stringify(insightSchema)).toContain("confidence");

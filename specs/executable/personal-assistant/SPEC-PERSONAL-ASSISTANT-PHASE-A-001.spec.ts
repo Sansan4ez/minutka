@@ -29,7 +29,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
         receivedContext = context.systemContext;
         return "Контекст учтён.";
       },
-      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, clock: { now: world.now } },
+      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now } },
     );
     const result = await service.chat({ userId: "maxim", threadId: "telegram:1", text: "Составь план дня" });
 
@@ -48,6 +48,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
     });
     await expect(service.saveOnboardingContext({ userId: "maxim", path: "context/onboarding.md", content: "reviewed" })).resolves.toMatchObject({ path: "context/onboarding.md" });
     await expect(service.saveOnboardingContext({ userId: "maxim\u0000other", path: "context/onboarding.md", content: "reviewed" })).rejects.toThrow("invalid userId");
@@ -65,6 +66,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
     });
     // The first overflowing path stops the ordered projection; it may not be
     // skipped in favour of a smaller, lower-priority document.

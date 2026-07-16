@@ -12,6 +12,8 @@ import { PersistenceError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
+import type { RequestIntegrityGuard } from "./request-integrity-guard.js";
+import type { RequestIntegrityDenialReason } from "../domain/request-integrity.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice" };
 export type AssistantAgentContext = {
@@ -24,7 +26,17 @@ export type AssistantAgentContext = {
   captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId" | "source">): Promise<CaptureIdeaResult>;
 };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
-export type AssistantChatResult = { messageId: string; response: string; selectedProcessIds: ["core"] | ["core", "inbox_capture"]; personalContextDocuments?: string[] };
+export type AssistantChatOutcome =
+  | { status: "completed" }
+  | { status: "denied"; reason: RequestIntegrityDenialReason };
+export type AssistantChatResult = {
+  messageId: string;
+  response: string;
+  selectedProcessIds: ["core"] | ["core", "inbox_capture"];
+  /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
+  outcome: AssistantChatOutcome;
+  personalContextDocuments?: string[];
+};
 
 /**
  * Product-level orchestration for the personal assistant.
@@ -39,7 +51,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -67,6 +79,32 @@ export class AssistantService {
       id: this.ids.auditEventId(), requestId, type: "chat_received", employeeId: userId, threadId, messageId,
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_received", { inputModality }),
     }, "chat received audit");
+    const integrityOutcome = await this.deps.requestIntegrityGuard({ userId, text });
+    if (integrityOutcome.status === "denied") {
+      const response = requestIntegrityDenialResponse;
+      await this.deps.conversationStore.appendTurn({
+        messageId,
+        employeeId: userId,
+        threadId,
+        userText: text,
+        agentResponse: response,
+        timestamp: this.clock.now(),
+      });
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId, type: "request_integrity_denied", employeeId: userId, threadId, messageId,
+        occurredAt: this.clock.now(), metadata: safeAuditMetadata("request_integrity_denied", { reason: integrityOutcome.reason }),
+      }, "request integrity denial audit");
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId, type: "chat_response_generated", employeeId: userId, threadId, messageId,
+        occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
+      }, "chat response audit");
+      return {
+        messageId,
+        response,
+        selectedProcessIds: ["core"],
+        outcome: { status: "denied", reason: integrityOutcome.reason },
+      };
+    }
     const personalContext = await this.projectionBuilder.build({ userId, requestId });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
@@ -140,7 +178,13 @@ export class AssistantService {
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
     }, "chat response audit");
     const selectedProcessIds: AssistantChatResult["selectedProcessIds"] = captureResult ? ["core", "inbox_capture"] : ["core"];
-    return { messageId, response, selectedProcessIds, personalContextDocuments: personalContext.data.documents.map((document) => document.path) };
+    return {
+      messageId,
+      response,
+      selectedProcessIds,
+      outcome: { status: "completed" },
+      personalContextDocuments: personalContext.data.documents.map((document) => document.path),
+    };
   }
 
   private async auditSafely(event: Parameters<AuditEventStore["append"]>[0], operation: string): Promise<void> {
@@ -158,6 +202,8 @@ export function buildAssistantSystemContext(personalContext: AssistantContextPro
     ...(records === undefined ? [] : [renderAssistantRecordsProjection(records)]),
   ].filter(Boolean).join("\n\n");
 }
+
+const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";
 
 function logAssistantOperationalError(operation: string, error: unknown): void {
   console.warn(`Assistant ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`);

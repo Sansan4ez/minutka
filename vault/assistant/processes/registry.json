@@ -1,14 +1,17 @@
 {
   "version": 1,
-  "manualId": "minutka-agent-vault",
+  "manualId": "personal-assistant-vault",
   "core": {
     "id": "core",
-    "path": "vault/AGENTS.md"
+    "path": "vault/assistant/AGENTS.md"
+  },
+  "index": {
+    "path": "vault/assistant/processes/index.md"
   },
   "processes": [
     {
       "id": "onboarding",
-      "path": "vault/processes/onboarding.md",
+      "path": "vault/assistant/processes/onboarding.md",
       "appliesTo": ["onboarding_first_response"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-1-employee-joins-the-program",
@@ -18,18 +21,17 @@
     },
     {
       "id": "consent_and_privacy",
-      "path": "vault/processes/consent_and_privacy.md",
+      "path": "vault/assistant/processes/consent_and_privacy.md",
       "appliesTo": ["onboarding_first_response", "chat"],
       "dependencies": [
         "docs/product/Final_Description.md#44-data-and-privacy-requirements",
         "docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации",
-        "docs/architecture/minutka-foundation.md",
         "docs/architecture/minutka-foundation.md"
       ]
     },
     {
       "id": "evening_reflection",
-      "path": "vault/processes/evening_reflection.md",
+      "path": "vault/assistant/processes/evening_reflection.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-5-employee-completes-evening-reflection",
@@ -39,7 +41,7 @@
     },
     {
       "id": "workday_guardrails",
-      "path": "vault/processes/workday_guardrails.md",
+      "path": "vault/assistant/processes/workday_guardrails.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "docs/product/Final_Description.md#scenario-6-employee-asks-for-in-the-moment-help",
@@ -49,22 +51,31 @@
     },
     {
       "id": "insight_extraction",
-      "path": "vault/processes/insight_extraction.md",
+      "path": "vault/assistant/processes/insight_extraction.md",
       "appliesTo": ["chat"],
       "dependencies": [
         "src/domain/insights.ts",
+        "src/domain/conversation-decision.ts",
         "specs/executable/context/SPEC-CONTEXT-001.spec.ts",
         "docs/architecture/minutka-foundation.md"
       ]
     },
     {
       "id": "feedback",
-      "path": "vault/processes/feedback.md",
+      "path": "vault/assistant/processes/feedback.md",
       "appliesTo": ["feedback"],
       "dependencies": [
         "docs/architecture/minutka-foundation.md",
         "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
         "docs/product/Final_Description.md#65-reporting-and-automation-map-generation"
+      ]
+    },
+    {
+      "id": "inbox_capture",
+      "path": "vault/assistant/processes/inbox_capture.md",
+      "appliesTo": ["inbound_record"],
+      "dependencies": [
+        "docs/architecture/rfc-personal-assistant-architecture.md#6-классификатор-сквозной-тип"
       ]
     }
   ]

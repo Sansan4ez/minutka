@@ -25,6 +25,7 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
     ingestionService: ingestion,
     ideaStore: ideas,
     auditEventStore: createInMemoryAuditEventStore(world),
+    requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: {
       requestId: () => "req-1", messageId: () => "msg-1", insightId: () => "ins-1", feedbackId: () => "fb-1", ideaId: () => "idea-1", auditEventId: () => "evt-1",
@@ -54,7 +55,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
 
   it("binds source provenance in the application and writes a content-free audit event", async () => {
     const { service, ideas, world } = createService(async (_input, context) => {
-      expect(context.systemContext).toContain("Personal Assistant process index");
+      expect(context.systemContext).toContain("Agent Vault process index");
       const captured = await context.captureIdea({
         project: "АССИСТЕНТ",
         type: "development",
@@ -139,6 +140,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       ingestionService: ingestion,
       ideaStore: ideas,
       participantStore: { async getParticipant() { return undefined; } },
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
     });
     await expect(guarded.chat({ userId: "missing", threadId: "thread", text: "не терять" })).rejects.toMatchObject({ code: "participant_not_found" });
@@ -159,6 +161,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       ingestionService: ingestion,
       ideaStore: ideas,
       auditEventStore: { async append() { throw new Error("audit unavailable"); }, async listCurrent() { return []; }, async listRecent() { return []; } },
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
     });
 

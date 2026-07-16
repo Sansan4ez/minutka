@@ -14,6 +14,7 @@ This index is the file-first routing map for Minutka business processes. It foll
 | `workday_guardrails` | Request asks Minutka to do work outside its role: finished content generation, web research, unsupported AI training, unrelated topic, or request-integrity override. | Business-scope boundary process: decide a soft refusal and return to working-day help without invoking the main answer chain. | Audit event only. |
 | `insight_extraction` | Conversation decision marks the allowed turn as an insight candidate after a substantive workday plan/reflection/blocker/load signal. | Business-signal extraction is a process, not keyword code: it decides which structured signal kinds are appropriate. | Yes: persists structured insights. |
 | `feedback` | Employee rates a specific answer with 👍/👌/👎 or similar quick reaction. | Feedback is its own process because it concerns the previous answer quality, not the current workday content. | Future feedback record. |
+| `inbox_capture` | The owner asks to retain an idea, note, link, voice memo, photo, or another inbound record. | Classifies and saves the item through the owner-scoped `captureIdea` typed action before replying. | Yes: persists an owner-scoped idea. |
 
 ## Routing principles
 

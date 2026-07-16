@@ -25,6 +25,7 @@ type Registry = {
   version: number;
   manualId: string;
   core: { id: string; path: string };
+  index: { path: string };
   processes: RegistryProcess[];
 };
 
@@ -46,7 +47,7 @@ export function loadAgentManualFromDisk(
   options: LoadAgentManualOptions = {},
 ): AgentManual {
   const repoRoot = findRepoRoot(options.repoRoot ?? process.cwd());
-  const registryPath = options.registryPath ?? "vault/processes/registry.json";
+  const registryPath = options.registryPath ?? "vault/assistant/processes/registry.json";
   const absoluteRegistryPath = resolveRepoPath(repoRoot, registryPath);
   if (!existsSync(absoluteRegistryPath)) {
     throw new Error(`missing agent vault registry: ${registryPath}`);
@@ -65,12 +66,8 @@ export function loadAgentManualFromDisk(
       content: readManualFile(repoRoot, registry.core.path, "core file"),
     },
     processIndex: {
-      path: "vault/processes/index.md",
-      content: readManualFile(
-        repoRoot,
-        "vault/processes/index.md",
-        "process index",
-      ),
+      path: registry.index.path,
+      content: readManualFile(repoRoot, registry.index.path, "process index"),
     },
     processes: registry.processes.map((process) => ({ 
       id: assertProcessId(process.id),
@@ -141,7 +138,7 @@ export function validateAgentManual(
     if (!ids.has(requiredId)) errors.push(`missing required process id: ${requiredId}`);
   }
 
-  const indexPath = manual.processIndex?.path ?? "vault/processes/index.md";
+  const indexPath = manual.processIndex?.path ?? "vault/assistant/processes/index.md";
   if (!existsRepoPath(repoRoot, indexPath)) {
     errors.push(`missing process index: ${indexPath}`);
   } else {
@@ -194,7 +191,7 @@ function assertProcessId(id: string): AgentManualProcess["id"] {
 }
 
 function assertPurpose(purpose: string): AgentManualPurpose {
-  if (["chat", "onboarding_first_response", "feedback"].includes(purpose)) {
+  if (["chat", "onboarding_first_response", "feedback", "inbound_record"].includes(purpose)) {
     return purpose as AgentManualPurpose;
   }
   throw new Error(`unknown agent vault appliesTo purpose: ${purpose}`);

@@ -5,6 +5,7 @@ export type AuditEventType =
   | "profile_updated"
   | "onboarding_completed"
   | "chat_received"
+  | "request_integrity_denied"
   | "chat_response_generated"
   | "work_boundary_applied"
   | "insight_recorded"
@@ -34,6 +35,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   profile_updated: ["changedFields"],
   onboarding_completed: ["persona"],
   chat_received: ["inputModality"],
+  request_integrity_denied: ["reason"],
   chat_response_generated: [],
   work_boundary_applied: ["reason", "selectedProcessIds"],
   insight_recorded: ["insightId", "kind"],

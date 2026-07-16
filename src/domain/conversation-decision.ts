@@ -7,7 +7,8 @@ export type DecisionProcessId =
   | "evening_reflection"
   | "workday_guardrails"
   | "insight_extraction"
-  | "feedback";
+  | "feedback"
+  | "inbox_capture";
 
 export type ConversationBoundaryReason =
   | "content_generation_request"

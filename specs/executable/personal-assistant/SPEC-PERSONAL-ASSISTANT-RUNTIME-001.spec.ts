@@ -43,6 +43,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
       ingestionService: ingestion,
       ideaStore: ideas,
       auditEventStore: createInMemoryAuditEventStore(world),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator: createDeterministicIdGenerator(),
     });

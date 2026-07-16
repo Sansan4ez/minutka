@@ -83,7 +83,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("serializes AssistantService results and binds both chat planes to their trusted identity", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     const calls: unknown[] = [];
-    const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], personalContextDocuments: ["context/private.md"] }; } };
+    const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], outcome: { status: "completed" } as const, personalContextDocuments: ["context/private.md"] }; } };
     const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["emp_a", employeeToken]]) } });
     running.push(server);
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken }));
