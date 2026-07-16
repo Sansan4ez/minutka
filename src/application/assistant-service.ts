@@ -1,4 +1,5 @@
 import type { ConversationStore } from "./conversation-store.js";
+import { applyContextBudget, defaultContextBudget, type ContextBudgetConfig } from "./context-budget.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -60,12 +61,12 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
-    this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now() });
-    this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now() });
+    this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: deps.contextBudget });
+    this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: deps.contextBudget });
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
   }
 
@@ -153,7 +154,7 @@ export class AssistantService {
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("document_tool_used", event),
       }, "document tool audit");
     };
-    const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool });
+    const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.deps.contextBudget });
     let response: string | undefined;
     let agentError: unknown;
     try {
@@ -162,7 +163,7 @@ export class AssistantService {
         profileAndHistory,
         records,
         source,
-        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory),
+        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.deps.contextBudget),
         captureIdea,
         documents,
       });
@@ -217,15 +218,38 @@ export class AssistantService {
   }
 }
 
-export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions(), responsePolicy?: string, profileAndHistory?: ChatProcSnapshot): string {
-  return [
-    "# Personal assistant runtime context",
-    agentInstructions,
-    responsePolicy,
-    ...(profileAndHistory === undefined ? [] : [renderRuntimeProjection(profileAndHistory)]),
-    renderAssistantContextProjection(personalContext),
-    ...(records === undefined ? [] : [renderAssistantRecordsProjection(records)]),
-  ].filter(Boolean).join("\n\n");
+export function buildAssistantSystemContext(
+  personalContext: AssistantContextProjection,
+  records?: AssistantRecordsProjection,
+  agentInstructions = loadAssistantAgentInstructions(),
+  responsePolicy?: string,
+  profileAndHistory?: ChatProcSnapshot,
+  userInput = "",
+  contextBudget: ContextBudgetConfig = defaultContextBudget,
+): string {
+  const runtimeProjection = profileAndHistory === undefined ? undefined : renderRuntimeProjection(profileAndHistory);
+  const profileSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/profile");
+  const historySection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/thread");
+  return applyContextBudget({
+    userInput,
+    config: contextBudget,
+    sections: [
+      { sourceId: "base_instructions", content: "# Personal assistant runtime context" },
+      { sourceId: "agent_manual", content: [agentInstructions, responsePolicy].filter(Boolean).join("\n\n") },
+      { sourceId: "profile", content: profileSection ?? "" },
+      { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
+      ...(records === undefined ? [] : [{ sourceId: "records" as const, content: renderAssistantRecordsProjection(records) }]),
+      { sourceId: "history", content: historySection ?? "" },
+    ],
+  }).text;
+}
+
+function extractRuntimeProjectionSection(rendered: string, path: "/proc/profile" | "/proc/thread"): string | undefined {
+  const heading = `## Runtime projection: ${path}`;
+  const start = rendered.indexOf(heading);
+  if (start < 0) return undefined;
+  const next = rendered.indexOf("\n\n## Runtime projection:", start + heading.length);
+  return rendered.slice(start, next < 0 ? rendered.length : next);
 }
 
 const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";

@@ -1,12 +1,13 @@
 import type { AuditEventStore } from "../audit-event-store.js";
 import type { UserProfile } from "../../domain/employee.js";
 import { currentPrivacyVersion } from "../../domain/privacy.js";
+import type { ContextBudgetConfig } from "../context-budget.js";
 import type { Clock } from "../runtime-primitives.js";
 import type { ConversationStore, ConversationTurn } from "../conversation-store.js";
 import type { FeedbackStore } from "../feedback-store.js";
 import type { InsightStore } from "../insight-store.js";
 import type { ProfileStore } from "../profile-store.js";
-import { runtimeProjectionLimits } from "./runtime-projection-limits.js";
+import { runtimeProjectionLimitsFromBudget, type RuntimeProjectionLimits } from "./runtime-projection-limits.js";
 import type { RuntimeAccessScope } from "./runtime-access-scope.js";
 import type {
   AllowedRuntimePath,
@@ -36,7 +37,9 @@ export function createRuntimeProjectionBuilder(deps: {
   feedbackStore: FeedbackStore;
   auditEventStore: AuditEventStore;
   clock: Clock;
+  contextBudget?: ContextBudgetConfig;
 }): RuntimeProjectionBuilder {
+  const limits = runtimeProjectionLimitsFromBudget(deps.contextBudget);
   const envelope = <T>(
     path: AllowedRuntimePath,
     scope: RuntimeAccessScope,
@@ -78,10 +81,10 @@ export function createRuntimeProjectionBuilder(deps: {
       threadId: scope.threadId,
       // Fetch one extra completed turn so the projection can report count
       // truncation without loading unbounded history.
-      limit: runtimeProjectionLimits.threadTurns + 1,
+      limit: limits.threadTurns + 1,
     });
-    const countTruncated = source.length > runtimeProjectionLimits.threadTurns;
-    const bounded = boundTurns(source.slice(-runtimeProjectionLimits.threadTurns));
+    const countTruncated = source.length > limits.threadTurns;
+    const bounded = boundTurns(source.slice(-limits.threadTurns), limits);
     return { turns: bounded.turns, truncated: countTruncated || bounded.truncated };
   };
 
@@ -104,8 +107,8 @@ export function createRuntimeProjectionBuilder(deps: {
         deps.profileStore.getParticipant(scope.employeeId),
         deps.profileStore.getConsent(scope.employeeId),
         thread(scope),
-        threadId ? deps.insightStore.listInsights({ employeeId: scope.employeeId, threadId, limit: runtimeProjectionLimits.insights }) : [],
-        threadId ? deps.feedbackStore.listFeedback({ employeeId: scope.employeeId, threadId, limit: runtimeProjectionLimits.feedback }) : [],
+        threadId ? deps.insightStore.listInsights({ employeeId: scope.employeeId, threadId, limit: limits.insights }) : [],
+        threadId ? deps.feedbackStore.listFeedback({ employeeId: scope.employeeId, threadId, limit: limits.feedback }) : [],
       ]);
       return {
         profile: envelope("/proc/profile", scope, projectProfile(profile)),
@@ -129,7 +132,7 @@ export function createRuntimeProjectionBuilder(deps: {
           scope,
           await deps.auditEventStore.listCurrent({
             requestId: scope.requestId,
-            limit: runtimeProjectionLimits.runCurrent,
+            limit: limits.runCurrent,
           }),
         ),
         recent: envelope(
@@ -138,7 +141,7 @@ export function createRuntimeProjectionBuilder(deps: {
           await deps.auditEventStore.listRecent({
             employeeId: scope.employeeId,
             ...(scope.threadId ? { threadId: scope.threadId } : {}),
-            limit: runtimeProjectionLimits.runRecent,
+            limit: limits.runRecent,
           }),
         ),
       };
@@ -146,19 +149,19 @@ export function createRuntimeProjectionBuilder(deps: {
   };
 }
 
-function boundTurns(turns: ConversationTurn[]): { turns: ConversationTurn[]; truncated: boolean } {
+function boundTurns(turns: ConversationTurn[], limits: RuntimeProjectionLimits): { turns: ConversationTurn[]; truncated: boolean } {
   const newestFirst = [...turns].reverse();
   let characters = 0;
   let truncated = false;
   const retained: ConversationTurn[] = [];
   for (const turn of newestFirst) {
-    const userText = sanitiseTurnText(turn.userText);
-    const agentResponse = sanitiseTurnText(turn.agentResponse);
+    const userText = sanitiseTurnText(turn.userText, limits.threadTurnTextCharacters);
+    const agentResponse = sanitiseTurnText(turn.agentResponse, limits.threadTurnTextCharacters);
     if (userText.length !== turn.userText.length || agentResponse.length !== turn.agentResponse.length) truncated = true;
     const size = Array.from(userText).length + Array.from(agentResponse).length;
     // Turns are evaluated newest-to-oldest: on overflow, retain the contiguous
     // newest suffix instead of creating holes or dropping the latest context.
-    if (characters + size > runtimeProjectionLimits.threadCharacters) {
+    if (characters + size > limits.threadCharacters) {
       truncated = true;
       break;
     }
@@ -168,7 +171,7 @@ function boundTurns(turns: ConversationTurn[]): { turns: ConversationTurn[]; tru
   return { turns: retained.reverse(), truncated };
 }
 
-function sanitiseTurnText(text: string): string {
+function sanitiseTurnText(text: string, maximumCharacters: number): string {
   const cleaned = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-  return [...cleaned].slice(0, runtimeProjectionLimits.threadTurnTextCharacters).join("");
+  return [...cleaned].slice(0, maximumCharacters).join("");
 }

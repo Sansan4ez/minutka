@@ -1,4 +1,5 @@
 import { AssistantService } from "../application/assistant-service.js";
+import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
@@ -32,6 +33,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();
   const config = postgresConfigFromEnv(input.env);
+  const contextBudget = contextBudgetConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -78,7 +80,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       onboardingProfileExtractor: extractOnboardingProfileWithAgent,
       ...input.deps,
     });
-    const chatProjectionBuilder = createRuntimeProjectionBuilder({ ...stores, clock: systemClock });
+    const chatProjectionBuilder = createRuntimeProjectionBuilder({ ...stores, clock: systemClock, contextBudget });
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -91,6 +93,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       clock: systemClock,
       idGenerator: randomIdGenerator,
       agentInstructions,
+      contextBudget,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore);
     // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.

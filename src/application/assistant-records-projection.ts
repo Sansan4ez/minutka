@@ -1,3 +1,4 @@
+import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import type { Idea, IdeaStore } from "./idea-store.js";
 
 export type AssistantRecordsProjection = {
@@ -9,28 +10,33 @@ export type AssistantRecordsProjection = {
 };
 
 export const assistantRecordsLimits = {
-  records: 24,
-  characters: 12_000,
-  recordCharacters: 1_000,
+  records: defaultContextBudget.projectionLimits.records,
+  characters: sourceCharacterCeiling(defaultContextBudget, "records"),
+  recordCharacters: defaultContextBudget.projectionLimits.recordCharacters,
 } as const;
 
 /** Builds a bounded, owner-scoped `/proc/records` read model for the agent. */
-export function createAssistantRecordsProjectionBuilder(deps: { ideaStore: IdeaStore; now: () => string }) {
+export function createAssistantRecordsProjectionBuilder(deps: { ideaStore: IdeaStore; now: () => string; contextBudget?: ContextBudgetConfig }) {
+  const limits = {
+    records: deps.contextBudget?.projectionLimits.records ?? assistantRecordsLimits.records,
+    characters: sourceCharacterCeiling(deps.contextBudget ?? defaultContextBudget, "records"),
+    recordCharacters: deps.contextBudget?.projectionLimits.recordCharacters ?? assistantRecordsLimits.recordCharacters,
+  };
   return {
     async build(input: { userId: string; requestId: string }): Promise<AssistantRecordsProjection> {
       // Read one extra row so truncation is known without loading the owner's full history.
-      const source = await deps.ideaStore.list(input.userId, undefined, { limit: assistantRecordsLimits.records + 1, order: "activity_desc" });
+      const source = await deps.ideaStore.list(input.userId, undefined, { limit: limits.records + 1, order: "activity_desc" });
       const records: AssistantRecordsProjection["data"]["records"] = [];
       let characters = 0;
-      let truncated = source.length > assistantRecordsLimits.records;
-      for (const idea of source.slice(0, assistantRecordsLimits.records)) {
-        const summary = [...idea.summary].slice(0, assistantRecordsLimits.recordCharacters).join("");
+      let truncated = source.length > limits.records;
+      for (const idea of source.slice(0, limits.records)) {
+        const summary = [...idea.summary].slice(0, limits.recordCharacters).join("");
         if (summary.length !== idea.summary.length) truncated = true;
-        if (characters + summary.length > assistantRecordsLimits.characters) {
+        if (characters + Array.from(summary).length > limits.characters) {
           truncated = true;
           break;
         }
-        characters += summary.length;
+        characters += Array.from(summary).length;
         records.push({
           id: idea.id,
           project: idea.project,

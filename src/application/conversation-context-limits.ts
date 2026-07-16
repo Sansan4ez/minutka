@@ -1,13 +1,15 @@
+import { defaultContextBudget, sourceCharacterCeiling } from "./context-budget.js";
+
 export const conversationContextLimits = {
   /** Wider context rendered for the response-generating agent. */
-  responseTurns: 10,
-  responseCharacters: 12_000,
-  responseFieldCharacters: 6_000,
+  responseTurns: defaultContextBudget.projectionLimits.historyTurns,
+  responseCharacters: sourceCharacterCeiling(defaultContextBudget, "history"),
+  responseFieldCharacters: defaultContextBudget.projectionLimits.historyTurnCharacters,
   /** Local intent window used by the business-process decision router. */
-  routingTurns: 3,
-  routingCurrentTextCharacters: 4_096,
-  routingTurnFieldCharacters: 700,
+  routingTurns: defaultContextBudget.projectionLimits.routingTurns,
+  routingCurrentTextCharacters: defaultContextBudget.projectionLimits.routingCurrentTextCharacters,
+  routingTurnFieldCharacters: defaultContextBudget.projectionLimits.routingTurnFieldCharacters,
   /** Context used after the response for structured insight extraction. */
-  insightTurns: 5,
-  insightFieldCharacters: 2_000,
+  insightTurns: defaultContextBudget.projectionLimits.insightTurns,
+  insightFieldCharacters: defaultContextBudget.projectionLimits.insightFieldCharacters,
 } as const;

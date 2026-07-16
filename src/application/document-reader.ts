@@ -1,3 +1,4 @@
+import { defaultContextBudget, type ContextBudgetConfig } from "./context-budget.js";
 import {
   assertSafeVaultPath,
   contextDocumentHandle,
@@ -5,15 +6,7 @@ import {
   type UserDocument,
 } from "./document-store.js";
 
-export const documentReadLimits = {
-  listDefault: 20,
-  listMaximum: 50,
-  readDefaultCharacters: 4_000,
-  readMaximumCharacters: 8_000,
-  searchDefault: 10,
-  searchMaximum: 20,
-  searchSnippetCharacters: 500,
-} as const;
+export const documentReadLimits = defaultContextBudget.documentTools;
 
 export type DocumentMetadata = Pick<UserDocument, "version" | "updatedAt"> & {
   path: `/proc/context/${string}`;
@@ -59,14 +52,16 @@ export function createOwnerDocumentReader(input: {
   userId: string;
   documentStore: DocumentStore;
   audit?: DocumentToolAudit;
+  contextBudget?: ContextBudgetConfig;
 }) {
+  const limits = input.contextBudget?.documentTools ?? documentReadLimits;
   const audit = async (event: Parameters<DocumentToolAudit>[0]) => input.audit?.(event);
 
   return {
     async listDocuments(options: { prefix?: string; cursor?: string; limit?: number } = {}): Promise<ListDocumentsResult> {
       const prefix = storagePrefix(options.prefix);
       const cursor = options.cursor === undefined ? undefined : storagePath(options.cursor);
-      const limit = boundedInteger(options.limit, documentReadLimits.listDefault, 1, documentReadLimits.listMaximum, "limit");
+      const limit = boundedInteger(options.limit, limits.listDefault, 1, limits.listMaximum, "limit");
       const source = await input.documentStore.list(input.userId, prefix);
       const page = source.filter((document) => cursor === undefined || document.path.localeCompare(cursor) > 0).slice(0, limit + 1);
       const truncated = page.length > limit;
@@ -88,7 +83,7 @@ export function createOwnerDocumentReader(input: {
     async readDocument(options: { path: string; offset?: number; section?: string; maxCharacters?: number }): Promise<ReadDocumentResult> {
       const path = storagePath(options.path);
       const offset = boundedInteger(options.offset, 0, 0, Number.MAX_SAFE_INTEGER, "offset");
-      const maximum = boundedInteger(options.maxCharacters, documentReadLimits.readDefaultCharacters, 1, documentReadLimits.readMaximumCharacters, "maxCharacters");
+      const maximum = boundedInteger(options.maxCharacters, limits.readDefaultCharacters, 1, limits.readMaximumCharacters, "maxCharacters");
       const document = await input.documentStore.get(input.userId, path);
       if (!document) {
         const result = missingReadResult(contextDocumentHandle(path), offset);
@@ -124,7 +119,7 @@ export function createOwnerDocumentReader(input: {
       const query = options.query.trim();
       if (query.length < 2) throw new Error("query must contain at least 2 characters");
       const prefix = storagePrefix(options.prefix);
-      const limit = boundedInteger(options.limit, documentReadLimits.searchDefault, 1, documentReadLimits.searchMaximum, "limit");
+      const limit = boundedInteger(options.limit, limits.searchDefault, 1, limits.searchMaximum, "limit");
       const normalizedQuery = query.toLocaleLowerCase();
       const source = await input.documentStore.list(input.userId, prefix);
       const matches: SearchDocumentsResult["matches"] = [];
@@ -139,7 +134,7 @@ export function createOwnerDocumentReader(input: {
         }
         matches.push({
           path,
-          snippet: boundedSnippet(document.content, contentIndex),
+          snippet: boundedSnippet(document.content, contentIndex, limits.searchSnippetCharacters),
           version: document.version,
           updatedAt: document.updatedAt,
         });
@@ -185,11 +180,11 @@ function markdownSection(content: string, requestedSection: string): string | nu
   return content.slice(selected.index!, next?.index ?? content.length).trimEnd();
 }
 
-function boundedSnippet(content: string, matchIndex: number): string {
+function boundedSnippet(content: string, matchIndex: number, maximumCharacters: number): string {
   const characters = Array.from(content);
   const codeUnitPrefix = matchIndex < 0 ? 0 : Array.from(content.slice(0, matchIndex)).length;
-  const radius = Math.floor(documentReadLimits.searchSnippetCharacters / 2);
+  const radius = Math.floor(maximumCharacters / 2);
   const start = Math.max(0, codeUnitPrefix - radius);
-  const selected = characters.slice(start, start + documentReadLimits.searchSnippetCharacters).join("");
+  const selected = characters.slice(start, start + maximumCharacters).join("");
   return `${start > 0 ? "…" : ""}${selected}${start + Array.from(selected).length < characters.length ? "…" : ""}`;
 }

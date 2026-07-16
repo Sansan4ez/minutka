@@ -1,3 +1,4 @@
+import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import { contextDocumentHandle, type DocumentStore, type UserDocument } from "./document-store.js";
 
 export type AssistantContextProjection = {
@@ -9,29 +10,34 @@ export type AssistantContextProjection = {
 };
 
 export const assistantContextLimits = {
-  documents: 12,
-  characters: 16_000,
-  documentCharacters: 4_000,
+  documents: defaultContextBudget.projectionLimits.contextDocuments,
+  characters: sourceCharacterCeiling(defaultContextBudget, "context"),
+  documentCharacters: defaultContextBudget.projectionLimits.contextDocumentCharacters,
 } as const;
 
 /** Builds the bounded `/proc/context` read model from the owner's context files only. */
-export function createAssistantContextProjectionBuilder(deps: { documentStore: DocumentStore; now: () => string }) {
+export function createAssistantContextProjectionBuilder(deps: { documentStore: DocumentStore; now: () => string; contextBudget?: ContextBudgetConfig }) {
+  const limits = {
+    documents: deps.contextBudget?.projectionLimits.contextDocuments ?? assistantContextLimits.documents,
+    characters: sourceCharacterCeiling(deps.contextBudget ?? defaultContextBudget, "context"),
+    documentCharacters: deps.contextBudget?.projectionLimits.contextDocumentCharacters ?? assistantContextLimits.documentCharacters,
+  };
   return {
     async build(input: { userId: string; requestId: string }): Promise<AssistantContextProjection> {
       const source = prioritizeContextDocuments(await deps.documentStore.list(input.userId, "context/"));
       let characters = 0;
-      let truncated = source.length > assistantContextLimits.documents;
+      let truncated = source.length > limits.documents;
       const documents: AssistantContextProjection["data"]["documents"] = [];
-      for (const document of source.slice(0, assistantContextLimits.documents)) {
-        const content = [...document.content].slice(0, assistantContextLimits.documentCharacters).join("");
+      for (const document of source.slice(0, limits.documents)) {
+        const content = [...document.content].slice(0, limits.documentCharacters).join("");
         if (content.length !== document.content.length) truncated = true;
         // Preserve the deterministic semantic priority rather than silently
         // dropping an earlier document in favour of a lower-priority one.
-        if (characters + content.length > assistantContextLimits.characters) {
+        if (characters + Array.from(content).length > limits.characters) {
           truncated = true;
           break;
         }
-        characters += content.length;
+        characters += Array.from(content).length;
         documents.push({ path: contextDocumentHandle(document.path), content, version: document.version, updatedAt: document.updatedAt });
       }
       return {
