@@ -4,7 +4,13 @@ export const defaultLlmModel = "openai/gpt-5.5";
 
 /** Provider settings shared by every Mastra agent. */
 export const llmProviderOptions = {
-  openai: { reasoningEffort: "high" },
+  openai: {
+    reasoningEffort: "high",
+    // The local OpenAI-compatible gateway is stateless. This must be explicit
+    // so AI SDK resends tool/reasoning content instead of referencing fc_/rs_
+    // response items that the gateway did not persist.
+    store: false,
+  },
 } as const;
 
 export function llmModelFromEnv(env: NodeJS.ProcessEnv): string {
