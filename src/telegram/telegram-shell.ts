@@ -15,9 +15,30 @@ import { randomUUID } from "node:crypto";
 import { pipeline, Transform } from "node:stream";
 
 export const maxTelegramMessageCharacters = 4_000;
+const telegramPreferredSplitBoundaries = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "] as const;
+
+function splitTelegramChunk(text: string): { chunk: string; remainder: string } {
+  const characters = Array.from(text);
+  if (characters.length <= maxTelegramMessageCharacters) return { chunk: text, remainder: "" };
+  const prefix = characters.slice(0, maxTelegramMessageCharacters).join("");
+  const minimumUsefulBoundary = Math.floor(maxTelegramMessageCharacters * 0.5);
+  for (const boundary of telegramPreferredSplitBoundaries) {
+    const boundaryIndex = prefix.lastIndexOf(boundary);
+    if (boundaryIndex < minimumUsefulBoundary) continue;
+    const end = boundaryIndex + boundary.length;
+    return { chunk: prefix.slice(0, end).trimEnd(), remainder: text.slice(end).trimStart() };
+  }
+  return { chunk: prefix, remainder: characters.slice(maxTelegramMessageCharacters).join("") };
+}
+
 export function splitTelegramMessage(text: string): string[] {
-  const characters = Array.from(text); const chunks: string[] = [];
-  for (let start = 0; start < characters.length; start += maxTelegramMessageCharacters) chunks.push(characters.slice(start, start + maxTelegramMessageCharacters).join(""));
+  const chunks: string[] = [];
+  let remainder = text;
+  while (remainder) {
+    const split = splitTelegramChunk(remainder);
+    chunks.push(split.chunk);
+    remainder = split.remainder;
+  }
   return chunks;
 }
 const typingRefreshMilliseconds = 4_000;
