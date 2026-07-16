@@ -70,6 +70,24 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       });
       return { userId: safeUserId, path: safePath, content, version: result.versionId ?? result.etag, updatedAt: now() };
     },
+    async putIfAbsent(userId, path, content) {
+      const safeUserId = assertUserId(userId);
+      const safePath = assertSafeVaultPath(path);
+      const existing = await getExact(safeUserId, safePath);
+      if (existing) return existing;
+      try {
+        const result = await options.client.putObject(options.bucket, objectKey(safeUserId, safePath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
+          "Content-Type": "text/markdown; charset=utf-8",
+          "If-None-Match": "*",
+        });
+        return { userId: safeUserId, path: safePath, content, version: result.versionId ?? result.etag, updatedAt: now() };
+      } catch (error) {
+        if (!isPreconditionFailed(error)) throw error;
+        const concurrent = await getExact(safeUserId, safePath);
+        if (!concurrent) throw error;
+        return concurrent;
+      }
+    },
     async list(userId, prefix) {
       const safeUserId = assertUserId(userId);
       const canonicalPrefix = prefix === undefined ? "" : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
@@ -118,9 +136,18 @@ function versionOf(stat: Minio.BucketItemStat): string {
   return stat.versionId ?? stat.etag;
 }
 
+function errorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+}
+
 function isNotFound(error: unknown): boolean {
   // MinIO returns `NotFound` for a missing object on HEAD/statObject, while
   // S3-compatible providers may use the more specific NoSuch* codes.
-  return typeof error === "object" && error !== null && "code" in error
-    && (error.code === "NotFound" || error.code === "NoSuchKey" || error.code === "NoSuchObject");
+  const code = errorCode(error);
+  return code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject";
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === "PreconditionFailed" || code === "ConditionalRequestConflict";
 }

@@ -63,6 +63,21 @@ describeMinio("MinIO personal-vault contracts", () => {
     expect((await client.getBucketVersioning(config.bucket)).Status).toBe("Enabled");
   });
 
+  it("creates a context document once without overwriting concurrent or repeated onboarding writes", async () => {
+    const path = "context/onboarding-once.md";
+    const [first, second] = await Promise.all([
+      documents.putIfAbsent(owner, path, "first"),
+      documents.putIfAbsent(owner, path, "second"),
+    ]);
+    const stored = await documents.get(owner, path);
+    const repeated = await documents.putIfAbsent(owner, path, "third");
+
+    expect(first.version).toBe(second.version);
+    expect(repeated.version).toBe(first.version);
+    expect(stored?.content).toBe(first.content);
+    expect(["first", "second"]).toContain(stored?.content);
+  });
+
   it("does not create another CAS object version when the same owner retries identical content", async () => {
     const body = Buffer.from("immutable artifact");
     const contentDigest = createHash("sha256").update(body).digest("hex");

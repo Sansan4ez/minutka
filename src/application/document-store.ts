@@ -23,6 +23,8 @@ export type DocumentStore = {
   /** Exact storage list reserved for migrations; it does not canonicalize aliases. */
   listExact(userId: string, prefix?: string): Promise<UserDocument[]>;
   put(userId: string, path: string, content: string): Promise<UserDocument>;
+  /** Atomically creates a missing document and never overwrites existing owner content. */
+  putIfAbsent(userId: string, path: string, content: string): Promise<UserDocument>;
   list(userId: string, prefix?: string): Promise<UserDocument[]>;
   delete(userId: string, path: string): Promise<void>;
 };

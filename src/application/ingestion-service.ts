@@ -29,6 +29,8 @@ export type CaptureIdeaResult = {
 
 export type IngestionService = {
   saveContextDocument(input: { userId: string; path: string; content: string }): Promise<UserDocument>;
+  /** Creates the document once and returns the existing version on retries. */
+  ensureContextDocument(input: { userId: string; path: string; content: string }): Promise<UserDocument>;
   uploadInboxBlob(input: { userId: string; key: string; body: Buffer; contentType: string }): Promise<StoredBlob>;
   captureIdea(input: CaptureIdeaInput): Promise<CaptureIdeaResult>;
   captureInboxFile(input: { userId: string; fileName: string; body: Buffer; contentType: string }): Promise<StoredBlob>;
@@ -47,6 +49,12 @@ export function createIngestionService(deps: { documentStore: DocumentStore; blo
       const path = assertSafeVaultPath(input.path, "context/");
       if (!input.content.trim()) throw new Error("context document content is required");
       return deps.documentStore.put(userId, path, input.content);
+    },
+    async ensureContextDocument(input) {
+      const userId = assertUserId(input.userId);
+      const path = assertSafeVaultPath(input.path, "context/");
+      if (!input.content.trim()) throw new Error("context document content is required");
+      return deps.documentStore.putIfAbsent(userId, path, input.content);
     },
     uploadInboxBlob,
     async captureInboxFile(input) {

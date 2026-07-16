@@ -45,6 +45,15 @@ export function createInMemoryDocumentStore(clock: Clock): DocumentStore {
       documents.set(key(safeUserId, safePath), document);
       return { ...document };
     },
+    async putIfAbsent(userId, path, content) {
+      const safeUserId = assertUserId(userId);
+      const safePath = assertSafeVaultPath(path);
+      const existing = readExact(safeUserId, safePath);
+      if (existing) return existing;
+      const document: UserDocument = { userId: safeUserId, path: safePath, content, version: `memory-${++version}`, updatedAt: clock.now() };
+      documents.set(key(safeUserId, safePath), document);
+      return { ...document };
+    },
     async list(userId, prefix) {
       const safeUserId = assertUserId(userId);
       const safePrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
