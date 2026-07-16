@@ -18,3 +18,4 @@ belief_map_cache.json
 .bv/
 # br doctor per-run artifacts
 .doctor/
+.DS_Store
