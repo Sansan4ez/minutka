@@ -1,6 +1,6 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
-import { assertSafeVaultPath, assertUserId, type DocumentStore } from "./document-store.js";
+import { assertSafeVaultPath, assertUserId, legacyDocumentPath, type DocumentStore } from "./document-store.js";
 import type { IngestionService } from "./ingestion-service.js";
 
 const allowedTopLevelEntries = new Set([
@@ -16,7 +16,7 @@ const allowedTopLevelEntries = new Set([
   "AGENTS.MD",
 ]);
 const allowedExtensions = new Set([".md", ".txt", ".vtt"]);
-const destinationPrefix = "context/imported-knowledge-base";
+const destinationPrefix = "context";
 
 export type PilotKnowledgeBaseFile = {
   sourcePath: string;
@@ -30,6 +30,12 @@ export type PilotKnowledgeBaseImportResult = {
   updated: number;
   skipped: number;
   bytes: number;
+};
+
+export type PilotKnowledgeBaseMigrationResult = {
+  files: Array<{ from: string; to: string; status: "migrated" | "skipped" }>;
+  migrated: number;
+  skipped: number;
 };
 
 /**
@@ -68,8 +74,9 @@ export async function discoverPilotKnowledgeBase(sourceRoot: string): Promise<Pi
   const sorted = files.sort((left, right) => left.path.localeCompare(right.path));
   const paths = new Set<string>();
   for (const file of sorted) {
-    if (paths.has(file.path)) throw new Error(`knowledge-base paths collide after normalization: ${file.path}`);
-    paths.add(file.path);
+    const collisionKey = file.path.normalize("NFC").toLocaleLowerCase("en-US");
+    if (paths.has(collisionKey)) throw new Error(`knowledge-base paths collide after normalization: ${file.path}`);
+    paths.add(collisionKey);
   }
   return sorted;
 }
@@ -78,7 +85,7 @@ export async function discoverPilotKnowledgeBase(sourceRoot: string): Promise<Pi
 export async function importPilotKnowledgeBase(input: {
   userId: string;
   files: PilotKnowledgeBaseFile[];
-  documentStore: Pick<DocumentStore, "get">;
+  documentStore: Pick<DocumentStore, "getExact">;
   ingestionService: Pick<IngestionService, "saveContextDocument">;
 }): Promise<PilotKnowledgeBaseImportResult> {
   const userId = assertUserId(input.userId);
@@ -90,7 +97,7 @@ export async function importPilotKnowledgeBase(input: {
 
   const result: PilotKnowledgeBaseImportResult = { files: [], imported: 0, updated: 0, skipped: 0, bytes: 0 };
   for (const file of prepared) {
-    const existing = await input.documentStore.get(userId, file.path);
+    const existing = await input.documentStore.getExact(userId, file.path);
     const status = existing?.content === file.content ? "skipped" : existing ? "updated" : "imported";
     if (status !== "skipped") {
       await input.ingestionService.saveContextDocument({ userId, path: file.path, content: file.content });
@@ -98,6 +105,37 @@ export async function importPilotKnowledgeBase(input: {
     result[status] += 1;
     result.bytes += file.size;
     result.files.push({ path: file.path, size: file.size, status });
+  }
+  return result;
+}
+
+/**
+ * Copies legacy objects to canonical keys without deleting legacy versions.
+ * A differing canonical collision fails closed instead of overwriting either document.
+ */
+export async function migrateLegacyPilotKnowledgeBase(input: {
+  userId: string;
+  documentStore: Pick<DocumentStore, "getExact" | "listExact">;
+  ingestionService: Pick<IngestionService, "saveContextDocument">;
+}): Promise<PilotKnowledgeBaseMigrationResult> {
+  const userId = assertUserId(input.userId);
+  const result: PilotKnowledgeBaseMigrationResult = { files: [], migrated: 0, skipped: 0 };
+  const legacyDocuments = await input.documentStore.listExact(userId, "context/imported-knowledge-base/");
+  for (const legacy of legacyDocuments) {
+    const filePath = `context/${legacy.path.slice("context/imported-knowledge-base/".length)}`;
+    const canonicalPath = assertSafeVaultPath(filePath, "context/");
+    const legacyPath = legacyDocumentPath(canonicalPath);
+    if (!legacyPath || legacyPath !== legacy.path) throw new Error(`invalid legacy knowledge-base path: ${legacy.path}`);
+    const canonical = await input.documentStore.getExact(userId, canonicalPath);
+    if (canonical && canonical.content !== legacy.content) {
+      throw new Error(`knowledge-base migration collision: ${canonicalPath}`);
+    }
+    const status = canonical ? "skipped" : "migrated";
+    if (!canonical) {
+      await input.ingestionService.saveContextDocument({ userId, path: canonicalPath, content: legacy.content });
+    }
+    result[status] += 1;
+    result.files.push({ from: legacyPath, to: canonicalPath, status });
   }
   return result;
 }

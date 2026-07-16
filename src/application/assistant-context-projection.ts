@@ -1,4 +1,4 @@
-import type { DocumentStore, UserDocument } from "./document-store.js";
+import { contextDocumentHandle, type DocumentStore, type UserDocument } from "./document-store.js";
 
 export type AssistantContextProjection = {
   schemaVersion: 1;
@@ -32,7 +32,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           break;
         }
         characters += content.length;
-        documents.push({ path: document.path, content, version: document.version, updatedAt: document.updatedAt });
+        documents.push({ path: contextDocumentHandle(document.path), content, version: document.version, updatedAt: document.updatedAt });
       }
       return {
         schemaVersion: 1,

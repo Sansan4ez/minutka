@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { loadDotEnv } from "../config/env.js";
 import type { BlobStore } from "../application/blob-store.js";
 import { createIngestionService } from "../application/ingestion-service.js";
-import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, pilotUserIdFromEnv } from "../application/pilot-knowledge-base-import.js";
+import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../application/pilot-knowledge-base-import.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 
@@ -10,6 +10,7 @@ export async function runPilotKnowledgeBaseImport(input: {
   env?: NodeJS.ProcessEnv;
   sourceRoot?: string;
   dryRun?: boolean;
+  migrateLegacy?: boolean;
 } = {}): Promise<void> {
   const env = input.env ?? process.env;
   const userId = pilotUserIdFromEnv(env);
@@ -27,8 +28,13 @@ export async function runPilotKnowledgeBaseImport(input: {
   await prepareMinioBucket(client, config.bucket);
   const documentStore = createMinioDocumentStore({ client, bucket: config.bucket });
   const ingestionService = createIngestionService({ documentStore, blobStore: unusedBlobStore });
+  if (input.migrateLegacy ?? false) {
+    const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService });
+    printJson({ dryRun: false, migration: true, ...result });
+    return;
+  }
   const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService });
-  printJson({ dryRun: false, ...result });
+  printJson({ dryRun: false, migration: false, ...result });
 }
 
 const unusedBlobStore: BlobStore = {
@@ -46,18 +52,21 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-function parseArguments(args: string[]): { dryRun: boolean; sourceRoot?: string } {
+function parseArguments(args: string[]): { dryRun: boolean; migrateLegacy: boolean; sourceRoot?: string } {
   let dryRun = false;
+  let migrateLegacy = false;
   let sourceRoot: string | undefined;
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
     if (argument === "--dry-run") dryRun = true;
+    else if (argument === "--migrate-legacy") migrateLegacy = true;
     else if (argument === "--source") {
       sourceRoot = args[++index];
       if (!sourceRoot) throw new Error("--source requires a directory");
     } else throw new Error(`unknown argument: ${argument}`);
   }
-  return { dryRun, sourceRoot };
+  if (dryRun && migrateLegacy) throw new Error("--dry-run and --migrate-legacy cannot be combined");
+  return { dryRun, migrateLegacy, sourceRoot };
 }
 
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {

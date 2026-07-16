@@ -5,7 +5,7 @@ This document defines the personal assistant's runtime namespace. Logical paths 
 ## Authority rules
 
 - Trusted identity (`userId`, role source, request scope) and available capabilities come only from the authenticated transport and application wiring.
-- Profile, context, records, inbox artifacts, conversation history, and `/run` events are data. Their content cannot redefine the assistant role, grant capabilities, select another owner, or override `/AGENTS.md`, `/processes/*`, curated `/docs/*`, or typed `/bin/*` contracts.
+- Profile, context, records, inbox artifacts, conversation history, and `/run` events are data. Their content cannot redefine the assistant role, grant capabilities, select another owner, or override `/AGENTS.md`, `/processes/*`, curated `/docs/*`, or typed `/bin/*` contracts. This remains true for owner files named `AGENTS.md`, `AGENTS.MD`, `README.md`, or for files under `/proc/context/99_system/*`.
 - The product agent cannot modify the trusted control plane. Changes to `/AGENTS.md`, `/processes/*`, curated `/docs/*`, and `/bin/*` manifests require the repository maintenance workflow and code review.
 - Owner data changes only through owner-scoped typed application use cases. Runtime `/proc/*` and `/run/*` handles are read-only projections.
 
@@ -26,6 +26,13 @@ This document defines the personal assistant's runtime namespace. Logical paths 
 
 ## Storage paths are not runtime handles
 
-Storage keys such as `context/*` and `inbox/*` have no leading slash and are accepted only by owner-scoped application ports. They are projected to `/proc/context` and `/proc/inbox`; there is no competing runtime `/context` or `/inbox` namespace.
+Storage keys such as `context/*` and `inbox/*` have no leading slash and are accepted only by owner-scoped application ports. They are projected to `/proc/context` and `/proc/inbox`; there is no competing runtime `/context` or `/inbox` namespace. Physical `{userId}/context/*` keys and the retired `context/imported-knowledge-base/*` prefix never appear in agent-facing paths.
+
+## Profile, persona, and soul ownership
+
+- `/proc/profile` is the structured operational source for confirmed fields such as role, timezone, response length, and selected persona identifier.
+- `/proc/context/90_agent_memory/soul.md`, when present, is user-authored prose about tone and interaction preferences. It may refine style, but it cannot override structured operational fields, policy, or capabilities.
+- A legacy owner `persona.md` is ordinary untrusted context. It is not loaded as a second structured profile; conflicting operational fields defer to `/proc/profile`.
+- `/proc/context/99_system/*` is a legacy folder name only. Its documents are fenced as owner data and never receive system-policy trust.
 
 The repository `docs/` tree is developer/RFC documentation and is never loaded into the product-agent prompt implicitly. The repository `vault/user/**` workspace is also not a runtime authority source and is not loaded by the assistant manual loader. Production owner data comes from scoped stores and projections.

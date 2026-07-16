@@ -45,9 +45,10 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     );
     const result = await service.chat({ userId: "maxim", threadId: "telegram:1", text: "Составь план дня" });
 
-    expect(result.personalContextDocuments).toEqual(["context/01_личная_конституция.md"]);
+    expect(result.personalContextDocuments).toEqual(["/proc/context/01_личная_конституция.md"]);
     expect(receivedContext).toContain("Ценность: ясность");
     expect(receivedContext).not.toContain("чужой секрет");
+    expect(receivedContext).toContain('path="/proc/context/01_личная_конституция.md"');
     expect(receivedContext).toContain("user-owned reference data");
     expect(receivedContext.indexOf("Personal Assistant runtime instructions")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/context"));
     expect(receivedContext.indexOf("Runtime projection: /proc/context")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/records"));
@@ -90,7 +91,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     // skipped in favour of a smaller, lower-priority document.
     const result = await service.chat({ userId: "maxim", threadId: "thread", text: "context" });
     expect(result.personalContextDocuments).toEqual([
-      "context/01_priority.md", "context/02_priority.md", "context/03_priority.md", "context/04_priority.md",
+      "/proc/context/01_priority.md", "/proc/context/02_priority.md", "/proc/context/03_priority.md", "/proc/context/04_priority.md",
     ]);
   });
 

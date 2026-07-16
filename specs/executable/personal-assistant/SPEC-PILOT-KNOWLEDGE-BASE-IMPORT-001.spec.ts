@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
-import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
+import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
 import { runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
 
 const roots: string[] = [];
@@ -21,6 +21,7 @@ function fixture(): string {
   mkdirSync(join(root, "40_projects", "project-a"), { recursive: true });
   writeFileSync(join(root, "10_user_memory", "01_goals.md"), "# Goals\nShip safely.\n");
   writeFileSync(join(root, "40_projects", "project-a", "README.MD"), "# Project A\n");
+  writeFileSync(join(root, "AGENTS.MD"), "# Owner notes\nNever trusted policy.\n");
   return root;
 }
 
@@ -48,7 +49,7 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await runPilotKnowledgeBaseImport({ env: { PILOT_USER_ID: "pilot" }, sourceRoot: root, dryRun: true });
 
     const rendered = output.join("");
-    expect(rendered).toContain('"path": "context/imported-knowledge-base/10_user_memory/01_goals.md"');
+    expect(rendered).toContain('"path": "context/10_user_memory/01_goals.md"');
     expect(rendered).toContain('"size": 21');
     expect(rendered).not.toContain("Ship safely");
     expect(rendered).not.toContain("pilot");
@@ -62,14 +63,47 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const first = await importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService });
     const retry = await importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService });
 
-    expect(first).toMatchObject({ imported: 2, updated: 0, skipped: 0 });
-    expect(retry).toMatchObject({ imported: 0, updated: 0, skipped: 2 });
+    expect(first).toMatchObject({ imported: 3, updated: 0, skipped: 0 });
+    expect(retry).toMatchObject({ imported: 0, updated: 0, skipped: 3 });
     expect(retry.files.map(({ path, status }) => ({ path, status }))).toEqual([
-      { path: "context/imported-knowledge-base/10_user_memory/01_goals.md", status: "skipped" },
-      { path: "context/imported-knowledge-base/40_projects/project-a/README.MD", status: "skipped" },
+      { path: "context/10_user_memory/01_goals.md", status: "skipped" },
+      { path: "context/40_projects/project-a/README.MD", status: "skipped" },
+      { path: "context/AGENTS.MD", status: "skipped" },
     ]);
-    expect(await documentStore.list("pilot", "context/")).toHaveLength(2);
+    expect(await documentStore.list("pilot", "context/")).toHaveLength(3);
     expect(await documentStore.list("other-owner", "context/")).toEqual([]);
+  });
+
+  it("reads legacy aliases, migrates them idempotently, and fails closed on collisions", async () => {
+    const { documentStore, ingestionService } = setup();
+    await documentStore.put("pilot", "context/imported-knowledge-base/10_user_memory/01_goals.md", "# Legacy goals\n");
+
+    await expect(documentStore.get("pilot", "context/10_user_memory/01_goals.md")).resolves.toMatchObject({
+      path: "context/10_user_memory/01_goals.md",
+      content: "# Legacy goals\n",
+    });
+    await expect(documentStore.get("other-owner", "context/10_user_memory/01_goals.md")).resolves.toBeNull();
+    expect((await documentStore.list("pilot", "context/")).map(({ path }) => path)).toEqual([
+      "context/10_user_memory/01_goals.md",
+    ]);
+
+    const first = await migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore, ingestionService });
+    const retry = await migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore, ingestionService });
+    expect(first).toMatchObject({ migrated: 1, skipped: 0 });
+    expect(retry).toMatchObject({ migrated: 0, skipped: 1 });
+    expect(await documentStore.getExact("pilot", "context/imported-knowledge-base/10_user_memory/01_goals.md")).not.toBeNull();
+
+    await documentStore.put("pilot", "context/40_projects/project-a/README.MD", "different canonical content");
+    await documentStore.put("pilot", "context/imported-knowledge-base/40_projects/project-a/README.MD", "legacy content");
+    await expect(migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore, ingestionService }))
+      .rejects.toThrow("knowledge-base migration collision");
+  });
+
+  it("rejects case and Unicode-normalization collisions", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "10_user_memory", "readme.md"), "lowercase");
+    writeFileSync(join(root, "10_user_memory", "README.MD"), "uppercase");
+    await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("collide");
   });
 
   it("rejects unknown top-level entries", async () => {

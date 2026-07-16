@@ -89,11 +89,13 @@ http://127.0.0.1:9001
 <owner-id>/artifacts/...
 ```
 
-Для документов pilot knowledge base ожидаемый prefix:
+Для документов pilot knowledge base канонический prefix:
 
 ```text
-<PILOT_USER_ID>/context/imported-knowledge-base/
+<PILOT_USER_ID>/context/
 ```
+
+Legacy prefix `<PILOT_USER_ID>/context/imported-knowledge-base/` может временно оставаться во время compatibility migration, но не используется новыми импортами и не показывается агенту.
 
 Versioning можно проверить в настройках bucket или в списке версий конкретного объекта.
 
