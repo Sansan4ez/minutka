@@ -1,5 +1,6 @@
 import type { AssistantAgentRunner } from "../application/assistant-service.js";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
+import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
 
 export type MastraAgentLike = {
   generate(
@@ -14,11 +15,14 @@ export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAge
     const result = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
-      toolsets: { inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) } },
+      toolsets: {
+        inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
+        documents: createDocumentTools(context.documents),
+      },
       // `activeTools` is applied after all toolsets are resolved, so legacy
-      // agent-level tools cannot be selected during personal inbox capture.
-      activeTools: ["captureIdea"],
-      maxSteps: 2,
+      // agent-level tools cannot be selected during the personal assistant run.
+      activeTools: ["captureIdea", ...assistantDocumentToolNames],
+      maxSteps: 4,
     });
     return result.text ?? "";
   };

@@ -13,6 +13,7 @@ export type AuditEventType =
   | "feedback_received"
   | "agent_manual_load_failed"
   | "idea_captured"
+  | "document_tool_used"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -43,6 +44,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   feedback_received: ["feedbackId", "rating", "source", "selectedProcessIds"],
   agent_manual_load_failed: [],
   idea_captured: ["ideaId", "recordType", "sourceKind"],
+  document_tool_used: ["operation", "resultCount", "truncated", "outcome"],
   employee_data_deleted: [],
 };
 

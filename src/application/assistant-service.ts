@@ -1,4 +1,5 @@
 import type { ConversationStore } from "./conversation-store.js";
+import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
 import type { CaptureIdeaInput, CaptureIdeaResult, IngestionService } from "./ingestion-service.js";
@@ -24,6 +25,8 @@ export type AssistantAgentContext = {
   source: IdeaSource;
   /** Typed, reversible owner-scoped action. Source provenance is bound by AssistantService. */
   captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId" | "source">): Promise<CaptureIdeaResult>;
+  /** Read-only personal document capabilities bound to the authenticated owner. */
+  documents: ReturnType<typeof createOwnerDocumentReader>;
 };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
 export type AssistantChatOutcome =
@@ -133,6 +136,13 @@ export class AssistantService {
       }
       return captured;
     };
+    const auditDocumentTool: DocumentToolAudit = async (event) => {
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId, type: "document_tool_used", employeeId: userId, threadId, messageId,
+        occurredAt: this.clock.now(), metadata: safeAuditMetadata("document_tool_used", event),
+      }, "document tool audit");
+    };
+    const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool });
     let response: string | undefined;
     let agentError: unknown;
     try {
@@ -142,6 +152,7 @@ export class AssistantService {
         source,
         systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions),
         captureIdea,
+        documents,
       });
     } catch (error) {
       agentError = error;

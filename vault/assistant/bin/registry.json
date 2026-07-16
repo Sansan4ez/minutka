@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "personalAssistant": [
+    { "id": "captureIdea", "manifest": "capture-idea.md", "mutating": true },
+    { "id": "listDocuments", "manifest": "list-documents.md", "mutating": false },
+    { "id": "readDocument", "manifest": "read-document.md", "mutating": false },
+    { "id": "searchDocuments", "manifest": "search-documents.md", "mutating": false }
+  ]
+}

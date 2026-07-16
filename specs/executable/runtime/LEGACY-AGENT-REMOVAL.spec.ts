@@ -26,6 +26,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         generateOptions = options;
         const tool = options.toolsets?.inbox?.captureIdea as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
+        expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
           project: "ASSISTANT",
@@ -49,6 +50,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
       personalContext: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture" },
+      documents: {
+        listDocuments: async () => ({ documents: [], nextCursor: null, truncated: false }),
+        readDocument: async ({ path, offset = 0 }) => ({ path: path as `/proc/context/${string}`, found: false, sectionFound: false, content: "", offset, nextOffset: null, truncated: false, version: "", updatedAt: "" }),
+        searchDocuments: async () => ({ matches: [], truncated: false }),
+      },
       async captureIdea(input) {
         captured.push(input);
         return {
@@ -73,10 +79,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(generateOptions).toMatchObject({
       system: "private context",
       toolChoice: "auto",
-      activeTools: ["captureIdea"],
-      maxSteps: 2,
+      activeTools: ["captureIdea", "listDocuments", "readDocument", "searchDocuments"],
+      maxSteps: 4,
     });
-    expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(["inbox"]);
+    expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(["inbox", "documents"]);
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual(["captureIdea"]);
+    expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
   });
 });
