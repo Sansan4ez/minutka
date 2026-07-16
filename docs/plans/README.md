@@ -31,6 +31,12 @@ br show <id>                # детали задачи: description / ## Design
 | Фаза E.1 — встречи и follow-up | `prs-t7c` | blocked by C.1 и E.0 |
 | Фаза P — pilot readiness: usage, cost и data lifecycle | `prs-ip0` | ready |
 
+**Отложено до результатов пилота:**
+
+| Эпик | id | Статус |
+|---|---|---|
+| Post-pilot cleanup — удалить `MinutkaService` и отдельный onboarding-agent | `prs-zgo` | deferred; blocked by `prs-ip0` |
+
 **Закрытые (ассистент):** Фаза A.2 — единый runtime (`prs-jkw`), Фаза B — банк идей (`prs-2yr`), универсальный файловый intake/CAS (`prs-sb1`), гигиена Agent Vault и routing integrity (`prs-x5q`).
 
 **Закрытые (фундамент «Минутки»):** Фазы 1, 2, 3, 3.5, 4, 4.1, 4.2, 5 — `br list --status=closed -t epic`.
