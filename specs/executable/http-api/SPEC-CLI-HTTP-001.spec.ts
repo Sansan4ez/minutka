@@ -14,7 +14,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
   it("uses the same state as the listener and derives employee identity from its token", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "first response", deps: createDefaultSpecDeps() });
     await runtime.service.issueInvite({ employeeId: "emp_cli", inviteCode: "invite_cli" });
-    const server = await listenHttpServer({ service: runtime.service, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map([["emp_cli", employeeToken]]) } }); running.push(server);
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map([["emp_cli", employeeToken]]) } }); running.push(server);
     const client = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: employeeToken }));
     expect((await runMinutkaCli(client, ["employee", "open-invite", "--invite", "invite_cli"])).exitCode).toBe(0);
     expect((await runMinutkaCli(client, ["employee", "accept-consent", "--yes"])).exitCode).toBe(0);
@@ -31,7 +31,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
 
   it("permits invite issuance only for operator credentials", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "unused", deps: createDefaultSpecDeps() });
-    const server = await listenHttpServer({ service: runtime.service, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map([["emp_cli", employeeToken]]) } }); running.push(server);
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map([["emp_cli", employeeToken]]) } }); running.push(server);
     // An employee client has no issueInvite method at compile time; the server still
     // rejects a forged admin-plane request made with its bearer credential.
     const employeeResponse = await fetch(`${server.url}/v1/admin/invites`, { method: "POST", headers: { authorization: `Bearer ${employeeToken}`, "content-type": "application/json" }, body: JSON.stringify({ employeeId: "emp_new", inviteCode: "invite_new" }) });

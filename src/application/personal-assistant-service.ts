@@ -98,39 +98,6 @@ export class PersonalAssistantService {
     return this.identityService.resetOnboardingDraft(input);
   }
 
-  /** @internal Temporary HTTP compatibility until A2.2 removes the legacy option. */
-  get legacyHttpService(): Pick<MinutkaService,
-    | "issueInvite"
-    | "openInvite"
-    | "getProfile"
-    | "acceptConsent"
-    | "completeOnboarding"
-    | "listInsights"
-    | "chat"
-    | "submitFeedback"
-    | "redeemTelegramInvite"
-    | "recordPrivacyExplanationShown"
-    | "submitOnboardingAnswer"
-    | "confirmOnboarding"
-    | "resetOnboardingDraft"
-  > {
-    return this.identityService as Pick<MinutkaService,
-      | "issueInvite"
-      | "openInvite"
-      | "getProfile"
-      | "acceptConsent"
-      | "completeOnboarding"
-      | "listInsights"
-      | "chat"
-      | "submitFeedback"
-      | "redeemTelegramInvite"
-      | "recordPrivacyExplanationShown"
-      | "submitOnboardingAnswer"
-      | "confirmOnboarding"
-      | "resetOnboardingDraft"
-    >;
-  }
-
   getProfile(input: { employeeId: string }): Promise<UserProfile> {
     return this.identityService.getProfile(input);
   }

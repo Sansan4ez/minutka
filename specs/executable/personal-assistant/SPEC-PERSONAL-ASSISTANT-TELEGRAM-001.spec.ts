@@ -1,10 +1,10 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import type { AssistantService } from "../../../src/application/assistant-service.js";
+import type { AssistantChatInput } from "../../../src/application/assistant-service.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../../../src/application/artifact-body-stager.js";
 import type { SaveArtifactInput, SaveArtifactResult } from "../../../src/application/artifact-store.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
-import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { ServiceMinutkaClient, type ServiceEmployeeMinutkaTransport, type ServiceMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell, maxTelegramArtifactFileSizeBytes, type TelegramFileAttachment } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
@@ -16,20 +16,36 @@ async function setup(input: { saveError?: Error } = {}) {
   await runtime.service.acceptConsent({ employeeId: "maxim", accepted: true, source: "test", telegramIdentity: { chatId: "1", userId: "user-1" } });
   await runtime.service.completeOnboarding({ employeeId: "maxim", role: "Owner", typicalTasks: ["ideas"], persona: "efficiency", aiLevel: "advanced" });
 
-  const calls: Array<Parameters<AssistantService["chat"]>[0]> = [];
+  const calls: AssistantChatInput[] = [];
   const saved: SaveArtifactInput[] = [];
   const createdBodies: string[] = [];
   const downloads: string[] = [];
   const transcriptions: string[] = [];
   const replies: string[] = [];
   const deliveryArtifacts = new Map<string, SaveArtifactResult>();
-  const client = new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram" }));
+  const baseTransport = createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram" });
+  const transport: ServiceMinutkaTransport = {
+    redeemTelegramInvite: (request) => baseTransport.redeemTelegramInvite(request),
+    forEmployee(employeeId) {
+      const scoped = baseTransport.forEmployee(employeeId);
+      return new Proxy(scoped, {
+        get(target, property, receiver) {
+          if (property === "chat") return async (chat: Parameters<ServiceEmployeeMinutkaTransport["chat"]>[0]) => {
+            calls.push({ userId: employeeId, threadId: chat.threadId, text: chat.text, inputModality: chat.inputModality });
+            return { messageId: `msg-${calls.length}`, response: "Ответ", selectedProcessIds: ["core"] };
+          };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as ServiceEmployeeMinutkaTransport;
+    },
+  };
+  const client = new ServiceMinutkaClient(transport);
   const shell = createTelegramShell({
     client,
     sessionStore: runtime.telegramSessionStore,
-    assistant: { async chat(chat) { calls.push(chat); return { messageId: `msg-${calls.length}`, response: "Ответ", selectedProcessIds: ["core"] as ["core"] }; } },
-    artifactStore: {
-      async save(file) {
+    artifactIntake: {
+      async saveArtifact(file) {
         if (input.saveError) throw input.saveError;
         const duplicate = deliveryArtifacts.get(file.source.deliveryKey);
         if (duplicate) return { ...duplicate, deliveryDisposition: "duplicate_delivery" };
@@ -70,7 +86,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-001: production inbox channel normali
 
     expect(transcriptions).toEqual(["voice"]);
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ text: "Голосовая мысль", inputModality: "voice", source: { kind: "text" } });
+    expect(calls[0]).toMatchObject({ userId: "maxim", text: "Голосовая мысль", inputModality: "voice" });
     expect(saved.map((file) => file.source.kind === "telegram" ? file.source.payloadKind : "other")).toEqual(["document", "audio", "photo", "video", "animation"]);
     expect(replies.filter((reply) => reply === "Файл сохранён.")).toHaveLength(5);
   });

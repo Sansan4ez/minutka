@@ -22,14 +22,26 @@ export const defaultHandlerTimeoutMs = 15_000;
 type Principal = AuthenticatedPrincipal;
 type AccessLogEntry = { method: string; path: string; status: number; durationMs: number; requestId: string; principal?: Principal["kind"] };
 type ErrorLogEntry = { method: string; path: string; requestId: string; error: { name: string; message: string; stack?: string } };
-type HttpApplicationService = Pick<MinutkaService,
+type HttpIdentityService = Pick<MinutkaService,
   | "issueInvite"
   | "openInvite"
   | "getProfile"
   | "acceptConsent"
   | "completeOnboarding"
   | "listInsights"
-  | "chat"
+  | "submitFeedback"
+  | "redeemTelegramInvite"
+  | "recordPrivacyExplanationShown"
+  | "submitOnboardingAnswer"
+  | "confirmOnboarding"
+  | "resetOnboardingDraft"
+> | Pick<PersonalAssistantService,
+  | "issueInvite"
+  | "openInvite"
+  | "getProfile"
+  | "acceptConsent"
+  | "completeOnboarding"
+  | "listInsights"
   | "submitFeedback"
   | "redeemTelegramInvite"
   | "recordPrivacyExplanationShown"
@@ -37,7 +49,7 @@ type HttpApplicationService = Pick<MinutkaService,
   | "confirmOnboarding"
   | "resetOnboardingDraft"
 >;
-export type HttpServerOptions = { service: HttpApplicationService; assistant?: Pick<AssistantService, "chat"> | Pick<PersonalAssistantService, "chat">; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
+export type HttpServerOptions = { service: HttpIdentityService; assistant?: Pick<AssistantService, "chat"> | Pick<PersonalAssistantService, "chat">; /** @internal Spec compatibility; production always supplies assistant. */ legacyChat?: Pick<MinutkaService, "chat">; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw httpError(400, "invalid_request", "Request validation failed."); return result.data; }
@@ -119,7 +131,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality })) : options.service.chat({ ...input, employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality })) : options.legacyChat ? options.legacyChat.chat({ ...input, employeeId: employee.employeeId }) : Promise.reject(httpError(503, "internal_error", "Assistant chat is unavailable."))), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && meFeedback) { template = "/v1/me/threads/:threadId/feedback"; const employee = requireKind(principal, "employee"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meFeedback[1])) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: employee.employeeId })), id); }
 
@@ -139,7 +151,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       const serviceOnboarding = pathEmployee(url.pathname, "/onboarding");
       if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality })) : options.service.chat({ ...input, employeeId })), id); }
+      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.assistant ? publicChatResponse(await options.assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality })) : options.legacyChat ? options.legacyChat.chat({ ...input, employeeId }) : Promise.reject(httpError(503, "internal_error", "Assistant chat is unavailable."))), id); }
       const serviceFeedback = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && serviceFeedback) { template = "/v1/service/employees/:employeeId/threads/:threadId/feedback"; requireKind(principal, "service"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceFeedback[2]) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceFeedback[1])) })), id); }
       throw httpError(404, "invalid_request", "Route not found.");

@@ -18,7 +18,7 @@ async function api() {
   const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
   await runtime.service.issueInvite({ employeeId: "emp_a", inviteCode: "invite_a" });
   await runtime.service.issueInvite({ employeeId: "emp_b", inviteCode: "invite_b" });
-  const server = await listenHttpServer({ service: runtime.service, port: 0, logger: () => undefined, auth: { serviceToken, adminToken, employeeTokens: new Map([["emp_a", employeeToken], ["emp_b", otherToken]]) } });
+  const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, port: 0, logger: () => undefined, auth: { serviceToken, adminToken, employeeTokens: new Map([["emp_a", employeeToken], ["emp_b", otherToken]]) } });
   running.push(server); return { runtime, url: server.url };
 }
 async function request(url: string, path: string, token?: string, init: RequestInit = {}) {
@@ -84,7 +84,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     const calls: unknown[] = [];
     const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], outcome: { status: "completed" } as const, personalContextDocuments: ["context/private.md"] }; } };
-    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["emp_a", employeeToken]]) } });
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["emp_a", employeeToken]]) } });
     running.push(server);
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken }));
 
@@ -103,7 +103,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("rejects assistant capture for an unknown service employee before invoking the agent", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     const assistant = { async chat() { throw new PersistenceError("participant_not_found"); } };
-    const server = await listenHttpServer({ service: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, assistant, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
     running.push(server);
     const response = await request(server.url, "/v1/service/employees/missing/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not be captured" }) });
     expect(response.status).toBe(404);
@@ -128,13 +128,13 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     for (let index = 0; index < 60; index += 1) expect((await request(url, "/v1/me/consent", employeeToken, consent)).status).toBe(200);
     expect((await request(url, "/v1/me/consent", employeeToken, consent)).status).toBe(429); expect((await request(url, "/v1/me/consent", otherToken, consent)).status).toBe(200);
     const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
-    const server = await listenHttpServer({ service: runtime.service, host: "", port: 0, logger: () => undefined, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server); expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, host: "", port: 0, logger: () => undefined, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server); expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:/);
   });
 
   it("uses trusted forwarded client IPs for non-loopback deployment and rejects unsafe proxy configuration", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
-    await expect(listenHttpServer({ service: runtime.service, host: "0.0.0.0", port: 0, allowNonLoopback: true, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } })).rejects.toThrow(/TRUST_PROXY/);
-    const server = await listenHttpServer({ service: runtime.service, host: "0.0.0.0", port: 0, allowNonLoopback: true, trustProxy: true, logger: () => undefined, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);
+    await expect(listenHttpServer({ service: runtime.service, legacyChat: runtime.service, host: "0.0.0.0", port: 0, allowNonLoopback: true, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } })).rejects.toThrow(/TRUST_PROXY/);
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, host: "0.0.0.0", port: 0, allowNonLoopback: true, trustProxy: true, logger: () => undefined, auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);
     for (let index = 0; index < 10; index += 1) expect((await request(server.url, "/v1/onboarding/invites/open", undefined, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.1" }, body: JSON.stringify({ inviteCode: "missing" }) })).status).toBe(404);
     expect((await request(server.url, "/v1/onboarding/invites/open", undefined, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.1" }, body: JSON.stringify({ inviteCode: "missing" }) })).status).toBe(429);
     expect((await request(server.url, "/v1/onboarding/invites/open", undefined, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.2" }, body: JSON.stringify({ inviteCode: "missing" }) })).status).toBe(404);
@@ -144,7 +144,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect(chatHandlerTimeoutMs).toBeGreaterThanOrEqual(defaultHandlerTimeoutMs);
     const duplicate = "x".repeat(64); expect(() => apiAuthConfigFromEnv({ MINUTKA_SERVICE_TOKEN: duplicate, MINUTKA_EMPLOYEE_TOKENS: `emp_a:${duplicate}` })).toThrow(/unique per principal/);
     const errors: unknown[] = []; const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
-    const server = await listenHttpServer({ service: runtime.service, port: 0, health: async () => { throw new Error("secret-request-payload"); }, logger: () => undefined, errorLogger: (entry) => errors.push(entry), auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);
+    const server = await listenHttpServer({ service: runtime.service, legacyChat: runtime.service, port: 0, health: async () => { throw new Error("secret-request-payload"); }, logger: () => undefined, errorLogger: (entry) => errors.push(entry), auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);
     const response = await request(server.url, "/healthz"); expect(response.status).toBe(500); const payload = await response.json(); expect(payload.error).toMatchObject({ code: "internal_error", requestId: expect.stringMatching(/^req_/) }); expect(JSON.stringify(errors)).toContain(payload.error.requestId); expect(JSON.stringify(errors)).not.toContain("secret-request-payload");
   });
 });

@@ -11,7 +11,7 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
-import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { ServiceMinutkaClient, type ServiceMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
@@ -50,12 +50,28 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     const replies: Array<{ text: string; options?: unknown }> = [];
     const downloadedFiles: string[] = [];
     const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
-    const client = new ServiceMinutkaClient(createInProcessServiceTransport(legacy.service, { kind: "service", serviceId: "telegram" }));
+    const baseTransport = createInProcessServiceTransport(legacy.service, { kind: "service", serviceId: "telegram" });
+    const transport: ServiceMinutkaTransport = {
+      redeemTelegramInvite: (input) => baseTransport.redeemTelegramInvite(input),
+      forEmployee(employeeId) {
+        const scoped = baseTransport.forEmployee(employeeId);
+        return new Proxy(scoped, {
+          get(target, property, receiver) {
+            if (property === "chat") return async (input: Parameters<typeof scoped.chat>[0]) => {
+              const result = await assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality });
+              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds };
+            };
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    };
+    const client = new ServiceMinutkaClient(transport);
     const shell = createTelegramShell({
       client,
       sessionStore: legacy.telegramSessionStore,
-      assistant,
-      artifactStore,
+      artifactIntake: { saveArtifact: (input) => artifactStore.save(input) },
       fileGateway: { createFileBody({ fileId, fileSizeBytes }) { downloadedFiles.push(fileId); return { ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from("photo") }; } },
       replyPort: { async sendMessage(_chatId, text, options) { replies.push({ text, options }); }, async sendChatAction() {}, async answerCallbackQuery() {} },
     });
