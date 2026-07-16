@@ -12,6 +12,7 @@ import type { OnboardingDraftStore } from "./onboarding-draft-store.js";
 import type { OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
 import { extractDeterministicOnboardingPatch } from "./onboarding-profile-extractor.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
+import type { OnboardingContextMaterializer } from "./onboarding-context-materializer.js";
 import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
 import type { InsightKind, StructuredInsight } from "../domain/insights.js";
 import type { ConversationDecision } from "../domain/conversation-decision.js";
@@ -87,6 +88,7 @@ export type MinutkaServiceDeps = {
   profileStore?: ProfileStore;
   onboardingDraftStore?: OnboardingDraftStore;
   onboardingProfileExtractor?: OnboardingProfileExtractor;
+  onboardingContextMaterializer?: OnboardingContextMaterializer;
   /** Bounds provider latency; extraction always falls back before the HTTP budget expires. */
   onboardingExtractionTimeoutMs?: number;
   conversationStore?: ConversationStore;
@@ -273,9 +275,14 @@ export class MinutkaService {
     };
     const changedFields = getChangedFields(existing, profile);
     if (allowUpdate && existing && changedFields.length === 0) {
+      await this.materializeOnboardingContext(input.employeeId);
       await this.deleteOnboardingDraftSafely(input.employeeId);
       return { employeeId: input.employeeId, status: "profile_completed", profile: existing, firstResponse: "Профиль уже сохранён." };
     }
+    // Context documents are persisted before the profile completion marker. If
+    // document storage fails, confirmation remains retryable and no completed
+    // profile can hide missing required context.
+    await this.materializeOnboardingContext(input.employeeId);
     // Profile completion and draft removal are one storage transaction. This
     // makes the finalized profile the source of truth even under stale writes.
     const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
@@ -344,6 +351,7 @@ export class MinutkaService {
     if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
     const existingProfile = await this.stores.profileStore.getProfile(employeeId);
     if (existingProfile) {
+      await this.materializeOnboardingContext(employeeId);
       await this.deleteOnboardingDraftSafely(employeeId);
       return { employeeId, status: "profile_completed", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
     }
@@ -464,6 +472,10 @@ export class MinutkaService {
 
   private async audit(requestId: string, type: AuditEventType, employeeId: string, threadId: string | undefined, messageId: string | undefined, occurredAt: string, metadata: SafeAuditMetadata = {}) {
     await this.stores.auditEventStore.append({ id: this.ids.auditEventId(), requestId, type, employeeId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), occurredAt, metadata: safeAuditMetadata(type, metadata) });
+  }
+
+  private async materializeOnboardingContext(employeeId: string): Promise<void> {
+    await this.deps.onboardingContextMaterializer?.materialize({ userId: employeeId });
   }
 
   private async deleteOnboardingDraftSafely(employeeId: string): Promise<void> {

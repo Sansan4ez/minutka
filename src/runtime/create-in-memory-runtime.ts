@@ -3,6 +3,10 @@ import { createInMemoryConversationStore } from "../application/in-memory-conver
 import { createInMemoryFeedbackStore } from "../application/in-memory-feedback-store.js";
 import { createInMemoryInsightStore } from "../application/in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "../application/in-memory-profile-store.js";
+import { createInMemoryDocumentStore } from "../application/in-memory-document-store.js";
+import { createInMemoryBlobStore } from "../application/in-memory-blob-store.js";
+import { createIngestionService } from "../application/ingestion-service.js";
+import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { createInMemoryOnboardingDraftStore } from "../application/in-memory-onboarding-draft-store.js";
 import { createInMemoryTelegramInviteRedemptionStore } from "../application/in-memory-telegram-invite-redemption-store.js";
 import { createInMemoryTelegramSessionStore } from "../telegram/in-memory-telegram-session-store.js";
@@ -13,10 +17,12 @@ import { createDeterministicIdGenerator } from "../application/runtime-primitive
 import type { ConsentAcceptanceStore } from "../application/consent-acceptance-store.js";
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
 import type { InsightExtractor } from "../application/insight-extractor.js";
+import type { DocumentStore } from "../application/document-store.js";
 
 export type InMemoryRuntime = {
   service: MinutkaService;
   world: InMemoryWorld;
+  documentStore: DocumentStore;
   telegramSessionStore: TelegramSessionStore;
 };
 
@@ -24,7 +30,7 @@ export type InMemoryRuntime = {
 export function createInMemoryRuntime(input: {
   agentRunner: AgentRunner;
   world?: InMemoryWorld;
-  deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingExtractionTimeoutMs"> & {
+  deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingContextMaterializer" | "onboardingExtractionTimeoutMs"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
     insightExtractor?: InsightExtractor;
   };
@@ -32,6 +38,12 @@ export function createInMemoryRuntime(input: {
   const world = input.world ?? createInMemoryWorld();
   const deps = input.deps ?? {};
   const sessionStore = createInMemoryTelegramSessionStore();
+  const clock = { now: world.now };
+  const documentStore = createInMemoryDocumentStore(clock);
+  const ingestionService = createIngestionService({
+    documentStore,
+    blobStore: createInMemoryBlobStore(clock),
+  });
   const profileStore = createInMemoryProfileStore(world, {
     afterDelete: async (employeeId) => { await sessionStore.deleteByEmployee(employeeId); world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== employeeId); },
   });
@@ -63,9 +75,10 @@ export function createInMemoryRuntime(input: {
       sessionStore,
       auditEventStore,
     }),
-    clock: { now: world.now },
+    onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
+    clock,
     idGenerator: createDeterministicIdGenerator(),
     ...deps,
   } as MinutkaServiceDeps);
-  return { service, world, telegramSessionStore: sessionStore };
+  return { service, world, documentStore, telegramSessionStore: sessionStore };
 }

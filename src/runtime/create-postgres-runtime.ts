@@ -2,6 +2,7 @@ import { AssistantService } from "../application/assistant-service.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
+import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { MinutkaService } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
@@ -58,6 +59,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       feedbackStore: createPostgresFeedbackStore(pool),
       auditEventStore: createPostgresAuditEventStore(pool),
     };
+    const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
     // MinutkaService remains a temporary identity/onboarding compatibility
     // component. Product chat never calls its legacy chat path, and onboarding
     // welcome text is deterministic, so production needs no legacy chat agent.
@@ -69,12 +71,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         config.inviteCodePepper,
         config.telegramIdentityPepper,
       ),
+      onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService: ingestion }),
       clock: systemClock,
       idGenerator: randomIdGenerator,
       onboardingProfileExtractor: extractOnboardingProfileWithAgent,
       ...input.deps,
     });
-    const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
