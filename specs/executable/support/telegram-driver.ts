@@ -89,6 +89,7 @@ export class TelegramDriver {
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
+  async deliverText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendVoice(input: VoiceInput): Promise<void> {
     this.voiceFiles.set(input.fileId, Buffer.concat([Buffer.from(`${input.fileId}\0`), Buffer.alloc(input.audioBytes ?? 0)]));
     this.voiceTranscripts.set(input.fileId, input.transcript ?? "");
@@ -96,7 +97,8 @@ export class TelegramDriver {
     await this.shell.handleVoice(input.chatId, { fileId: input.fileId, messageId: input.messageId ?? 1, durationSeconds: input.durationSeconds, ...(input.fileSizeBytes === undefined ? {} : { fileSizeBytes: input.fileSizeBytes }) }, input.userId ?? this.defaultUserId(input.chatId));
   }
   async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
-  async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
+  async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.deliverCallback(input); }
+  async deliverCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number; callbackQueryId?: string }): Promise<void> { await this.shell.handleCallback(input.chatId, input.callbackQueryId ?? `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   failNextMessageDelivery(): void { this.failNextSend = true; }
   failNextReplyMarkupEdit(): void { this.failNextMarkupEdit = true; }
   sentMessages(): SentMessage[] { return this.sent; }

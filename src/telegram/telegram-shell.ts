@@ -113,7 +113,7 @@ async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string,
   // relationship between the original input and text sent to the agent.
   for (const chunk of splitTelegramMessage(`Распознано:\n${transcript}`)) await replyPort.sendMessage(chatId, chunk, { replyToMessageId });
 }
-async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult): Promise<void> {
+async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<boolean>; release(deliveryKey: string): Promise<void> }): Promise<void> {
   if (progress.status === "needs_answer") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_choice") {
     const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
@@ -122,8 +122,14 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   }
   if (progress.status === "needs_correction") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_confirmation") {
+    if (confirmationDelivery && !await confirmationDelivery.claim(progress.deliveryKey)) return;
     const summary = progress.summary;
-    await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+    try {
+      await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+    } catch (error) {
+      if (confirmationDelivery) await confirmationDelivery.release(progress.deliveryKey).catch((releaseError) => logShellError("onboarding confirmation claim release", releaseError));
+      throw error;
+    }
     return;
   }
   const response = progress.result.firstResponse.trim();
@@ -178,16 +184,16 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     sendChatAction: (chatId, action) => rawReplyPort.sendChatAction(chatId, action),
     answerCallbackQuery: (callbackQueryId, text) => rawReplyPort.answerCallbackQuery(callbackQueryId, text),
   };
-  async function runCallbackAction<T>(chatId: string, messageId: number | undefined, callbackQueryId: string, action: () => Promise<T>): Promise<{ repeated: true } | { repeated: false; result: T }> {
+  async function runCallbackAction<T>(chatId: string, messageId: number | undefined, callbackQueryId: string, action: () => Promise<T>, repeatedText = "Уже обработано."): Promise<{ repeated: true } | { repeated: false; result: T }> {
     if (messageId === undefined) return { repeated: false, result: await action() };
     const key = `${chatId}:${messageId}`;
     if (handledActionMessages.has(key)) {
-      await replyPort.answerCallbackQuery(callbackQueryId, "Уже обработано.");
+      await replyPort.answerCallbackQuery(callbackQueryId, repeatedText);
       await removeReplyMarkup(chatId, messageId);
       return { repeated: true };
     }
     if (inFlightActionMessages.has(key)) {
-      await replyPort.answerCallbackQuery(callbackQueryId, "Уже обработано.");
+      await replyPort.answerCallbackQuery(callbackQueryId, repeatedText);
       return { repeated: true };
     }
     inFlightActionMessages.add(key);
@@ -213,10 +219,17 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     }
     return session;
   }
-  async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice") {
+  function onboardingConfirmationDelivery(chatId: string, userId: string | undefined, employeeId: string) {
+    const telegramIdentity = identity(chatId, userId);
+    return {
+      async claim(deliveryKey: string) { return (await sessionStore.claimOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey })).status === "claimed"; },
+      async release(deliveryKey: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey }); },
+    };
+  }
+  async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;
     try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
-    if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }));
+    if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId));
     const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality, responseChannel: "telegram" }));
     const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
     const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
@@ -247,7 +260,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await removeActiveReplyMarkup(chatId);
       const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
       if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
-      try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text"); }
+      try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId); }
       catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
@@ -317,7 +330,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
           if (Array.from(transcript).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
           await sendVoiceTranscript(replyPort, chatId, transcript, voice.messageId);
-          await dispatchText(chatId, transcript, session, "voice");
+          await dispatchText(chatId, transcript, session, "voice", userId);
         } finally {
           // A provider can fail before consuming the download; close it promptly.
           if (audio) destroyStream(audio);
@@ -343,10 +356,12 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           const [prefix, action, value, ...extra] = data.split(":");
           if (prefix !== "ob" || extra.length || !action) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
           if (action === "confirm" && !value) {
-            const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()));
+            const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()), "Профиль уже сохранён.");
             if (handled.repeated) return;
-            await replyPort.answerCallbackQuery(callbackQueryId, "Профиль сохранён!");
+            const alreadySaved = handled.result.firstResponse === "Профиль уже сохранён.";
+            await replyPort.answerCallbackQuery(callbackQueryId, alreadySaved ? "Профиль уже сохранён." : "Профиль сохранён!");
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+            if (alreadySaved) return;
             for (const chunk of splitTelegramMessage(handled.result.firstResponse)) await replyPort.sendMessage(chatId, chunk);
             return;
           }
@@ -355,14 +370,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             if (handled.repeated) return;
             await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?");
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-            return renderOnboardingProgress(replyPort, chatId, handled.result);
+            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId));
           }
           if ((action === "addressForm" || action === "persona" || action === "responseLength") && value) {
             const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(session.employeeId).submitOnboardingAnswer({ text: value }));
             if (handled.repeated) return;
             await replyPort.answerCallbackQuery(callbackQueryId);
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-            return renderOnboardingProgress(replyPort, chatId, handled.result);
+            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId));
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }

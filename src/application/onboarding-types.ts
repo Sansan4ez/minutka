@@ -36,7 +36,7 @@ export type OnboardingSummary = {
 export type OnboardingProgress =
   | { status: "needs_answer"; field: OnboardingField; prompt: string }
   | { status: "needs_choice"; field: "addressForm" | "persona" | "responseLength"; prompt: string; choices: string[] }
-  | { status: "needs_confirmation"; summary: OnboardingSummary }
+  | { status: "needs_confirmation"; deliveryKey: string; summary: OnboardingSummary }
   /** The user rejected the summary; the next natural-language message is a correction. */
   | { status: "needs_correction"; prompt: string }
   | { status: "completed"; result: import("./minutka-service.js").CompleteOnboardingResult };

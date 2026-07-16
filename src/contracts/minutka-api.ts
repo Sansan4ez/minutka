@@ -90,7 +90,7 @@ export const onboardingAnswerRequestSchema = z.strictObject({ text: z.string().m
 export const onboardingProgressSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["addressForm", "persona", "responseLength"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(2) }),
-  z.strictObject({ status: z.literal("needs_confirmation"), summary: z.strictObject({ preferredName: z.string().min(1), assistantName: z.string().min(1), addressForm: z.string().min(1), persona: z.string().min(1), responseLength: z.string().min(1), timezone: timezoneSchema }) }),
+  z.strictObject({ status: z.literal("needs_confirmation"), deliveryKey: z.string().min(1).max(128), summary: z.strictObject({ preferredName: z.string().min(1), assistantName: z.string().min(1), addressForm: z.string().min(1), persona: z.string().min(1), responseLength: z.string().min(1), timezone: timezoneSchema }) }),
   z.strictObject({ status: z.literal("needs_correction"), prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("completed"), result: completeOnboardingResponseSchema }),
 ]);

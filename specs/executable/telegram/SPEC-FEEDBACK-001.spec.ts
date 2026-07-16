@@ -561,6 +561,72 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
+  it("10a. Deduplicates repeated confirmation delivery and concurrent confirm callbacks", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_confirmation_dedupe", "--employee", "emp_confirmation_dedupe"]);
+    await telegram.start({ chatId: "chat_confirmation_dedupe", inviteCode: "invite_confirmation_dedupe" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_confirmation_dedupe", callbackData: consent! });
+    telegram.clear();
+
+    const completeAnswer = "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow";
+    await telegram.deliverText({ chatId: "chat_confirmation_dedupe", text: completeAnswer });
+    await telegram.deliverText({ chatId: "chat_confirmation_dedupe", text: completeAnswer });
+
+    const confirmations = telegram.sentMessages().filter((message) => message.text.includes("Проверьте, пожалуйста"));
+    expect(confirmations).toHaveLength(1);
+    const confirmation = confirmations[0];
+    const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    telegram.clear();
+
+    await Promise.all([
+      telegram.deliverCallback({ chatId: "chat_confirmation_dedupe", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_a" }),
+      telegram.deliverCallback({ chatId: "chat_confirmation_dedupe", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_b" }),
+    ]);
+
+    expect(spec.world.profiles).toHaveLength(1);
+    expect(telegram.sentMessages().filter((message) => message.text === "Я робот-помощник Минутка.")).toHaveLength(1);
+  });
+
+  it("10aa. Retries the same confirmation revision after Telegram delivery fails", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_confirmation_retry", "--employee", "emp_confirmation_retry"]);
+    await telegram.start({ chatId: "chat_confirmation_retry", inviteCode: "invite_confirmation_retry" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_confirmation_retry", callbackData: consent! });
+    telegram.clear();
+
+    const completeAnswer = "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow";
+    telegram.failNextMessageDelivery();
+    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: completeAnswer });
+    telegram.clear();
+    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: completeAnswer });
+
+    expect(telegram.sentMessages().filter((message) => message.text.includes("Проверьте, пожалуйста"))).toHaveLength(1);
+  });
+
+  it("10ab. A stale confirmation callback reports the saved profile without another greeting", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_stale_confirmation", "--employee", "emp_stale_confirmation"]);
+    await telegram.start({ chatId: "chat_stale_confirmation", inviteCode: "invite_stale_confirmation" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_stale_confirmation", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_stale_confirmation", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    const confirmation = telegram.sentMessages()[0];
+    const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.deliverCallback({ chatId: "chat_stale_confirmation", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_first" });
+    telegram.clear();
+
+    await telegram.deliverCallback({ chatId: "chat_stale_confirmation", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_stale" });
+
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_stale", text: "Профиль уже сохранён." });
+    expect(telegram.sentMessages()).toHaveLength(0);
+  });
+
   it("10a. Lets the employee correct a summary through the edit callback and textual confirmation", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

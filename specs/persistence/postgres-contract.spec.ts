@@ -105,6 +105,23 @@ describe("PostgreSQL storage contracts", () => {
     expect(await sessions.getByIdentity({ chatId: "chat_probe", userId: "wrong_user" })).toBeUndefined();
   });
 
+  it("claims each Telegram onboarding confirmation delivery key once", async () => {
+    await issueProfileReadyParticipant(pool, "emp_confirmation_claim", "invite_confirmation_claim");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const identity = { chatId: "chat_confirmation_claim", userId: "user_confirmation_claim" };
+    expect(await sessions.claim({ identity, session: { employeeId: "emp_confirmation_claim", threadId: "thread_confirmation_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
+
+    const [first, second] = await Promise.all([
+      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-a:7" }),
+      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-a:7" }),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(["already_claimed", "claimed"]);
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" })).resolves.toEqual({ status: "claimed" });
+
+    await sessions.releaseOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" });
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" })).resolves.toEqual({ status: "claimed" });
+  });
+
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {
     await issueProfileReadyParticipant(pool, "emp_chat_a", "invite_chat_a");
     await issueProfileReadyParticipant(pool, "emp_chat_b", "invite_chat_b");

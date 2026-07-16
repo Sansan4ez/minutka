@@ -3,7 +3,7 @@ import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, Tel
 
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
 export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
-  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession }>();
+  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string }>();
   return {
     async getByIdentity(identity) {
       const found = store.get(identity.chatId);
@@ -27,6 +27,22 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
         throw new PersistenceError("session_not_found");
       }
       found.session = { ...found.session, consentAcceptedAt: acceptedAt, updatedAt: acceptedAt };
+    },
+    async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
+        throw new PersistenceError("session_not_found");
+      }
+      if (found.onboardingConfirmationDeliveryKey === deliveryKey) return { status: "already_claimed" };
+      found.onboardingConfirmationDeliveryKey = deliveryKey;
+      return { status: "claimed" };
+    },
+    async releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
+        throw new PersistenceError("session_not_found");
+      }
+      if (found.onboardingConfirmationDeliveryKey === deliveryKey) found.onboardingConfirmationDeliveryKey = undefined;
     },
   };
 }

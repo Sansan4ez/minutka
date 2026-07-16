@@ -14,6 +14,10 @@ export type TelegramSessionClaimResult =
   | { status: "chat_already_linked" }
   | { status: "employee_already_linked" };
 
+export type TelegramOnboardingConfirmationClaimResult =
+  | { status: "claimed" }
+  | { status: "already_claimed" };
+
 export interface TelegramSessionStore {
   getByIdentity(identity: TelegramIdentity): Promise<TelegramSession | undefined>;
   claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
@@ -23,5 +27,17 @@ export interface TelegramSessionStore {
     identity: TelegramIdentity;
     employeeId: string;
     acceptedAt: string;
+  }): Promise<void>;
+  /** Claims delivery of one onboarding confirmation draft atomically. */
+  claimOnboardingConfirmationDelivery(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    deliveryKey: string;
+  }): Promise<TelegramOnboardingConfirmationClaimResult>;
+  /** Makes a failed delivery retryable without clearing a newer claim. */
+  releaseOnboardingConfirmationDelivery(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    deliveryKey: string;
   }): Promise<void>;
 }

@@ -573,7 +573,8 @@ function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePa
   return next;
 }
 function makeOnboardingDraft(current: OnboardingDraft, values: Pick<OnboardingDraft, "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone">, now: string): OnboardingDraft {
-  const draft: OnboardingDraft = { ...current, ...values, revision: current.revision + 1, updatedAt: now, expiresAt: onboardingExpiry(now) };
+  const changed = onboardingFields.some((field) => current[field] !== values[field]);
+  const draft: OnboardingDraft = { ...current, ...values, revision: current.revision + (changed ? 1 : 0), updatedAt: now, expiresAt: onboardingExpiry(now) };
   const pendingField = onboardingFields.find((field) => draft[field] === undefined);
   return pendingField ? { ...draft, status: "collecting", pendingField } : { ...draft, status: "awaiting_confirmation", pendingField: undefined };
 }
@@ -594,7 +595,7 @@ async function extractOnboardingPatchWithTimeout(
   } finally { if (timer) clearTimeout(timer); }
 }
 function onboardingProgress(draft: OnboardingDraft): OnboardingProgress {
-  if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", summary: { preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
+  if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
   const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "preferredName";
   if (field === "addressForm") return { status: "needs_choice", field, prompt: "Обращаться к вам на ты или на вы?", choices: ["На ты", "На вы"] };
   if (field === "persona") return { status: "needs_choice", field, prompt: "Какой стиль общения вам ближе?", choices: ["Тёплый", "Деловой"] };
