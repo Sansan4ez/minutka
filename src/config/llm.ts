@@ -1,6 +1,6 @@
 import { readDotEnvValue } from "./env.js";
 
-export const defaultLlmModel = "openai/gpt-5.4-mini";
+export const defaultLlmModel = "openai/gpt-5.5";
 
 export function llmModelFromEnv(env: NodeJS.ProcessEnv): string {
   const model = env.LLM_MODEL?.trim();
