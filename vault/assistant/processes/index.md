@@ -1,15 +1,26 @@
-# Personal Assistant process index
+# Agent Vault process index
 
-The agent uses this index to decide which business process applies to the current owner request. Read the relevant process file before acting. More than one process may apply, but prefer the smallest sufficient set.
+This index is the file-first routing map for Minutka business processes. It follows the `ecom1-process-architect` pattern: each row explains **when** to select a process, **why** it applies, and whether the process owns a state-changing side effect.
 
-| Process id | When to use | Process file |
-|---|---|---|
-| `onboarding` | The owner begins or explicitly updates personal context. | `onboarding.md` |
-| `inbox_capture` | An owner message or artifact should be retained as an idea, note, link, voice memo, or photo. | `inbox_capture.md` |
+`Why it applies` is explicit because routing should not depend on hidden keyword rules: the SO-CoT constrained decision router uses this column as the short rationale map before reading full process files.
+
+`Mutating` means the process may authorize or trigger a persistent side effect beyond composing the answer. In Time-agent, message/event logging is owned by `MinutkaService.chat()` and is not counted here; process-owned mutation means profile update, insight persistence, feedback persistence, or a future `/bin` operation.
+
+| Process id | When to select | Why it applies | Mutating |
+|---|---|---|---|
+| `onboarding` | First response after profile completion and accepted consent. | Establishes the initial working relationship, persona, and response style after the profile is saved. | Profile already saved by application flow; no extra mutation. |
+| `consent_and_privacy` | Onboarding privacy support, privacy/company/methodologist/data questions, or privacy boundary explanation. | Answers data-visibility questions without mixing privacy policy into work-scope or insight processes. | No. Future external privacy contour may own data export/deletion. |
+| `evening_reflection` | End-of-day work reflection, blockers, calls/meetings, fatigue, comparing outcome with morning plan. | Helps interpret a workday reflection with thread context and prepare useful response context. | No. |
+| `workday_guardrails` | Request asks Minutka to do work outside its role: finished content generation, web research, unsupported AI training, unrelated topic, or request-integrity override. | Business-scope boundary process: decide a soft refusal and return to working-day help without invoking the main answer chain. | Audit event only. |
+| `insight_extraction` | Conversation decision marks the allowed turn as an insight candidate after a substantive workday plan/reflection/blocker/load signal. | Business-signal extraction is a process, not keyword code: it decides which structured signal kinds are appropriate. | Yes: persists structured insights. |
+| `feedback` | Employee rates a specific answer with 👍/👌/👎 or similar quick reaction. | Feedback is its own process because it concerns the previous answer quality, not the current workday content. | Future feedback record. |
 
 ## Routing principles
 
-- Route by meaning, not keywords or filenames.
-- Owner context under `/proc/context` is reference data for classification; read it directly and do not ask the application layer to interpret its Markdown.
-- Use only typed actions exposed for the current run.
-- If no process clearly applies, follow the core instructions without inventing a process.
+- `core` is always selected when the manual is available, but it is not a process file.
+- The SO-CoT constrained decision router must choose only process ids listed in `registry.json` and applicable to the current purpose.
+- Route by meaning, not by language-specific keywords; employee messages may be Russian, English, or mixed.
+- Prefer the narrowest process set that explains the current turn. If no optional process clearly applies, select only `core`.
+- `workday_guardrails` and `insight_extraction` are ordinary business processes selected by the decision router, not hard-coded deterministic WorkPolicy branches.
+- `consent_and_privacy` stays separate from `workday_guardrails` and `insight_extraction`: full personal-data/privacy policy is a later external contour, while this process only explains current product boundaries.
+- The application layer validates the selected ids, enforces side effects mechanically, and never grows a hidden regex/keyword routing table.
