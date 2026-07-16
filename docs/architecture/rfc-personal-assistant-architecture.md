@@ -86,7 +86,7 @@ HTTP / CLI ─────────────────────┼─
 Внешние и необратимые действия → typed use-case → явное подтверждение → audit
 ```
 
-Компоненты, переиспользуемые из «Минутки»: `ConversationStore`, `ProfileStore`, `ConsentAcceptanceStore`, `FeedbackStore`, `InsightStore`, `AuditEventStore`, `AgentRunner`, HTTP/SDK/CLI транспорт и identity/onboarding use-cases. Product-facing transport получает `PersonalAssistantService`; `AssistantService` остаётся единственным chat-orchestrator. Пре-флайт `ConversationDecisionRouter` относится только к legacy-пути и не участвует в runtime персонального ассистента.
+Компоненты, переиспользуемые из «Минутки»: `ConversationStore`, `ProfileStore`, `ConsentAcceptanceStore`, `FeedbackStore`, `InsightStore`, `AuditEventStore`, HTTP/SDK/CLI transport foundation и identity/onboarding use-cases. Product-facing transport получает `PersonalAssistantService`; `AssistantService` остаётся единственным chat-orchestrator. Legacy `minutkaAgent`, его production runner и HTTP chat fallback удалены; пре-флайт `ConversationDecisionRouter` не участвует в runtime персонального ассистента.
 
 Новые компоненты: `DocumentStore`, `BlobStore`, record stores (`IdeaStore`, `TaskStore`, `ExpenseStore`), `IngestionService`, `SchedulerService`, MinIO-адаптеры, набор навыков в vault.
 

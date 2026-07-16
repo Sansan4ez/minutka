@@ -4,7 +4,7 @@
 >
 > Это мастер-план **старого продукта «Минутка»**. Проект пивотнул в **персонального ассистента** — текущая целевая архитектура: [rfc-personal-assistant-architecture.md](./rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](./rfc-agent-led-routing.md). Активный roadmap ведётся в **beads** (`br epic status`), см. [../plans/README.md](../plans/README.md). Фаза A ассистента реализована (коммит `500cc65`).
 >
-> Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны (теги существуют, эпики закрыты в br), ассистент строится поверх этого кода (application-слой, stores, decision router, Agent Vault, runtime). Что **устарело относительно ассистента**:
+> Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны (теги существуют, эпики закрыты в br), ассистент переиспользует application stores, identity/onboarding use-cases, Agent Vault и transport foundation. Legacy `minutkaAgent`, его production runner и HTTP chat fallback удалены в A2.6. Что **устарело относительно ассистента**:
 >
 > - **Роль и privacy.** Узкая роль «вечерний дневник» и трёхсторонняя модель (сотрудник/методолог/компания, агрегаты ≥5) заменены на полноценного ассистента с **single-owner** privacy (RFC §1.1, §11). `employeeId` → `userId`.
 > - **Модель.** `openai/gpt-5.4-mini` здесь → `openai/gpt-5.5` (RFC §14.5).

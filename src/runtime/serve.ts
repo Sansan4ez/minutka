@@ -5,7 +5,7 @@ import { apiAuthConfigFromEnv } from "../server/http/auth.js";
 import { listenHttpServer } from "../server/http/http-server.js";
 import { createPostgresRuntime } from "./create-postgres-runtime.js";
 import { sttConfigFromEnv } from "./stt-config.js";
-import { createAssistantAgentRunner, runMinutkaAgent } from "../mastra/agent-runner.js";
+import { createAssistantAgentRunner } from "../mastra/agent-runner.js";
 import { personalAssistantAgent } from "../mastra/agents/personal-assistant-agent.js";
 import { createOpenAiSpeechToText } from "../mastra/voice-transcriber.js";
 import { createTelegramShell, maxTelegramMessageCharacters } from "../telegram/telegram-shell.js";
@@ -21,7 +21,7 @@ function apiPort(value: string | undefined): number { const port = Number(value 
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
 async function main(): Promise<void> {
-  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ legacyMinutkaAgentRunner: runMinutkaAgent, assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env });
+  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({

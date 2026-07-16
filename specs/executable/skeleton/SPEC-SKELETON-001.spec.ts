@@ -13,19 +13,20 @@ registerSpecMetadata({
   productParts: ["agent-minutka-brief"],
   contracts: ["chat"],
   events: ["ChatMessageReceived", "ChatResponseGenerated"],
-  mastra: ["minutkaAgent"],
+  mastra: ["personalAssistantAgent"],
   cli: ["employee chat"],
 });
 
 describe("SPEC-SKELETON-001: agent responds to text message via CLI", () => {
   it("Mastra agent is registered and importable (smoke)", async () => {
     const { mastra } = await import("../../../src/mastra/index.js");
-    const { minutkaAgent } = await import(
-      "../../../src/mastra/agents/minutka-agent.js"
+    const { personalAssistantAgent } = await import(
+      "../../../src/mastra/agents/personal-assistant-agent.js"
     );
     expect(mastra).toBeDefined();
-    expect(minutkaAgent).toBeDefined();
-    expect(minutkaAgent.name).toBe("Минутка");
+    expect(personalAssistantAgent).toBeDefined();
+    expect(personalAssistantAgent.name).toBe("Personal Assistant");
+    expect(mastra.getAgent("personalAssistantAgent")).toBe(personalAssistantAgent);
   });
 
   it("accepts employee text and returns agent response", async () => {

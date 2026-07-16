@@ -88,8 +88,8 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     const privacy = readFileSync("vault/assistant/docs/privacy-boundary.md", "utf8");
     const consent = manual.processes.find((process) => process.id === "consent_and_privacy")?.content ?? "";
     const core = manual.core.content;
-    const { minutkaAgent } = await import("../../../src/mastra/agents/minutka-agent.js");
-    const freeformInstructions = String(await minutkaAgent.getInstructions());
+    const { personalAssistantAgent } = await import("../../../src/mastra/agents/personal-assistant-agent.js");
+    const freeformInstructions = String(await personalAssistantAgent.getInstructions());
 
     for (const text of [privacy, consent, core]) {
       expect(text).toContain("canonical private conversation history");

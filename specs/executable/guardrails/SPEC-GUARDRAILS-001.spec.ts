@@ -29,7 +29,7 @@ registerSpecMetadata({
     "ChatResponseGenerated",
     "InsightExtractionFailed",
   ],
-  mastra: ["minutkaAgent", "extractInsightsTool"],
+  mastra: ["conversationDecisionAgent", "insightExtractorAgent"],
   cli: [
     "employee open-invite",
     "employee accept-consent",
@@ -40,16 +40,16 @@ registerSpecMetadata({
 });
 
 describe("SPEC-GUARDRAILS-001: work boundary before insights", () => {
-  it("Mastra agent and extractInsightsTool stay importable", async () => {
-    const { minutkaAgent } = await import(
-      "../../../src/mastra/agents/minutka-agent.js"
+  it("keeps the historical decision and insight adapters importable", async () => {
+    const { conversationDecisionAgent } = await import(
+      "../../../src/mastra/agents/conversation-decision-agent.js"
     );
-    const { extractInsightsTool } = await import(
-      "../../../src/mastra/tools/extract-insights-tool.js"
+    const { insightExtractorAgent } = await import(
+      "../../../src/mastra/agents/insight-extractor-agent.js"
     );
 
-    expect(minutkaAgent).toBeDefined();
-    expect(extractInsightsTool).toBeDefined();
+    expect(conversationDecisionAgent).toBeDefined();
+    expect(insightExtractorAgent).toBeDefined();
   });
 
   it("softly refuses post generation, does not call agent and saves no insights", async () => {

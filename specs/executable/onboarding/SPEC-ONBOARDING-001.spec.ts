@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import {
-  MinutkaService,
   type AgentRunContext,
   type AgentRunner,
   type ChatInput,
@@ -40,7 +39,7 @@ registerSpecMetadata({
     "ChatMessageReceived",
     "ChatResponseGenerated",
   ],
-  mastra: ["minutkaAgent", "updateProfileTool"],
+  mastra: ["onboardingProfileExtractorAgent"],
   cli: [
     "employee open-invite",
     "employee accept-consent",
@@ -51,17 +50,12 @@ registerSpecMetadata({
 });
 
 describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
-  it("Mastra updateProfileTool is importable and agent smoke stays green", async () => {
-    const { updateProfileTool } = await import(
-      "../../../src/mastra/tools/update-profile-tool.js"
-    );
-    const { minutkaAgent } = await import(
-      "../../../src/mastra/agents/minutka-agent.js"
+  it("keeps only the bounded onboarding extractor agent importable", async () => {
+    const { onboardingProfileExtractorAgent } = await import(
+      "../../../src/mastra/agents/onboarding-profile-extractor-agent.js"
     );
 
-    expect(updateProfileTool).toBeDefined();
-    expect(minutkaAgent).toBeDefined();
-    expect(minutkaAgent.name).toBe("Минутка");
+    expect(onboardingProfileExtractorAgent).toBeDefined();
   });
 
   it("onboards employee with consent, profile and efficiency persona context", async () => {

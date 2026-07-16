@@ -10,7 +10,6 @@ import type {
   IssueInviteResult,
   ListInsightsInput,
   MinutkaService,
-  AgentRunner,
   MinutkaServiceDeps,
   OpenInviteInput,
   OpenInviteResult,
@@ -28,8 +27,6 @@ import type { UserProfile } from "../domain/employee.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
-  /** @internal Compatibility runner for identity/onboarding until A.2 completes. */
-  legacyMinutkaAgentRunner: AgentRunner;
   assistantAgentRunner: import("./assistant-service.js").AssistantAgentRunner;
   env: NodeJS.ProcessEnv;
   deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator">;

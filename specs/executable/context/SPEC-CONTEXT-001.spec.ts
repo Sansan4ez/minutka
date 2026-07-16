@@ -8,7 +8,6 @@ import type {
 import type { StructuredInsightResult } from "../../../src/client/sdk/minutka-client.js";
 import { createConversationDecisionRouter } from "../../../src/mastra/conversation-decision-router.js";
 import { createInsightExtractor } from "../../../src/mastra/insight-extractor.js";
-import { createMinutkaAgentRunner } from "../../../src/mastra/agent-runner.js";
 import { loadAgentManualFromDisk } from "../../../src/application/agent-manual-loader.js";
 import {
   createSpecWorld,
@@ -37,9 +36,6 @@ registerSpecMetadata({
     "InsightRecorded",
   ],
   mastra: [
-    "minutkaAgent",
-    "extractInsightsTool",
-    "runMinutkaAgent",
     "routeAgentManualProcesses",
     "routeConversationDecision",
     "extractInsightsWithAgent",
@@ -54,16 +50,7 @@ registerSpecMetadata({
 });
 
 describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
-  it("Mastra memory, runner and insight tool are importable", async () => {
-    const { minutkaAgent } = await import(
-      "../../../src/mastra/agents/minutka-agent.js"
-    );
-    const { extractInsightsTool } = await import(
-      "../../../src/mastra/tools/extract-insights-tool.js"
-    );
-    const { runMinutkaAgent } = await import(
-      "../../../src/mastra/agent-runner.js"
-    );
+  it("keeps the historical context-routing adapters importable", async () => {
     const { routeAgentManualProcesses } = await import(
       "../../../src/mastra/agent-manual-router.js"
     );
@@ -74,36 +61,9 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
       "../../../src/mastra/insight-extractor.js"
     );
 
-    expect(minutkaAgent).toBeDefined();
-    expect(extractInsightsTool).toBeDefined();
-    expect(runMinutkaAgent).toBeDefined();
     expect(routeAgentManualProcesses).toBeDefined();
     expect(routeConversationDecision).toBeDefined();
     expect(extractInsightsWithAgent).toBeDefined();
-  });
-
-  it("passes rendered context to the runtime agent without Mastra message memory", async () => {
-    let observedOptions: unknown;
-    const runner = createMinutkaAgentRunner({
-      async generate(_text, options) {
-        observedOptions = options;
-        return { text: "ok" };
-      },
-    });
-
-    await expect(
-      runner(
-        { employeeId: "emp_1", threadId: "thread_1", text: "Привет" },
-        {
-          purpose: "chat",
-          systemContext: "trusted runtime context",
-        },
-      ),
-    ).resolves.toBe("ok");
-    expect(observedOptions).toEqual({
-      system: "trusted runtime context",
-      toolChoice: "none",
-    });
   });
 
   it("passes only three newest completed pairs to the router as untrusted data", async () => {

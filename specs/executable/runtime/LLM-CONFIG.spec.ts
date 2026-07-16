@@ -4,10 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadDotEnv, readDotEnvValue } from "../../../src/config/env.js";
 import { defaultLlmModel, llmModel, llmModelFromEnv } from "../../../src/config/llm.js";
-import { agentManualRouterAgent } from "../../../src/mastra/agents/agent-manual-router-agent.js";
-import { conversationDecisionAgent } from "../../../src/mastra/agents/conversation-decision-agent.js";
-import { insightExtractorAgent } from "../../../src/mastra/agents/insight-extractor-agent.js";
-import { minutkaAgent } from "../../../src/mastra/agents/minutka-agent.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
 
@@ -72,16 +68,8 @@ describe("LLM runtime configuration", () => {
   it("applies one model to every Mastra agent", () => {
     expect([
       personalAssistantAgent,
-      minutkaAgent,
-      conversationDecisionAgent,
-      insightExtractorAgent,
-      agentManualRouterAgent,
       onboardingProfileExtractorAgent,
     ].map((agent) => agent.model)).toEqual([
-      llmModel,
-      llmModel,
-      llmModel,
-      llmModel,
       llmModel,
       llmModel,
     ]);

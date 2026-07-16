@@ -1,10 +1,7 @@
 import { Mastra } from "@mastra/core";
 import { InMemoryStore } from "@mastra/core/storage";
-import { minutkaAgent } from "./agents/minutka-agent.js";
 import { personalAssistantAgent } from "./agents/personal-assistant-agent.js";
-import { agentManualRouterAgent } from "./agents/agent-manual-router-agent.js";
-import { conversationDecisionAgent } from "./agents/conversation-decision-agent.js";
-import { insightExtractorAgent } from "./agents/insight-extractor-agent.js";
+import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
 
 /**
  * Agent registry for development tooling. Conversation history is owned by
@@ -16,9 +13,6 @@ export const mastra = new Mastra({
   storage: new InMemoryStore(),
   agents: {
     personalAssistantAgent,
-    minutkaAgent,
-    agentManualRouterAgent,
-    conversationDecisionAgent,
-    insightExtractorAgent,
+    onboardingProfileExtractorAgent,
   },
 });

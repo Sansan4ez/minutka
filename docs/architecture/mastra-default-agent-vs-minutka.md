@@ -1,10 +1,10 @@
 # Сравнение дефолтного агента Mastra и агента «Минутка»
 
-> **Статус:** зафиксированное архитектурное сравнение текущего `time-agent` с базовой моделью агента Mastra.
+> **Статус:** historical — сравнение legacy-продукта «Минутка» с базовой моделью агента Mastra. Активная архитектура: [RFC персонального ассистента](./rfc-personal-assistant-architecture.md) + [agent-led routing](./rfc-agent-led-routing.md).
 >
-> **Версия Mastra в проекте:** `@mastra/core 1.50.1`, `mastra 1.18.2`.
+> **Версия Mastra на момент фиксации:** `@mastra/core 1.50.1`, `mastra 1.18.2`.
 >
-> **Основной агент проекта:** `src/mastra/agents/minutka-agent.ts`.
+> Legacy `minutkaAgent` удалён из product runtime в A2.6. Текущий product agent: `src/mastra/agents/personal-assistant-agent.ts`. Остальной текст оставлен как провенанс и описывает историческую систему.
 
 ## 1. Краткий вывод
 

@@ -22,7 +22,7 @@ import { createMinioBlobStore } from "../infrastructure/minio/minio-blob-store.j
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
-import { createMastraMinutkaServiceDeps } from "../mastra/runtime-deps.js";
+import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
@@ -58,7 +58,10 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       feedbackStore: createPostgresFeedbackStore(pool),
       auditEventStore: createPostgresAuditEventStore(pool),
     };
-    const identityService = new MinutkaService(input.legacyMinutkaAgentRunner, {
+    // MinutkaService remains a temporary identity/onboarding compatibility
+    // component. Product chat never calls its legacy chat path, and onboarding
+    // welcome text is deterministic, so production needs no legacy chat agent.
+    const identityService = new MinutkaService(async () => "Профиль сохранён. Добро пожаловать!", {
       ...stores,
       consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool, config.telegramIdentityPepper),
       telegramInviteRedemptionStore: createPostgresTelegramInviteRedemptionStore(
@@ -68,7 +71,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ),
       clock: systemClock,
       idGenerator: randomIdGenerator,
-      ...createMastraMinutkaServiceDeps(),
+      onboardingProfileExtractor: extractOnboardingProfileWithAgent,
       ...input.deps,
     });
     const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
