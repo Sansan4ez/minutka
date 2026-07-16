@@ -1,21 +1,16 @@
 import { z } from "zod";
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
-import type { ConversationDecision } from "../domain/conversation-decision.js";
+import {
+  decisionProcessIds,
+  type ConversationDecision,
+} from "../domain/conversation-decision.js";
 import type { InsightKind } from "../domain/insights.js";
 import { compact } from "../shared/llm-output.js";
 import { conversationContextLimits } from "../application/conversation-context-limits.js";
 import { renderUntrustedConversationTurns, renderUntrustedCurrentText } from "../application/untrusted-conversation-context.js";
 import { conversationDecisionAgent } from "./agents/conversation-decision-agent.js";
 
-const processId = z.enum([
-  "core",
-  "onboarding",
-  "consent_and_privacy",
-  "evening_reflection",
-  "workday_guardrails",
-  "insight_extraction",
-  "feedback",
-]);
+const processId = z.enum(decisionProcessIds);
 const insightKind = z.enum([
   "task_category",
   "routine_pattern",

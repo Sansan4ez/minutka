@@ -133,6 +133,29 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     });
   });
 
+  it("accepts inbox capture and rejects the removed feedback process", async () => {
+    const route = (selectedProcessIds: string[]) => createConversationDecisionRouter(
+      async () => ({
+        object: {
+          selectedProcessIds,
+          workDecision: { mode: "allow", reason: "ambiguous", response: null },
+          insightDecision: { candidate: false, suggestedKinds: [] },
+        },
+      }),
+    )({
+      purpose: "chat",
+      text: "Запиши идею",
+      manual: loadAgentManualFromDisk(),
+    });
+
+    await expect(route(["core", "inbox_capture"])).resolves.toEqual(
+      expect.objectContaining({ selectedProcessIds: ["core", "inbox_capture"] }),
+    );
+    await expect(route(["core", "feedback"])).rejects.toThrow(
+      /structured output validation failed/,
+    );
+  });
+
   it("rejects a malformed structured decision before it reaches the application", async () => {
     const router = createConversationDecisionRouter(async () => ({
       object: {

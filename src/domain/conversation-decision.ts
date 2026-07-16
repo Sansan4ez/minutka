@@ -1,13 +1,16 @@
 import type { InsightKind } from "./insights.js";
 
-export type DecisionProcessId =
-  | "core"
-  | "onboarding"
-  | "consent_and_privacy"
-  | "evening_reflection"
-  | "workday_guardrails"
-  | "insight_extraction"
-  | "inbox_capture";
+export const decisionProcessIds = [
+  "core",
+  "onboarding",
+  "consent_and_privacy",
+  "evening_reflection",
+  "workday_guardrails",
+  "insight_extraction",
+  "inbox_capture",
+] as const;
+
+export type DecisionProcessId = (typeof decisionProcessIds)[number];
 
 export type ConversationBoundaryReason =
   | "content_generation_request"
