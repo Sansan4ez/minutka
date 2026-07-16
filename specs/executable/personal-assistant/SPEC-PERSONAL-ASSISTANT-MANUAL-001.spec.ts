@@ -24,9 +24,12 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
+    expect(instructions).toContain("current single-owner prototype privacy boundary");
+    expect(instructions).toContain("must never cross an owner boundary");
     expect(instructions).not.toContain("Active process:");
     expect(instructions).not.toContain("SO-CoT");
     expect(instructions).not.toContain("constrained decision router");
+    expect(instructions).not.toMatch(/company and methodologist|minimum group size|workday_guardrails|insight_extraction/i);
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
