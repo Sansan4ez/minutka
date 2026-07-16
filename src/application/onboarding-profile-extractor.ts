@@ -1,4 +1,4 @@
-import type { AiLevel, Persona } from "../domain/employee.js";
+import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from "./onboarding-types.js";
 
 export type OnboardingProfileExtractor = (input: {
@@ -10,7 +10,7 @@ export type OnboardingProfileExtractor = (input: {
 
 /**
  * Conservative, dependency-free extraction used both as the reliable fallback
- * and by executable specs. It only emits values that have an explicit signal.
+ * and by executable specs. It only emits bounded values with explicit signals.
  */
 export function extractDeterministicOnboardingPatch(input: {
   text: string;
@@ -19,58 +19,88 @@ export function extractDeterministicOnboardingPatch(input: {
   const text = input.text.trim();
   const normalized = normalize(text);
   const patch: OnboardingProfilePatch = { ambiguousFields: [] };
+
   const pipe = text.split("|").map((part) => part.trim());
-  if (pipe.length === 4 && pipe.every(Boolean)) {
-    patch.role = pipe[0];
-    patch.typicalTasks = tasks(pipe[1]);
-    patch.persona = persona(pipe[2]);
-    patch.aiLevel = aiLevel(pipe[3]);
+  if (pipe.length === 6 && pipe.every(Boolean)) {
+    patch.preferredName = cleanName(pipe[0]);
+    patch.assistantName = cleanName(pipe[1]);
+    patch.addressForm = addressForm(pipe[2]);
+    patch.persona = persona(pipe[3]);
+    patch.responseLength = responseLength(pipe[4]);
+    patch.timezone = normalizeTimezone(pipe[5]);
     return validatePatch(patch);
   }
 
-  const role = text.match(/(?:роль|(?:я\s+)?(?:работаю\s+)?как)\s*[-—:]?\s*([^.;\n]+)/iu);
-  if (role?.[1] && !/^(?:поддержка|эффективность)$/iu.test(role[1].trim())) patch.role = clean(role[1]);
-  else if (input.currentDraft.pendingField === "role" && !patch.persona && !patch.aiLevel && looksLikeRole(text)) patch.role = text;
-  const taskMatch = text.match(/(?:задач(?:а|и|е|у|ей|ам|ами|ах)?|занимаюсь|делаю|типичн(?:ые|ая)\s+задач(?:а|и|е|у|ей|ам|ами|ах)?)\s*(?:[-—:]\s*|\s+)([^\n.]+)/iu);
-  if (taskMatch?.[1]) patch.typicalTasks = tasks(taskMatch[1]);
-  const taskAddition = text.match(/(?:добав(?:ь|ьте))\s+(.+?)\s+(?:к|в)\s+задач(?:а|и|е|у|ей|ам|ами|ах)?\s*[!.]?$/iu);
-  if (taskAddition?.[1]) patch.appendTypicalTasks = tasks(taskAddition[1]);
-
+  patch.preferredName = capture(text, /(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|мо[её] имя)\s*[-—:]?\s*([^.;|\n]+)/iu);
+  patch.assistantName = capture(text, /(?:тебя зовут|буду звать тебя|назову тебя|имя ассистента|ассистента зовут)\s*[-—:]?\s*([^.;|\n]+)/iu);
+  patch.addressForm = addressForm(normalized);
   patch.persona = persona(normalized);
-  patch.aiLevel = aiLevel(normalized);
+  patch.responseLength = responseLength(normalized);
+  patch.timezone = extractTimezone(text);
 
-  // A direct answer to a focused question is safe only for free-form fields.
-  if (input.currentDraft.pendingField === "role" && !patch.role && !patch.persona && !patch.aiLevel && looksLikeRole(text)) patch.role = text;
-  if (input.currentDraft.pendingField === "typicalTasks" && !patch.typicalTasks && !patch.role && !patch.persona && !patch.aiLevel) patch.typicalTasks = tasks(text);
+  const pending = input.currentDraft.pendingField;
+  if (pending === "preferredName" && !patch.preferredName) patch.preferredName = cleanName(text);
+  if (pending === "assistantName" && !patch.assistantName) patch.assistantName = cleanName(text);
+  if (pending === "addressForm" && !patch.addressForm) patch.addressForm = addressForm(text);
+  if (pending === "persona" && !patch.persona) patch.persona = persona(text);
+  if (pending === "responseLength" && !patch.responseLength) patch.responseLength = responseLength(text);
+  if (pending === "timezone" && !patch.timezone) patch.timezone = normalizeTimezone(text);
+
   return validatePatch(patch);
 }
 
 export function normalizePersona(value: string): Persona | undefined {
   const text = normalize(value);
-  if (/(?:support|поддержк\w*|бережн\w*)/u.test(text)) return "support";
-  if (/(?:efficiency|эффективност\w*|по делу|коротко и практично)/u.test(text)) return "efficiency";
-  return undefined;
-}
-export function normalizeAiLevel(value: string): AiLevel | undefined {
-  const text = normalize(value);
-  if (/(?:beginner|нович\w*|начинающ\w*|не пользовал\w*|только начина\w*)/u.test(text)) return "beginner";
-  if (/(?:advanced|продвинут\w*|уверенно использую)/u.test(text)) return "advanced";
-  if (/(?:intermediate|немного работал\w*|базов\w* опыт|средн\w*(?:\s+уровень)?|работал с ии|работаю с ии)/u.test(text)) return "intermediate";
+  if (/(?:support|поддержк\w*|бережн\w*|тепл\w*|эмпатичн\w*)/u.test(text)) return "support";
+  if (/(?:efficiency|эффективност\w*|по делу|делов\w*|коротко и практично|структурн\w*)/u.test(text)) return "efficiency";
   return undefined;
 }
 
+export function normalizeResponseLength(value: string): ResponseLengthPreference | undefined {
+  const text = normalize(value);
+  if (/(?:short|кратк\w*|коротк\w*|лаконичн\w*)/u.test(text)) return "short";
+  if (/(?:detailed|подробн\w*|детальн\w*|разв[её]рнут\w*)/u.test(text)) return "detailed";
+  if (/(?:balanced|сбалансированн\w*|средн\w*|обычн\w*)/u.test(text)) return "balanced";
+  return undefined;
+}
+
+export function normalizeAddressForm(value: string): AddressForm | undefined {
+  const text = normalize(value);
+  if (/(?:informal|на ты|обращайся на ты|тыкай)/u.test(text)) return "informal";
+  if (/(?:formal|на вы|обращайтесь на вы)/u.test(text)) return "formal";
+  return undefined;
+}
+
+export function normalizeTimezone(value: string): string | undefined {
+  const candidate = value.trim().replace(/[.,;!?]+$/u, "");
+  if (!candidate || candidate.length > 64 || !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/u.test(candidate)) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format();
+    return candidate;
+  } catch {
+    return undefined;
+  }
+}
+
+function addressForm(value: string): AddressForm | undefined { return normalizeAddressForm(value); }
 function persona(value: string): Persona | undefined { return normalizePersona(value); }
-function aiLevel(value: string): AiLevel | undefined { return normalizeAiLevel(value); }
+function responseLength(value: string): ResponseLengthPreference | undefined { return normalizeResponseLength(value); }
 function normalize(value: string): string { return value.toLocaleLowerCase("ru-RU").replace(/[«»"']/g, " ").replace(/\s+/g, " ").trim(); }
-function clean(value: string): string { return value.trim().replace(/^(?:(?:моя\s+)?роль|(?:я\s+)?(?:работаю\s+)?как)\s*[-—:]?\s*/iu, "").trim(); }
-function looksLikeRole(value: string): boolean { return value.trim().split(/\s+/u).length >= 2 && !/^(?:привет|здравствуйте|добрый день)[!. ]*$/iu.test(value.trim()); }
-function tasks(value: string): string[] | undefined {
-  const values = value.split(/[;,]|\s+и\s+/iu).map(clean).filter(Boolean);
-  return values.length >= 1 && values.length <= 7 ? values : undefined;
+function capture(value: string, pattern: RegExp): string | undefined { const match = value.match(pattern); return match?.[1] ? cleanName(match[1]) : undefined; }
+function cleanName(value: string): string | undefined {
+  const cleaned = value.trim().replace(/^(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|тебя зовут|буду звать тебя|назову тебя)\s*[-—:]?\s*/iu, "").trim();
+  return cleaned && cleaned.length <= 128 ? cleaned : undefined;
+}
+function extractTimezone(value: string): string | undefined {
+  const explicit = value.match(/(?:timezone|часов(?:ой|ого) пояс)\s*[-—:]?\s*([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+)/iu)?.[1];
+  if (explicit) return normalizeTimezone(explicit);
+  const standalone = value.match(/\b([A-Za-z_+-]+\/[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)?)\b/u)?.[1];
+  return standalone ? normalizeTimezone(standalone) : undefined;
 }
 function validatePatch(patch: OnboardingProfilePatch): OnboardingProfilePatch {
-  if (patch.role && !patch.role.trim()) delete patch.role;
-  if (patch.typicalTasks && (patch.typicalTasks.length < 1 || patch.typicalTasks.length > 7 || patch.typicalTasks.some((task) => !task.trim()))) delete patch.typicalTasks;
+  if (patch.preferredName && !cleanName(patch.preferredName)) delete patch.preferredName;
+  if (patch.assistantName && !cleanName(patch.assistantName)) delete patch.assistantName;
+  if (patch.timezone && !normalizeTimezone(patch.timezone)) delete patch.timezone;
   return patch;
 }
 

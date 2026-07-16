@@ -55,11 +55,15 @@ export function createRuntimeProjectionBuilder(deps: {
   const projectProfile = (profile: Awaited<ReturnType<ProfileStore["getProfile"]>>): ProfileProjection | null =>
     profile
       ? {
-          role: profile.role,
-          typicalTasks: [...profile.typicalTasks],
+          preferredName: profile.preferredName ?? profile.role ?? profile.employeeId,
+          assistantName: profile.assistantName ?? "Ассистент",
+          addressForm: profile.addressForm ?? "informal",
           persona: profile.persona,
-          aiLevel: profile.aiLevel,
           responseLength: profile.responseLength,
+          timezone: profile.timezone ?? "Etc/UTC",
+          ...(profile.role ? { role: profile.role } : {}),
+          ...(profile.typicalTasks ? { typicalTasks: [...profile.typicalTasks] } : {}),
+          ...(profile.aiLevel ? { aiLevel: profile.aiLevel } : {}),
           ...(profile.preferredCheckinsPerDay
             ? { preferredCheckinsPerDay: profile.preferredCheckinsPerDay }
             : {}),

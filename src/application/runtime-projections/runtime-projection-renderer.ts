@@ -11,10 +11,14 @@ export function renderRuntimeProjection(
     sections.push(
       [
         "## Runtime projection: /proc/profile",
-        `- Роль: ${escapeUserControlledText(profile.role)}`,
-        `- Типовые задачи: ${profile.typicalTasks.map(escapeUserControlledText).join(", ")}`,
-        `- Уровень знакомства с ИИ: ${profile.aiLevel}`,
+        `- Обращение к владельцу: ${escapeUserControlledText(profile.preferredName)}`,
+        `- Имя ассистента: ${escapeUserControlledText(profile.assistantName)}`,
+        `- Форма обращения: ${profile.addressForm}`,
+        `- Стиль общения: ${profile.persona}`,
         `- Предпочтительная длина ответа: ${profile.responseLength}`,
+        `- Часовой пояс: ${profile.timezone}`,
+        ...(profile.role ? [`- Legacy role context: ${escapeUserControlledText(profile.role)}`] : []),
+        ...(profile.typicalTasks?.length ? [`- Legacy task context: ${profile.typicalTasks.map(escapeUserControlledText).join(", ")}`] : []),
       ].join("\n"),
     );
   }

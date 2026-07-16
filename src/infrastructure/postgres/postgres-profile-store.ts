@@ -23,10 +23,14 @@ type ConsentRow = {
 };
 type ProfileRow = {
   employee_id: string;
-  role: string;
-  typical_tasks: string[];
+  preferred_name: string;
+  assistant_name: string;
+  address_form: UserProfile["addressForm"];
+  timezone: string;
+  role: string | null;
+  typical_tasks: string[] | null;
   persona: UserProfile["persona"];
-  ai_level: UserProfile["aiLevel"];
+  ai_level: UserProfile["aiLevel"] | null;
   response_length: UserProfile["responseLength"];
   preferred_checkins_per_day: 1 | 2 | 3 | null;
   created_at: Date;
@@ -49,11 +53,15 @@ const toConsent = (row: ConsentRow): Consent => ({
 });
 const toProfile = (row: ProfileRow): UserProfile => ({
   employeeId: row.employee_id,
-  role: row.role,
-  typicalTasks: row.typical_tasks,
+  preferredName: row.preferred_name,
+  assistantName: row.assistant_name,
+  addressForm: row.address_form,
   persona: row.persona,
-  aiLevel: row.ai_level,
   responseLength: row.response_length,
+  timezone: row.timezone,
+  ...(row.role ? { role: row.role } : {}),
+  ...(row.typical_tasks ? { typicalTasks: row.typical_tasks } : {}),
+  ...(row.ai_level ? { aiLevel: row.ai_level } : {}),
   ...(row.preferred_checkins_per_day ? { preferredCheckinsPerDay: row.preferred_checkins_per_day } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -188,13 +196,17 @@ export function createPostgresProfileStore(
             return { profile: toProfile(existing.rows[0]), wasCompleted: true };
           }
           await client.query(
-            `INSERT INTO minutka_private.profiles(employee_id, role, typical_tasks, persona, ai_level, response_length, preferred_checkins_per_day, created_at, updated_at)
-             VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9)
+            `INSERT INTO minutka_private.profiles(employee_id, preferred_name, assistant_name, address_form, timezone, role, typical_tasks, persona, ai_level, response_length, preferred_checkins_per_day, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13)
              ON CONFLICT (employee_id) DO UPDATE SET
+               preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
+               address_form=EXCLUDED.address_form, timezone=EXCLUDED.timezone,
                role=EXCLUDED.role, typical_tasks=EXCLUDED.typical_tasks, persona=EXCLUDED.persona,
                ai_level=EXCLUDED.ai_level, response_length=EXCLUDED.response_length,
                preferred_checkins_per_day=EXCLUDED.preferred_checkins_per_day, updated_at=EXCLUDED.updated_at`,
-            [profile.employeeId, profile.role, JSON.stringify(profile.typicalTasks), profile.persona, profile.aiLevel, profile.responseLength, profile.preferredCheckinsPerDay ?? null, profile.createdAt, profile.updatedAt],
+            [profile.employeeId, profile.preferredName, profile.assistantName, profile.addressForm, profile.timezone,
+              profile.role ?? null, profile.typicalTasks ? JSON.stringify(profile.typicalTasks) : null, profile.persona,
+              profile.aiLevel ?? null, profile.responseLength, profile.preferredCheckinsPerDay ?? null, profile.createdAt, profile.updatedAt],
           );
           await client.query(
             "UPDATE minutka_private.participants SET status = 'profile_completed', updated_at = $2 WHERE employee_id = $1",

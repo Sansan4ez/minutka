@@ -4,6 +4,8 @@ export type AiLevel = "beginner" | "intermediate" | "advanced";
 
 export type ResponseLengthPreference = "short" | "balanced" | "detailed";
 
+export type AddressForm = "informal" | "formal";
+
 export type OnboardingStatus =
   | "invite_issued"
   | "invite_opened"
@@ -30,11 +32,17 @@ export type Consent = {
 
 export type UserProfile = {
   employeeId: string;
-  role: string;
-  typicalTasks: string[];
+  /** Structured identity and delivery preferences used outside LLM context. */
+  preferredName: string;
+  assistantName: string;
+  addressForm: AddressForm;
   persona: Persona;
-  aiLevel: AiLevel;
   responseLength: ResponseLengthPreference;
+  timezone: string;
+  /** Legacy context retained for existing profiles; new onboarding does not require it. */
+  role?: string;
+  typicalTasks?: string[];
+  aiLevel?: AiLevel;
   preferredCheckinsPerDay?: 1 | 2 | 3;
   createdAt: string;
   updatedAt: string;

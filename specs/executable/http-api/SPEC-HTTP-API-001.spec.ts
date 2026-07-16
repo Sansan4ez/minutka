@@ -116,9 +116,9 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
     const employee = client.forEmployee("emp_a");
     await employee.acceptConsent({ accepted: true, source: "telegram" });
-    expect(await employee.submitOnboardingAnswer({ text: "Роль — аналитик" })).toMatchObject({ status: "needs_answer", field: "typicalTasks" });
-    expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_answer", field: "role" });
-    await employee.submitOnboardingAnswer({ text: "Аналитик | отчёты | Поддержка | Начинающий" });
+    expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_answer", field: "assistantName" });
+    expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_answer", field: "preferredName" });
+    await employee.submitOnboardingAnswer({ text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     expect(await employee.submitOnboardingAnswer({ text: "Исправить" })).toMatchObject({ status: "needs_correction" });
     await employee.confirmOnboarding();
     expect((await employee.getProfile()).employeeId).toBe("emp_a");

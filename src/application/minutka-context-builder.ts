@@ -52,10 +52,9 @@ export type MinutkaContextBuilderLike = {
 };
 
 function buildMinutkaPersonaContext(profile: UserProfile): string {
-  const aiRule =
-    profile.aiLevel === "beginner"
-      ? "Если сотрудник не знаком с ИИ, не упоминай ChatGPT/нейросети первым; говори про шаблоны, упрощение и повторяемость."
-      : "Можно аккуратно предложить ускорение через ИИ-инструменты, если это уместно; не обучай ИИ-инструментам в обычном ответе.";
+  const aiRule = profile.aiLevel === "beginner"
+    ? "Не упоминай ChatGPT/нейросети первым; говори про шаблоны, упрощение и повторяемость."
+    : "Не превращай обычный ответ в обучение ИИ-инструментам без запроса.";
 
   return [
     `Выбранная персона: ${personaLabels[profile.persona]}.`,
@@ -69,10 +68,13 @@ function buildMinutkaPersonaContext(profile: UserProfile): string {
 /** Legacy standalone profile renderer; runtime chat uses the projection snapshot instead. */
 export function buildMinutkaProfileContext(profile: UserProfile): string {
   return [
-    "Профиль сотрудника:",
-    `- Роль: ${profile.role}`,
-    `- Типовые задачи: ${profile.typicalTasks.join(", ")}`,
-    `- Уровень знакомства с ИИ: ${profile.aiLevel}`,
+    "Профиль владельца:",
+    `- Обращение: ${profile.preferredName ?? profile.role ?? profile.employeeId}`,
+    `- Имя ассистента: ${profile.assistantName ?? "Ассистент"}`,
+    `- Форма обращения: ${profile.addressForm ?? "informal"}`,
+    `- Часовой пояс: ${profile.timezone ?? "Etc/UTC"}`,
+    ...(profile.role ? [`- Legacy role context: ${profile.role}`] : []),
+    ...(profile.typicalTasks?.length ? [`- Legacy task context: ${profile.typicalTasks.join(", ")}`] : []),
     `- Предпочтительная длина ответа: ${profile.responseLength}`,
     "",
     buildMinutkaPersonaContext(profile),

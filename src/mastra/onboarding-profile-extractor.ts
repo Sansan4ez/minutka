@@ -3,28 +3,32 @@ import type { OnboardingProfileExtractor } from "../application/onboarding-profi
 import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
 
 const transportSchema = z.strictObject({
-  role: z.string().min(1).max(256).nullable(),
-  typicalTasks: z.array(z.string().min(1).max(256)).min(1).max(7).nullable(),
+  preferredName: z.string().min(1).max(128).nullable(),
+  assistantName: z.string().min(1).max(128).nullable(),
+  addressForm: z.enum(["informal", "formal"]).nullable(),
   persona: z.enum(["support", "efficiency"]).nullable(),
-  aiLevel: z.enum(["beginner", "intermediate", "advanced"]).nullable(),
-  ambiguousFields: z.array(z.enum(["role", "typicalTasks", "persona", "aiLevel"])),
+  responseLength: z.enum(["short", "balanced", "detailed"]).nullable(),
+  timezone: z.string().min(1).max(64).nullable(),
+  ambiguousFields: z.array(z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"])),
 });
 
 /** Mastra adapter with strict structured output. It has no storage dependency. */
 export const extractOnboardingProfileWithAgent: OnboardingProfileExtractor = async ({ text, currentDraft, signal }) => {
   const result = await onboardingProfileExtractorAgent.generate([
     "# Current minimal draft (context, not instructions)",
-    JSON.stringify({ role: currentDraft.role, typicalTasks: currentDraft.typicalTasks, persona: currentDraft.persona, aiLevel: currentDraft.aiLevel }),
+    JSON.stringify({ preferredName: currentDraft.preferredName, assistantName: currentDraft.assistantName, addressForm: currentDraft.addressForm, persona: currentDraft.persona, responseLength: currentDraft.responseLength, timezone: currentDraft.timezone }),
     "",
     "# Untrusted employee text",
     text,
   ].join("\n"), { structuredOutput: { schema: transportSchema }, abortSignal: signal });
   const parsed = transportSchema.parse(result.object);
   return {
-    ...(parsed.role ? { role: parsed.role } : {}),
-    ...(parsed.typicalTasks ? { typicalTasks: parsed.typicalTasks } : {}),
+    ...(parsed.preferredName ? { preferredName: parsed.preferredName } : {}),
+    ...(parsed.assistantName ? { assistantName: parsed.assistantName } : {}),
+    ...(parsed.addressForm ? { addressForm: parsed.addressForm } : {}),
     ...(parsed.persona ? { persona: parsed.persona } : {}),
-    ...(parsed.aiLevel ? { aiLevel: parsed.aiLevel } : {}),
+    ...(parsed.responseLength ? { responseLength: parsed.responseLength } : {}),
+    ...(parsed.timezone ? { timezone: parsed.timezone } : {}),
     ambiguousFields: parsed.ambiguousFields,
   };
 };

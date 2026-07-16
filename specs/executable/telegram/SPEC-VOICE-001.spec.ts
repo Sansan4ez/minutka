@@ -169,9 +169,9 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.clickCallback({ chatId: "onboarding_voice", userId: "onboarding_user", callbackData: consent! });
     telegram.clear();
 
-    await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "Аналитик | отчёты | Поддержка | Начинающий" });
+    await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     expect(telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
-      "Распознано:\nАналитик | отчёты | Поддержка | Начинающий",
+      "Распознано:\nМаксим | Спарк | На ты | Деловой | Коротко | Europe/Moscow",
       expect.stringContaining("Проверьте, пожалуйста"),
     ]));
     expect(spec.world.messages).toHaveLength(0);

@@ -41,7 +41,8 @@ export type ProcSnapshot = {
 
 export type ProfileProjection = Pick<
   UserProfile,
-  "role" | "typicalTasks" | "persona" | "aiLevel" | "responseLength" | "preferredCheckinsPerDay"
+  "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone" |
+  "role" | "typicalTasks" | "aiLevel" | "preferredCheckinsPerDay"
 >;
 
 export type ConsentProjection = {

@@ -1,4 +1,4 @@
-import type { AiLevel, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import type { AddressForm, AiLevel, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
@@ -65,8 +65,11 @@ export type OpenInviteResult = {
 export type AcceptConsentInput = { employeeId: string; accepted: true; source: "cli" | "telegram" | "test"; telegramIdentity?: TelegramIdentity };
 export type AcceptConsentResult = { employeeId: string; privacyVersion: typeof currentPrivacyVersion; acceptedAt: string };
 export type CompleteOnboardingInput = {
-  employeeId: string; role: string; typicalTasks: string[]; persona: Persona; aiLevel: AiLevel;
-  responseLength?: ResponseLengthPreference; preferredCheckinsPerDay?: 1 | 2 | 3;
+  employeeId: string;
+  preferredName?: string; assistantName?: string; addressForm?: AddressForm; timezone?: string;
+  persona: Persona; responseLength?: ResponseLengthPreference; preferredCheckinsPerDay?: 1 | 2 | 3;
+  /** Legacy direct-completion fields retained for backward-compatible clients. */
+  role?: string; typicalTasks?: string[]; aiLevel?: AiLevel;
 };
 export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; profile: UserProfile; firstResponse: string };
 export type SubmitOnboardingAnswerInput = { employeeId: string; text: string };
@@ -251,10 +254,21 @@ export class MinutkaService {
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
     const existing = await this.stores.profileStore.getProfile(input.employeeId);
+    const legacyPreferredName = input.role?.trim() || existing?.preferredName;
     const profile: UserProfile = {
-      employeeId: input.employeeId, role: input.role.trim(), typicalTasks: input.typicalTasks.map((task) => task.trim()),
-      persona: input.persona, aiLevel: input.aiLevel, responseLength: input.responseLength ?? "balanced",
-      preferredCheckinsPerDay: input.preferredCheckinsPerDay, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp,
+      employeeId: input.employeeId,
+      preferredName: input.preferredName?.trim() || legacyPreferredName || input.employeeId,
+      assistantName: input.assistantName?.trim() || existing?.assistantName || "Ассистент",
+      addressForm: input.addressForm ?? existing?.addressForm ?? "informal",
+      persona: input.persona,
+      responseLength: input.responseLength ?? "balanced",
+      timezone: input.timezone ?? existing?.timezone ?? "Etc/UTC",
+      ...(input.role?.trim() ? { role: input.role.trim() } : existing?.role ? { role: existing.role } : {}),
+      ...(input.typicalTasks ? { typicalTasks: input.typicalTasks.map((task) => task.trim()) } : existing?.typicalTasks ? { typicalTasks: existing.typicalTasks } : {}),
+      ...(input.aiLevel ? { aiLevel: input.aiLevel } : existing?.aiLevel ? { aiLevel: existing.aiLevel } : {}),
+      preferredCheckinsPerDay: input.preferredCheckinsPerDay,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
     };
     const changedFields = getChangedFields(existing, profile);
     if (allowUpdate && existing && changedFields.length === 0) {
@@ -334,7 +348,7 @@ export class MinutkaService {
     }
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
     if (!draft || draft.status !== "awaiting_confirmation" || !isCompleteOnboardingDraft(draft)) throw new Error("onboarding draft is incomplete");
-    return this.completeOnboardingProfile({ employeeId, role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel }, false);
+    return this.completeOnboardingProfile({ employeeId, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: draft.addressForm, persona: draft.persona, responseLength: draft.responseLength, timezone: draft.timezone }, false);
   }
 
   async resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> {
@@ -346,7 +360,7 @@ export class MinutkaService {
     const current = await this.stores.onboardingDraftStore.get(employeeId);
     // An explicit reset intentionally wins over an in-flight answer; keeping
     // revisions monotonic prevents that stale CAS write from reviving old data.
-    const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "role", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
+    const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "preferredName", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
     return onboardingProgress(await this.stores.onboardingDraftStore.replace(draft));
   }
 
@@ -489,7 +503,7 @@ export class MinutkaService {
     const existing = await this.stores.onboardingDraftStore.get(employeeId);
     if (existing) return existing;
     const now = this.clock.now();
-    const created: OnboardingDraft = { employeeId, status: "collecting", pendingField: "role", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
+    const created: OnboardingDraft = { employeeId, status: "collecting", pendingField: "preferredName", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
     try { return await this.stores.onboardingDraftStore.save(created, 0); }
     catch (error) {
       if (!(error instanceof PersistenceError) || error.code !== "persistence_conflict") throw error;
@@ -499,45 +513,53 @@ export class MinutkaService {
     }
   }
   private async requireParticipant(employeeId: string) { const participant = await this.stores.profileStore.getParticipant(employeeId); if (!participant) throw new PersistenceError("participant_not_found"); return participant; }
-  private validateProfileInput(input: CompleteOnboardingInput) { if (!input.role.trim()) throw new Error("role is required"); const tasks = input.typicalTasks.map((task) => task.trim()); if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) throw new Error("typicalTasks must contain 1 to 7 non-empty tasks"); }
+  private validateProfileInput(input: CompleteOnboardingInput) {
+    if (input.preferredName !== undefined && !input.preferredName.trim()) throw new Error("preferredName is required");
+    if (input.assistantName !== undefined && !input.assistantName.trim()) throw new Error("assistantName is required");
+    if (input.timezone !== undefined && !isValidTimezone(input.timezone)) throw new Error("timezone must be a valid IANA timezone");
+    if (input.role !== undefined && !input.role.trim()) throw new Error("role is required");
+    if (input.typicalTasks !== undefined) {
+      const tasks = input.typicalTasks.map((task) => task.trim());
+      if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) throw new Error("typicalTasks must contain 1 to 7 non-empty tasks");
+    }
+  }
 }
 
-const onboardingFields: OnboardingField[] = ["role", "typicalTasks", "persona", "aiLevel"];
-const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Не средний, а начинающий» или «Добавь отчёты к задачам».";
-const personaLabels = { support: "Поддержка", efficiency: "Эффективность" } as const;
-const aiLevelLabels = { beginner: "начинающий", intermediate: "средний", advanced: "продвинутый" } as const;
+const onboardingFields: OnboardingField[] = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"];
+const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Зови меня Максим» или «Часовой пояс Europe/Moscow».";
+const addressFormLabels = { informal: "на ты", formal: "на вы" } as const;
+const personaLabels = { support: "тёплый", efficiency: "деловой" } as const;
+const responseLengthLabels = { short: "коротко", balanced: "сбалансированно", detailed: "подробно" } as const;
 function onboardingExpiry(now: string): string { const date = new Date(now); date.setDate(date.getDate() + 30); return date.toISOString(); }
 function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да|верно|всё верно|подтверждаю|подтвердить)$/iu.test(text.trim()); }
 function isNegativeOnboardingAnswer(text: string): boolean { return /^(?:нет|неверно|не верно|исправить|не всё верно)$/iu.test(text.trim()); }
-function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel">> {
-  return Boolean(draft.role && draft.typicalTasks?.length && draft.persona && draft.aiLevel);
+function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone">> {
+  return Boolean(draft.preferredName && draft.assistantName && draft.addressForm && draft.persona && draft.responseLength && draft.timezone);
 }
 function mergePatches(primary: OnboardingProfilePatch, fallback: OnboardingProfilePatch): OnboardingProfilePatch {
   return {
-    role: primary.role ?? fallback.role, typicalTasks: primary.typicalTasks ?? fallback.typicalTasks,
-    persona: primary.persona ?? fallback.persona, aiLevel: primary.aiLevel ?? fallback.aiLevel,
-    appendTypicalTasks: primary.appendTypicalTasks ?? fallback.appendTypicalTasks,
+    preferredName: primary.preferredName ?? fallback.preferredName,
+    assistantName: primary.assistantName ?? fallback.assistantName,
+    addressForm: primary.addressForm ?? fallback.addressForm,
+    persona: primary.persona ?? fallback.persona,
+    responseLength: primary.responseLength ?? fallback.responseLength,
+    timezone: primary.timezone ?? fallback.timezone,
     ambiguousFields: [...new Set([...primary.ambiguousFields, ...fallback.ambiguousFields])],
   };
 }
-function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePatch): Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel"> {
-  const next = { role: draft.role, typicalTasks: draft.typicalTasks, persona: draft.persona, aiLevel: draft.aiLevel };
-  if (draft.status === "awaiting_confirmation" && patch.appendTypicalTasks?.length) {
-    const combined = [...(next.typicalTasks ?? []), ...patch.appendTypicalTasks].map((task) => task.trim()).filter(Boolean);
-    const unique = [...new Set(combined)];
-    if (unique.length >= 1 && unique.length <= 7) next.typicalTasks = unique;
-  }
+function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePatch): Pick<OnboardingDraft, "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone"> {
+  const next = { preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: draft.addressForm, persona: draft.persona, responseLength: draft.responseLength, timezone: draft.timezone };
   for (const field of onboardingFields) {
     const candidate = patch[field];
     if (candidate === undefined || patch.ambiguousFields.includes(field)) continue;
     // A correction is accepted only after the user has seen the full summary.
     // During collection a conflicting candidate never silently overwrites data.
-    if (draft.status !== "awaiting_confirmation" && next[field] !== undefined && JSON.stringify(next[field]) !== JSON.stringify(candidate)) continue;
+    if (draft.status !== "awaiting_confirmation" && next[field] !== undefined && next[field] !== candidate) continue;
     (next as Record<OnboardingField, unknown>)[field] = candidate;
   }
   return next;
 }
-function makeOnboardingDraft(current: OnboardingDraft, values: Pick<OnboardingDraft, "role" | "typicalTasks" | "persona" | "aiLevel">, now: string): OnboardingDraft {
+function makeOnboardingDraft(current: OnboardingDraft, values: Pick<OnboardingDraft, "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone">, now: string): OnboardingDraft {
   const draft: OnboardingDraft = { ...current, ...values, revision: current.revision + 1, updatedAt: now, expiresAt: onboardingExpiry(now) };
   const pendingField = onboardingFields.find((field) => draft[field] === undefined);
   return pendingField ? { ...draft, status: "collecting", pendingField } : { ...draft, status: "awaiting_confirmation", pendingField: undefined };
@@ -559,13 +581,20 @@ async function extractOnboardingPatchWithTimeout(
   } finally { if (timer) clearTimeout(timer); }
 }
 function onboardingProgress(draft: OnboardingDraft): OnboardingProgress {
-  if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", summary: { role: draft.role, typicalTasks: draft.typicalTasks, persona: personaLabels[draft.persona], aiLevel: aiLevelLabels[draft.aiLevel] } };
-  const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "role";
-  if (field === "persona") return { status: "needs_choice", field, prompt: "Какой стиль вам ближе?", choices: ["Поддержка", "Эффективность"] };
-  if (field === "aiLevel") return { status: "needs_choice", field, prompt: "Какой у вас опыт работы с ИИ?", choices: ["Начинающий", "Средний", "Продвинутый"] };
-  return { status: "needs_answer", field, prompt: field === "role" ? "Расскажите, пожалуйста, какая у вас роль?" : "Какие задачи у вас повторяются чаще всего? Например: отчёты, встречи, планирование или координация." };
+  if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", summary: { preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
+  const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "preferredName";
+  if (field === "addressForm") return { status: "needs_choice", field, prompt: "Обращаться к вам на ты или на вы?", choices: ["На ты", "На вы"] };
+  if (field === "persona") return { status: "needs_choice", field, prompt: "Какой стиль общения вам ближе?", choices: ["Тёплый", "Деловой"] };
+  if (field === "responseLength") return { status: "needs_choice", field, prompt: "Какой длины ответы удобнее?", choices: ["Коротко", "Сбалансированно", "Подробно"] };
+  if (field === "preferredName") return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться?" };
+  if (field === "assistantName") return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
+  return { status: "needs_answer", field, prompt: "Какой у вас часовой пояс? Укажите IANA timezone, например Europe/Moscow." };
 }
-const trackedProfileFields = ["role", "typicalTasks", "persona", "aiLevel", "responseLength", "preferredCheckinsPerDay"] as const;
+const trackedProfileFields = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
+function isValidTimezone(value: string): boolean {
+  try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(); return /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/u.test(value); }
+  catch { return false; }
+}
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
   return trackedProfileFields.filter((field) =>
     // Omitted optional data is not a change on initial creation, while a later

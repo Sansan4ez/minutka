@@ -1,12 +1,14 @@
-import type { AiLevel, Persona } from "../domain/employee.js";
+import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
 
-export type OnboardingField = "role" | "typicalTasks" | "persona" | "aiLevel";
+export type OnboardingField = "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone";
 export type OnboardingDraft = {
   employeeId: string;
-  role?: string;
-  typicalTasks?: string[];
+  preferredName?: string;
+  assistantName?: string;
+  addressForm?: AddressForm;
   persona?: Persona;
-  aiLevel?: AiLevel;
+  responseLength?: ResponseLengthPreference;
+  timezone?: string;
   status: "collecting" | "awaiting_confirmation";
   pendingField?: OnboardingField;
   revision: number;
@@ -15,23 +17,25 @@ export type OnboardingDraft = {
   expiresAt: string;
 };
 export type OnboardingProfilePatch = {
-  role?: string;
-  typicalTasks?: string[];
+  preferredName?: string;
+  assistantName?: string;
+  addressForm?: AddressForm;
   persona?: Persona;
-  aiLevel?: AiLevel;
-  /** Explicit additions to the existing task list, used for natural-language corrections. */
-  appendTypicalTasks?: string[];
+  responseLength?: ResponseLengthPreference;
+  timezone?: string;
   ambiguousFields: OnboardingField[];
 };
 export type OnboardingSummary = {
-  role: string;
-  typicalTasks: string[];
+  preferredName: string;
+  assistantName: string;
+  addressForm: string;
   persona: string;
-  aiLevel: string;
+  responseLength: string;
+  timezone: string;
 };
 export type OnboardingProgress =
   | { status: "needs_answer"; field: OnboardingField; prompt: string }
-  | { status: "needs_choice"; field: "persona" | "aiLevel"; prompt: string; choices: string[] }
+  | { status: "needs_choice"; field: "addressForm" | "persona" | "responseLength"; prompt: string; choices: string[] }
   | { status: "needs_confirmation"; summary: OnboardingSummary }
   /** The user rejected the summary; the next natural-language message is a correction. */
   | { status: "needs_correction"; prompt: string }

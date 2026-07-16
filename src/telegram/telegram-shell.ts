@@ -59,11 +59,11 @@ async function withVoiceTimeout<T>(timeoutMs: number, action: (signal: AbortSign
     if (timer) clearTimeout(timer);
   }
 }
-const onboardingIntroduction = "Расскажите немного о работе в удобной форме: ваша роль, типичные задачи, предпочитаемый стиль общения — «Поддержка» или «Эффективность» — и опыт работы с ИИ. Можно ответить одним сообщением или по частям.";
+const onboardingIntroduction = "Давайте коротко познакомимся. Напишите, как к вам обращаться, как вы хотите называть меня, предпочитаете общение на ты или на вы, тёплый или деловой стиль, длину ответов и ваш IANA timezone. Можно ответить одним сообщением или по частям.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 function consentCallbackData(employeeId: string): string | undefined { const callbackData = `tg:consent:${employeeId}`; return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined; }
-function onboardingCallbackData(action: "confirm" | "reset" | "persona" | "aiLevel", value?: string): string | undefined {
+function onboardingCallbackData(action: "confirm" | "reset" | "addressForm" | "persona" | "responseLength", value?: string): string | undefined {
   const data = value ? `ob:${action}:${value}` : `ob:${action}`;
   return Buffer.byteLength(data, "utf8") <= maxTelegramCallbackDataBytes ? data : undefined;
 }
@@ -76,10 +76,12 @@ async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: stri
   const refresh = setInterval(() => { void replyPort.sendChatAction(chatId, "typing").catch(() => undefined); }, typingRefreshMilliseconds);
   try { return await action(); } finally { clearInterval(refresh); }
 }
-function onboardingChoiceValue(field: "persona" | "aiLevel", choice: string): string {
-  const values = field === "persona"
-    ? { "Поддержка": "support", "Эффективность": "efficiency" }
-    : { "Начинающий": "beginner", "Средний": "intermediate", "Продвинутый": "advanced" };
+function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLength", choice: string): string {
+  const values = field === "addressForm"
+    ? { "На ты": "informal", "На вы": "formal" }
+    : field === "persona"
+      ? { "Тёплый": "support", "Деловой": "efficiency" }
+      : { "Коротко": "short", "Сбалансированно": "balanced", "Подробно": "detailed" };
   const value = values[choice as keyof typeof values];
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
@@ -99,7 +101,7 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   if (progress.status === "needs_correction") return replyPort.sendMessage(chatId, progress.prompt);
   if (progress.status === "needs_confirmation") {
     const summary = progress.summary;
-    return replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- роль: ${summary.role};`, `- типичные задачи: ${summary.typicalTasks.join(", ")};`, `- стиль: ${summary.persona};`, `- опыт работы с ИИ: ${summary.aiLevel}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+    return replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
   }
   const response = progress.result.firstResponse.trim();
   if (!response) throw new Error("Agent returned an empty onboarding response");
@@ -259,7 +261,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (prefix !== "ob" || extra.length || !action) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
           if (action === "confirm" && !value) { const result = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).confirmOnboarding()); await replyPort.answerCallbackQuery(callbackQueryId, "Профиль сохранён!"); for (const chunk of splitTelegramMessage(result.firstResponse)) await replyPort.sendMessage(chatId, chunk); return; }
           if (action === "reset" && !value) { const progress = await employeeClient(session.employeeId).submitOnboardingAnswer({ text: "Исправить" }); await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?"); return renderOnboardingProgress(replyPort, chatId, progress); }
-          if ((action === "persona" || action === "aiLevel") && value) { await replyPort.answerCallbackQuery(callbackQueryId); return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text: value })); }
+          if ((action === "addressForm" || action === "persona" || action === "responseLength") && value) { await replyPort.answerCallbackQuery(callbackQueryId); return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text: value })); }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");

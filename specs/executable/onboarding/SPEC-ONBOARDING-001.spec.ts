@@ -155,8 +155,8 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
           run.context?.purpose === "onboarding_first_response" &&
           run.context.systemContext?.includes("Эффективность") &&
           run.context.systemContext.includes(testProfile.role) &&
-          run.context.systemContext.includes("intermediate") &&
-          run.context.systemContext.includes("практический шаг"),
+          run.context.systemContext.includes("Etc/UTC") &&
+          run.context.systemContext.includes("экономии времени"),
       ),
     ).toBe(true);
 
@@ -318,11 +318,15 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       world.events.find((event) => event.type === "UserProfileUpdated"),
     ).toMatchObject({
       changedFields: [
+        "preferredName",
+        "assistantName",
+        "addressForm",
+        "persona",
+        "responseLength",
+        "timezone",
         "role",
         "typicalTasks",
-        "persona",
         "aiLevel",
-        "responseLength",
       ],
     });
   });

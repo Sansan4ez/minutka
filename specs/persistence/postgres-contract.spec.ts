@@ -44,7 +44,7 @@ async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgr
   await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
   await profiles.completeProfile({
     completedAt: now,
-    profile: { employeeId, role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+    profile: { employeeId, preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
   });
 }
 
@@ -69,7 +69,7 @@ describe("PostgreSQL storage contracts", () => {
     await profiles.issueInvite({ employeeId: "emp_pg", inviteCode: "invite_pg", issuedAt: now });
     await profiles.openInvite({ inviteCode: "invite_pg", openedAt: now, explanationShownAt: now });
     await profiles.acceptConsent({ employeeId: "emp_pg", privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
-    await profiles.completeProfile({ completedAt: now, profile: { employeeId: "emp_pg", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now } });
+    await profiles.completeProfile({ completedAt: now, profile: { employeeId: "emp_pg", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now } });
     await conversations.appendTurn({ messageId: "msg_pg", employeeId: "emp_pg", threadId: "thread_pg", userText: "morning", agentResponse: "reply", timestamp: now });
     const first = await feedback.saveFeedback({ id: "fb_original", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "positive", source: "test", updatedAt: now });
     const second = await feedback.saveFeedback({ id: "fb_retry", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "negative", source: "test", updatedAt: "2026-07-12T00:01:00.000Z" });
@@ -185,15 +185,15 @@ describe("PostgreSQL storage contracts", () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const drafts = createPostgresOnboardingDraftStore(pool);
     await profiles.issueInvite({ employeeId: "emp_draft", inviteCode: "invite_draft", issuedAt: now });
-    const expired = { employeeId: "emp_draft", status: "collecting" as const, pendingField: "role" as const, revision: 1, createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", expiresAt: "2000-02-01T00:00:00.000Z" };
+    const expired = { employeeId: "emp_draft", status: "collecting" as const, pendingField: "preferredName" as const, revision: 1, createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", expiresAt: "2000-02-01T00:00:00.000Z" };
     await drafts.save(expired, 0);
     const fresh = { ...expired, revision: 2, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" };
     await expect(drafts.save(fresh, expired.revision)).rejects.toMatchObject({ code: "persistence_conflict" });
     expect(await drafts.purgeExpired()).toBe(1);
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     expect(await drafts.save({ ...fresh, revision: 1 }, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
-    expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "typicalTasks" })).toMatchObject({ revision: 2, pendingField: "typicalTasks" });
-    await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
+    expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "assistantName" })).toMatchObject({ revision: 2, pendingField: "assistantName" });
+    await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     await expect(drafts.save({ ...fresh, revision: 3 }, 0)).rejects.toMatchObject({ code: "persistence_conflict" });
   });
@@ -261,10 +261,10 @@ describe("PostgreSQL storage contracts", () => {
     // Drafts are intentionally rejected after profile completion. Persist this
     // temporary private record while onboarding is still in progress, then
     // complete the profile without its normal draft-cleanup option.
-    await drafts.save({ employeeId: "emp_delete", status: "collecting", pendingField: "role", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
+    await drafts.save({ employeeId: "emp_delete", status: "collecting", pendingField: "preferredName", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
     await profiles.completeProfile({
       completedAt: now,
-      profile: { employeeId: "emp_delete", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+      profile: { employeeId: "emp_delete", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
     });
     const conversations = createPostgresConversationStore(pool);
     await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });

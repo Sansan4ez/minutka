@@ -119,11 +119,14 @@ function buildRoutingPrompt(
   });
   const profile = input.profile
     ? [
-        `role: ${input.profile.role}`,
-        `typicalTasks: ${input.profile.typicalTasks.join(", ")}`,
+        `preferredName: ${input.profile.preferredName ?? input.profile.role ?? input.profile.employeeId}`,
+        `assistantName: ${input.profile.assistantName ?? "Ассистент"}`,
+        `addressForm: ${input.profile.addressForm ?? "informal"}`,
         `persona: ${input.profile.persona}`,
-        `aiLevel: ${input.profile.aiLevel}`,
         `responseLength: ${input.profile.responseLength}`,
+        `timezone: ${input.profile.timezone ?? "Etc/UTC"}`,
+        ...(input.profile.role ? [`legacyRole: ${input.profile.role}`] : []),
+        ...(input.profile.typicalTasks?.length ? [`legacyTypicalTasks: ${input.profile.typicalTasks.join(", ")}`] : []),
       ].join("\n")
     : "not available";
   return [

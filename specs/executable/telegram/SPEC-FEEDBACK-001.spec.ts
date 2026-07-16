@@ -511,13 +511,13 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Привет" });
-    expect(telegram.sentMessages()[0].text).toContain("какая у вас роль");
+    expect(telegram.sentMessages()[0].text).toContain("называть меня");
     expect(spec.world.messages).toHaveLength(0);
 
     telegram.clear();
     await telegram.sendText({
       chatId: "chat_1",
-      text: "Руководитель проектов | планирование; встречи | efficiency | intermediate",
+      text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow",
     });
     expect(telegram.sentMessages()[0].text).toContain("Проверьте, пожалуйста");
     expect(spec.world.profiles).toHaveLength(0);
@@ -540,20 +540,20 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_correction", callbackData: consent! });
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_correction", text: "Аналитик | отчёты | Поддержка | Средний" });
+    await telegram.sendText({ chatId: "chat_correction", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     const edit = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][1];
     expect(edit).toMatchObject({ text: "✏️ Исправить", callbackData: "ob:reset" });
     await telegram.clickCallback({ chatId: "chat_correction", callbackData: edit!.callbackData });
     expect(telegram.sentMessages().at(-1)?.text).toContain("Напишите, что исправить");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_correction", text: "Не средний, а начинающий" });
-    expect(telegram.sentMessages().at(-1)?.text).toContain("начинающий");
+    await telegram.sendText({ chatId: "chat_correction", text: "Зови меня Алексей" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Алексей");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_correction", text: "Да" });
-    expect(spec.world.profiles[0]).toMatchObject({ aiLevel: "beginner", role: "Аналитик", typicalTasks: ["отчёты"] });
+    expect(spec.world.profiles[0]).toMatchObject({ preferredName: "Алексей", assistantName: "Спарк", timezone: "Europe/Moscow" });
   });
 
-  it("10b. Uses canonical callback values so every AI level button completes the fallback flow", async () => {
+  it("10b. Uses canonical callback values for the response-length choice", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
     await spec.cli.run(["employee", "issue-invite", "--invite", "invite_ai_button", "--employee", "emp_ai_button"]);
@@ -561,11 +561,11 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: consent! });
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_ai_button", text: "Роль — аналитик. Задачи: отчёты. Поддержка" });
-    const beginner = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0];
-    expect(beginner).toMatchObject({ text: "Начинающий", callbackData: "ob:aiLevel:beginner" });
-    await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: beginner!.callbackData });
-    expect(telegram.sentMessages().at(-1)?.text).toContain("Проверьте, пожалуйста");
+    await telegram.sendText({ chatId: "chat_ai_button", text: "Меня зовут Максим. Тебя зовут Спарк. Общаемся на ты, стиль деловой." });
+    const short = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0];
+    expect(short).toMatchObject({ text: "Коротко", callbackData: "ob:responseLength:short" });
+    await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: short!.callbackData });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("часовой пояс");
   });
 
   it("10b. Repeated consent callback is idempotent under concurrent delivery", async () => {
