@@ -134,7 +134,9 @@ HTTP / CLI ─────────────────────┼─
 
 ### 5.2. Логический неймспейс
 
-Расширяем vault-неймспейс «Минутки» под ассистента:
+Канонический порядок сборки runtime context, registry источников и бюджеты зафиксированы в [`runtime-context-contract.md`](./runtime-context-contract.md).
+
+Расширяем переиспользованный Agent Vault под ассистента:
 
 ```text
 /AGENTS.md        роль ассистента и глобальные границы            (git)
@@ -164,7 +166,7 @@ HTTP / CLI ─────────────────────┼─
 | `/proc/context` | `DocumentStore`, storage key `{userId}/context/*` | untrusted owner-authored data текущего владельца | read-only bounded projection; запись через `IngestionService` |
 | `/proc/records` | owner-scoped PostgreSQL record stores | untrusted business data текущего владельца | read-only bounded projection; запись через typed record use-cases |
 | `/proc/inbox` | `BlobStore`/`ArtifactStore`, `{userId}/inbox/*` или owner-scoped CAS references | untrusted inbound data текущего владельца | read-only bounded projection; запись через validated ingestion |
-| `/proc/decision` | validated constrained-router output | trusted one-request decision, но не новый authority source | read-only; пересобирается на запрос |
+| `/proc/decision` | optional diagnostic reconstruction from actual process/tool execution | diagnostic one-request data, не authority source | read-only; восстанавливается из execution evidence |
 | `/run/actions` | redacted `AuditEventStore` projection | diagnostic data текущего владельца/request; не policy | read-only; allow-listed metadata пишет application layer |
 
 Storage keys `context/*` и `inbox/*` не имеют ведущего `/` и существуют только за owner-scoped портами. В runtime они видны как `/proc/context` и `/proc/inbox`; конкурирующих `/context` и `/inbox` нет. Repository `docs/` — developer/RFC документация и никогда не загружается в prompt неявно. Содержимое profile/context/inbox/records/history не может подменить `userId`, роль, namespace или capability set.

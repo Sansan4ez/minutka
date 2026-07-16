@@ -8,7 +8,8 @@ Use `/docs` for stable authority, product, methodology, and boundary context. Do
 
 | Document | Use when | Authority boundary |
 |---|---|---|
-| `/docs/privacy-boundary.md` | Employee asks what company/methodologist sees or what is stored | Current prototype privacy explanation only |
+| `/docs/privacy-boundary.md` | Owner asks what is stored or which providers receive data | Current prototype privacy explanation only |
 | `/docs/authority-and-mutability.md` | Every assistant request | Namespace authority, owner scope, and mutation boundaries |
+| `/docs/product-boundary.md` | Optional general product scope and external-action boundary | Load only if explicitly added to the registry |
 
 Current state comes from `/proc`. Mutations go through `/bin`. Business-process selection comes from `/processes`.

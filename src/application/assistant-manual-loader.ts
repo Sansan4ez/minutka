@@ -26,6 +26,14 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
   if (duplicate) throw new Error(`duplicate assistant process id: ${duplicate.id}`);
   const duplicateRuntimeDoc = registry.runtimeDocs.find((document, index) => registry.runtimeDocs.findIndex(({ id }) => id === document.id) !== index);
   if (duplicateRuntimeDoc) throw new Error(`duplicate assistant runtime document id: ${duplicateRuntimeDoc.id}`);
+  const registeredPaths = [
+    registry.core.path,
+    registry.index.path,
+    ...registry.runtimeDocs.map(({ path }) => path),
+    ...registry.processes.map(({ path }) => path),
+  ];
+  const duplicatePath = registeredPaths.find((path, index) => registeredPaths.indexOf(path) !== index);
+  if (duplicatePath) throw new Error(`duplicate assistant manual path: ${duplicatePath}`);
   assertAllowlistedPath(registry.core.path, "vault/assistant/AGENTS.md", "assistant core");
   assertAllowlistedPath(registry.index.path, "vault/assistant/processes/index.md", "assistant process index");
   for (const document of registry.runtimeDocs) assertDirectChild(document.path, "vault/assistant/docs/", `assistant runtime document ${document.id}`);

@@ -55,6 +55,20 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(() => loadAssistantAgentInstructions({ repoRoot: root })).toThrow();
   });
 
+  it("rejects duplicate registered paths before assembling the prompt", () => {
+    const source = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8"));
+    const root = mkdtempSync(join(tmpdir(), "assistant-manual-duplicate-path-"));
+    mkdirSync(join(root, "vault/assistant/processes"), { recursive: true });
+    writeFileSync(join(root, "vault/assistant/processes/registry.json"), JSON.stringify({
+      ...source,
+      runtimeDocs: [
+        source.runtimeDocs[0],
+        { id: "duplicate-authority", path: source.runtimeDocs[0].path },
+      ],
+    }));
+    expect(() => loadAssistantAgentInstructions({ repoRoot: root })).toThrow("duplicate assistant manual path");
+  });
+
   it("rejects repository docs and user-vault files even when a registry names them", () => {
     const source = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8"));
     for (const path of ["docs/architecture/rfc-personal-assistant-architecture.md", "vault/user/knowledge_base/AGENTS.MD"]) {

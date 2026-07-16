@@ -3,6 +3,7 @@ import { AssistantService } from "../../../src/application/assistant-service.js"
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 
@@ -11,7 +12,8 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const world = createInMemoryWorld(() => "2026-07-15T09:00:00.000Z");
     const documents = createInMemoryDocumentStore({ now: world.now });
     const blobs = createInMemoryBlobStore({ now: world.now });
-    const ingestion = createIngestionService({ documentStore: documents, blobStore: blobs });
+    const ideas = createInMemoryIdeaStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: blobs, ideaStore: ideas });
     await ingestion.saveContextDocument({
       userId: "maxim",
       path: "context/01_личная_конституция.md",
@@ -22,6 +24,16 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       path: "context/private.md",
       content: "чужой секрет",
     });
+    await ingestion.captureIdea({
+      id: "idea-1",
+      userId: "maxim",
+      project: "АССИСТЕНТ",
+      type: "development",
+      summary: "Проверить порядок records projection",
+      source: { kind: "text", text: "test fixture" },
+      suggestedNextStep: "Проверить snapshot.",
+      needsProjectClarification: false,
+    });
 
     let receivedContext = "";
     const service = new AssistantService(
@@ -29,7 +41,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
         receivedContext = context.systemContext;
         return "Контекст учтён.";
       },
-      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now } },
+      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, ideaStore: ideas, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now } },
     );
     const result = await service.chat({ userId: "maxim", threadId: "telegram:1", text: "Составь план дня" });
 
@@ -37,6 +49,12 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     expect(receivedContext).toContain("Ценность: ясность");
     expect(receivedContext).not.toContain("чужой секрет");
     expect(receivedContext).toContain("user-owned reference data");
+    expect(receivedContext.indexOf("Personal Assistant runtime instructions")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/context"));
+    expect(receivedContext.indexOf("Runtime projection: /proc/context")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/records"));
+    expect(receivedContext).not.toContain("# RFC:");
+    expect(receivedContext).not.toContain("docs/architecture/rfc-personal-assistant-architecture.md");
+    expect(receivedContext).not.toContain("vault/user/knowledge_base");
+    expect(receivedContext).not.toContain("## Runtime projection: /run/actions");
     expect(world.messages).toHaveLength(1);
   });
 
