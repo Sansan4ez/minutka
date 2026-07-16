@@ -32,6 +32,14 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       throw error;
     }
   };
+  const readAfterFailedCreate = async (userId: string, path: string): Promise<UserDocument | null> => {
+    for (const delayMs of [0, 10, 25]) {
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const existing = await getExact(userId, path).catch(() => null);
+      if (existing) return existing;
+    }
+    return null;
+  };
   const listExact = async (userId: string, prefix?: string): Promise<UserDocument[]> => {
     const safeUserId = assertUserId(userId);
     const safePrefix = prefix === undefined ? "" : `${assertSafeVaultPath(prefix.replace(/\/+$/, ""))}/`;
@@ -82,10 +90,12 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
         });
         return { userId: safeUserId, path: safePath, content, version: result.versionId ?? result.etag, updatedAt: now() };
       } catch (error) {
-        if (!isPreconditionFailed(error)) throw error;
-        const concurrent = await getExact(safeUserId, safePath);
-        if (!concurrent) throw error;
-        return concurrent;
+        // A losing conditional PUT may be reported either as an S3
+        // precondition error or as a dropped connection by older gateways.
+        // Reconcile from storage before deciding that the create failed.
+        const concurrent = await readAfterFailedCreate(safeUserId, safePath);
+        if (concurrent) return concurrent;
+        throw error;
       }
     },
     async list(userId, prefix) {
@@ -94,7 +104,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       const storagePrefixes = new Set<string>([canonicalPrefix]);
       const legacyPrefix = canonicalPrefix ? legacyDocumentPath(canonicalPrefix.slice(0, -1)) : null;
       if (legacyPrefix) storagePrefixes.add(`${legacyPrefix}/`);
-      const documentGroups = await Promise.all([...storagePrefixes].map((storagePrefix) => listExact(safeUserId, storagePrefix)));
+      const documentGroups = await Promise.all([...storagePrefixes].map((storagePrefix) => listExact(safeUserId, storagePrefix || undefined)));
       const selectedDocuments = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
       for (const document of documentGroups.flat()) {
         const canonicalPath = canonicalDocumentPath(document.path);
@@ -145,9 +155,4 @@ function isNotFound(error: unknown): boolean {
   // S3-compatible providers may use the more specific NoSuch* codes.
   const code = errorCode(error);
   return code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject";
-}
-
-function isPreconditionFailed(error: unknown): boolean {
-  const code = errorCode(error);
-  return code === "PreconditionFailed" || code === "ConditionalRequestConflict";
 }

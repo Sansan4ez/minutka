@@ -6,6 +6,9 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createOnboardingContextMaterializer } from "../../../src/application/onboarding-context-materializer.js";
+import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
+import type { DocumentStore } from "../../../src/application/document-store.js";
 
 async function consentedRuntime(employeeId = "emp_conversational") {
   const world = createInMemoryWorld();
@@ -51,6 +54,52 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(documents.find(({ path }) => path.endsWith("soul.md"))?.content).toContain("не определяет роль, полномочия");
     expect(JSON.stringify(documents)).not.toContain("context/imported-knowledge-base");
     expect(await runtime.documentStore.list("other_owner", "context/")).toEqual([]);
+  });
+
+  it("supplies the confirmed owner's goals and projects to chat after a service restart", async () => {
+    const runtime = await consentedRuntime("owner_restart");
+    await runtime.service.submitOnboardingAnswer({ employeeId: "owner_restart", text: completeAnswer });
+    await runtime.service.confirmOnboarding({ employeeId: "owner_restart" });
+
+    const ingestion = createIngestionService({
+      documentStore: runtime.documentStore,
+      blobStore: createInMemoryBlobStore({ now: runtime.world.now }),
+    });
+    let ownerContext = "";
+    const restartedService = new AssistantService(
+      async (_input, context) => { ownerContext = context.systemContext; return "Контекст учтён."; },
+      {
+        documentStore: runtime.documentStore,
+        conversationStore: createInMemoryConversationStore(runtime.world),
+        ingestionService: ingestion,
+        requestIntegrityGuard: async () => ({ status: "allowed" }),
+        clock: { now: runtime.world.now },
+      },
+    );
+
+    const ownerResult = await restartedService.chat({ userId: "owner_restart", threadId: "telegram:owner", text: "Какие у меня цели и проекты?" });
+    expect(ownerResult.personalContextDocuments).toEqual(expect.arrayContaining([
+      "/proc/context/10_user_memory/02_цели_и_приоритеты.md",
+      "/proc/context/40_projects/00_проекты.md",
+    ]));
+    expect(ownerContext).toContain("# Цели и приоритеты");
+    expect(ownerContext).toContain("# Проекты");
+
+    let otherOwnerContext = "";
+    const isolatedService = new AssistantService(
+      async (_input, context) => { otherOwnerContext = context.systemContext; return "Контекста пока нет."; },
+      {
+        documentStore: runtime.documentStore,
+        conversationStore: createInMemoryConversationStore(runtime.world),
+        ingestionService: ingestion,
+        requestIntegrityGuard: async () => ({ status: "allowed" }),
+        clock: { now: runtime.world.now },
+      },
+    );
+    const otherResult = await isolatedService.chat({ userId: "other_owner", threadId: "telegram:other", text: "Какие у меня цели и проекты?" });
+    expect(otherResult.personalContextDocuments).toEqual([]);
+    expect(otherOwnerContext).not.toContain("# Цели и приоритеты");
+    expect(otherOwnerContext).not.toContain("# Проекты");
   });
 
   it("preserves imported semantic documents instead of creating competing onboarding copies", async () => {
@@ -157,6 +206,42 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     fail = false;
     await expect(runtime.service.confirmOnboarding({ employeeId: "emp_recovery" })).resolves.toMatchObject({ status: "profile_completed" });
     expect(await documents.list("emp_recovery", "context/")).toHaveLength(4);
+  });
+
+  it("recovers safely after partial context materialization without overwriting created documents", async () => {
+    const world = createInMemoryWorld();
+    const storedDocuments = createInMemoryDocumentStore({ now: world.now });
+    let createAttempts = 0;
+    let failAfterTwoCreates = true;
+    const unreliableDocuments: DocumentStore = {
+      ...storedDocuments,
+      async putIfAbsent(userId, path, content) {
+        createAttempts += 1;
+        if (failAfterTwoCreates && createAttempts === 3) throw new Error("document store unavailable");
+        return storedDocuments.putIfAbsent(userId, path, content);
+      },
+    };
+    const ingestion = createIngestionService({
+      documentStore: unreliableDocuments,
+      blobStore: createInMemoryBlobStore({ now: world.now }),
+    });
+    const materializer = createOnboardingContextMaterializer({ documentStore: unreliableDocuments, ingestionService: ingestion });
+
+    await expect(materializer.materialize({ userId: "owner_partial" })).rejects.toThrow("document store unavailable");
+    const partiallyCreated = await storedDocuments.list("owner_partial", "context/");
+    expect(partiallyCreated).toHaveLength(2);
+    expect(partiallyCreated.map(({ version }) => version)).toEqual(["memory-1", "memory-2"]);
+
+    failAfterTwoCreates = false;
+    await expect(materializer.materialize({ userId: "owner_partial" })).resolves.toHaveLength(4);
+    const recovered = await storedDocuments.list("owner_partial", "context/");
+    expect(recovered).toHaveLength(4);
+    expect(recovered.map(({ version }) => version)).toEqual(["memory-1", "memory-2", "memory-3", "memory-4"]);
+
+    const existing = recovered[0];
+    const ensured = await ingestion.ensureContextDocument({ userId: existing.userId, path: existing.path, content: "must not overwrite" });
+    expect(ensured).toEqual(existing);
+    expect((await storedDocuments.getExact(existing.userId, existing.path))?.content).toBe(existing.content);
   });
 
   it("does not recreate a draft when confirmation completes during extraction", async () => {

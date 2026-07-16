@@ -1,6 +1,6 @@
 # TODO in Personal AI assistant project
 
-1. Реальный тест онбординга и заполения профиля
+1. Реальный тест онбординга и заполнения профиля — manual Telegram smoke pending: пройти invite → consent → natural-language profile → confirmation, перезапустить runtime и проверить вопрос «Какие у меня цели и проекты?» на pilot owner; убедиться, что другой owner не видит эти context docs.
 2. Может быть в папку `/home/admin/personal-assistant/vault/docs` положить шаблоны требуемых документов как в `/home/admin/personal-assistant/seed/knowledge-base/00_константы`
 
 ## Дополнения
