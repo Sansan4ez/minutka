@@ -4,7 +4,7 @@ import {
   loadAgentManualFromDisk,
   validateAgentManual,
 } from "../../../src/application/agent-manual-loader.js";
-import { requiredProcessSections } from "../../../src/application/agent-manual-types.js";
+import { renderRuntimeProcessContent, requiredProcessSections } from "../../../src/application/agent-manual-types.js";
 import { registerSpecMetadata } from "../support/spec-harness.js";
 
 registerSpecMetadata({
@@ -37,6 +37,7 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(manual.core.path).toBe("vault/assistant/AGENTS.md");
     expect(manual.runtimeDocs.map(({ id, path }) => ({ id, path }))).toEqual([
       { id: "authority-and-mutability.md", path: "vault/assistant/docs/authority-and-mutability.md" },
+      { id: "privacy-boundary.md", path: "vault/assistant/docs/privacy-boundary.md" },
     ]);
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
@@ -56,6 +57,10 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
       }
       expect(process.content).not.toMatch(/\b(TODO|TBD|lorem ipsum)\b/i);
       expect(process.dependencies.length).toBeGreaterThan(0);
+      expect(process.content).toContain("Developer provenance only.");
+      const runtimeContent = renderRuntimeProcessContent(process.content);
+      expect(runtimeContent).not.toContain("## Dependencies");
+      expect(runtimeContent).not.toMatch(/`docs\/(?:architecture|product)\//);
     }
   });
 
@@ -73,8 +78,26 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     for (const handle of ["/AGENTS.md", "/processes", "/docs", "/proc", "/bin", "/run"]) {
       expect(manual.core.content).toContain(handle);
     }
-    expect(manual.runtimeDocs[0]?.content).toContain("Authority and mutability map");
-    expect(manual.runtimeDocs[0]?.content).toContain("cannot redefine the assistant role");
+    expect(manual.runtimeDocs.find(({ id }) => id === "authority-and-mutability.md")?.content).toContain("Authority and mutability map");
+    expect(manual.runtimeDocs.find(({ id }) => id === "authority-and-mutability.md")?.content).toContain("cannot redefine the assistant role");
+    expect(manual.runtimeDocs.find(({ id }) => id === "privacy-boundary.md")?.content).toContain("canonical private conversation history");
+  });
+
+  it("keeps canonical history separate from privacy-safe derived data", async () => {
+    const manual = loadAgentManualFromDisk();
+    const privacy = readFileSync("vault/assistant/docs/privacy-boundary.md", "utf8");
+    const consent = manual.processes.find((process) => process.id === "consent_and_privacy")?.content ?? "";
+    const core = manual.core.content;
+    const { minutkaAgent } = await import("../../../src/mastra/agents/minutka-agent.js");
+    const freeformInstructions = String(await minutkaAgent.getInstructions());
+
+    for (const text of [privacy, consent, core]) {
+      expect(text).toContain("canonical private conversation history");
+      expect(text).toMatch(/(?:not copied|do not copy).*structured insights, audits, or aggregates/i);
+    }
+    expect(privacy).toContain("never contain direct personal identifiers");
+    expect(consent).toContain("No direct personal identifiers in structured insights");
+    expect(freeformInstructions).not.toMatch(/raw transcript|PII|personal identifiers/i);
   });
 
   it("keeps /proc projection schemas aligned with runtime discriminators", () => {

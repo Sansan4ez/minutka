@@ -9,6 +9,7 @@ import type {
   AgentManualPurpose,
   AgentManualSelection,
 } from "./agent-manual-types.js";
+import { renderRuntimeProcessContent } from "./agent-manual-types.js";
 
 export type ResolveAgentManualInput = {
   purpose: AgentManualPurpose;
@@ -108,7 +109,7 @@ function buildRoutingPrompt(
   const processSummaries = manual.processes
     .filter((process) => candidateProcessIds.includes(process.id))
     .map((process) => {
-      const when = extractSectionPreview(process.content, "## When this process applies");
+      const when = extractSectionPreview(renderRuntimeProcessContent(process.content), "## When this process applies");
       return `- ${process.id}: ${when}`;
     })
     .join("\n");
@@ -202,7 +203,7 @@ export function renderManualContext(
     const process = manual.processes.find((candidate) => candidate.id === processId);
     if (process) {
       sections.push(
-        [`## Agent Vault process: ${process.id}`, process.content.trim()].join("\n\n"),
+        [`## Agent Vault process: ${process.id}`, renderRuntimeProcessContent(process.content)].join("\n\n"),
       );
     }
   }

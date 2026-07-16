@@ -44,6 +44,8 @@ Use for workday reflection messages: end-of-day summaries, blockers, meetings/ca
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `docs/product/Final_Description.md#scenario-5-employee-completes-evening-reflection`
 - `docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия`
 - `specs/executable/context/SPEC-CONTEXT-001.spec.ts`

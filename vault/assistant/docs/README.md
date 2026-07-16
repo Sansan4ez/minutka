@@ -8,8 +8,6 @@ Use `/docs` for stable authority, product, methodology, and boundary context. Do
 
 | Document | Use when | Authority boundary |
 |---|---|---|
-| `/docs/product-boundary.md` | The request asks what Minutka can/cannot do | Product role and scope boundary |
-| `/docs/methodology.md` | The response should reflect program methodology or employee reflection style | Reflection method, tone, and safe coaching posture |
 | `/docs/privacy-boundary.md` | Employee asks what company/methodologist sees or what is stored | Current prototype privacy explanation only |
 | `/docs/authority-and-mutability.md` | Every assistant request | Namespace authority, owner scope, and mutation boundaries |
 

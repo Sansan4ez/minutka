@@ -45,6 +45,8 @@ Use when the employee reacts to a specific Minutka response with a quick rating 
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `docs/architecture/minutka-foundation.md`
 - `docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия`
 - `docs/product/Final_Description.md#65-reporting-and-automation-map-generation`

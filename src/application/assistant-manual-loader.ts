@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { findRepoRoot } from "./agent-manual-loader.js";
+import { renderRuntimeProcessContent } from "./agent-manual-types.js";
 
 const registrySchema = z.strictObject({
   version: z.literal(1),
@@ -40,7 +41,7 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
     "# Process index",
     index,
     "# Process files",
-    ...registry.processes.map((process) => `## Process file: ${process.id}\n\n${readFileSync(safeRepoPath(repoRoot, process.path), "utf8").trim()}`),
+    ...registry.processes.map((process) => `## Process file: ${process.id}\n\n${renderRuntimeProcessContent(readFileSync(safeRepoPath(repoRoot, process.path), "utf8"))}`),
   ].join("\n\n");
 }
 

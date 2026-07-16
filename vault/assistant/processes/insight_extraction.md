@@ -42,6 +42,8 @@ Use when the SO-CoT conversation decision router marks an allowed turn as an ins
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `src/domain/insights.ts`
 - `src/domain/conversation-decision.ts`
 - `specs/executable/context/SPEC-CONTEXT-001.spec.ts`

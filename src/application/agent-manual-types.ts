@@ -71,3 +71,8 @@ export const requiredProcessSections = [
   "## Anti-patterns",
   "## Dependencies",
 ] as const;
+
+/** Developer provenance is validated from source, but never sent to an agent as runtime policy. */
+export function renderRuntimeProcessContent(content: string): string {
+  return content.split(/^## Dependencies\s*$/m, 1)[0]?.trim() ?? "";
+}

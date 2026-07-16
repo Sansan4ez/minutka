@@ -29,4 +29,6 @@ Do not write directly to a store, filesystem, or external service. Do not invent
 
 ## Dependencies
 
+Developer provenance only. This repository file is validated by maintainers and is not a runtime input or prompt content.
+
 - `docs/architecture/rfc-personal-assistant-architecture.md#6-классификатор-сквозной-тип`

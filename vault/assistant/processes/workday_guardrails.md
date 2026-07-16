@@ -43,6 +43,8 @@ Use when the SO-CoT conversation decision router selects a business-scope bounda
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `docs/product/Final_Description.md#scenario-6-employee-asks-for-in-the-moment-help`
 - `docs/product/virtual-simulation.md#scenario-5-помощь-в-моменте-с-границей-темы`
 - `specs/executable/guardrails/SPEC-GUARDRAILS-001.spec.ts`

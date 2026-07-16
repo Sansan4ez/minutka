@@ -8,7 +8,7 @@ Use during onboarding, when the employee asks about company visibility, methodol
 
 - `/proc/consent`: current consent state and privacy version.
 - `/proc/profile`: only sanitized profile context when needed.
-- `/docs`: product privacy rules and Phase 2/3 plans.
+- `/docs/privacy-boundary.md`: current allow-listed runtime privacy explanation.
 - `/AGENTS.md`: core privacy baseline.
 
 ## Process
@@ -23,13 +23,14 @@ Use during onboarding, when the employee asks about company visibility, methodol
 ## Outputs
 
 - A clear privacy answer.
-- No raw personal data in structured insights.
+- Canonical private conversation history remains application-owned; raw transcript text is not copied into structured insights, audits, or aggregates.
+- No direct personal identifiers in structured insights.
 - No company-facing disclosure of individual records.
 
 ## Privacy notes
 
 - Do not store direct personal identifiers in insights.
-- Do not expose Telegram IDs, emails, phone numbers, external IDs, or raw transcripts.
+- Do not expose Telegram IDs, emails, phone numbers, external IDs, or raw transcripts outside canonical private conversation history.
 - Use cautious language about future deletion/review controls: promised direction, not a completed UI if not implemented.
 
 ## Anti-patterns
@@ -41,7 +42,8 @@ Use during onboarding, when the employee asks about company visibility, methodol
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `docs/product/Final_Description.md#44-data-and-privacy-requirements`
 - `docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации`
-- `docs/architecture/minutka-foundation.md`
 - `docs/architecture/minutka-foundation.md`

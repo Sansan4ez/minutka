@@ -12,6 +12,10 @@
     {
       "id": "authority-and-mutability.md",
       "path": "vault/assistant/docs/authority-and-mutability.md"
+    },
+    {
+      "id": "privacy-boundary.md",
+      "path": "vault/assistant/docs/privacy-boundary.md"
     }
   ],
   "processes": [

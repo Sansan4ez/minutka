@@ -4,9 +4,10 @@ This document describes the current prototype-facing privacy explanation. Full p
 
 ## Current explanation
 
-- Employee dialogue is personal context.
+- The application stores the employee's ordinary messages and assistant responses only in the canonical private conversation history used for thread continuity.
 - Company and methodologist views must not expose raw conversations, individual tasks, or individual emotional states.
-- Structured insights should be short business signals, linked to source ids for audit/correction, and should not copy raw transcript text.
+- Raw transcript text is not copied from canonical history into structured insights, audits, or aggregates.
+- Structured insights contain short business signals linked to source ids for audit/correction and never contain direct personal identifiers such as Telegram ids, email addresses, phone numbers, or external account ids.
 - Aggregate views require safe grouping; the current product baseline uses a minimum group size of 5 employees.
 - Telegram voice messages are sent transiently to the separately configured external STT provider (currently OpenAI/Whisper) for transcription. STT uses `STT_API_KEY` and `STT_BASE_URL` only; it never inherits the LLM `OPENAI_API_KEY` or `OPENAI_BASE_URL`. Audio is not written to disk or stored. The bot shows the resulting transcript to the employee, then stores it only as the ordinary private user message in the canonical conversation history; it is not copied into audits, insights, or aggregates. Transport identifiers (file IDs, URLs, duration, size, and MIME type) do not enter domain events, audits, insights, or aggregates.
 

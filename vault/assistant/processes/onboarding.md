@@ -41,6 +41,8 @@ Use when `purpose = onboarding_first_response`: a new participant has accepted p
 
 ## Dependencies
 
+Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
+
 - `docs/product/Final_Description.md#scenario-1-employee-joins-the-program`
 - `docs/product/virtual-simulation.md#scenario-2-сотрудник-проходит-онбординг-согласие-и-настройку-стиля`
 - `specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts`

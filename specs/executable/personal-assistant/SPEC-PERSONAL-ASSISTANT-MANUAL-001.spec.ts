@@ -10,9 +10,12 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Personal Assistant runtime instructions");
     expect(instructions).toContain("Agent Vault process index");
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
+    expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
     expect(instructions).not.toContain("Active process:");
+    expect(instructions).not.toContain("## Dependencies");
+    expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
 
   it("loads only allow-listed trusted files and documents the authority boundary", () => {
