@@ -27,11 +27,11 @@ README-файлы каталогов не получают особого ста
 | 3 | allow-listed `/docs/*` | Стабильная runtime policy | trusted runtime policy, product-global | каждый product agent turn согласно registry | ≤12 000 chars total, ≤6 000/file | включены 2 документа |
 | 4 | `/processes/index.md` | Каталог для agent-led routing | trusted guidance, product-global | каждый product agent turn | ≤4 000 chars | включён |
 | 5 | registered `/processes/*` | Procedural playbooks | trusted guidance, product-global | сейчас все из малого registry; позже по `readProcess` | ≤16 000 chars total, ≤4 000/file | включён `inbox_capture` |
-| 6 | `/proc/profile` | Предпочтения, timezone, профиль знакомства | untrusted owner data, current `userId` | chat/onboarding/scheduled, когда профиль существует | ≤4 000 chars | **не включён в product chat** |
-| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `AGENTS.MD`, `README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat |
+| 6 | `/proc/profile` | Предпочтения, timezone, профиль знакомства | untrusted owner data, current `userId` | chat/onboarding/scheduled, когда профиль существует | ≤4 000 chars | включён в product chat после onboarding |
+| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `AGENTS.MD`, `README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat; core документы идут перед остальным деревом |
 | 8 | `/proc/records` | Relevant typed records | untrusted owner data, current `userId` | chat/scheduled по доступному store | 24 records; 1 000/record; 12 000 total | включён в chat |
 | 9 | `/proc/inbox` | Недавние/релевантные входящие артефакты | untrusted owner data, current `userId` | file/voice intake и запросы об inbox | ≤12 items; ≤8 000 chars metadata/extract total | **не включён** |
-| 10 | recent conversation history | Разрешение ссылок и продолжение треда | untrusted owner data, current `userId` + `threadId` | chat/voice после успешной аутентификации | 10 completed turns; 12 000 chars | **не включён в product chat** |
+| 10 | recent conversation history | Разрешение ссылок и продолжение треда | untrusted owner data, current `userId` + `threadId` | chat/voice после успешной аутентификации | 10 completed turns; 12 000 chars | включён в product chat с явным truncation marker |
 | 11 | `/run/actions` | Диагностика action/tool результата | diagnostic, current owner/request; not policy | только явный diagnostic/recovery сценарий | 50 events; ≤8 000 chars | **не включён** |
 | — | typed tools | Разрешённые действия | trusted request capability, owner-scoped handler | по типу запроса и confirmation state | только allow-list tool names; payload валидирует use-case | `captureIdea` для chat/intake |
 
@@ -41,7 +41,7 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 
 | Тип запроса | Фактический runtime | Целевой runtime |
 |---|---|---|
-| `chat` / Telegram text | base prompt + assistant manual (`/AGENTS.md`, allow-listed `/docs`, process index/files) + `/proc/context` + `/proc/records`; request-scoped `captureIdea` | добавить `/proc/profile`, relevant `/proc/inbox`, bounded recent history; `/run/actions` только по необходимости |
+| `chat` / Telegram text | base prompt + assistant manual (`/AGENTS.md`, allow-listed `/docs`, process index/files) + `/proc/profile` + приоритетный `/proc/context` + `/proc/records` + bounded recent history; request-scoped typed tools | добавить relevant `/proc/inbox`; `/run/actions` только по необходимости |
 | `onboarding` | legacy identity/onboarding service собирает legacy manual/profile context и генерирует first response; product `AssistantService` в этот ход не вызывается | personal-assistant control plane + onboarding profile/draft data; после подтверждения материализовать profile/core context через typed use-case |
 | `voice intake` | STT выполняется transport-слоем, затем транскрипт идёт в тот же `chat` path с `inputModality=voice` | тот же chat contract + релевантная inbox/artifact metadata без raw provider payload |
 | `file intake` | бинарный файл сохраняется детерминированно в `ArtifactStore`; agent turn сейчас не выполняется | сохранение остаётся transport/use-case gate; optional typed post-processing получает control plane + `/proc/inbox` item и узкий toolset |
@@ -62,4 +62,4 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 
 ## Текущее несоответствие и следующие задачи
 
-Product chat уже следует agent-led routing и owner isolation, но пока собирает только assistant manual + `/proc/context` + `/proc/records`. `/proc/profile`, recent history, `/proc/inbox` и `/run/actions` отсутствуют. Это намеренный baseline, закрываемый дочерними задачами `prs-jxy.2`–`prs-jxy.6`; данный документ не маскирует gap и не вводит второй chat-path.
+Product chat уже следует agent-led routing и owner isolation, включает `/proc/profile`, приоритетный core `/proc/context`, `/proc/records` и bounded recent history. `/proc/inbox` и `/run/actions` пока отсутствуют; общий cross-source budget закрывается следующими дочерними задачами. Единственный product chat-path сохраняется.

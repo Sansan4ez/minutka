@@ -3,6 +3,7 @@ import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "..
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
 import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
+import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
 import { MinutkaService } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
@@ -77,6 +78,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       onboardingProfileExtractor: extractOnboardingProfileWithAgent,
       ...input.deps,
     });
+    const chatProjectionBuilder = createRuntimeProjectionBuilder({ ...stores, clock: systemClock });
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -84,6 +86,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaStore,
       auditEventStore: stores.auditEventStore,
       participantStore: stores.profileStore,
+      chatProjectionBuilder,
       requestIntegrityGuard: evaluateRequestIntegrity,
       clock: systemClock,
       idGenerator: randomIdGenerator,

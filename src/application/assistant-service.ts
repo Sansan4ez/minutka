@@ -11,6 +11,9 @@ import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js"
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import { PersistenceError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
+import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
+import { renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
+import type { ChatProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
 import type { RequestIntegrityGuard } from "./request-integrity-guard.js";
@@ -21,6 +24,7 @@ export type AssistantChatInput = { userId: string; threadId: string; text: strin
 export type AssistantAgentContext = {
   systemContext: string;
   personalContext: AssistantContextProjection;
+  profileAndHistory: ChatProcSnapshot;
   records: AssistantRecordsProjection;
   /** Sanitized source metadata for capture; it contains no transport identity. */
   source: IdeaSource;
@@ -50,17 +54,19 @@ export type AssistantChatResult = {
 export class AssistantService {
   private readonly projectionBuilder;
   private readonly recordsProjectionBuilder?: ReturnType<typeof createAssistantRecordsProjectionBuilder>;
+  private readonly chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">;
   private readonly clock: Clock;
   private readonly ids: IdGenerator;
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
     this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now() });
     this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now() });
+    this.chatProjectionBuilder = deps.chatProjectionBuilder;
   }
 
   /** Explicit onboarding write: reviewed Markdown flows through the ingestion boundary. */
@@ -79,7 +85,9 @@ export class AssistantService {
     const messageId = this.ids.messageId();
     const requestId = this.ids.requestId();
     const inputModality = input.inputModality ?? "text";
-    const profile = this.deps.participantStore?.getProfile ? await this.deps.participantStore.getProfile(userId) : undefined;
+    const chatProc = await this.chatProjectionBuilder?.buildChatProc({ employeeId: userId, threadId, requestId, purpose: "chat" });
+    const profile = chatProc?.profile ?? (this.deps.participantStore?.getProfile ? await this.deps.participantStore.getProfile(userId) : undefined);
+    const profileAndHistory = chatProc?.snapshot ?? emptyChatProcSnapshot({ userId, threadId, requestId, now: this.clock.now(), profile });
     const responsePolicy = createResponsePolicy({ channel: input.responseChannel, preferredLength: profile?.responseLength });
     await this.auditSafely({
       id: this.ids.auditEventId(), requestId, type: "chat_received", employeeId: userId, threadId, messageId,
@@ -151,9 +159,10 @@ export class AssistantService {
     try {
       response = await this.agentRunner({ userId, threadId, text }, {
         personalContext,
+        profileAndHistory,
         records,
         source,
-        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy)),
+        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory),
         captureIdea,
         documents,
       });
@@ -208,11 +217,12 @@ export class AssistantService {
   }
 }
 
-export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions(), responsePolicy?: string): string {
+export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions(), responsePolicy?: string, profileAndHistory?: ChatProcSnapshot): string {
   return [
     "# Personal assistant runtime context",
     agentInstructions,
     responsePolicy,
+    ...(profileAndHistory === undefined ? [] : [renderRuntimeProjection(profileAndHistory)]),
     renderAssistantContextProjection(personalContext),
     ...(records === undefined ? [] : [renderAssistantRecordsProjection(records)]),
   ].filter(Boolean).join("\n\n");
@@ -222,6 +232,26 @@ const requestIntegrityDenialResponse = "Не могу выполнить эту 
 
 function logAssistantOperationalError(operation: string, error: unknown): void {
   console.warn(`Assistant ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+}
+
+function emptyChatProcSnapshot(input: { userId: string; threadId: string; requestId: string; now: string; profile?: Awaited<ReturnType<ProfileStore["getProfile"]>> }): ChatProcSnapshot {
+  const scope = { employeeId: input.userId, threadId: input.threadId, requestId: input.requestId, purpose: "chat" as const };
+  const profile = input.profile ? {
+    preferredName: input.profile.preferredName,
+    assistantName: input.profile.assistantName,
+    addressForm: input.profile.addressForm,
+    persona: input.profile.persona,
+    responseLength: input.profile.responseLength,
+    timezone: input.profile.timezone,
+    ...(input.profile.role ? { role: input.profile.role } : {}),
+    ...(input.profile.typicalTasks ? { typicalTasks: [...input.profile.typicalTasks] } : {}),
+    ...(input.profile.aiLevel ? { aiLevel: input.profile.aiLevel } : {}),
+    ...(input.profile.preferredCheckinsPerDay ? { preferredCheckinsPerDay: input.profile.preferredCheckinsPerDay } : {}),
+  } : null;
+  return {
+    profile: { schemaVersion: 1, path: "/proc/profile", generatedAt: input.now, scope, data: profile },
+    thread: { schemaVersion: 1, path: "/proc/thread", generatedAt: input.now, scope, data: { turns: [], truncated: false } },
+  };
 }
 
 function emptyRecordsProjection(input: { userId: string; requestId: string; now: string }): AssistantRecordsProjection {

@@ -9,6 +9,7 @@ import { runtimeProjectionLimits } from "./runtime-projection-limits.js";
 import type { RuntimeAccessScope } from "./runtime-access-scope.js";
 import type {
   AllowedRuntimePath,
+  ChatProcSnapshot,
   DecisionProjection,
   ProcSnapshot,
   RunSnapshot,
@@ -19,7 +20,7 @@ import type {
 export type RuntimeProjectionBuilder = {
   buildProc(scope: RuntimeAccessScope): Promise<ProcSnapshot>;
   /** Chat-specific read model avoids loading projections that the prompt does not render. */
-  buildChatProc(scope: RuntimeAccessScope): Promise<{ snapshot: ProcSnapshot; profile?: UserProfile }>;
+  buildChatProc(scope: RuntimeAccessScope): Promise<{ snapshot: ChatProcSnapshot; profile?: UserProfile }>;
   buildDecision(
     scope: RuntimeAccessScope,
     decision: DecisionProjection,
@@ -70,12 +71,17 @@ export function createRuntimeProjectionBuilder(deps: {
         }
       : null;
   const thread = async (scope: RuntimeAccessScope) => {
-    if (!scope.threadId) return [];
-    return boundTurns(await deps.conversationStore.getRecentTurns({
+    if (!scope.threadId) return { turns: [], truncated: false };
+    const source = await deps.conversationStore.getRecentTurns({
       employeeId: scope.employeeId,
       threadId: scope.threadId,
-      limit: runtimeProjectionLimits.threadTurns,
-    }));
+      // Fetch one extra completed turn so the projection can report count
+      // truncation without loading unbounded history.
+      limit: runtimeProjectionLimits.threadTurns + 1,
+    });
+    const countTruncated = source.length > runtimeProjectionLimits.threadTurns;
+    const bounded = boundTurns(source.slice(-runtimeProjectionLimits.threadTurns));
+    return { turns: bounded.turns, truncated: countTruncated || bounded.truncated };
   };
 
   return {
@@ -84,12 +90,9 @@ export function createRuntimeProjectionBuilder(deps: {
         deps.profileStore.getProfile(scope.employeeId),
         thread(scope),
       ]);
-      const snapshot: ProcSnapshot = {
+      const snapshot: ChatProcSnapshot = {
         profile: envelope("/proc/profile", scope, projectProfile(profile)),
-        consent: envelope("/proc/consent", scope, { accepted: false }),
-        thread: envelope("/proc/thread", scope, { turns }),
-        insights: envelope("/proc/insights", scope, []),
-        feedback: envelope("/proc/feedback", scope, []),
+        thread: envelope("/proc/thread", scope, turns),
       };
       return { snapshot, ...(profile ? { profile } : {}) };
     },
@@ -110,7 +113,7 @@ export function createRuntimeProjectionBuilder(deps: {
           accepted: Boolean(consent),
           ...(consent ? { privacyVersion: consent.privacyVersion, acceptedAt: consent.acceptedAt } : {}),
         }),
-        thread: envelope("/proc/thread", scope, { turns }),
+        thread: envelope("/proc/thread", scope, turns),
         insights: envelope("/proc/insights", scope, insights),
         feedback: envelope("/proc/feedback", scope, feedback),
       };
@@ -142,21 +145,26 @@ export function createRuntimeProjectionBuilder(deps: {
   };
 }
 
-function boundTurns(turns: ConversationTurn[]): ConversationTurn[] {
+function boundTurns(turns: ConversationTurn[]): { turns: ConversationTurn[]; truncated: boolean } {
   const newestFirst = [...turns].reverse();
   let characters = 0;
+  let truncated = false;
   const retained: ConversationTurn[] = [];
   for (const turn of newestFirst) {
     const userText = sanitiseTurnText(turn.userText);
     const agentResponse = sanitiseTurnText(turn.agentResponse);
+    if (userText.length !== turn.userText.length || agentResponse.length !== turn.agentResponse.length) truncated = true;
     const size = Array.from(userText).length + Array.from(agentResponse).length;
     // Turns are evaluated newest-to-oldest: on overflow, retain the contiguous
     // newest suffix instead of creating holes or dropping the latest context.
-    if (characters + size > runtimeProjectionLimits.threadCharacters) break;
+    if (characters + size > runtimeProjectionLimits.threadCharacters) {
+      truncated = true;
+      break;
+    }
     retained.push({ ...turn, userText, agentResponse });
     characters += size;
   }
-  return retained.reverse();
+  return { turns: retained.reverse(), truncated };
 }
 
 function sanitiseTurnText(text: string): string {

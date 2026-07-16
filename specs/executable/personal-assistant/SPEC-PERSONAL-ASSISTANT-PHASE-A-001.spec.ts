@@ -5,6 +5,11 @@ import { createInMemoryConversationStore } from "../../../src/application/in-mem
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
+import { createInMemoryInsightStore } from "../../../src/application/in-memory-insight-store.js";
+import { createInMemoryFeedbackStore } from "../../../src/application/in-memory-feedback-store.js";
+import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
+import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 
 describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () => {
@@ -57,6 +62,133 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     expect(receivedContext).not.toContain("vault/user/knowledge_base");
     expect(receivedContext).not.toContain("## Runtime projection: /run/actions");
     expect(world.messages).toHaveLength(1);
+  });
+
+  it("includes allow-listed profile fields and bounded owner/thread history after onboarding", async () => {
+    const world = createInMemoryWorld(() => "2026-07-15T09:00:00.000Z");
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/10_user_memory/01_личная_конституция.md", content: "CORE_CONTEXT" });
+    await profiles.completeProfile({
+      completedAt: world.now(),
+      profile: {
+        employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
+        persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow",
+        role: "Руководитель", typicalTasks: ["планирование"], aiLevel: "advanced", preferredCheckinsPerDay: 2,
+        createdAt: world.now(), updatedAt: world.now(),
+      },
+    });
+    await conversations.appendTurn({ messageId: "old", employeeId: "maxim", threadId: "telegram:1", userText: "Обсудим проект Альфа", agentResponse: "Да, зафиксировал контекст.", timestamp: world.now() });
+    await conversations.appendTurn({ messageId: "other-thread", employeeId: "maxim", threadId: "telegram:2", userText: "OTHER_THREAD_SECRET", agentResponse: "secret", timestamp: world.now() });
+    await conversations.appendTurn({ messageId: "other-owner", employeeId: "other", threadId: "telegram:1", userText: "OTHER_OWNER_SECRET", agentResponse: "secret", timestamp: world.now() });
+    let receivedContext = "";
+    const chatProjectionBuilder = createRuntimeProjectionBuilder({
+      profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
+      feedbackStore: createInMemoryFeedbackStore(world), auditEventStore: createInMemoryAuditEventStore(world), clock: { now: world.now },
+    });
+    const service = new AssistantService(async (_input, context) => { receivedContext = context.systemContext; return "Продолжаем Альфу."; }, {
+      documentStore: documents, conversationStore: conversations, ingestionService: ingestion,
+      participantStore: profiles, chatProjectionBuilder, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    await service.chat({ userId: "maxim", threadId: "telegram:1", text: "Что дальше?" });
+
+    expect(receivedContext).toContain("## Runtime projection: /proc/profile");
+    expect(receivedContext).toContain("Обращение к владельцу: Максим");
+    expect(receivedContext).toContain("Имя ассистента: Генри");
+    expect(receivedContext).toContain("Предпочтительная длина ответа: short");
+    expect(receivedContext).toContain("## Runtime projection: /proc/thread");
+    expect(receivedContext).toContain("Обсудим проект Альфа");
+    expect(receivedContext).not.toContain("OTHER_THREAD_SECRET");
+    expect(receivedContext).not.toContain("OTHER_OWNER_SECRET");
+    expect(receivedContext).not.toContain("employeeId");
+    expect(receivedContext.indexOf("Runtime projection: /proc/profile")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/context"));
+  });
+
+  it("rebuilds recent history from the canonical store after a service restart", async () => {
+    const world = createInMemoryWorld();
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
+    const buildProjection = () => createRuntimeProjectionBuilder({
+      profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
+      feedbackStore: createInMemoryFeedbackStore(world), auditEventStore: createInMemoryAuditEventStore(world), clock: { now: world.now },
+    });
+    const firstService = new AssistantService(async () => "Сохранил контекст перезапуска.", {
+      documentStore: documents, conversationStore: conversations, ingestionService: ingestion,
+      participantStore: profiles, chatProjectionBuilder: buildProjection(), requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+    await firstService.chat({ userId: "maxim", threadId: "thread", text: "Запомни контекст перезапуска" });
+    let receivedContext = "";
+    const restartedService = new AssistantService(async (_input, context) => { receivedContext = context.systemContext; return "Вижу предыдущий ход."; }, {
+      documentStore: documents, conversationStore: conversations, ingestionService: ingestion,
+      participantStore: profiles, chatProjectionBuilder: buildProjection(), requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    await restartedService.chat({ userId: "maxim", threadId: "thread", text: "Что я просил запомнить?" });
+
+    expect(receivedContext).toContain("Запомни контекст перезапуска");
+    expect(receivedContext).toContain("Сохранил контекст перезапуска.");
+  });
+
+  it("marks count and content truncation in recent history", async () => {
+    const world = createInMemoryWorld();
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
+    for (let index = 0; index < 11; index++) await conversations.appendTurn({ messageId: `msg-${index}`, employeeId: "maxim", threadId: "thread", userText: index === 10 ? "x".repeat(7_000) : `turn-${index}`, agentResponse: `reply-${index}`, timestamp: world.now() });
+    let receivedContext = "";
+    const chatProjectionBuilder = createRuntimeProjectionBuilder({
+      profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
+      feedbackStore: createInMemoryFeedbackStore(world), auditEventStore: createInMemoryAuditEventStore(world), clock: { now: world.now },
+    });
+    const service = new AssistantService(async (_input, context) => { receivedContext = context.systemContext; return "ok"; }, {
+      documentStore: documents, conversationStore: conversations, ingestionService: ingestion,
+      participantStore: profiles, chatProjectionBuilder, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    await service.chat({ userId: "maxim", threadId: "thread", text: "continue" });
+
+    expect(receivedContext).not.toContain("turn-0");
+    expect(receivedContext).toContain("Some earlier conversation turns or turn contents were omitted by the history limit.");
+    expect(receivedContext).not.toContain("x".repeat(6_001));
+  });
+
+  it("prioritizes semantic core documents ahead of large inbox and transcription files", async () => {
+    const world = createInMemoryWorld();
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    for (let index = 0; index < 12; index++) await ingestion.saveContextDocument({ userId: "maxim", path: `context/00_inbox/transcriptions/${String(index).padStart(2, "0")}.md`, content: "inbox" });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/10_user_memory/01_Persona.md", content: "CORE_PERSONA" });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/10_user_memory/02_Goals_and_priorities.md", content: "CORE_GOALS" });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/40_projects/2026_07_26_мои_проекты.md", content: "CORE_PROJECTS" });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/90_agent_memory/soul.md", content: "CORE_CHARACTER" });
+    await ingestion.saveContextDocument({ userId: "maxim", path: "context/10_user_memory/06_Tags_and_Classifications.md", content: "CORE_CLASSIFIER" });
+    let receivedContext = "";
+    const service = new AssistantService(async (_input, context) => { receivedContext = context.systemContext; return "ok"; }, {
+      documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion,
+      requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    const result = await service.chat({ userId: "maxim", threadId: "thread", text: "context" });
+
+    expect(result.personalContextDocuments?.slice(0, 5)).toEqual([
+      "/proc/context/10_user_memory/01_Persona.md",
+      "/proc/context/10_user_memory/02_Goals_and_priorities.md",
+      "/proc/context/40_projects/2026_07_26_мои_проекты.md",
+      "/proc/context/90_agent_memory/soul.md",
+      "/proc/context/10_user_memory/06_Tags_and_Classifications.md",
+    ]);
+    for (const marker of ["CORE_PERSONA", "CORE_GOALS", "CORE_PROJECTS", "CORE_CHARACTER", "CORE_CLASSIFIER"]) expect(receivedContext).toContain(marker);
   });
 
   it("routes onboarding writes through ingestion and rejects invalid owner scope", async () => {

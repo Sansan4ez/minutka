@@ -31,10 +31,13 @@ export type RuntimeProjection<T> = {
   data: T;
 };
 
-export type ProcSnapshot = {
+export type ChatProcSnapshot = {
   profile: RuntimeProjection<ProfileProjection | null>;
-  consent: RuntimeProjection<ConsentProjection>;
   thread: RuntimeProjection<ThreadProjection>;
+};
+
+export type ProcSnapshot = ChatProcSnapshot & {
+  consent: RuntimeProjection<ConsentProjection>;
   insights: RuntimeProjection<StructuredInsight[]>;
   feedback: RuntimeProjection<FeedbackRecord[]>;
 };
@@ -52,7 +55,7 @@ export type ConsentProjection = {
   acceptedAt?: string;
 };
 
-export type ThreadProjection = { turns: ConversationTurn[] };
+export type ThreadProjection = { turns: ConversationTurn[]; truncated: boolean };
 export type DecisionProjection = ConversationDecision;
 export type RunSnapshot = {
   current: RuntimeProjection<AuditEventRecord[]>;
