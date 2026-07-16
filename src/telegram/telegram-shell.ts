@@ -4,7 +4,7 @@ import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import type { TelegramIdentity, TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
-import { privacyExplanation } from "../domain/privacy.js";
+import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
@@ -213,7 +213,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>");
       return undefined;
     }
-    if (!session.consentAcceptedAt) {
+    if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) {
       await replyPort.sendMessage(chatId, "Сначала подтвердите согласие с политикой конфиденциальности.");
       return undefined;
     }
@@ -242,7 +242,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         if (!userId) return void await replyPort.sendMessage(chatId, "Не удалось определить аккаунт Telegram.");
         const telegramIdentity = identity(chatId, userId); const existing = await sessionStore.getByIdentity(telegramIdentity);
         if (existing) {
-          if (!existing.consentAcceptedAt) { await sendConsentPrompt(replyPort, chatId, existing.employeeId, privacyExplanation); await employeeClient(existing.employeeId).recordPrivacyExplanationShown(); return; }
+          if (!existing.consentAcceptedAt || existing.consentPrivacyVersion !== currentPrivacyVersion) { await sendConsentPrompt(replyPort, chatId, existing.employeeId, privacyExplanation); await employeeClient(existing.employeeId).recordPrivacyExplanationShown(); return; }
           return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
         }
         const existingChat = await sessionStore.getByIdentity(identity(chatId));
@@ -352,7 +352,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         }
         if (data.startsWith("ob:")) {
           if (!session) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сессия не найдена. Выполните /start.");
-          if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+          if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
           const [prefix, action, value, ...extra] = data.split(":");
           if (prefix !== "ob" || extra.length || !action) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
           if (action === "confirm" && !value) {
@@ -383,7 +383,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
         if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
-        if (!session.consentAcceptedAt) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+        if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
         const handled = await runCallbackAction(chatId, messageId, callbackQueryId, () => employeeClient(session.employeeId).submitFeedback({ threadId: session.threadId, targetMessageId: decoded.targetMessageId, rating: decoded.rating, source: "telegram" }));
         if (handled.repeated) return;
         await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");

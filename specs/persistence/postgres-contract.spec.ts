@@ -41,7 +41,7 @@ async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgr
   const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
   await profiles.issueInvite({ employeeId, inviteCode, issuedAt: now });
   await profiles.openInvite({ inviteCode, openedAt: now, explanationShownAt: now });
-  await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
+  await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
   await profiles.completeProfile({
     completedAt: now,
     profile: { employeeId, preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
@@ -68,7 +68,7 @@ describe("PostgreSQL storage contracts", () => {
     const feedback = createPostgresFeedbackStore(pool);
     await profiles.issueInvite({ employeeId: "emp_pg", inviteCode: "invite_pg", issuedAt: now });
     await profiles.openInvite({ inviteCode: "invite_pg", openedAt: now, explanationShownAt: now });
-    await profiles.acceptConsent({ employeeId: "emp_pg", privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
+    await profiles.acceptConsent({ employeeId: "emp_pg", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
     await profiles.completeProfile({ completedAt: now, profile: { employeeId: "emp_pg", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now } });
     await conversations.appendTurn({ messageId: "msg_pg", employeeId: "emp_pg", threadId: "thread_pg", userText: "morning", agentResponse: "reply", timestamp: now });
     const first = await feedback.saveFeedback({ id: "fb_original", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "positive", source: "test", updatedAt: now });
@@ -144,16 +144,19 @@ describe("PostgreSQL storage contracts", () => {
     expect(results.every((result) => result.participant.employeeId === "emp_parallel_issue" && result.inviteMatches)).toBe(true);
   });
 
-  it("commits consent and its audit event together", async () => {
+  it("commits consent and its audit event together and replaces an obsolete version", async () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     await profiles.issueInvite({ employeeId: "emp_consent", inviteCode: "invite_consent", issuedAt: now });
     await profiles.openInvite({ inviteCode: "invite_consent", openedAt: now, explanationShownAt: now });
+    await profiles.acceptConsent({ employeeId: "emp_consent", privacyVersion: "privacy-v1", acceptedAt: "2026-07-01T00:00:00.000Z", explanationShownAt: "2026-07-01T00:00:00.000Z", source: "test" });
     const consent = createPostgresConsentAcceptanceStore(pool);
     const accepted = await consent.accept({
-      consent: { employeeId: "emp_consent", privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" },
-      auditEvent: { ...audit("evt_consent", "consent_accepted", "emp_consent"), metadata: { privacyVersion: "privacy-v1" } },
+      consent: { employeeId: "emp_consent", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" },
+      auditEvent: { ...audit("evt_consent", "consent_accepted", "emp_consent"), metadata: { privacyVersion: "privacy-v2" } },
     });
     expect(accepted.created).toBe(true);
+    expect(accepted.consent.privacyVersion).toBe("privacy-v2");
+    expect(await profiles.getConsent("emp_consent")).toMatchObject({ privacyVersion: "privacy-v2", acceptedAt: now });
     expect((await createPostgresAuditEventStore(pool).listCurrent({ requestId: "req_evt_consent", limit: 10 })).map((event) => event.type)).toEqual(["consent_accepted"]);
   });
 
@@ -274,7 +277,7 @@ describe("PostgreSQL storage contracts", () => {
     const drafts = createPostgresOnboardingDraftStore(pool);
     await profiles.issueInvite({ employeeId: "emp_delete", inviteCode: "invite_delete", issuedAt: now });
     await profiles.openInvite({ inviteCode: "invite_delete", openedAt: now, explanationShownAt: now });
-    await profiles.acceptConsent({ employeeId: "emp_delete", privacyVersion: "privacy-v1", acceptedAt: now, explanationShownAt: now, source: "test" });
+    await profiles.acceptConsent({ employeeId: "emp_delete", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
     // Drafts are intentionally rejected after profile completion. Persist this
     // temporary private record while onboarding is still in progress, then
     // complete the profile without its normal draft-cleanup option.

@@ -5,6 +5,7 @@ export type TelegramSession = {
   employeeId: string;
   threadId: string;
   consentAcceptedAt?: string;
+  consentPrivacyVersion?: string;
   createdAt: string;
   updatedAt: string;
 };

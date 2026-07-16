@@ -77,9 +77,14 @@ export function createInMemoryProfileStore(
       return { participant: opened, opened: true };
     },
     async acceptConsent(consent) {
-      const existing = world.consents.find((candidate) => candidate.employeeId === consent.employeeId);
-      if (existing) return { consent: existing, created: false };
-      world.consents.push(consent);
+      const existingIndex = world.consents.findIndex((candidate) => candidate.employeeId === consent.employeeId);
+      if (existingIndex !== -1) {
+        const existing = world.consents[existingIndex];
+        if (existing.privacyVersion === consent.privacyVersion) return { consent: existing, created: false };
+        world.consents[existingIndex] = consent;
+      } else {
+        world.consents.push(consent);
+      }
       const participant = world.participants.find((candidate) => candidate.employeeId === consent.employeeId);
       if (participant && participant.status !== "profile_completed") {
         upsertByEmployeeId(world.participants, {

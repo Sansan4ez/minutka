@@ -19,13 +19,19 @@ export function createPostgresConsentAcceptanceStore(pool: Pool, telegramIdentit
     async accept({ consent, auditEvent, telegramIdentity }) {
       try {
         return await withTransaction(pool, async (client) => {
-          const inserted = await client.query<ConsentRow>(
+          const saved = await client.query<ConsentRow>(
             `INSERT INTO minutka_private.consents(employee_id, privacy_version, accepted_at, explanation_shown_at, source)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (employee_id) DO NOTHING RETURNING *`,
+             ON CONFLICT (employee_id) DO UPDATE SET
+               privacy_version = EXCLUDED.privacy_version,
+               accepted_at = EXCLUDED.accepted_at,
+               explanation_shown_at = EXCLUDED.explanation_shown_at,
+               source = EXCLUDED.source
+             WHERE minutka_private.consents.privacy_version IS DISTINCT FROM EXCLUDED.privacy_version
+             RETURNING *`,
             [consent.employeeId, consent.privacyVersion, consent.acceptedAt, consent.explanationShownAt, consent.source],
           );
-          const row = inserted.rows[0] ?? (
+          const row = saved.rows[0] ?? (
             await client.query<ConsentRow>("SELECT * FROM minutka_private.consents WHERE employee_id = $1", [consent.employeeId])
           ).rows[0];
           if (!row) throw new PersistenceError("participant_not_found");
@@ -46,7 +52,7 @@ export function createPostgresConsentAcceptanceStore(pool: Pool, telegramIdentit
             );
             if (session.rowCount !== 1) throw new PersistenceError("session_not_found");
           }
-          if (!inserted.rowCount) {
+          if (!saved.rowCount) {
             return {
               consent: {
                 employeeId: row.employee_id,

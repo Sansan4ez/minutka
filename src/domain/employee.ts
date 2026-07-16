@@ -1,3 +1,5 @@
+import type { PrivacyVersion } from "./privacy.js";
+
 export type Persona = "support" | "efficiency";
 
 export type AiLevel = "beginner" | "intermediate" | "advanced";
@@ -24,7 +26,7 @@ export type Participant = {
 
 export type Consent = {
   employeeId: string;
-  privacyVersion: "privacy-v1";
+  privacyVersion: PrivacyVersion;
   acceptedAt: string;
   explanationShownAt: string;
   source: "cli" | "telegram" | "test";

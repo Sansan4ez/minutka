@@ -6,6 +6,11 @@ import type { AgentRunner } from "../../../src/application/minutka-service.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { decodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import { parseInviteSeeds } from "../../../src/telegram/invite-seeds.js";
+import { privacyExplanation } from "../../../src/domain/privacy.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
+import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 
 registerSpecMetadata({
   id: "SPEC-FEEDBACK-001",
@@ -200,7 +205,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     const sent1 = telegram.sentMessages();
     expect(sent1).toHaveLength(1);
-    expect(sent1[0].text).toContain("Минутка хранит"); // privacy/consent explanation
+    expect(sent1[0].text).toBe(privacyExplanation);
     expect(sent1[0].replyMarkup?.inlineKeyboard[0][0].text).toContain("Принимаю");
 
     // Click "Consent" button
@@ -706,11 +711,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_1", inviteCode: "invite_retry" });
     expect(telegram.sentMessages()).toEqual([
       expect.objectContaining({
-        text: [
-          "Минутка хранит ваш личный рабочий контекст, чтобы помогать вам разбирать день.",
-          "Компания не получает личные диалоги, ФИО, индивидуальные задачи или ваше состояние.",
-          "Для компании используются только обезличенные агрегированные сигналы по группам от 5 сотрудников.",
-        ].join("\n"),
+        text: privacyExplanation,
         replyMarkup: expect.objectContaining({
           inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_retry" })]],
         }),
@@ -719,6 +720,30 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(
       spec.world.events.filter((event) => event.type === "PrivacyExplanationShown"),
     ).toHaveLength(1);
+  });
+
+  it("10d. Reopens consent when a linked session has an obsolete privacy version", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent" });
+    await runtime.service.openInvite({ inviteCode: "invite_reconsent" });
+    world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt: world.now(), explanationShownAt: world.now(), source: "test" });
+    await runtime.telegramSessionStore.claim({
+      identity: { chatId: "chat_reconsent", userId: "user_reconsent" },
+      session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", consentAcceptedAt: world.now(), consentPrivacyVersion: "privacy-v1", createdAt: world.now(), updatedAt: world.now() },
+    });
+    const sent: string[] = [];
+    const shell = createTelegramShell({
+      client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      sessionStore: runtime.telegramSessionStore,
+      replyPort: {
+        async sendMessage(_chatId, text) { sent.push(text); return { messageId: sent.length }; },
+        async editReplyMarkup() {}, async sendChatAction() {}, async answerCallbackQuery() {},
+      },
+    });
+
+    await shell.handleStart("chat_reconsent", undefined, "user_reconsent");
+    expect(sent).toEqual([privacyExplanation]);
   });
 
   it("11. An invite cannot be replayed from another Telegram chat", async () => {

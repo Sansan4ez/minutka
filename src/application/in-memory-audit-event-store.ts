@@ -1,4 +1,5 @@
 import type { DomainEvent } from "../domain/events.js";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
 import { safeAuditMetadata, type AuditEventRecord, type AuditEventStore } from "./audit-event-store.js";
 
@@ -30,8 +31,8 @@ function toLegacyEvent(event: AuditEventRecord): DomainEvent | undefined {
   const timestamp = event.occurredAt;
   switch (event.type) {
     case "invite_opened": return { type: "InviteOpened", employeeId, inviteCode: "[redacted]", timestamp };
-    case "privacy_explanation_shown": return { type: "PrivacyExplanationShown", employeeId, privacyVersion: String(event.metadata.privacyVersion ?? "privacy-v1"), timestamp };
-    case "consent_accepted": return { type: "ConsentAccepted", employeeId, privacyVersion: String(event.metadata.privacyVersion ?? "privacy-v1"), timestamp };
+    case "privacy_explanation_shown": return { type: "PrivacyExplanationShown", employeeId, privacyVersion: String(event.metadata.privacyVersion ?? currentPrivacyVersion), timestamp };
+    case "consent_accepted": return { type: "ConsentAccepted", employeeId, privacyVersion: String(event.metadata.privacyVersion ?? currentPrivacyVersion), timestamp };
     case "profile_updated": return { type: "UserProfileUpdated", employeeId, changedFields: (event.metadata.changedFields as string[] | undefined) ?? [], timestamp };
     case "onboarding_completed": return { type: "OnboardingCompleted", employeeId, persona: String(event.metadata.persona) as "support" | "efficiency", timestamp };
     case "chat_received": return { type: "ChatMessageReceived", employeeId, threadId: event.threadId ?? "", text: "[private]", inputModality: (event.metadata.inputModality === "voice" ? "voice" : "text"), timestamp };

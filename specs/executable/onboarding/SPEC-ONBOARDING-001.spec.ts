@@ -7,6 +7,7 @@ import {
   type ChatInput,
 } from "../../../src/application/minutka-service.js";
 import type { UserProfile } from "../../../src/domain/employee.js";
+import { currentPrivacyVersion, privacyPolicyUrl } from "../../../src/domain/privacy.js";
 import type {
   AcceptConsentResult,
   CompleteOnboardingResult,
@@ -81,9 +82,13 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
 
     expect(invite.employeeId).toBe(testEmployee.employeeId);
     expect(invite.status).toBe("invite_opened");
-    expect(invite.privacyExplanation).toContain("личные диалоги");
-    expect(invite.privacyExplanation).toContain("обезлич");
-    expect(invite.privacyExplanation).toContain("5 сотрудников");
+    expect(invite.privacyVersion).toBe(currentPrivacyVersion);
+    expect(invite.privacyExplanation).toContain("историю диалога");
+    expect(invite.privacyExplanation).toContain("LLM-провайдеру");
+    expect(invite.privacyExplanation).toContain("STT-провайдеру");
+    expect(invite.privacyExplanation).toContain("явного подтверждения");
+    expect(invite.privacyExplanation).toContain(privacyPolicyUrl);
+    expect(invite.privacyExplanation).not.toMatch(/Минутка|компания не получает|5 сотрудников/i);
 
     const consent = await spec.cli.json<AcceptConsentResult>([
       "employee",
@@ -93,7 +98,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "--yes",
     ]);
 
-    expect(consent.privacyVersion).toBe("privacy-v1");
+    expect(consent.privacyVersion).toBe(currentPrivacyVersion);
     expect(spec.world.consents).toHaveLength(1);
 
     const onboarding = await spec.cli.json<CompleteOnboardingResult>([
@@ -189,6 +194,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     ]);
 
     expect(reopened.status).toBe("profile_completed");
+    expect(spec.world.participants[0]?.privacyExplanationShownAt).toBeDefined();
     expect(spec.world.participants).toHaveLength(1);
     expect(spec.world.events.filter((e) => e.type === "InviteOpened")).toHaveLength(1);
 
@@ -203,6 +209,52 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(acceptedAgain.acceptedAt).toBe(consent.acceptedAt);
     expect(spec.world.consents).toHaveLength(1);
     expect(spec.world.events.filter((e) => e.type === "ConsentAccepted")).toHaveLength(1);
+  });
+
+  it("requires re-consent when the stored privacy version is stale", async () => {
+    const spec = createSpecWorld(async () => "ok");
+    await spec.cli.json([
+      "employee",
+      "open-invite",
+      "--invite",
+      testInvite.inviteCode,
+      "--employee",
+      testEmployee.employeeId,
+    ]);
+    spec.world.consents.push({
+      employeeId: testEmployee.employeeId,
+      privacyVersion: "privacy-v1",
+      acceptedAt: "2026-07-01T00:00:00.000Z",
+      explanationShownAt: "2026-07-01T00:00:00.000Z",
+      source: "test",
+    });
+
+    await expect(spec.cli.json([
+      "employee",
+      "complete-onboarding",
+      "--employee",
+      testEmployee.employeeId,
+      "--role",
+      testProfile.role,
+      "--task",
+      "встречи",
+      "--persona",
+      "efficiency",
+      "--ai-level",
+      "intermediate",
+    ])).rejects.toThrow(/consent/i);
+
+    const consent = await spec.cli.json<AcceptConsentResult>([
+      "employee",
+      "accept-consent",
+      "--employee",
+      testEmployee.employeeId,
+      "--yes",
+    ]);
+    expect(consent.privacyVersion).toBe(currentPrivacyVersion);
+    expect(spec.world.consents).toEqual([
+      expect.objectContaining({ privacyVersion: currentPrivacyVersion }),
+    ]);
   });
 
   it("blocks onboarding without consent", async () => {

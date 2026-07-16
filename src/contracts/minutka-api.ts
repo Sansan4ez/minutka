@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -70,15 +71,15 @@ export const listInsightsRequestSchema = z.strictObject({ threadId: threadIdSche
 export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512) });
 export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]), created: z.boolean() });
 export const openInviteRequestSchema = z.strictObject({ inviteCode: z.string().min(1).max(512) });
-export const openInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]), privacyVersion: z.literal("privacy-v1"), privacyExplanation: z.string().min(1) });
+export const openInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]), privacyVersion: z.literal(currentPrivacyVersion), privacyExplanation: z.string().min(1) });
 export const telegramIdentitySchema = z.strictObject({ chatId: z.string().min(1), userId: z.string().min(1).optional() });
 export const redeemTelegramInviteRequestSchema = z.strictObject({ inviteCode: z.string().min(1).max(512), identity: telegramIdentitySchema });
-export const redeemTelegramInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, threadId: threadIdSchema, privacyVersion: z.literal("privacy-v1"), privacyExplanation: z.string().min(1) });
+export const redeemTelegramInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, threadId: threadIdSchema, privacyVersion: z.literal(currentPrivacyVersion), privacyExplanation: z.string().min(1) });
 export const recordPrivacyExplanationShownRequestSchema = z.strictObject({ employeeId: employeeIdSchema });
 export const acceptConsentRequestSchema = z.strictObject({ accepted: z.literal(true), source: feedbackSourceSchema, telegramIdentity: telegramIdentitySchema.optional() });
 /** Employee-plane consent is bound exclusively to the bearer principal. */
 export const acceptEmployeeConsentRequestSchema = acceptConsentRequestSchema.omit({ telegramIdentity: true });
-export const acceptConsentResponseSchema = z.strictObject({ employeeId: employeeIdSchema, privacyVersion: z.literal("privacy-v1"), acceptedAt: z.string().min(1) });
+export const acceptConsentResponseSchema = z.strictObject({ employeeId: employeeIdSchema, privacyVersion: z.literal(currentPrivacyVersion), acceptedAt: z.string().min(1) });
 export const completeOnboardingRequestSchema = z.strictObject({
   preferredName: z.string().min(1).max(128).optional(), assistantName: z.string().min(1).max(128).optional(), addressForm: addressFormSchema.optional(), timezone: timezoneSchema.optional(),
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),

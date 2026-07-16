@@ -8,6 +8,7 @@ type Row = {
   employee_id: string;
   thread_id: string;
   consent_accepted_at: Date | null;
+  privacy_version: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -16,6 +17,7 @@ const session = (row: Row) => ({
   employeeId: row.employee_id,
   threadId: row.thread_id,
   ...(row.consent_accepted_at ? { consentAcceptedAt: row.consent_accepted_at.toISOString() } : {}),
+  ...(row.privacy_version ? { consentPrivacyVersion: row.privacy_version } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });
@@ -25,9 +27,10 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
     const chat = keyedDigest(chatId, pepper);
     const user = userId === undefined ? undefined : keyedDigest(userId, pepper);
     const result = await pool.query<Row>(
-      `SELECT employee_id, thread_id, consent_accepted_at, created_at, updated_at
-       FROM minutka_private.telegram_sessions
-       WHERE chat_id_digest = $1${user ? " AND user_id_digest = $2" : ""}`,
+      `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at
+       FROM minutka_private.telegram_sessions s
+       LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
+       WHERE s.chat_id_digest = $1${user ? " AND s.user_id_digest = $2" : ""}`,
       user ? [chat, user] : [chat],
     );
     return result.rows[0] ? session(result.rows[0]) : undefined;
@@ -53,7 +56,7 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
               (chat_id_digest, user_id_digest, employee_id, thread_id, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT DO NOTHING
-             RETURNING employee_id, thread_id, consent_accepted_at, created_at, updated_at`,
+             RETURNING employee_id, thread_id, consent_accepted_at, NULL::text AS privacy_version, created_at, updated_at`,
             [chat, user, next.employeeId, next.threadId, next.createdAt, next.updatedAt],
           );
           if (inserted.rowCount) return { status: "claimed" as const, session: session(inserted.rows[0]) };

@@ -1,5 +1,6 @@
 import type { AuditEventStore } from "../audit-event-store.js";
 import type { UserProfile } from "../../domain/employee.js";
+import { currentPrivacyVersion } from "../../domain/privacy.js";
 import type { Clock } from "../runtime-primitives.js";
 import type { ConversationStore, ConversationTurn } from "../conversation-store.js";
 import type { FeedbackStore } from "../feedback-store.js";
@@ -110,7 +111,7 @@ export function createRuntimeProjectionBuilder(deps: {
         profile: envelope("/proc/profile", scope, projectProfile(profile)),
         consent: envelope("/proc/consent", scope, {
           status: participant?.status,
-          accepted: Boolean(consent),
+          accepted: consent?.privacyVersion === currentPrivacyVersion,
           ...(consent ? { privacyVersion: consent.privacyVersion, acceptedAt: consent.acceptedAt } : {}),
         }),
         thread: envelope("/proc/thread", scope, turns),

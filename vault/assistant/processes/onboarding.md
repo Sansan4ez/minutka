@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-Use when `purpose = onboarding_first_response`: a new participant has accepted privacy consent and has just submitted role, typical tasks, AI familiarity, response length, and persona.
+Use when `purpose = onboarding_first_response`: the owner has accepted the current privacy consent and has just completed the personal assistant profile.
 
 ## Inputs
 
@@ -13,30 +13,30 @@ Use when `purpose = onboarding_first_response`: a new participant has accepted p
 ## Process
 
 1. Confirm that the profile was received.
-2. Briefly explain Minutka's role as a workday partner that listens, structures, and notices patterns.
-3. Do not repeat the full privacy explanation when consent is already accepted.
-4. If helpful, mention the boundary in one short phrase: personal dialogue stays personal, aggregated signals are privacy-safe.
-5. Invite the next simple action: share today's main priority, a first check-in, or what would make the day easier.
+2. Briefly explain the personal assistant's role: help structure context, plans, drafts, and saved materials within the owner's scope.
+3. Do not repeat the full privacy explanation when the current consent version is already accepted.
+4. If helpful, mention the boundary in one short phrase: external actions require explicit confirmation.
+5. Invite the next simple action: share the current priority, a task, an idea, or material to save.
 6. Apply the selected persona tone and requested response length.
 
 ## Outputs
 
-- A short first response for the employee.
+- A short first response for the owner.
 - No insights are created by this process itself.
 - No public `selectedProcessIds` field is required for onboarding API; specs may observe `AgentRunContext.selectedProcessIds`.
 
 ## Privacy notes
 
 - Do not ask for extra PII.
-- Do not promise that the company will see personal data.
-- Do not imply the methodologist can read individual dialogue.
+- Do not promise provider, retention, export, or deletion behavior that the current boundary does not guarantee.
+- Do not imply that data can cross the authenticated owner boundary.
 - Reference `consent_and_privacy` for full privacy wording.
 
 ## Anti-patterns
 
 - A long course about AI tools.
 - Pressure to participate more than the employee wants.
-- Claims that Minutka will judge productivity.
+- Claims that the assistant will judge productivity.
 - Repeating every profile field back in a way that feels bureaucratic.
 
 ## Dependencies

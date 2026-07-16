@@ -1,4 +1,5 @@
 import { PersistenceError } from "../application/persistence-error.js";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, TelegramSessionStore } from "./telegram-session-store.js";
 
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
@@ -26,7 +27,7 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
-      found.session = { ...found.session, consentAcceptedAt: acceptedAt, updatedAt: acceptedAt };
+      found.session = { ...found.session, consentAcceptedAt: acceptedAt, consentPrivacyVersion: currentPrivacyVersion, updatedAt: acceptedAt };
     },
     async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
       const found = store.get(identity.chatId);

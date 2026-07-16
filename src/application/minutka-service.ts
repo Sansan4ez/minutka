@@ -1,4 +1,4 @@
-import type { AddressForm, AiLevel, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import type { AddressForm, AiLevel, Consent, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
@@ -155,12 +155,14 @@ export class MinutkaService {
     if (!inviteCode) throw new Error("inviteCode is required");
     const requestId = this.ids.requestId();
     const openedAt = this.clock.now();
+    const explanationShownAt = this.clock.now();
     const opened = await this.stores.profileStore.openInvite({
-      inviteCode, openedAt, explanationShownAt: this.clock.now(),
+      inviteCode, openedAt, explanationShownAt,
     });
     if (!opened) throw new PersistenceError("invite_not_found");
+    if (!opened.opened) await this.stores.profileStore.recordPrivacyExplanationShown({ employeeId: opened.participant.employeeId, shownAt: explanationShownAt });
     if (opened.opened) await this.audit(requestId, "invite_opened", opened.participant.employeeId, undefined, undefined, openedAt);
-    await this.audit(requestId, "privacy_explanation_shown", opened.participant.employeeId, undefined, undefined, this.clock.now(), {
+    await this.audit(requestId, "privacy_explanation_shown", opened.participant.employeeId, undefined, undefined, explanationShownAt, {
       privacyVersion: currentPrivacyVersion,
     });
     return {
@@ -243,7 +245,8 @@ export class MinutkaService {
     if (claimed.created && !this.deps.consentAcceptanceStore) {
       await this.audit(requestId, "consent_accepted", participant.employeeId, undefined, undefined, timestamp, { privacyVersion: currentPrivacyVersion });
     }
-    return { employeeId: claimed.consent.employeeId, privacyVersion: claimed.consent.privacyVersion, acceptedAt: claimed.consent.acceptedAt };
+    if (claimed.consent.privacyVersion !== currentPrivacyVersion) throw new PersistenceError("persistence_conflict");
+    return { employeeId: claimed.consent.employeeId, privacyVersion: currentPrivacyVersion, acceptedAt: claimed.consent.acceptedAt };
   }
 
   async completeOnboarding(input: CompleteOnboardingInput): Promise<CompleteOnboardingResult> {
@@ -252,7 +255,7 @@ export class MinutkaService {
 
   private async completeOnboardingProfile(input: CompleteOnboardingInput, allowUpdate: boolean): Promise<CompleteOnboardingResult> {
     await this.requireParticipant(input.employeeId);
-    if (!await this.stores.profileStore.getConsent(input.employeeId)) throw new PersistenceError("consent_required");
+    if (!hasCurrentConsent(await this.stores.profileStore.getConsent(input.employeeId))) throw new PersistenceError("consent_required");
     this.validateProfileInput(input);
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
@@ -298,7 +301,7 @@ export class MinutkaService {
     const text = input.text.trim();
     if (!text) throw new Error("onboarding answer is required");
     await this.requireParticipant(employeeId);
-    if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
+    if (!hasCurrentConsent(await this.stores.profileStore.getConsent(employeeId))) throw new PersistenceError("consent_required");
     if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
     const current = await this.getOrCreateOnboardingDraft(employeeId);
     if (current.status === "awaiting_confirmation" && isCompleteOnboardingDraft(current)) {
@@ -348,7 +351,7 @@ export class MinutkaService {
   async confirmOnboarding(input: ConfirmOnboardingInput): Promise<CompleteOnboardingResult> {
     const employeeId = input.employeeId.trim();
     await this.requireParticipant(employeeId);
-    if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
+    if (!hasCurrentConsent(await this.stores.profileStore.getConsent(employeeId))) throw new PersistenceError("consent_required");
     const existingProfile = await this.stores.profileStore.getProfile(employeeId);
     if (existingProfile) {
       await this.materializeOnboardingContext(employeeId);
@@ -363,7 +366,7 @@ export class MinutkaService {
   async resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> {
     const employeeId = input.employeeId.trim();
     await this.requireParticipant(employeeId);
-    if (!await this.stores.profileStore.getConsent(employeeId)) throw new PersistenceError("consent_required");
+    if (!hasCurrentConsent(await this.stores.profileStore.getConsent(employeeId))) throw new PersistenceError("consent_required");
     if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
     const now = this.clock.now();
     const current = await this.stores.onboardingDraftStore.get(employeeId);
@@ -537,6 +540,8 @@ export class MinutkaService {
     }
   }
 }
+
+function hasCurrentConsent(consent: Consent | undefined): boolean { return consent?.privacyVersion === currentPrivacyVersion; }
 
 const onboardingFields: OnboardingField[] = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"];
 const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Зови меня Максим» или «Часовой пояс Europe/Moscow».";

@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-Use during onboarding, when the employee asks about company visibility, methodologist access, data use, deletion/review controls, or any privacy concern. Also use when another selected process needs explicit privacy support.
+Use during onboarding, when the owner asks what is stored, which providers receive data, how external actions are controlled, or about retention, export, deletion, and any other privacy concern. Also use when another selected process needs explicit privacy support.
 
 ## Inputs
 
@@ -14,18 +14,18 @@ Use during onboarding, when the employee asks about company visibility, methodol
 ## Process
 
 1. Answer privacy questions directly and calmly.
-2. State that the company and methodologist do not see personal dialogues, raw transcripts, individual tasks, or individual emotional states.
-3. Explain that company-facing analytics are aggregated and privacy-safe, with a minimum group size of 5 employees.
-4. For future controls, say review, correction, and deletion will be expanded as product surfaces mature.
-5. If the employee asks whether a specific detail will be shared, default to the private boundary unless it is a safe aggregate.
-6. Keep the answer short and return to the employee's current working-day need.
+2. Explain the actual owner-scoped data contour: conversation history, profile, context documents, typed records, and uploaded artifacts.
+3. State that request text and selected context go to the configured LLM provider; voice audio goes separately to the configured STT provider and is not retained by this application.
+4. State that the agent has no direct database, object-storage, shell, or arbitrary-file access; external effects require explicit owner confirmation and a typed application action.
+5. Be explicit that legal retention periods, full export, and complete deletion procedures are not yet approved product capabilities. Link to `/docs/privacy-boundary.md` for the current boundary without promising future behavior.
+6. Keep the answer short and return to the owner's current need.
 
 ## Outputs
 
 - A clear privacy answer.
 - Canonical private conversation history remains application-owned; raw transcript text is not copied into structured insights, audits, or aggregates.
 - No direct personal identifiers in structured insights.
-- No company-facing disclosure of individual records.
+- No cross-owner disclosure of individual records.
 
 ## Privacy notes
 
@@ -35,8 +35,8 @@ Use during onboarding, when the employee asks about company visibility, methodol
 
 ## Anti-patterns
 
-- Saying the company can inspect employee dialogue.
-- Saying the methodologist can read individual emotional state.
+- Claiming that any third party cannot inspect provider-side data unless the configured provider contract proves it.
+- Presenting unimplemented retention, export, or complete deletion controls as available.
 - Hiding privacy limitations behind vague legal language.
 - Asking the employee for more personal details than needed.
 
