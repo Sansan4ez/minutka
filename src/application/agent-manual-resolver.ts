@@ -192,6 +192,9 @@ export function renderManualContext(
   const sections: string[] = [];
   if (selectedProcessIds.includes("core")) {
     sections.push(["## Agent Vault: /AGENTS.md", manual.core.content.trim()].join("\n\n"));
+    for (const document of manual.runtimeDocs) {
+      sections.push([`## Agent Vault runtime document: /docs/${document.id}`, document.content.trim()].join("\n\n"));
+    }
   }
 
   for (const processId of selectedProcessIds) {

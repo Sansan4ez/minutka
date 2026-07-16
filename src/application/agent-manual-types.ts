@@ -20,6 +20,7 @@ export type AgentManual = {
   version: number;
   manualId: string;
   core: { id: "core"; path: string; content: string };
+  runtimeDocs: Array<{ id: string; path: string; content: string }>;
   processIndex?: { path: string; content: string };
   processes: AgentManualProcess[];
 };

@@ -160,7 +160,25 @@ Telegram / HTTP / внешний загрузчик (по userId)
 
 `/processes`, `/docs`, `/AGENTS.md`, `/bin`-манифесты — общие для всех пользователей git-файлы (это продукт). Всё персональное живёт в MinIO/PostgreSQL и попадает в prompt только bounded-проекцией. Сырые персональные данные в git не коммитятся (правило из `agent-vault.md`).
 
-### 5.3. Изоляция
+### 5.3. Authority и mutability map
+
+Каноническая runtime-карта находится в [`vault/assistant/docs/authority-and-mutability.md`](../../vault/assistant/docs/authority-and-mutability.md). Логические handles — это application API, а не произвольные файловые пути.
+
+| Namespace | Physical source | Trust / owner scope | Mutation |
+|---|---|---|---|
+| `/AGENTS.md`, `/processes/*` | allow-listed Git-файлы `vault/assistant/*` | trusted product control plane, общий для продукта | недоступны продуктовому агенту; только repository maintenance + review |
+| `/docs/*` | только явно allow-listed файлы `vault/assistant/docs/*` | curated runtime policy, общий для продукта | недоступны продуктовому агенту; repository maintenance + review |
+| `/bin/*` | Git-манифесты + wired typed TS use-cases/tools | trusted capability declaration; capability set задаёт application runtime | манифесты immutable; эффекты только через validated owner-scoped use-case и требуемое confirmation |
+| `/proc/profile` | PostgreSQL `ProfileStore` | owner data текущего authenticated `userId`; не identity/authority | read-only projection; запись через profile/onboarding use-case |
+| `/proc/context` | `DocumentStore`, storage key `{userId}/context/*` | untrusted owner-authored data текущего владельца | read-only bounded projection; запись через `IngestionService` |
+| `/proc/records` | owner-scoped PostgreSQL record stores | untrusted business data текущего владельца | read-only bounded projection; запись через typed record use-cases |
+| `/proc/inbox` | `BlobStore`/`ArtifactStore`, `{userId}/inbox/*` или owner-scoped CAS references | untrusted inbound data текущего владельца | read-only bounded projection; запись через validated ingestion |
+| `/proc/decision` | validated constrained-router output | trusted one-request decision, но не новый authority source | read-only; пересобирается на запрос |
+| `/run/actions` | redacted `AuditEventStore` projection | diagnostic data текущего владельца/request; не policy | read-only; allow-listed metadata пишет application layer |
+
+Storage keys `context/*` и `inbox/*` не имеют ведущего `/` и существуют только за owner-scoped портами. В runtime они видны как `/proc/context` и `/proc/inbox`; конкурирующих `/context` и `/inbox` нет. Repository `docs/` — developer/RFC документация и никогда не загружается в prompt неявно. Содержимое profile/context/inbox/records/history не может подменить `userId`, роль, namespace или capability set.
+
+### 5.4. Изоляция
 
 - MinIO: единый bucket, ключи с префиксом `{userId}/`; доступ через application-слой, агенту не выдаются креды bucket'а.
 - PostgreSQL: ownership-constraint по `userId` во всех record stores (как `employeeId` в «Минутке»).

@@ -8,6 +8,12 @@
   "index": {
     "path": "vault/assistant/processes/index.md"
   },
+  "runtimeDocs": [
+    {
+      "id": "authority-and-mutability.md",
+      "path": "vault/assistant/docs/authority-and-mutability.md"
+    }
+  ],
   "processes": [
     {
       "id": "onboarding",

@@ -26,6 +26,7 @@ type Registry = {
   manualId: string;
   core: { id: string; path: string };
   index: { path: string };
+  runtimeDocs: Array<{ id: string; path: string }>;
   processes: RegistryProcess[];
 };
 
@@ -65,6 +66,11 @@ export function loadAgentManualFromDisk(
       path: registry.core.path,
       content: readManualFile(repoRoot, registry.core.path, "core file"),
     },
+    runtimeDocs: registry.runtimeDocs.map((document) => ({
+      id: document.id,
+      path: document.path,
+      content: readManualFile(repoRoot, document.path, `runtime document ${document.id}`),
+    })),
     processIndex: {
       path: registry.index.path,
       content: readManualFile(repoRoot, registry.index.path, "process index"),
@@ -96,8 +102,21 @@ export function validateAgentManual(
   if (!manual.manualId) errors.push(`manualId is required`);
   if (manual.core.id !== "core") errors.push(`core id must be core`);
   if (!manual.core.path) errors.push(`core path is required`);
+  if (manual.core.path !== "vault/assistant/AGENTS.md") errors.push(`core path is not allow-listed: ${manual.core.path}`);
   if (!existsRepoPath(repoRoot, manual.core.path)) {
     errors.push(`missing core file: ${manual.core.path}`);
+  }
+
+  const indexPath = manual.processIndex?.path ?? "vault/assistant/processes/index.md";
+  if (indexPath !== "vault/assistant/processes/index.md") errors.push(`process index path is not allow-listed: ${indexPath}`);
+
+  const runtimeDocIds = new Set<string>();
+  for (const document of manual.runtimeDocs) {
+    if (runtimeDocIds.has(document.id)) errors.push(`duplicate runtime document id: ${document.id}`);
+    runtimeDocIds.add(document.id);
+    if (!document.id || !/^[a-z0-9][a-z0-9.-]*$/.test(document.id)) errors.push(`invalid runtime document id: ${document.id}`);
+    if (!isFileUnder(document.path, "vault/assistant/docs/")) errors.push(`runtime document is outside curated docs: ${document.path}`);
+    if (!existsRepoPath(repoRoot, document.path)) errors.push(`missing runtime document: ${document.path}`);
   }
 
   const ids = new Set<string>();
@@ -105,6 +124,9 @@ export function validateAgentManual(
     if (ids.has(process.id)) errors.push(`duplicate process id: ${process.id}`);
     ids.add(process.id);
 
+    if (!isFileUnder(process.path, "vault/assistant/processes/")) {
+      errors.push(`process file is outside curated processes: ${process.path}`);
+    }
     if (!existsRepoPath(repoRoot, process.path)) {
       errors.push(`missing process file: ${process.path}`);
     }
@@ -138,7 +160,6 @@ export function validateAgentManual(
     if (!ids.has(requiredId)) errors.push(`missing required process id: ${requiredId}`);
   }
 
-  const indexPath = manual.processIndex?.path ?? "vault/assistant/processes/index.md";
   if (!existsRepoPath(repoRoot, indexPath)) {
     errors.push(`missing process index: ${indexPath}`);
   } else {
@@ -195,6 +216,10 @@ function assertPurpose(purpose: string): AgentManualPurpose {
     return purpose as AgentManualPurpose;
   }
   throw new Error(`unknown agent vault appliesTo purpose: ${purpose}`);
+}
+
+function isFileUnder(path: string, prefix: string) {
+  return path.startsWith(prefix) && path.length > prefix.length && !path.slice(prefix.length).includes("/");
 }
 
 function containsPlaceholder(content: string) {

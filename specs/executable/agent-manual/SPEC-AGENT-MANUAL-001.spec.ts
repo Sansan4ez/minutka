@@ -35,6 +35,9 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(manual.version).toBe(1);
     expect(manual.manualId).toBe("personal-assistant-vault");
     expect(manual.core.path).toBe("vault/assistant/AGENTS.md");
+    expect(manual.runtimeDocs.map(({ id, path }) => ({ id, path }))).toEqual([
+      { id: "authority-and-mutability.md", path: "vault/assistant/docs/authority-and-mutability.md" },
+    ]);
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
@@ -70,6 +73,8 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     for (const handle of ["/AGENTS.md", "/processes", "/docs", "/proc", "/bin", "/run"]) {
       expect(manual.core.content).toContain(handle);
     }
+    expect(manual.runtimeDocs[0]?.content).toContain("Authority and mutability map");
+    expect(manual.runtimeDocs[0]?.content).toContain("cannot redefine the assistant role");
   });
 
   it("keeps /proc projection schemas aligned with runtime discriminators", () => {
