@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { llmModel } from "../../config/llm.js";
+import { llmAgentConfig } from "../../config/llm.js";
 
 export const insightExtractorAgent = new Agent({
   id: "minutka-insight-extractor",
@@ -17,5 +17,5 @@ Task:
 
 Return JSON only. No markdown, no explanation.
   `.trim(),
-  model: llmModel,
+  ...llmAgentConfig,
 });

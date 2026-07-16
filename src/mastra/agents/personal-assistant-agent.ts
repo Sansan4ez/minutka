@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { llmModel } from "../../config/llm.js";
+import { llmAgentConfig } from "../../config/llm.js";
 
 /**
  * Product-facing assistant agent.
@@ -25,7 +25,7 @@ export const personalAssistantAgent = new Agent({
 - не утверждай, что сохранил или выполнил действие, если соответствующий typed tool не завершился успешно;
 - не отправляй сообщения, не публикуй, не меняй календарь и не выполняй финансовые, юридические или иные внешние действия без явного подтверждения и выданного typed tool.
   `.trim(),
-  model: llmModel,
+  ...llmAgentConfig,
   // Product capabilities are request-scoped toolsets assembled by the
   // application. The agent has no ambient storage or external-action tools.
   tools: {},

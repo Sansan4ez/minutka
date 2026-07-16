@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadDotEnv, readDotEnvValue } from "../../../src/config/env.js";
-import { defaultLlmModel, llmModel, llmModelFromEnv } from "../../../src/config/llm.js";
+import { defaultLlmModel, llmAgentConfig, llmModel, llmModelFromEnv, llmProviderOptions } from "../../../src/config/llm.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
+import { requestIntegrityAgent } from "../../../src/mastra/agents/request-integrity-agent.js";
 
 describe("LLM runtime configuration", () => {
   it("uses the configured model and falls back when it is absent or blank", () => {
@@ -65,13 +66,23 @@ describe("LLM runtime configuration", () => {
     }
   });
 
-  it("applies one model to every Mastra agent", () => {
+  it("applies one model to every production Mastra agent", () => {
     expect([
       personalAssistantAgent,
       onboardingProfileExtractorAgent,
+      requestIntegrityAgent,
     ].map((agent) => agent.model)).toEqual([
       llmModel,
       llmModel,
+      llmModel,
     ]);
+  });
+
+  it("keeps the accepted OpenAI reasoning configuration explicit", async () => {
+    expect(llmProviderOptions).toEqual({ openai: { reasoningEffort: "high" } });
+    expect(llmAgentConfig).toEqual({ model: llmModel, defaultOptions: { providerOptions: llmProviderOptions } });
+    for (const agent of [personalAssistantAgent, onboardingProfileExtractorAgent, requestIntegrityAgent]) {
+      expect(await agent.getDefaultOptions()).toMatchObject({ providerOptions: llmProviderOptions });
+    }
   });
 });

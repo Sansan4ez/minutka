@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { llmModel } from "../../config/llm.js";
+import { llmAgentConfig } from "../../config/llm.js";
 
 export const conversationDecisionAgent = new Agent({
   id: "conversation-decision-router",
@@ -39,5 +39,5 @@ Constraints:
 - Privacy/person-data compliance is a separate future contour unless a process file is explicitly selected for it.
 - Return JSON only. No markdown, no explanation.
   `.trim(),
-  model: llmModel,
+  ...llmAgentConfig,
 });

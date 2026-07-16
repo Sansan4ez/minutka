@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { llmModel } from "../../config/llm.js";
+import { llmAgentConfig } from "../../config/llm.js";
 
 /** Bounded extractor: it proposes a patch only; application code owns all state and writes. */
 export const onboardingProfileExtractorAgent = new Agent({
@@ -13,5 +13,5 @@ Use canonical enum values: persona support|efficiency; aiLevel beginner|intermed
 Use null when a value is absent or uncertain. Keep typicalTasks to 1-7 short items.
 Do not infer, make privacy decisions, or write data.
   `.trim(),
-  model: llmModel,
+  ...llmAgentConfig,
 });
