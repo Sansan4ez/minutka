@@ -36,8 +36,8 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(manual.manualId).toBe("personal-assistant-vault");
     expect(manual.core.path).toBe("vault/assistant/AGENTS.md");
     expect(manual.runtimeDocs.map(({ id, path }) => ({ id, path }))).toEqual([
-      { id: "authority-and-mutability.md", path: "vault/assistant/docs/authority-and-mutability.md" },
-      { id: "privacy-boundary.md", path: "vault/assistant/docs/privacy-boundary.md" },
+      { id: "authority-and-mutability.md", path: "vault/assistant/docs/legacy-authority-and-mutability.md" },
+      { id: "privacy-boundary.md", path: "vault/assistant/docs/legacy-privacy-boundary.md" },
     ]);
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
@@ -67,7 +67,7 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
   it("keeps process index and virtual namespace contract in sync", () => {
     const manual = loadAgentManualFromDisk();
     const processIndex = readFileSync(
-      "vault/assistant/processes/index.md",
+      "vault/assistant/processes/legacy-index.md",
       "utf8",
     );
 

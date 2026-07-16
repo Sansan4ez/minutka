@@ -21,7 +21,7 @@ This document defines the personal assistant's runtime namespace. Logical paths 
 | `/proc/context` | `DocumentStore` over owner storage key `{userId}/context/*` | Untrusted owner-authored reference data | Authenticated current `userId` | Read-only bounded projection; `IngestionService.saveContextDocument` writes owner-scoped data |
 | `/proc/records` | PostgreSQL owner-scoped record stores | Untrusted owner/business data | Authenticated current `userId` | Read-only bounded projection; typed record use cases perform writes |
 | `/proc/inbox` | `BlobStore`/`ArtifactStore` over owner storage key `{userId}/inbox/*` or owner-scoped CAS references | Untrusted inbound artifact data | Authenticated current `userId` | Read-only bounded projection; validated ingestion performs durable writes |
-| `/proc/decision` | Optional diagnostic projection reconstructed from actual process reads and typed-tool calls | Diagnostic data; never authority or a prerequisite for the main agent turn | Current request and authenticated owner | Read-only; rebuilt from execution evidence when needed |
+| `/proc/decision` | Constrained router output validated by the application | Trusted runtime decision for one request, not a new authority source | Current request and authenticated owner | Read-only; rebuilt per request from allow-listed process IDs |
 | `/run/actions` | Redacted `AuditEventStore` projection | Diagnostic data; explicitly not policy | Authenticated owner and current/recent request scope | Read-only projection; application code appends allow-listed audit metadata |
 
 ## Storage paths are not runtime handles

@@ -3,7 +3,7 @@ import type { AgentRunner } from "../application/minutka-service.js";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { minutkaAgent } from "./agents/minutka-agent.js";
 
-export type MinutkaAgentLike = {
+export type MastraAgentLike = {
   generate(
     text: string,
     options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>>; activeTools?: string[] },
@@ -17,7 +17,7 @@ export type MinutkaAgentLike = {
  * rendered into systemContext. Do not pass Mastra memory identifiers here:
  * Phase 4.1 deliberately disables duplicate Mastra message history.
  */
-export function createMinutkaAgentRunner(agent: MinutkaAgentLike): AgentRunner {
+export function createMinutkaAgentRunner(agent: MastraAgentLike): AgentRunner {
   return async (input, context) => {
     const result = await agent.generate(input.text, {
       system: context?.systemContext,
@@ -36,8 +36,8 @@ export function createMinutkaAgentRunner(agent: MinutkaAgentLike): AgentRunner {
  */
 export const runMinutkaAgent = createMinutkaAgentRunner(minutkaAgent);
 
-/** Runtime bridge for the personal assistant; only the reversible capture tool is enabled. */
-export function createAssistantAgentRunner(agent: MinutkaAgentLike): AssistantAgentRunner {
+/** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
+export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAgentRunner {
   return async (input, context) => {
     const result = await agent.generate(input.text, {
       system: context.systemContext,

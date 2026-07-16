@@ -48,7 +48,7 @@ export function loadAgentManualFromDisk(
   options: LoadAgentManualOptions = {},
 ): AgentManual {
   const repoRoot = findRepoRoot(options.repoRoot ?? process.cwd());
-  const registryPath = options.registryPath ?? "vault/assistant/processes/registry.json";
+  const registryPath = options.registryPath ?? "vault/assistant/processes/legacy-registry.json";
   const absoluteRegistryPath = resolveRepoPath(repoRoot, registryPath);
   if (!existsSync(absoluteRegistryPath)) {
     throw new Error(`missing agent vault registry: ${registryPath}`);
@@ -107,8 +107,8 @@ export function validateAgentManual(
     errors.push(`missing core file: ${manual.core.path}`);
   }
 
-  const indexPath = manual.processIndex?.path ?? "vault/assistant/processes/index.md";
-  if (indexPath !== "vault/assistant/processes/index.md") errors.push(`process index path is not allow-listed: ${indexPath}`);
+  const indexPath = manual.processIndex?.path ?? "vault/assistant/processes/legacy-index.md";
+  if (indexPath !== "vault/assistant/processes/legacy-index.md") errors.push(`process index path is not allow-listed: ${indexPath}`);
 
   const runtimeDocIds = new Set<string>();
   for (const document of manual.runtimeDocs) {

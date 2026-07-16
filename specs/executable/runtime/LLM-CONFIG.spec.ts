@@ -8,6 +8,7 @@ import { agentManualRouterAgent } from "../../../src/mastra/agents/agent-manual-
 import { conversationDecisionAgent } from "../../../src/mastra/agents/conversation-decision-agent.js";
 import { insightExtractorAgent } from "../../../src/mastra/agents/insight-extractor-agent.js";
 import { minutkaAgent } from "../../../src/mastra/agents/minutka-agent.js";
+import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
 
 describe("LLM runtime configuration", () => {
@@ -70,12 +71,14 @@ describe("LLM runtime configuration", () => {
 
   it("applies one model to every Mastra agent", () => {
     expect([
+      personalAssistantAgent,
       minutkaAgent,
       conversationDecisionAgent,
       insightExtractorAgent,
       agentManualRouterAgent,
       onboardingProfileExtractorAgent,
     ].map((agent) => agent.model)).toEqual([
+      llmModel,
       llmModel,
       llmModel,
       llmModel,

@@ -3,17 +3,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 
 describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () => {
+  it("uses a dedicated product agent with no ambient tools or Minutka restrictions", async () => {
+    const instructions = String(await personalAssistantAgent.getInstructions());
+    expect(personalAssistantAgent.id).toBe("personal-assistant-agent");
+    expect(personalAssistantAgent.name).toBe("Personal Assistant");
+    expect(await personalAssistantAgent.listTools()).toEqual({});
+    expect(instructions).toContain("готовить черновики");
+    expect(instructions).toContain("Сам выбери применимые процессы");
+    expect(instructions).not.toMatch(/Минутка|рабочего дня|не пиши посты|не делай web research/i);
+  });
+
   it("loads core, the routing index, and process files without preselecting a process", () => {
     const instructions = loadAssistantAgentInstructions();
     expect(instructions).toContain("Personal Assistant runtime instructions");
-    expect(instructions).toContain("Agent Vault process index");
+    expect(instructions).toContain("Personal Assistant process index");
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
     expect(instructions).not.toContain("Active process:");
+    expect(instructions).not.toContain("SO-CoT");
+    expect(instructions).not.toContain("constrained decision router");
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
