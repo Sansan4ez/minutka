@@ -1,7 +1,8 @@
-import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { AssistantService } from "../application/assistant-service.js";
+import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
-import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
+import { MinutkaService } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
 import { createPostgresConsentAcceptanceStore } from "../infrastructure/postgres/postgres-consent-acceptance-store.js";
@@ -24,7 +25,7 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { createMastraMinutkaServiceDeps } from "../mastra/runtime-deps.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 
-export async function createPostgresRuntime(input: { agentRunner: AgentRunner; assistantAgentRunner: AssistantAgentRunner; env: NodeJS.ProcessEnv; deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator"> }) {
+export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
   // The process manual is deployment configuration: validate it before opening
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();
@@ -57,7 +58,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       feedbackStore: createPostgresFeedbackStore(pool),
       auditEventStore: createPostgresAuditEventStore(pool),
     };
-    const service = new MinutkaService(input.agentRunner, {
+    const identityService = new MinutkaService(input.legacyMinutkaAgentRunner, {
       ...stores,
       consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool, config.telegramIdentityPepper),
       telegramInviteRedemptionStore: createPostgresTelegramInviteRedemptionStore(
@@ -71,7 +72,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       ...input.deps,
     });
     const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
-    const assistant = new AssistantService(input.assistantAgentRunner, {
+    const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
@@ -83,6 +84,7 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
       idGenerator: randomIdGenerator,
       agentInstructions,
     });
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore);
     // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.
     const draftCleanup = setInterval(() => {
       void onboardingDraftStore.purgeExpired().catch((error: unknown) => {
@@ -91,10 +93,8 @@ export async function createPostgresRuntime(input: { agentRunner: AgentRunner; a
     }, 60 * 60 * 1_000);
     draftCleanup.unref();
     return {
-      service,
       assistant,
       ingestion,
-      artifactStore,
       artifactContentStore,
       telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
       /** Safe liveness/readiness probe: exposes no database metadata. */

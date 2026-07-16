@@ -21,11 +21,11 @@ function apiPort(value: string | undefined): number { const port = Number(value 
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
 async function main(): Promise<void> {
-  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ agentRunner: runMinutkaAgent, assistantAgentRunner: createAssistantAgentRunner(minutkaAgent), env: process.env });
+  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ legacyMinutkaAgentRunner: runMinutkaAgent, assistantAgentRunner: createAssistantAgentRunner(minutkaAgent), env: process.env });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
-      service: runtime.service,
+      service: runtime.assistant.legacyHttpService,
       assistant: runtime.assistant,
       auth,
       health: runtime.health,
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     if (inviteSeeds.length) {
       // Seeds are trusted startup configuration, not operator traffic; bypass the
       // per-operator abuse limiter so a valid large seed set can start atomically.
-      for (const seed of inviteSeeds) await runtime.service.issueInvite(seed);
+      for (const seed of inviteSeeds) await runtime.assistant.issueInvite(seed);
     }
     if ((process.env.TELEGRAM_MODE ?? "disabled") === "polling") {
       const token = process.env.TELEGRAM_BOT_TOKEN; const serviceToken = process.env.MINUTKA_SERVICE_TOKEN;
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, assistant: runtime.assistant, artifactStore: runtime.artifactStore, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, assistant: runtime.assistant, artifactStore: { save: (input) => runtime.assistant.saveArtifact(input) }, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {
