@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { AssistantService, type AssistantAgentContext } from "../../../src/application/assistant-service.js";
+import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
@@ -52,15 +53,6 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       clock,
       limits: { maximumBytes: 1024, timeoutMs: 1_000 },
     });
-    await artifactStore.save({
-      ownerId: "owner-a",
-      artifactId: "artifact-owner-a",
-      originalFileName: "private.txt",
-      declaredMediaType: "text/plain",
-      source: { kind: "http_upload", deliveryKey: "upload-owner-a" },
-      body: { size: 7, openStream: () => Readable.from("private") },
-    });
-
     const calls: Array<{ userId: string; text: string; context: AssistantAgentContext }> = [];
     const assistant = new AssistantService(async (input, context) => {
       calls.push({ userId: input.userId, text: input.text, context });
@@ -75,9 +67,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       idGenerator: createDeterministicIdGenerator(),
     });
 
+    const facade = new PersonalAssistantService(runtime.service, assistant, artifactStore);
     const server = await listenHttpServer({
-      service: runtime.service,
-      assistant,
+      service: facade,
+      assistant: facade,
       port: 0,
       logger: () => undefined,
       auth: {
@@ -94,6 +87,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const telegram = createTelegramShell({
       client: new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })),
       sessionStore: runtime.telegramSessionStore,
+      artifactIntake: facade,
+      fileGateway: {
+        createFileBody: () => ({ size: 7, openStream: () => Readable.from("private") }),
+      },
       replyPort: {
         async sendMessage(_chatId, text) { telegramReplies.push(text); },
         async sendChatAction() {},
@@ -101,13 +98,24 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       },
     });
     await telegram.handleText("chat-a", "from Telegram", "telegram-a");
+    await telegram.handleFile("chat-a", {
+      fileId: "private-file",
+      fileUniqueId: "private-file-unique",
+      messageId: 42,
+      payloadKind: "document",
+      fileName: "private.txt",
+      declaredMediaType: "text/plain",
+      fileSizeBytes: 7,
+      forwarded: false,
+    }, "telegram-a");
 
     const ownerHttp = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
     const otherOwnerHttp = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: otherOwnerToken }));
     await expect(ownerHttp.chat({ threadId: "http-owner-a", text: "from HTTP" })).resolves.toMatchObject({ response: "assistant:from HTTP" });
     await expect(otherOwnerHttp.chat({ threadId: "http-owner-b", text: "isolation probe" })).resolves.toMatchObject({ response: "assistant:isolation probe" });
 
-    expect(telegramReplies[0]).toBe("assistant:from Telegram");
+    expect(telegramReplies).toContain("assistant:from Telegram");
+    expect(telegramReplies).toContain("Файл сохранён.");
     expect(calls.map(({ userId, text }) => ({ userId, text }))).toEqual([
       { userId: "owner-a", text: "from Telegram" },
       { userId: "owner-a", text: "from HTTP" },
@@ -119,9 +127,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     }
     expect(calls[2]?.context.personalContext.data.documents).toEqual([]);
     expect(calls[2]?.context.records.data.records).toEqual([]);
-    await expect(artifactStore.get("owner-b", "artifact-owner-a")).resolves.toBeNull();
-    await expect(artifactStore.list("owner-b")).resolves.toEqual([]);
-    await expect(artifactStore.list("owner-a")).resolves.toMatchObject([{ artifactId: "artifact-owner-a" }]);
+    const [ownerArtifact] = await facade.listArtifacts("owner-a");
+    expect(ownerArtifact).toMatchObject({ ownerId: "owner-a", originalFileName: "private.txt" });
+    await expect(facade.getArtifact("owner-b", ownerArtifact!.artifactId)).resolves.toBeNull();
+    await expect(facade.listArtifacts("owner-b")).resolves.toEqual([]);
   });
 });
 

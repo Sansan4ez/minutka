@@ -13,7 +13,7 @@ import type { OnboardingProfileExtractor } from "./onboarding-profile-extractor.
 import { extractDeterministicOnboardingPatch } from "./onboarding-profile-extractor.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
 import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
-import type { InsightKind, StructuredInsight, StructuredInsightDraft } from "../domain/insights.js";
+import type { InsightKind, StructuredInsight } from "../domain/insights.js";
 import type { ConversationDecision } from "../domain/conversation-decision.js";
 import type { FeedbackRating, FeedbackSource } from "../domain/feedback.js";
 import type { FeedbackStore } from "./feedback-store.js";
@@ -408,14 +408,15 @@ export class MinutkaService {
     const message = await this.stores.conversationStore.getTurnByMessageId({ employeeId: input.employeeId, threadId: input.threadId, messageId: input.targetMessageId });
     if (!message) throw new PersistenceError("message_not_found");
     const requestId = this.ids.requestId();
-    const profile = await this.stores.profileStore.getProfile(input.employeeId);
-    const decision = await this.routeConversationDecisionSafely({ purpose: "feedback", text: "[structured-feedback]", profile, recentTurns: [] });
-    const built = await this.contextBuilder.build({ purpose: "feedback", text: "[structured-feedback]", profile, selectedProcessIds: decision.selectedProcessIds });
+    // Structured feedback has one deterministic process. It must remain usable
+    // after the legacy pre-flight conversation router is removed from product
+    // runtime composition.
+    const selectedProcessIds: AgentManualProcessId[] = ["core", "feedback"];
     const saved = await this.stores.feedbackStore.saveFeedback({ id: this.ids.feedbackId(), ...input, updatedAt: this.clock.now() });
     await this.audit(requestId, "feedback_received", input.employeeId, input.threadId, input.targetMessageId, this.clock.now(), {
-      feedbackId: saved.id, rating: input.rating, source: input.source, selectedProcessIds: built.selectedProcessIds,
+      feedbackId: saved.id, rating: input.rating, source: input.source, selectedProcessIds,
     });
-    return { accepted: true, feedbackId: saved.id, selectedProcessIds: built.selectedProcessIds };
+    return { accepted: true, feedbackId: saved.id, selectedProcessIds };
   }
 
   private async extractInsights(input: { input: ChatInput; messageId: string; response: string; profile?: UserProfile; recentTurns: ConversationTurn[]; decision: ConversationDecision; requestId: string }) {

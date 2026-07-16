@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { mastra } from "../../../src/mastra/index.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
+import { createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 
 const source = (path: string) => readFileSync(path, "utf8");
 
@@ -15,5 +16,67 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(source("src/runtime/serve.ts")).not.toMatch(/runMinutkaAgent|legacyMinutkaAgentRunner/);
     expect(source("src/runtime/create-postgres-runtime.ts")).not.toContain("createMastraMinutkaServiceDeps");
     expect(source("src/server/http/http-server.ts")).not.toContain("legacyChat");
+  });
+
+  it("binds the sole request-scoped capture tool to the current assistant context", async () => {
+    const captured: unknown[] = [];
+    let generateOptions: Parameters<MastraAgentLike["generate"]>[1] | undefined;
+    const runner = createAssistantAgentRunner({
+      async generate(_text, options) {
+        generateOptions = options;
+        const tool = options.toolsets?.inbox?.captureIdea as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        expect(tool).toBeDefined();
+        expect(tool.execute).toBeTypeOf("function");
+        const result = await tool.execute?.({
+          project: "ASSISTANT",
+          type: "development",
+          summary: "Bound request tool",
+          suggestedNextStep: "Keep the boundary",
+          needsProjectClarification: false,
+        }, {});
+        expect(result).toEqual({
+          ideaId: "idea_1",
+          project: "ASSISTANT",
+          response: "saved",
+          needsProjectClarification: false,
+        });
+        return { text: "done" };
+      },
+    });
+
+    await expect(runner({ userId: "owner", threadId: "thread", text: "capture" }, {
+      systemContext: "private context",
+      personalContext: {} as never,
+      records: {} as never,
+      source: { kind: "text", text: "capture" },
+      async captureIdea(input) {
+        captured.push(input);
+        return {
+          idea: {
+            id: "idea_1", userId: "owner", project: input.project, type: input.type, summary: input.summary,
+            suggestedNextStep: input.suggestedNextStep, source: { kind: "text", text: "capture" }, status: "raw",
+            createdAt: "2026-07-16T09:00:00.000Z", lastActivityAt: "2026-07-16T09:00:00.000Z",
+          },
+          response: "saved",
+          needsProjectClarification: input.needsProjectClarification,
+        };
+      },
+    })).resolves.toBe("done");
+
+    expect(captured).toEqual([{
+      project: "ASSISTANT",
+      type: "development",
+      summary: "Bound request tool",
+      suggestedNextStep: "Keep the boundary",
+      needsProjectClarification: false,
+    }]);
+    expect(generateOptions).toMatchObject({
+      system: "private context",
+      toolChoice: "auto",
+      activeTools: ["captureIdea"],
+      maxSteps: 2,
+    });
+    expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(["inbox"]);
+    expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual(["captureIdea"]);
   });
 });
