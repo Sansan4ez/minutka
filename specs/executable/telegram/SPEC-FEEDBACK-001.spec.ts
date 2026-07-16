@@ -270,8 +270,10 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       targetMessageId,
       rating: "positive",
       source: "telegram",
-      selectedProcessIds: ["core", "feedback"],
     });
+
+    const auditEvent = spec.world.auditEvents.find((event) => event.type === "feedback_received");
+    expect(auditEvent?.metadata).toEqual({ feedbackId: fbRecord.id, rating: "positive", source: "telegram" });
 
     // Event MUST NOT contain transport details (no chatId, no userId)
     const event = spec.world.events.find((e) => e.type === "FeedbackReceived") as any;

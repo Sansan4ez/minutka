@@ -4,7 +4,7 @@ This index is the file-first routing map for Minutka business processes. It foll
 
 `Why it applies` is explicit because routing should not depend on hidden keyword rules: the SO-CoT constrained decision router uses this column as the short rationale map before reading full process files.
 
-`Mutating` means the process may authorize or trigger a persistent side effect beyond composing the answer. In Time-agent, message/event logging is owned by `MinutkaService.chat()` and is not counted here; process-owned mutation means profile update, insight persistence, feedback persistence, or a future `/bin` operation.
+`Mutating` means the process may authorize or trigger a persistent side effect beyond composing the answer. In Time-agent, message/event logging is owned by `MinutkaService.chat()` and is not counted here; process-owned mutation means profile update, insight persistence, or a future `/bin` operation. Deterministic feedback callbacks bypass this catalog and call the typed `submitFeedback` use case directly.
 
 | Process id | When to select | Why it applies | Mutating |
 |---|---|---|---|
@@ -13,7 +13,6 @@ This index is the file-first routing map for Minutka business processes. It foll
 | `evening_reflection` | End-of-day work reflection, blockers, calls/meetings, fatigue, comparing outcome with morning plan. | Helps interpret a workday reflection with thread context and prepare useful response context. | No. |
 | `workday_guardrails` | Request asks Minutka to do work outside its role: finished content generation, web research, unsupported AI training, unrelated topic, or request-integrity override. | Business-scope boundary process: decide a soft refusal and return to working-day help without invoking the main answer chain. | Audit event only. |
 | `insight_extraction` | Conversation decision marks the allowed turn as an insight candidate after a substantive workday plan/reflection/blocker/load signal. | Business-signal extraction is a process, not keyword code: it decides which structured signal kinds are appropriate. | Yes: persists structured insights. |
-| `feedback` | Employee rates a specific answer with 👍/👌/👎 or similar quick reaction. | Feedback is its own process because it concerns the previous answer quality, not the current workday content. | Future feedback record. |
 | `inbox_capture` | The owner asks to retain an idea, note, link, voice memo, photo, or another inbound record. | Classifies and saves the item through the owner-scoped `captureIdea` typed action before replying. | Yes: persists an owner-scoped idea. |
 
 ## Routing principles

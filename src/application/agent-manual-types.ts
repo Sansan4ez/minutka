@@ -5,7 +5,6 @@ export type AgentManualProcessId = DecisionProcessId;
 export type AgentManualPurpose =
   | "chat"
   | "onboarding_first_response"
-  | "feedback"
   | "inbound_record";
 
 export type AgentManualProcess = {
@@ -48,7 +47,6 @@ export const agentManualProcessIds = [
   "evening_reflection",
   "workday_guardrails",
   "insight_extraction",
-  "feedback",
   "inbox_capture",
 ] as const satisfies readonly AgentManualProcessId[];
 
@@ -58,7 +56,6 @@ export const requiredAgentManualProcessIds = [
   "evening_reflection",
   "workday_guardrails",
   "insight_extraction",
-  "feedback",
   "inbox_capture",
 ] as const satisfies readonly Exclude<AgentManualProcessId, "core">[];
 

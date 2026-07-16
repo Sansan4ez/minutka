@@ -1,6 +1,6 @@
 import type { UserProfile } from "../domain/employee.js";
 import type { ConversationTurn } from "./conversation-store.js";
-import type { ProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
+import type { ChatProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
 import { renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import type {
   AgentManual,
@@ -37,7 +37,7 @@ export type BuildMinutkaContextInput = {
   profile?: UserProfile;
   recentTurns?: ConversationTurn[];
   /** Scoped application snapshot; replaces the legacy duplicated profile context. */
-  runtimeProjection?: ProcSnapshot;
+  runtimeProjection?: ChatProcSnapshot;
   decisionProjection?: import("./runtime-projections/runtime-projection-types.js").RuntimeProjection<import("./runtime-projections/runtime-projection-types.js").DecisionProjection>;
   selectedProcessIds?: AgentManualProcessId[];
   /** Trusted channel-aware response constraints supplied by the application service. */

@@ -82,18 +82,6 @@
       ]
     },
     {
-      "id": "feedback",
-      "path": "vault/assistant/processes/feedback.md",
-      "appliesTo": [
-        "feedback"
-      ],
-      "dependencies": [
-        "docs/architecture/minutka-foundation.md",
-        "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
-        "docs/product/Final_Description.md#65-reporting-and-automation-map-generation"
-      ]
-    },
-    {
       "id": "inbox_capture",
       "path": "vault/assistant/processes/inbox_capture.md",
       "appliesTo": [

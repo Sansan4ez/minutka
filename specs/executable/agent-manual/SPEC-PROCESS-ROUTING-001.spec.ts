@@ -255,7 +255,7 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
 
     expect(result).toMatchObject({ accepted: true });
     expect(result.feedbackId).toBeDefined();
-    expect(result.selectedProcessIds).toEqual(["core", "feedback"]);
+    expect(result.selectedProcessIds).toEqual([]);
     expectEvent(spec, {
       type: "FeedbackReceived",
       feedbackId: result.feedbackId,
@@ -264,7 +264,11 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
       targetMessageId: chatResult.messageId,
       rating: "positive",
       source: "cli",
-      selectedProcessIds: ["core", "feedback"],
+    });
+    expect(spec.world.auditEvents.find((event) => event.type === "feedback_received")?.metadata).toEqual({
+      feedbackId: result.feedbackId,
+      rating: "positive",
+      source: "cli",
     });
   });
 });

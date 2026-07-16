@@ -5,14 +5,6 @@ import type { StructuredInsightDraft } from "../../../src/domain/insights.js";
 
 export function createSpecConversationDecisionRouter(): ConversationDecisionRouter {
   return async (input) => {
-    if (input.purpose === "feedback") {
-      return {
-        selectedProcessIds: ["core", "feedback"],
-        workDecision: { mode: "allow", reason: "feedback" },
-        insightDecision: { candidate: false, suggestedKinds: [] },
-      };
-    }
-
     const text = input.text.toLocaleLowerCase("ru-RU").replace(/ё/g, "е");
 
     if (text.includes("напиши") && text.includes("пост")) {

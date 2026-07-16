@@ -40,7 +40,7 @@ function toLegacyEvent(event: AuditEventRecord): DomainEvent | undefined {
     case "work_boundary_applied": return { type: "WorkBoundaryApplied", employeeId, threadId: event.threadId ?? "", reason: String(event.metadata.reason) as never, selectedProcessIds: event.metadata.selectedProcessIds as never, timestamp };
     case "insight_recorded": return { type: "InsightRecorded", employeeId, threadId: event.threadId ?? "", insightId: String(event.metadata.insightId), kind: String(event.metadata.kind) as never, timestamp };
     case "insight_extraction_failed": return { type: "InsightExtractionFailed", employeeId, threadId: event.threadId ?? "", reason: "redacted", timestamp };
-    case "feedback_received": return { type: "FeedbackReceived", feedbackId: String(event.metadata.feedbackId), employeeId, threadId: event.threadId ?? "", targetMessageId: event.messageId ?? "", rating: String(event.metadata.rating) as never, source: String(event.metadata.source) as never, selectedProcessIds: event.metadata.selectedProcessIds as never, timestamp };
+    case "feedback_received": return { type: "FeedbackReceived", feedbackId: String(event.metadata.feedbackId), employeeId, threadId: event.threadId ?? "", targetMessageId: event.messageId ?? "", rating: String(event.metadata.rating) as never, source: String(event.metadata.source) as never, timestamp };
     default: return undefined;
   }
 }

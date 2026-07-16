@@ -432,13 +432,12 @@ export class MinutkaService {
     const message = await this.stores.conversationStore.getTurnByMessageId({ employeeId: input.employeeId, threadId: input.threadId, messageId: input.targetMessageId });
     if (!message) throw new PersistenceError("message_not_found");
     const requestId = this.ids.requestId();
-    // Structured feedback has one deterministic process. It must remain usable
-    // after the legacy pre-flight conversation router is removed from product
-    // runtime composition.
-    const selectedProcessIds: AgentManualProcessId[] = ["core", "feedback"];
+    // Rating callbacks already contain the complete typed intent. Persist them
+    // directly; no agent process is selected or executed on this path.
+    const selectedProcessIds: AgentManualProcessId[] = [];
     const saved = await this.stores.feedbackStore.saveFeedback({ id: this.ids.feedbackId(), ...input, updatedAt: this.clock.now() });
     await this.audit(requestId, "feedback_received", input.employeeId, input.threadId, input.targetMessageId, this.clock.now(), {
-      feedbackId: saved.id, rating: input.rating, source: input.source, selectedProcessIds,
+      feedbackId: saved.id, rating: input.rating, source: input.source,
     });
     return { accepted: true, feedbackId: saved.id, selectedProcessIds };
   }

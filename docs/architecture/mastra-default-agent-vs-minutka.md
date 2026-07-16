@@ -218,8 +218,9 @@ vault/
 - `consent_and_privacy`;
 - `evening_reflection`;
 - `workday_guardrails`;
-- `insight_extraction`;
-- `feedback`.
+- `insight_extraction`.
+
+Structured feedback callback не входит в каталог процессов: transport уже знает rating и target message, поэтому вызывает typed `submitFeedback` use case напрямую, без LLM.
 
 Каждый процесс имеет единый контракт:
 

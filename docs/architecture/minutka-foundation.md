@@ -200,7 +200,6 @@ vault/
     evening_reflection.md
     workday_guardrails.md
     insight_extraction.md
-    feedback.md
   docs/
     README.md
     product-boundary.md
@@ -211,7 +210,6 @@ vault/
     route-conversation-decision.md
     update-profile.md
     extract-insights.md
-    record-feedback.md
   proc/
     README.md
     schemas/
@@ -469,7 +467,6 @@ Definition of Done:
    - `processes/evening_reflection.md`
    - `processes/workday_guardrails.md`
    - `processes/insight_extraction.md`
-   - `processes/feedback.md`
 3. Проверить текущие продуктовые сценарии из `docs/product/Final_Description.md` и `docs/product/virtual-simulation.md`: они являются источником требований, но должны быть переписаны в procedural BP-формат с секциями `When applies / Inputs / Process / Outputs / Privacy notes / Anti-patterns / Dependencies`.
 4. Добавить vault loader в application layer.
 5. Расширить `MinutkaContextBuilder`: возвращать `selectedProcessIds`, подмешивать `vault/AGENTS.md` и выбранные process-файлы в prompt/context.
@@ -480,7 +477,7 @@ Definition of Done:
 
 - Agent Vault создан и проходит validation spec.
 - Минимум 6 process-файлов соответствуют author contract.
-- `MinutkaContextBuilder` выбирает process ids для onboarding, evening reflection, guardrails и feedback.
+- `MinutkaContextBuilder` выбирает process ids для onboarding, evening reflection и guardrails; structured feedback сохраняется детерминированно без agent process selection.
 - Selected process ids доступны в response/audit для executable specs.
 - Все предыдущие specs остаются зелёными.
 - `npm run typecheck`, `npm run specs`, `nix run .#verify` проходят.
@@ -505,7 +502,7 @@ Definition of Done:
 2. Реализовать обработчики `/start`, текстовых сообщений, callback buttons 👍/👌/👎.
 3. Не помещать бизнес-логику в handlers: handlers вызывают SDK/Application API.
 4. Telegram flow использует уже подключённый Agent Vault: routing процессов остаётся в Application/ContextBuilder, не в handlers.
-5. Feedback flow опирается на `processes/feedback.md` и сохраняется через application use case/tool boundary.
+5. Feedback flow идёт напрямую через transport → typed `submitFeedback` use case → store/audit; agent process и ручной выбор не запускаются.
 6. Добавить `SPEC-FEEDBACK-001` через in-process Telegram adapter/mock update driver.
 7. Провести ручной smoke E2E в Telegram.
 

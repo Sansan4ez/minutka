@@ -41,7 +41,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   work_boundary_applied: ["reason", "selectedProcessIds"],
   insight_recorded: ["insightId", "kind"],
   insight_extraction_failed: [],
-  feedback_received: ["feedbackId", "rating", "source", "selectedProcessIds"],
+  feedback_received: ["feedbackId", "rating", "source"],
   agent_manual_load_failed: [],
   idea_captured: ["ideaId", "recordType", "sourceKind"],
   document_tool_used: ["operation", "resultCount", "truncated", "outcome"],

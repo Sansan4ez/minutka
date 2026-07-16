@@ -33,7 +33,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(chat.exitCode).toBe(0); const messageId = JSON.parse(chat.stdout.at(-1) ?? "{}").messageId;
     const feedback = await runMinutkaCli(client, ["employee", "feedback", "--thread", "thread_cli", "--target-message", messageId, "--rating", "positive"]);
     expect(feedback.exitCode).toBe(0);
-    expect(JSON.parse(feedback.stdout.at(-1) ?? "{}").selectedProcessIds).toEqual(["core", "feedback"]);
+    expect(JSON.parse(feedback.stdout.at(-1) ?? "{}").selectedProcessIds).toEqual([]);
     expect((await application.getProfile({ employeeId: "emp_cli" })).role).toBe("manager");
     const inProcessClient = new EmployeeMinutkaClient(createInProcessEmployeeTransport(runtime.service, { kind: "employee", employeeId: "emp_cli" }));
     expect(await inProcessClient.getProfile()).toEqual(await client.getProfile());

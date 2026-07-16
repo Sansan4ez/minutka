@@ -95,9 +95,6 @@ function ensureLifecycleProcesses(
   if (purpose === "onboarding_first_response") {
     return ensureProcesses(ids, ["onboarding", "consent_and_privacy"], allowed);
   }
-  if (purpose === "feedback") {
-    return ensureProcesses(ids, ["feedback"], allowed);
-  }
   return ids;
 }
 

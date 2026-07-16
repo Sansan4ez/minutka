@@ -53,7 +53,7 @@
   "additionalProperties": false,
   "$defs": {
     "processId": {
-      "enum": ["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "feedback"]
+      "enum": ["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]
     },
     "insightKind": {
       "enum": ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"]

@@ -89,7 +89,6 @@ export type FeedbackReceived = {
   targetMessageId: string;
   rating: FeedbackRating;
   source: FeedbackSource;
-  selectedProcessIds: DecisionProcessId[];
   timestamp: string;
 };
 

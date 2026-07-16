@@ -311,7 +311,7 @@ Telegram (голос/фото/ссылка/  → STT при необходимо
 
 ### 8.2. Новые триггеры router
 
-Сейчас router знает `chat`, `onboarding_first_response`, `feedback`. Добавляем:
+Agent-led runtime обслуживает содержательные `chat` и `onboarding_first_response`; rating feedback идёт детерминированно через transport → `submitFeedback` без process routing. Для следующих фаз добавляем:
 
 - `scheduled` — запуск из `SchedulerService` (дайджест, обзоры);
 - `file_uploaded` — приход файла (`.vtt`/`.txt`/фото) через ingestion.

@@ -44,12 +44,12 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
       "consent_and_privacy",
       "evening_reflection",
-      "feedback",
       "inbox_capture",
       "insight_extraction",
       "onboarding",
       "workday_guardrails",
     ]);
+    expect(manual.processes).not.toContainEqual(expect.objectContaining({ id: "feedback" }));
 
     for (const process of manual.processes) {
       for (const section of requiredProcessSections) {

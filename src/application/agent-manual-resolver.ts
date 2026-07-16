@@ -78,10 +78,6 @@ function requiredProcessesFor(input: ResolveAgentManualInput): AgentManualProces
     required.push("onboarding", "consent_and_privacy");
   }
 
-  if (input.purpose === "feedback") {
-    required.push("feedback");
-  }
-
   return dedupe(required);
 }
 

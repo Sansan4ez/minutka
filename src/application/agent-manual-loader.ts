@@ -212,7 +212,7 @@ function assertProcessId(id: string): AgentManualProcess["id"] {
 }
 
 function assertPurpose(purpose: string): AgentManualPurpose {
-  if (["chat", "onboarding_first_response", "feedback", "inbound_record"].includes(purpose)) {
+  if (["chat", "onboarding_first_response", "inbound_record"].includes(purpose)) {
     return purpose as AgentManualPurpose;
   }
   throw new Error(`unknown agent vault appliesTo purpose: ${purpose}`);

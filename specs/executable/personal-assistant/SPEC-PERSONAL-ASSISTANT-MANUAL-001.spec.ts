@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
+import { assistantActiveToolNames, assistantRuntimeToolsets } from "../../../src/mastra/agent-runner.js";
 
 describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () => {
   it("uses a dedicated product agent with no ambient tools or Minutka restrictions", async () => {
@@ -32,6 +33,31 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).not.toMatch(/company and methodologist|minimum group size|workday_guardrails|insight_extraction/i);
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
+  });
+
+  it("keeps manifests, runtime toolsets, active tools, and process references in sync", () => {
+    const registry = JSON.parse(readFileSync("vault/assistant/bin/registry.json", "utf8")) as {
+      personalAssistant: Array<{ id: string; manifest: string }>;
+    };
+    const registeredIds = registry.personalAssistant.map(({ id }) => id);
+    const toolsetIds = Object.values(assistantRuntimeToolsets).flat();
+    const processRegistry = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8")) as {
+      index: { path: string };
+      processes: Array<{ path: string }>;
+    };
+    const processFiles = [processRegistry.index.path, ...processRegistry.processes.map(({ path }) => path)]
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
+
+    expect(registeredIds).toEqual([...assistantActiveToolNames]);
+    expect(toolsetIds).toEqual([...assistantActiveToolNames]);
+    for (const { manifest } of registry.personalAssistant) {
+      expect(readFileSync(`vault/assistant/bin/${manifest}`, "utf8")).toContain("## Purpose");
+    }
+    for (const match of processFiles.matchAll(/`([a-z][A-Za-z0-9]+)`/g)) {
+      expect(registeredIds).toContain(match[1]);
+    }
+    expect(readFileSync("vault/assistant/bin/README.md", "utf8")).toContain("feedback callbacks call `submitFeedback` directly");
   });
 
   it("loads only allow-listed trusted files and documents the authority boundary", () => {

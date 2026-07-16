@@ -4,15 +4,15 @@
 
 The product-facing personal assistant chooses applicable `/processes` itself in the main turn. Tools remain mechanical: the request-scoped application handler validates input, binds owner scope, performs the side effect, and records audit data. A tool or process id never grants additional authority by itself.
 
-The machine-readable registry is `/bin/registry.json`; executable specs keep it aligned with the request-scoped Mastra toolset.
+The machine-readable registry is `/bin/registry.json`; executable specs keep it aligned with the request-scoped Mastra `toolsets` and `activeTools`. The registry is the complete active capability catalog, not a compatibility inventory.
 
-| Tool manifest | Runtime | Mutating | Purpose |
-|---|---|---:|---|
-| `/bin/capture-idea.md` (`captureIdea`) | Personal assistant | Yes | Save a classified owner idea through `IngestionService`. |
-| `/bin/list-documents.md` (`listDocuments`) | Personal assistant | No | List bounded logical document metadata under `/proc/context`. |
-| `/bin/read-document.md` (`readDocument`) | Personal assistant | No | Read a bounded document range or Markdown section. |
-| `/bin/search-documents.md` (`searchDocuments`) | Personal assistant | No | Search owner document paths/content with bounded snippets. |
-| `/bin/route-conversation-decision.md` | Legacy Minutka compatibility | No | Produce the legacy work/insight decision while that path remains. |
-| `/bin/extract-insights.md` | Legacy Minutka compatibility | Yes | Persist structured insight drafts after an allowed response. |
-| `/bin/update-profile.md` | Identity/onboarding compatibility | Yes | Save onboarding/profile fields through application validation. |
-| `/bin/record-feedback.md` | Identity/onboarding compatibility | Yes | Record employee feedback about a previous answer. |
+| Tool manifest | Runtime id | Mutating | Confirmation | Owner scope | Purpose |
+|---|---|---:|---|---|---|
+| `/bin/capture-idea.md` | `captureIdea` | Yes, reversible internal write | No | Bound by `AssistantService`; owner id is not model input | Save a classified owner idea through `IngestionService`. |
+| `/bin/list-documents.md` | `listDocuments` | No | No | Authenticated owner's `/proc/context` only | List bounded logical document metadata. |
+| `/bin/read-document.md` | `readDocument` | No | No | Authenticated owner's `/proc/context` only | Read a bounded document range or Markdown section. |
+| `/bin/search-documents.md` | `searchDocuments` | No | No | Authenticated owner's `/proc/context` only | Search owner document paths/content with bounded snippets. |
+
+Read, list, and search are tools because they are deterministic typed operations over an owner-scoped namespace. `inbox_capture` is a business process because the agent must interpret the inbound item, choose its project and record type, decide whether clarification is needed, and then invoke `captureIdea`.
+
+Deterministic transport/application actions such as consent callbacks, onboarding confirmation, and feedback rating persistence are not agent tools unless they are explicitly wired into the request-scoped runtime. In particular, feedback callbacks call `submitFeedback` directly and do not claim an agent-process execution.

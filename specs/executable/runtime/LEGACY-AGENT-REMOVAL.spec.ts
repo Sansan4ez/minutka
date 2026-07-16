@@ -2,14 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { mastra } from "../../../src/mastra/index.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
-import { createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
+import { assistantActiveToolNames, assistantRuntimeToolsets, createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 
 const source = (path: string) => readFileSync(path, "utf8");
 
 describe("A2.6: legacy Minutka agent removal", () => {
   it("keeps the product runtime free of the legacy agent and chat fallback", async () => {
     expect(existsSync("src/mastra/agents/minutka-agent.ts")).toBe(false);
-    expect(Object.keys(await import("../../../src/mastra/agent-runner.js"))).toEqual(["createAssistantAgentRunner"]);
+    expect(Object.keys(await import("../../../src/mastra/agent-runner.js")).sort()).toEqual([
+      "assistantActiveToolNames",
+      "assistantRuntimeToolsets",
+      "createAssistantAgentRunner",
+    ]);
     expect(mastra.getAgent("personalAssistantAgent")).toBe(personalAssistantAgent);
     expect(() => mastra.getAgent("minutkaAgent" as never)).toThrow();
 
@@ -48,6 +52,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     await expect(runner({ userId: "owner", threadId: "thread", text: "capture" }, {
       systemContext: "private context",
       personalContext: {} as never,
+      profileAndHistory: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture" },
       documents: {
@@ -79,11 +84,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(generateOptions).toMatchObject({
       system: "private context",
       toolChoice: "auto",
-      activeTools: ["captureIdea", "listDocuments", "readDocument", "searchDocuments"],
+      activeTools: [...assistantActiveToolNames],
       maxSteps: 4,
     });
-    expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(["inbox", "documents"]);
-    expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual(["captureIdea"]);
-    expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
+    expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(Object.keys(assistantRuntimeToolsets));
+    expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);
+    expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
   });
 });
