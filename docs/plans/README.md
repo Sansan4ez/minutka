@@ -18,20 +18,24 @@ br show <id>                # детали задачи: description / ## Design
 - [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [../architecture/rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) — текущая.
 - [../architecture/minutka-foundation.md](../architecture/minutka-foundation.md) — исторический мастер-план фундамента «Минутки» (провенанс переиспользуемого кода).
 
-## Эпики (снимок 2026-07-15)
+## Эпики (снимок 2026-07-16)
 
 **Активные:**
 
 | Эпик | id | Статус |
 |---|---|---|
-| Фаза B — банк идей (slim) | `prs-2yr` | closed |
-| Универсальный файловый intake и owner-scoped CAS | `prs-sb1` | open |
-| Гигиена роутинга/каталога (F1/F4, ex F1–F8) | `prs-x5q` | open (superseded-остаток) |
-| Фаза D — дайджест/планировщик (ex phase-7) | `prs-yjl` | deferred |
+| Фаза A.3 — активация и персональный контекст пилотного пользователя | `prs-dor` | ready |
+| Фаза C.1 — задачи, планирование и фокус дня | `prs-mcn` | blocked by A.3 |
+| Фаза D.0 — scheduler foundation и ежедневные касания | `prs-yjl` | blocked by C.1 |
+| Фаза E.0 — typed processing сохранённых артефактов | `prs-pdo` | ready |
+| Фаза E.1 — встречи и follow-up | `prs-t7c` | blocked by C.1 и E.0 |
+| Фаза P — pilot readiness: usage, cost и data lifecycle | `prs-ip0` | ready |
+
+**Закрытые (ассистент):** Фаза A.2 — единый runtime (`prs-jkw`), Фаза B — банк идей (`prs-2yr`), универсальный файловый intake/CAS (`prs-sb1`), гигиена Agent Vault и routing integrity (`prs-x5q`).
 
 **Закрытые (фундамент «Минутки»):** Фазы 1, 2, 3, 3.5, 4, 4.1, 4.2, 5 — `br list --status=closed -t epic`.
 
-**Будущие фазы RFC** (C — планирование, E — встречи, F — совет директоров, G — инсайты) заводятся эпиками по мере подхода — см. roadmap в [RFC §13](../architecture/rfc-personal-assistant-architecture.md#13-фазовый-план).
+Актуальный dependency-aware порядок всегда смотреть через `bv --robot-triage`; roadmap и инварианты фаз — в [RFC §13](../architecture/rfc-personal-assistant-architecture.md#13-фазовый-план).
 
 ## Как заводить новый план
 

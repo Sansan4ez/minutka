@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed (черновик для пилота).** Документ фиксирует целевую архитектуру нового продукта — персонального AI-ассистента руководителя — построенного на архитектуре текущего `time-agent` («Минутка»). Продукт переиспользует runtime, application-слой, хранилища и Agent Vault «Минутки», расширяет их до широкого ассистента и добавляет один новый слой: личный vault пользователя с многоканальным приёмом файлов.
+**Accepted для пилота-прототипа (2026-07-16).** Документ фиксирует целевую архитектуру персонального AI-ассистента руководителя, построенного на переиспользуемом фундаменте `time-agent` («Минутка»). Реализованный baseline уже сводит Telegram / HTTP / CLI к единому application facade, использует owner-scoped документы, записи и артефакты и следует агент-ведомому роутингу из отдельного RFC. Следующие фазы расширяют этот baseline без возврата конкурирующего chat-path.
 
 «Минутка» в её текущем узком виде (вечерний дневник) может остаться отдельным продуктом. Новый проект **не тащит** её ограничения роли и её company/methodologist privacy-модель: он с самого начала проектируется как полноценный ассистент с одной ролью.
 
@@ -24,10 +24,10 @@ Related documents:
 
 - Mastra-runtime и каналы Telegram / HTTP / CLI поверх общего application-слоя;
 - application-owned state в PostgreSQL (профиль, история, consent, feedback, insights, audit);
-- constrained decision router с allow-list процессов — по сути готовый оркестратор навыков;
+- единый transport-neutral application facade для Telegram / HTTP / CLI;
 - Agent Vault: статические git-файлы (`AGENTS.md`, `processes/`, `docs/`) + проекции изменяемого состояния в `/proc`, `/run`;
 - `AgentRunner` + executable specs, позволяющие тестировать весь путь без LLM;
-- контроль побочных эффектов: `toolChoice: "none"` в основном chat-path, мутации через use-cases.
+- typed use-cases/tools: внутренние обратимые записи разрешены в owner scope, внешние и необратимые действия требуют подтверждения.
 
 Новый продукт требует четырёх добавлений:
 
@@ -52,7 +52,7 @@ Related documents:
 
 ### Цели
 
-1. Переиспользовать application-слой, router, stores, Agent Vault и runtime «Минутки» без форка ключевых механизмов.
+1. Переиспользовать application-слой, stores, Agent Vault и transport/runtime-фундамент «Минутки» без форка ключевых механизмов.
 2. Дать пользователю личную папку, доступную агенту, с надёжной изоляцией по `userId` и тремя каналами наполнения.
 3. Сохранить принцип «application владеет состоянием»: агент не пишет напрямую и не выполняет внешние действия без подтверждения.
 4. Сделать каждый навык добавляемым как process-файл + запись в реестре, без изменения ядра.
@@ -69,33 +69,24 @@ Related documents:
 ## 3. Целевая архитектура
 
 ```text
-Telegram / HTTP / внешний загрузчик (по userId)
-                    │
-                    ▼
-        IngestionService  (единая точка записи)
-          ├─ документы-контекст → DocumentStore   (MinIO {userId}/context/)
-          ├─ блобы (чеки, транскрибации, файлы) → BlobStore (MinIO {userId}/inbox/)
-          └─ структурные записи (идеи/задачи/расходы) → PostgreSQL record stores
-                    │
-                    ▼
-        AssistantService  (application orchestration)
-                    │
-                    ▼
-        ConversationDecisionRouter → выбор навыков (registry allow-list)
-                    │
-                    ▼
-        Runtime projections:
-          /proc/profile   /proc/context   /proc/records
-          /proc/inbox     /proc/decision  /run/actions
-                    │
-                    ▼
-        AssistantAgent (Mastra) → ответ или черновик
-                    │
-                    ▼
-        Внешние действия и мутации → typed use-cases + подтверждение + audit
+Telegram ── versioned HTTP SDK ─┐
+HTTP / CLI ─────────────────────┼─→ PersonalAssistantService (единый facade)
+внешний загрузчик (по userId) ──┘              │
+                                               ├─ chat → AssistantService
+                                               │          ├─ bounded owner projections
+                                               │          │   /proc/context /proc/records /proc/inbox
+                                               │          ├─ один AssistantAgent (Mastra)
+                                               │          │   core + process index
+                                               │          └─ typed owner-scoped tools/use-cases
+                                               └─ intake → IngestionService / ArtifactStore
+                                                          ├─ DocumentStore (MinIO {userId}/context/)
+                                                          ├─ owner-scoped CAS + artifact index
+                                                          └─ PostgreSQL record stores
+
+Внешние и необратимые действия → typed use-case → явное подтверждение → audit
 ```
 
-Компоненты, переиспользуемые из «Минутки» как есть: `ConversationStore`, `ProfileStore`, `ConsentAcceptanceStore`, `FeedbackStore`, `InsightStore`, `AuditEventStore`, `ConversationDecisionRouter`, `MinutkaContextBuilder` (обобщается до `AssistantContextBuilder`), `AgentRunner`, HTTP/SDK/CLI транспорт.
+Компоненты, переиспользуемые из «Минутки»: `ConversationStore`, `ProfileStore`, `ConsentAcceptanceStore`, `FeedbackStore`, `InsightStore`, `AuditEventStore`, `AgentRunner`, HTTP/SDK/CLI транспорт и identity/onboarding use-cases. Product-facing transport получает `PersonalAssistantService`; `AssistantService` остаётся единственным chat-orchestrator. Пре-флайт `ConversationDecisionRouter` относится только к legacy-пути и не участвует в runtime персонального ассистента.
 
 Новые компоненты: `DocumentStore`, `BlobStore`, record stores (`IdeaStore`, `TaskStore`, `ExpenseStore`), `IngestionService`, `SchedulerService`, MinIO-адаптеры, набор навыков в vault.
 
@@ -341,7 +332,7 @@ Telegram (голос/фото/ссылка/  → STT при необходимо
 | Подключить интеграцию, выдать доступ | Только пользователь |
 | Финансовое/публичное/юридически значимое | Только пользователь; агент готовит черновик |
 
-Каждое внешнее действие проходит через use-case, фиксируется в `AuditEventStore` и проецируется в `/run/actions`. В основном chat-path сохраняется `toolChoice: "none"`; действия инициируются через явные подтверждающие шаги, а не свободный tool-loop.
+Каждое внешнее действие проходит через use-case, фиксируется в `AuditEventStore` и проецируется в `/run/actions`. В основном chat-path агенту доступны только явно подключённые typed tools для внутренних обратимых owner-scoped записей. Внешние и необратимые действия не выдаются как свободный tool-loop: они инициируются через явные подтверждающие шаги.
 
 Внешние интеграции пилота: Google Calendar, Telegram, файловое хранилище, загруженные транскрибации (§11.2). Часть доступна как MCP-инструменты, но вызываются они через application use-cases, а не отдаются агенту напрямую.
 
@@ -353,7 +344,7 @@ Telegram (голос/фото/ссылка/  → STT при необходимо
 - вечерняя рефлексия;
 - недельный обзор банка идей и целей (пятница).
 
-Каждый запуск идёт тем же путём, что и сообщение пользователя: `AssistantService → router → навык → результат в Telegram`. Для пилота (<100 пользователей) достаточно одного воркера с расписанием в PostgreSQL; вынос в очередь — позже.
+Каждый запуск идёт тем же application-путём, что и сообщение пользователя: `PersonalAssistantService → AssistantService → один агентный ход → typed tools → результат в Telegram`. Планировщик задаёт детерминированный trigger, но не запускает отдельный семантический LLM-роутер. Для пилота (<100 пользователей) достаточно одного воркера с расписанием в PostgreSQL; вынос в очередь — позже.
 
 ## 11. Приватность (single-owner)
 
@@ -369,7 +360,7 @@ Telegram (голос/фото/ссылка/  → STT при необходимо
 
 ## 12. Тестируемость
 
-Сохраняем модель «Минутки»: `AgentRunner` инжектируется, executable specs гоняют весь путь `CLI → SDK → Server → AssistantService → mock AgentRunner` без LLM. Новые stores получают in-memory адаптеры (`InMemoryDocumentStore`, `InMemoryBlobStore`, `InMemoryIdeaStore`, ...), поэтому ingestion, классификация, проекции, router и навыки покрываются specs без сети и без MinIO. Реальные MinIO/провайдер-вызовы проверяются отдельными smoke-тестами.
+Сохраняем модель «Минутки»: `AgentRunner` инжектируется, executable specs гоняют `HTTP/CLI → SDK → Server → PersonalAssistantService/AssistantService → mock AgentRunner` и `Telegram → HTTP SDK → тот же Server → тот же AssistantService` без LLM. Новые stores получают in-memory адаптеры (`InMemoryDocumentStore`, `InMemoryBlobStore`, `InMemoryIdeaStore`, ...), поэтому ingestion, owner-scoped проекции и typed tools покрываются specs без сети и без MinIO. `SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001` фиксирует единый chat-path и отсутствие cross-owner доступа к context/records/artifacts. Реальные MinIO/провайдер-вызовы проверяются отдельными smoke-тестами.
 
 ## 13. Фазовый план
 

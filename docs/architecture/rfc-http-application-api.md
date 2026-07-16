@@ -2,9 +2,7 @@
 
 ## Status
 
-**Implemented (Phase 4.2).** This RFC introduces an authenticated HTTP transport in front of
-`MinutkaService` so that a standalone CLI, the Telegram shell, and a future web
-panel can use the same long-lived application runtime and persistent data.
+**Implemented (Phase 4.2; personal-assistant facade актуализирован в A.2, 2026-07-16).** RFC вводит authenticated HTTP transport и transport-neutral SDK. В текущем product runtime HTTP router вызывает единый `PersonalAssistantService`: chat делегируется `AssistantService`, identity/onboarding use-cases остаются внутренними collaborators. Standalone CLI, Telegram shell и будущая web-поверхность используют один long-lived application runtime и persistent data.
 
 Related documents:
 
@@ -53,7 +51,9 @@ Telegram polling shell ─┐
 Standalone CLI ─────────┼── HTTPS / HTTP loopback ── Application API
 Web panel ──────────────┘                              │
                                                         ▼
-                                                 MinutkaService
+                                         PersonalAssistantService
+                                             ├─ AssistantService (chat)
+                                             └─ typed identity/intake use-cases
                                                         │
                                                         ▼
                                       persistent application stores
@@ -74,8 +74,7 @@ scoped local composition tests.
 1. Make the CLI a separately executable process that talks to a running service.
 2. Make Telegram, CLI, and a future web panel share application use cases and
    persistent state rather than duplicate business rules.
-3. Keep `MinutkaService` independent from HTTP, Commander, Telegraf, browser
-   concerns, and authentication protocol details.
+3. Keep application services (`PersonalAssistantService`, `AssistantService` and its internal identity collaborator) independent from HTTP, Commander, Telegraf, browser concerns, and authentication protocol details.
 4. Preserve runtime input/output validation and typed TypeScript SDK ergonomics.
 5. Enforce identity and role authorization before application storage is read.
 6. Provide an incremental path from a loopback/local environment to a pilot
@@ -147,8 +146,8 @@ Standalone CLI ─────────▶│ HttpMinutkaClient            �
                                        │ trusted principal + scope
                                        ▼
                          ┌─────────────────────────────┐
-                         │ MinutkaService               │
-                         │ application use cases        │
+                         │ PersonalAssistantService     │
+                         │ single product-facing facade │
                          └─────────────┬───────────────┘
                                        │
              ┌─────────────────────────┼─────────────────────────┐
@@ -166,8 +165,7 @@ The HTTP router owns transport concerns only:
 - mapping expected application errors to safe status codes;
 - adding request IDs, timeouts, rate limits, and redacted observability.
 
-`MinutkaService` keeps use-case ownership. It does not inspect HTTP headers,
-validate bearer tokens, know a Telegram chat ID, or emit HTTP responses.
+`PersonalAssistantService` is the product-facing facade. `AssistantService` owns chat orchestration; the internal identity collaborator owns onboarding/profile/feedback compatibility use-cases. None of them inspects HTTP headers, validates bearer tokens, knows a Telegram chat ID, or emits HTTP responses.
 
 ### Deployment stages
 
@@ -301,7 +299,7 @@ src/contracts/minutka-api.ts
 
 It owns stable request/response DTO types, route-operation names, and shared
 Zod schemas. It does not import HTTP frameworks, Telegraf, Commander,
-`InMemoryWorld`, or `MinutkaService`.
+`InMemoryWorld`, or application service implementations.
 
 `MinutkaClient` becomes a validated facade over a structural transport port:
 
@@ -358,7 +356,7 @@ MINUTKA_API_TOKEN=...
 
 and calls the existing `runMinutkaCli(client, argv)`. Commander parsing and JSON
 output behavior remain testable independently. The CLI does not construct
-`InMemoryWorld`, `MinutkaService`, a Telegram shell, or Mastra agents.
+`InMemoryWorld`, application services, a Telegram shell, or Mastra agents.
 
 For employee-facing commands, the token determines employee identity; the CLI
 must not require or trust `--employee`. A separate, clearly privileged admin
@@ -366,16 +364,16 @@ command group may accept `--employee` where the endpoint authorizes it.
 
 ### Server transformation
 
-The current object adapter is retained as:
+The current object adapter is retained for narrow specs as:
 
 ```text
-MinutkaService → InProcessMinutkaTransport
+application service → InProcessMinutkaTransport
 ```
 
-The HTTP router is a different adapter:
+The production HTTP router is a different adapter:
 
 ```text
-HTTP request → authenticated principal → MinutkaService → HTTP response
+HTTP request → authenticated principal → PersonalAssistantService → HTTP response
 ```
 
 Both use the same contract schemas. The router must validate at its trust
@@ -428,7 +426,7 @@ application store nor durable message history for the direct Telegram runtime.
    Preserve current in-process behavior through an adapter.
 3. **Implement persistent adapters.** Implement and test durable stores,
    including atomic invite claim and Telegram identity binding. Wire one
-   composition root that owns stores and `MinutkaService`.
+   composition root that owns stores and the product-facing `PersonalAssistantService`.
 4. **Implement HTTP router.** Add authenticated routes around existing use
    cases, server-side schema validation, principal-to-scope derivation, error
    mapping, request IDs, and safe logs.
@@ -470,7 +468,7 @@ application store nor durable message history for the direct Telegram runtime.
   allowed profile/thread state.
 - Restart the server and prove approved persistent records and session mapping
   survive.
-- A malformed/unauthenticated request never reaches `MinutkaService`.
+- A malformed/unauthenticated request never reaches the product-facing application facade.
 - LLM/Telegram calls remain mocked in normal specs; a separate manual smoke
   validates real provider and Telegram credentials.
 
@@ -493,7 +491,7 @@ The RFC is implemented when:
 - The CLI runs in a different OS process and shares the running service state;
   it never creates its own `InMemoryWorld`.
 - Telegram and CLI use the same HTTP SDK contract in the runtime composition.
-- `MinutkaService` has no HTTP/framework/authentication dependency.
+- `PersonalAssistantService`, `AssistantService` and the internal identity collaborator have no HTTP/framework/authentication dependency.
 - `MinutkaClient` retains schema validation and works with an HTTP transport;
   in-process transport remains available for specs.
 - Client SDK code does not import API types from `server/http`.
