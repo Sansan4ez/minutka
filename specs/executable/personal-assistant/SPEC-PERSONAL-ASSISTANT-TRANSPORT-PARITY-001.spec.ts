@@ -69,8 +69,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
 
     const facade = new PersonalAssistantService(runtime.service, assistant, artifactStore);
     const server = await listenHttpServer({
-      service: facade,
-      assistant: facade,
+      application: facade,
       port: 0,
       logger: () => undefined,
       auth: {

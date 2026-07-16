@@ -25,8 +25,7 @@ async function main(): Promise<void> {
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
-      service: runtime.assistant,
-      assistant: runtime.assistant,
+      application: runtime.assistant,
       auth,
       health: runtime.health,
       host: process.env.MINUTKA_API_HOST,

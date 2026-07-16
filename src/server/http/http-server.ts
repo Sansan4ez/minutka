@@ -1,8 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
-import type { AssistantService } from "../../application/assistant-service.js";
-import type { MinutkaService } from "../../application/minutka-service.js";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema,
@@ -22,7 +20,7 @@ export const defaultHandlerTimeoutMs = 15_000;
 type Principal = AuthenticatedPrincipal;
 type AccessLogEntry = { method: string; path: string; status: number; durationMs: number; requestId: string; principal?: Principal["kind"] };
 type ErrorLogEntry = { method: string; path: string; requestId: string; error: { name: string; message: string; stack?: string } };
-type HttpIdentityService = Pick<MinutkaService,
+export type HttpApplicationService = Pick<PersonalAssistantService,
   | "issueInvite"
   | "openInvite"
   | "getProfile"
@@ -35,21 +33,9 @@ type HttpIdentityService = Pick<MinutkaService,
   | "submitOnboardingAnswer"
   | "confirmOnboarding"
   | "resetOnboardingDraft"
-> | Pick<PersonalAssistantService,
-  | "issueInvite"
-  | "openInvite"
-  | "getProfile"
-  | "acceptConsent"
-  | "completeOnboarding"
-  | "listInsights"
-  | "submitFeedback"
-  | "redeemTelegramInvite"
-  | "recordPrivacyExplanationShown"
-  | "submitOnboardingAnswer"
-  | "confirmOnboarding"
-  | "resetOnboardingDraft"
+  | "chat"
 >;
-export type HttpServerOptions = { service: HttpIdentityService; assistant: Pick<AssistantService, "chat"> | Pick<PersonalAssistantService, "chat">; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
+export type HttpServerOptions = { application: HttpApplicationService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw httpError(400, "invalid_request", "Request validation failed."); return result.data; }
@@ -64,7 +50,7 @@ function query(url: URL): Record<string, string | undefined> { return Object.fro
 function requirePrincipal(principal: Principal | undefined): Principal { if (!principal) throw httpError(401, "unauthorized", "Authentication is required."); return principal; }
 function requireKind<K extends Principal["kind"]>(principal: Principal | undefined, kind: K): Extract<Principal, { kind: K }> { const authenticated = requirePrincipal(principal); if (authenticated.kind !== kind) throw httpError(403, "forbidden", "This operation is not permitted."); return authenticated as Extract<Principal, { kind: K }>; }
 function send(res: ServerResponse, status: number, value: unknown, id: string): void { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "x-request-id": id }); res.end(status === 204 ? undefined : JSON.stringify(value)); }
-function publicChatResponse(result: Awaited<ReturnType<AssistantService["chat"]>> | Awaited<ReturnType<PersonalAssistantService["chat"]>>): ChatResponse {
+function publicChatResponse(result: Awaited<ReturnType<HttpApplicationService["chat"]>>): ChatResponse {
   return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds };
 }
 function pathEmployee(pathname: string, suffix: string): string | undefined { const match = pathname.match(new RegExp(`^/v1/service/employees/([^/]+)${suffix}$`)); return match?.[1] ? decodeURIComponent(match[1]) : undefined; }
@@ -123,37 +109,37 @@ export function createHttpServer(options: HttpServerOptions): Server {
       const mutationKey = mutable && principal ? mutationRateLimitKey(principal, url.pathname) : undefined;
       if (mutationKey && !mutationLimiter.allow(mutationKey)) throw httpError(429, "rate_limited", "Too many requests.");
 
-      if (req.method === "POST" && url.pathname === "/v1/admin/invites") { template = "/v1/admin/invites"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.issueInvite(parse(issueInviteRequestSchema, await body(req)))), id); }
-      if (req.method === "POST" && url.pathname === "/v1/onboarding/invites/open") { template = "/v1/onboarding/invites/open"; if (!inviteLimiter.allow(clientIp(req, options.trustProxy === true))) throw httpError(429, "rate_limited", "Too many requests."); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.openInvite(parse(openInviteRequestSchema, await body(req)))), id); }
+      if (req.method === "POST" && url.pathname === "/v1/admin/invites") { template = "/v1/admin/invites"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.issueInvite(parse(issueInviteRequestSchema, await body(req)))), id); }
+      if (req.method === "POST" && url.pathname === "/v1/onboarding/invites/open") { template = "/v1/onboarding/invites/open"; if (!inviteLimiter.allow(clientIp(req, options.trustProxy === true))) throw httpError(429, "rate_limited", "Too many requests."); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.openInvite(parse(openInviteRequestSchema, await body(req)))), id); }
 
-      if (req.method === "GET" && url.pathname === "/v1/me/profile") { template = "/v1/me/profile"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.getProfile({ employeeId: employee.employeeId })), id); }
-      if (req.method === "POST" && url.pathname === "/v1/me/consent") { template = "/v1/me/consent"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.acceptConsent({ ...parse(acceptEmployeeConsentRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
-      if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
-      if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
+      if (req.method === "GET" && url.pathname === "/v1/me/profile") { template = "/v1/me/profile"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && url.pathname === "/v1/me/consent") { template = "/v1/me/consent"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptEmployeeConsentRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
+      if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.assistant.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
+      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
-      if (req.method === "POST" && meFeedback) { template = "/v1/me/threads/:threadId/feedback"; const employee = requireKind(principal, "employee"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meFeedback[1])) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && meFeedback) { template = "/v1/me/threads/:threadId/feedback"; const employee = requireKind(principal, "employee"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meFeedback[1])) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitFeedback({ ...input, employeeId: employee.employeeId })), id); }
 
-      if (req.method === "POST" && url.pathname === "/v1/service/telegram/invites/redeem") { template = "/v1/service/telegram/invites/redeem"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.redeemTelegramInvite(parse(redeemTelegramInviteRequestSchema, await body(req)))), id); }
+      if (req.method === "POST" && url.pathname === "/v1/service/telegram/invites/redeem") { template = "/v1/service/telegram/invites/redeem"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.redeemTelegramInvite(parse(redeemTelegramInviteRequestSchema, await body(req)))), id); }
       const serviceEmployee = pathEmployee(url.pathname, "/privacy-explanation");
-      if (req.method === "POST" && serviceEmployee) { template = "/v1/service/employees/:employeeId/privacy-explanation"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); parse(recordPrivacyExplanationShownRequestSchema, { employeeId: parse(employeeIdSchema, serviceEmployee) }); await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.recordPrivacyExplanationShown({ employeeId: serviceEmployee })); status = 204; return send(res, status, undefined, id); }
+      if (req.method === "POST" && serviceEmployee) { template = "/v1/service/employees/:employeeId/privacy-explanation"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); parse(recordPrivacyExplanationShownRequestSchema, { employeeId: parse(employeeIdSchema, serviceEmployee) }); await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.recordPrivacyExplanationShown({ employeeId: serviceEmployee })); status = 204; return send(res, status, undefined, id); }
       const serviceProfile = pathEmployee(url.pathname, "/profile");
-      if (req.method === "GET" && serviceProfile) { template = "/v1/service/employees/:employeeId/profile"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.getProfile({ employeeId: parse(employeeIdSchema, serviceProfile) })), id); }
+      if (req.method === "GET" && serviceProfile) { template = "/v1/service/employees/:employeeId/profile"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: parse(employeeIdSchema, serviceProfile) })), id); }
       const serviceConsent = pathEmployee(url.pathname, "/consent");
-      if (req.method === "POST" && serviceConsent) { template = "/v1/service/employees/:employeeId/consent"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.acceptConsent({ ...parse(acceptConsentRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceConsent) })), id); }
+      if (req.method === "POST" && serviceConsent) { template = "/v1/service/employees/:employeeId/consent"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptConsentRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceConsent) })), id); }
       const serviceOnboardingAnswer = pathEmployee(url.pathname, "/onboarding/answers");
-      if (req.method === "POST" && serviceOnboardingAnswer) { template = "/v1/service/employees/:employeeId/onboarding/answers"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitOnboardingAnswer({ ...parse(onboardingAnswerRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboardingAnswer) })), id); }
+      if (req.method === "POST" && serviceOnboardingAnswer) { template = "/v1/service/employees/:employeeId/onboarding/answers"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitOnboardingAnswer({ ...parse(onboardingAnswerRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboardingAnswer) })), id); }
       const serviceOnboardingConfirm = pathEmployee(url.pathname, "/onboarding/confirm");
-      if (req.method === "POST" && serviceOnboardingConfirm) { template = "/v1/service/employees/:employeeId/onboarding/confirm"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.service.confirmOnboarding({ employeeId: parse(employeeIdSchema, serviceOnboardingConfirm) })), id); }
+      if (req.method === "POST" && serviceOnboardingConfirm) { template = "/v1/service/employees/:employeeId/onboarding/confirm"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => options.application.confirmOnboarding({ employeeId: parse(employeeIdSchema, serviceOnboardingConfirm) })), id); }
       const serviceOnboardingReset = pathEmployee(url.pathname, "/onboarding/reset");
-      if (req.method === "POST" && serviceOnboardingReset) { template = "/v1/service/employees/:employeeId/onboarding/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.resetOnboardingDraft({ employeeId: parse(employeeIdSchema, serviceOnboardingReset) })), id); }
+      if (req.method === "POST" && serviceOnboardingReset) { template = "/v1/service/employees/:employeeId/onboarding/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.resetOnboardingDraft({ employeeId: parse(employeeIdSchema, serviceOnboardingReset) })), id); }
       const serviceOnboarding = pathEmployee(url.pathname, "/onboarding");
-      if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
+      if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
+      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
       const serviceFeedback = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/feedback$/);
-      if (req.method === "POST" && serviceFeedback) { template = "/v1/service/employees/:employeeId/threads/:threadId/feedback"; requireKind(principal, "service"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceFeedback[2]) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.service.submitFeedback({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceFeedback[1])) })), id); }
+      if (req.method === "POST" && serviceFeedback) { template = "/v1/service/employees/:employeeId/threads/:threadId/feedback"; requireKind(principal, "service"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceFeedback[2]) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitFeedback({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceFeedback[1])) })), id); }
       throw httpError(404, "invalid_request", "Route not found.");
     } catch (error) {
       if (!isExpectedError(error)) logError({ method: req.method ?? "UNKNOWN", path: template, requestId: id, error: serializeError(error) });
