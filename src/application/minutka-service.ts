@@ -28,9 +28,10 @@ import type {
 } from "./telegram-invite-redemption-store.js";
 import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
-import type { ChatInputModality } from "../contracts/minutka-api.js";
+import type { ChatInputModality, ResponseChannel } from "../contracts/minutka-api.js";
+import { createResponsePolicy, renderResponsePolicy } from "../domain/response-policy.js";
 
-export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality };
+export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
 export type AgentRunContext = {
   profile?: UserProfile;
@@ -389,6 +390,7 @@ export class MinutkaService {
       runtimeProjection: snapshot,
       decisionProjection,
       selectedProcessIds: decision.selectedProcessIds,
+      responsePolicyContext: renderResponsePolicy(createResponsePolicy({ channel: input.responseChannel, preferredLength: profile?.responseLength })),
     });
     let response: string;
     if (decision.workDecision.mode === "boundary") {

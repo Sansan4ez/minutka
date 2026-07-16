@@ -15,8 +15,9 @@ import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
 import type { RequestIntegrityGuard } from "./request-integrity-guard.js";
 import type { RequestIntegrityDenialReason } from "../domain/request-integrity.js";
+import { createResponsePolicy, renderResponsePolicy, type ResponseChannel } from "../domain/response-policy.js";
 
-export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice" };
+export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
 export type AssistantAgentContext = {
   systemContext: string;
   personalContext: AssistantContextProjection;
@@ -54,7 +55,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -78,6 +79,8 @@ export class AssistantService {
     const messageId = this.ids.messageId();
     const requestId = this.ids.requestId();
     const inputModality = input.inputModality ?? "text";
+    const profile = this.deps.participantStore?.getProfile ? await this.deps.participantStore.getProfile(userId) : undefined;
+    const responsePolicy = createResponsePolicy({ channel: input.responseChannel, preferredLength: profile?.responseLength });
     await this.auditSafely({
       id: this.ids.auditEventId(), requestId, type: "chat_received", employeeId: userId, threadId, messageId,
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_received", { inputModality }),
@@ -150,7 +153,7 @@ export class AssistantService {
         personalContext,
         records,
         source,
-        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions),
+        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy)),
         captureIdea,
         documents,
       });
@@ -205,10 +208,11 @@ export class AssistantService {
   }
 }
 
-export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions()): string {
+export function buildAssistantSystemContext(personalContext: AssistantContextProjection, records?: AssistantRecordsProjection, agentInstructions = loadAssistantAgentInstructions(), responsePolicy?: string): string {
   return [
     "# Personal assistant runtime context",
     agentInstructions,
+    responsePolicy,
     renderAssistantContextProjection(personalContext),
     ...(records === undefined ? [] : [renderAssistantRecordsProjection(records)]),
   ].filter(Boolean).join("\n\n");

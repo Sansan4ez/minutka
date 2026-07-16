@@ -5,12 +5,13 @@ import type { HttpApplicationService } from "../../../src/server/http/http-serve
 /** Historical application-spec adapter. Production HTTP always receives AssistantService. */
 export function createSpecAssistantChat(service: Pick<MinutkaService, "chat">) {
   return {
-    async chat(input: { userId: string; threadId: string; text: string; inputModality?: "text" | "voice" }): Promise<AssistantChatResult> {
+    async chat(input: { userId: string; threadId: string; text: string; inputModality?: "text" | "voice"; responseChannel?: "generic" | "telegram" }): Promise<AssistantChatResult> {
       const result = await service.chat({
         employeeId: input.userId,
         threadId: input.threadId,
         text: input.text,
         inputModality: input.inputModality,
+        responseChannel: input.responseChannel,
       });
       return {
         ...result,

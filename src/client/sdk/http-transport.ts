@@ -1,7 +1,7 @@
 import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type IssueInviteRequest, type ListInsightsRequest,
+  type CompleteOnboardingRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
 import type {
@@ -61,7 +61,7 @@ export class HttpServiceMinutkaTransport extends HttpTransportBase implements Se
 class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements ServiceEmployeeMinutkaTransport {
   private readonly prefix: string;
   constructor(options: HttpMinutkaTransportOptions & { employeeId: string }) { super(options); this.prefix = `/v1/service/employees/${encodeURIComponent(options.employeeId)}`; }
-  chat(input: ChatRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text, ...(input.inputModality ? { inputModality: input.inputModality } : {}) }); }
+  chat(input: ServiceChatRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/messages`, { text: input.text, ...(input.inputModality ? { inputModality: input.inputModality } : {}), ...(input.responseChannel ? { responseChannel: input.responseChannel } : {}) }); }
   recordPrivacyExplanationShown() { return this.request("POST", `${this.prefix}/privacy-explanation`, {}); }
   acceptConsent(input: AcceptConsentRequest) { return this.request("POST", `${this.prefix}/consent`, input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", `${this.prefix}/onboarding`, input); }

@@ -40,6 +40,8 @@ export type BuildMinutkaContextInput = {
   runtimeProjection?: ProcSnapshot;
   decisionProjection?: import("./runtime-projections/runtime-projection-types.js").RuntimeProjection<import("./runtime-projections/runtime-projection-types.js").DecisionProjection>;
   selectedProcessIds?: AgentManualProcessId[];
+  /** Trusted channel-aware response constraints supplied by the application service. */
+  responsePolicyContext?: string;
 };
 
 export type BuiltMinutkaContext = {
@@ -96,6 +98,8 @@ export async function buildMinutkaContext(
   if (manualSelection.manualContext) {
     sections.push(manualSelection.manualContext);
   }
+
+  if (input.responsePolicyContext) sections.push(input.responsePolicyContext);
 
   if (input.runtimeProjection) {
     if (input.profile) {

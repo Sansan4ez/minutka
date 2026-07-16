@@ -30,7 +30,9 @@ export const userProfileSchema = z.strictObject({
 });
 
 export const chatInputModalitySchema = z.enum(["text", "voice"]);
+export const responseChannelSchema = z.enum(["generic", "telegram"]);
 export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: z.string().min(1).max(60_000), inputModality: chatInputModalitySchema.optional() });
+export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChannel: responseChannelSchema.optional() });
 export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema) });
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
@@ -102,7 +104,9 @@ export const errorCodeSchema = z.enum([
 export const errorEnvelopeSchema = z.strictObject({ error: z.strictObject({ code: errorCodeSchema, message: z.string().min(1), requestId: z.string().min(1) }) });
 
 export type ChatInputModality = z.infer<typeof chatInputModalitySchema>;
+export type ResponseChannel = z.infer<typeof responseChannelSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
+export type ServiceChatRequest = z.infer<typeof serviceChatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type SubmitFeedbackRequest = z.infer<typeof submitFeedbackRequestSchema>;
 export type SubmitFeedbackResponse = z.infer<typeof submitFeedbackResponseSchema>;

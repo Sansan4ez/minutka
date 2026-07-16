@@ -1,11 +1,11 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema,
-  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema,
+  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type IssueInviteRequest, type ListInsightsRequest,
+  type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
@@ -22,7 +22,7 @@ export type EmployeeMinutkaTransport = {
 };
 export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown> };
 export type ServiceEmployeeMinutkaTransport = {
-  chat(input: ChatRequest): Promise<unknown>;
+  chat(input: ServiceChatRequest): Promise<unknown>;
   recordPrivacyExplanationShown(): Promise<unknown>;
   acceptConsent(input: AcceptConsentRequest): Promise<unknown>;
   completeOnboarding(input: CompleteOnboardingRequest): Promise<unknown>;
@@ -64,7 +64,7 @@ export class AdminMinutkaClient {
 /** Service-only per-employee surface used after Telegram's private identity lookup. */
 export class ServiceEmployeeMinutkaClient {
   constructor(private readonly transport: ServiceEmployeeMinutkaTransport) {}
-  async chat(input: unknown) { return validate(chatResponseSchema, await this.transport.chat(validate(chatRequestSchema, input, "chat request")), "chat response"); }
+  async chat(input: unknown) { return validate(chatResponseSchema, await this.transport.chat(validate(serviceChatRequestSchema, input, "service chat request")), "chat response"); }
   async recordPrivacyExplanationShown() { await this.transport.recordPrivacyExplanationShown(); }
   async acceptConsent(input: unknown) { return validate(acceptConsentResponseSchema, await this.transport.acceptConsent(validate(acceptConsentRequestSchema, input, "acceptConsent request")), "acceptConsent response"); }
   async completeOnboarding(input: unknown) { return validate(completeOnboardingResponseSchema, await this.transport.completeOnboarding(validate(completeOnboardingRequestSchema, input, "completeOnboarding request")), "completeOnboarding response"); }

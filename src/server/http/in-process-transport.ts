@@ -1,6 +1,6 @@
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, ChatRequest, CompleteOnboardingRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, ChatRequest, CompleteOnboardingRequest, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   SubmitFeedbackRequest,
 } from "../../contracts/minutka-api.js";
@@ -43,7 +43,7 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   constructor(private readonly service: MinutkaService, private readonly principal: AuthenticatedPrincipal, private readonly scopedEmployeeId?: string) {}
   private employeeId(): string { service(this.principal); if (!this.scopedEmployeeId) throw new Error("service employee scope is required"); return this.scopedEmployeeId; }
   redeemTelegramInvite(input: RedeemTelegramInviteRequest) { service(this.principal); return this.service.redeemTelegramInvite(input); }
-  chat(input: ChatRequest) { return this.service.chat({ ...input, employeeId: this.employeeId() }); }
+  chat(input: ServiceChatRequest) { return this.service.chat({ ...input, employeeId: this.employeeId() }); }
   recordPrivacyExplanationShown() { return this.service.recordPrivacyExplanationShown({ employeeId: this.employeeId() }); }
   acceptConsent(input: AcceptConsentRequest) { return this.service.acceptConsent({ ...input, employeeId: this.employeeId() }); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.service.completeOnboarding({ ...input, employeeId: this.employeeId() }); }

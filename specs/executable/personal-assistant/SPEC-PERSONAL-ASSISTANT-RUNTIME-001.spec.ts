@@ -34,7 +34,9 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     const blobs = createInMemoryBlobStore(clock);
     const ideas = createInMemoryIdeaStore(clock);
     const ingestion = createIngestionService({ documentStore: documents, blobStore: blobs, ideaStore: ideas });
+    let assistantSystemContext = "";
     const assistant = new AssistantService(async (_input, context) => {
+      assistantSystemContext = context.systemContext;
       const saved = await context.captureIdea({ project: "АССИСТЕНТ", type: "development", summary: "Runtime подключён", suggestedNextStep: "Проверить запись.", needsProjectClarification: false });
       return saved.response;
     }, {
@@ -58,7 +60,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
         return new Proxy(scoped, {
           get(target, property, receiver) {
             if (property === "chat") return async (input: Parameters<typeof scoped.chat>[0]) => {
-              const result = await assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality });
+              const result = await assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
               return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds };
             };
             const value = Reflect.get(target, property, receiver);
@@ -82,6 +84,10 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     expect(replies).toHaveLength(1);
     expect(replies[0]?.text).toBe("Сохранил идею: Runtime подключён. Следующий шаг: Проверить запись.");
     expect(replies[0]?.options).toMatchObject({ replyMarkup: { inlineKeyboard: [[{ text: "👍" }, { text: "👌" }, { text: "👎" }]] } });
+    expect(assistantSystemContext).toContain("## Trusted response policy");
+    expect(assistantSystemContext).toContain("Channel: telegram");
+    expect(assistantSystemContext).toContain("Preferred response length: balanced");
+    expect(assistantSystemContext).toContain("Target budget: about 1200 Unicode characters; no more than 4 short blocks.");
 
     replies.length = 0;
     await shell.handleFile("1", { fileId: "photo-1", fileUniqueId: "photo-unique-1", messageId: 2, payloadKind: "photo", fileName: "photo.jpg", declaredMediaType: "image/jpeg", caption: "Фото мысли", fileSizeBytes: 5, forwarded: false }, "user-1");
