@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as Minio from "minio";
 
 export type MinioConfig = {
@@ -33,6 +34,28 @@ export function createMinioClient(config: MinioConfig): Minio.Client {
 export async function prepareMinioBucket(client: Minio.Client, bucket: string): Promise<void> {
   if (!await client.bucketExists(bucket)) throw new Error(`MinIO bucket ${bucket} is not provisioned`);
   if ((await client.getBucketVersioning(bucket)).Status !== "Enabled") throw new Error(`MinIO bucket ${bucket} must have versioning enabled`);
+  await assertConditionalObjectCreation(client, bucket);
+}
+
+async function assertConditionalObjectCreation(client: Minio.Client, bucket: string): Promise<void> {
+  const probeKey = `.runtime-probes/conditional-create-${randomBytes(16).toString("hex")}`;
+  try {
+    await client.putObject(bucket, probeKey, Buffer.from("first"), 5, { "If-None-Match": "*" });
+    try {
+      await client.putObject(bucket, probeKey, Buffer.from("second"), 6, { "If-None-Match": "*" });
+    } catch (error) {
+      if (isPreconditionFailed(error)) return;
+      throw error;
+    }
+    throw new Error(`MinIO bucket ${bucket} must enforce conditional object creation`);
+  } finally {
+    await client.removeObject(bucket, probeKey, { forceDelete: true }).catch(() => undefined);
+  }
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error
+    && (error.code === "PreconditionFailed" || error.code === "ConditionalRequestConflict");
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
