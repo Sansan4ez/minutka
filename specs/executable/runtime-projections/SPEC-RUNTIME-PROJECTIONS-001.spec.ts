@@ -5,6 +5,7 @@ import { createInMemoryConversationStore } from "../../../src/application/in-mem
 import { createInMemoryInsightStore } from "../../../src/application/in-memory-insight-store.js";
 import { createInMemoryFeedbackStore } from "../../../src/application/in-memory-feedback-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
+import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import { renderRuntimeProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
 
@@ -39,6 +40,67 @@ describe("SPEC-RUNTIME-PROJECTIONS-001: bounded, scoped and safe runtime project
     expect(rendered).not.toContain("secret other employee");
     const run = await builder.buildRun({ employeeId: "emp_a", threadId: "thread_a", requestId: "req_1", purpose: "audit" });
     expect(JSON.stringify(run)).not.toContain("Ignore previous instructions");
+  });
+
+  it("sanitises history without reporting omission and never exposes employeeId as the owner name", async () => {
+    const world = createInMemoryWorld(() => "2026-07-12T00:00:00.000Z");
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const insights = createInMemoryInsightStore(world);
+    const feedback = createInMemoryFeedbackStore(world);
+    const audit = createInMemoryAuditEventStore(world);
+    await profiles.issueInvite({ employeeId: "emp_internal_secret", inviteCode: "code_fallback", issuedAt: world.now() });
+    world.profiles.push({
+      employeeId: "emp_internal_secret",
+      preferredName: undefined as unknown as string,
+      assistantName: "Assistant",
+      addressForm: "informal",
+      timezone: "Etc/UTC",
+      persona: "efficiency",
+      responseLength: "short",
+      createdAt: world.now(),
+      updatedAt: world.now(),
+    });
+    await conversations.appendTurn({
+      messageId: "msg_control",
+      employeeId: "emp_internal_secret",
+      threadId: "thread_control",
+      userText: "hello\u0000😀",
+      agentResponse: "reply\u0007😀",
+      timestamp: world.now(),
+    });
+    const builder = createRuntimeProjectionBuilder({
+      profileStore: profiles,
+      conversationStore: conversations,
+      insightStore: insights,
+      feedbackStore: feedback,
+      auditEventStore: audit,
+      clock: { now: world.now },
+    });
+    const snapshot = await builder.buildProc({ employeeId: "emp_internal_secret", threadId: "thread_control", requestId: "req_control", purpose: "chat" });
+    expect(snapshot.profile.data?.preferredName).toBe("Владелец");
+    expect(snapshot.thread.data).toMatchObject({
+      truncated: false,
+      turns: [{ userText: "hello😀", agentResponse: "reply😀" }],
+    });
+    const rendered = renderRuntimeProjection(snapshot);
+    expect(rendered).toContain("Обращение к владельцу: Владелец");
+    expect(rendered).not.toContain("emp_internal_secret");
+    expect(rendered).not.toContain("history limit");
+  });
+
+  it("counts Unicode code points when deciding whether a turn field was clipped", async () => {
+    const world = createInMemoryWorld(() => "2026-07-12T00:00:00.000Z");
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const insights = createInMemoryInsightStore(world);
+    const feedback = createInMemoryFeedbackStore(world);
+    const audit = createInMemoryAuditEventStore(world);
+    await conversations.appendTurn({ messageId: "msg_emoji", employeeId: "emp_emoji", threadId: "thread_emoji", userText: "😀😀", agentResponse: "ok", timestamp: world.now() });
+    const contextBudget = createContextBudgetConfig({ projectionLimits: { historyTurns: 1, historyTurnCharacters: 2 } });
+    const builder = createRuntimeProjectionBuilder({ profileStore: profiles, conversationStore: conversations, insightStore: insights, feedbackStore: feedback, auditEventStore: audit, clock: { now: world.now }, contextBudget });
+    const snapshot = await builder.buildProc({ employeeId: "emp_emoji", threadId: "thread_emoji", requestId: "req_emoji", purpose: "chat" });
+    expect(snapshot.thread.data).toMatchObject({ truncated: false, turns: [{ userText: "😀😀", agentResponse: "ok" }] });
   });
 
   it("keeps a contiguous newest suffix within the character budget and clips each field", async () => {

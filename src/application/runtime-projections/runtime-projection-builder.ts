@@ -60,7 +60,7 @@ export function createRuntimeProjectionBuilder(deps: {
   const projectProfile = (profile: Awaited<ReturnType<ProfileStore["getProfile"]>>): ProfileProjection | null =>
     profile
       ? {
-          preferredName: profile.preferredName ?? profile.role ?? profile.employeeId,
+          preferredName: profile.preferredName ?? profile.role ?? "Владелец",
           assistantName: profile.assistantName ?? "Ассистент",
           addressForm: profile.addressForm ?? "informal",
           persona: profile.persona,
@@ -157,21 +157,25 @@ function boundTurns(turns: ConversationTurn[], limits: RuntimeProjectionLimits):
   for (const turn of newestFirst) {
     const userText = sanitiseTurnText(turn.userText, limits.threadTurnTextCharacters);
     const agentResponse = sanitiseTurnText(turn.agentResponse, limits.threadTurnTextCharacters);
-    if (userText.length !== turn.userText.length || agentResponse.length !== turn.agentResponse.length) truncated = true;
-    const size = Array.from(userText).length + Array.from(agentResponse).length;
+    if (userText.truncated || agentResponse.truncated) truncated = true;
+    const size = Array.from(userText.text).length + Array.from(agentResponse.text).length;
     // Turns are evaluated newest-to-oldest: on overflow, retain the contiguous
     // newest suffix instead of creating holes or dropping the latest context.
     if (characters + size > limits.threadCharacters) {
       truncated = true;
       break;
     }
-    retained.push({ ...turn, userText, agentResponse });
+    retained.push({ ...turn, userText: userText.text, agentResponse: agentResponse.text });
     characters += size;
   }
   return { turns: retained.reverse(), truncated };
 }
 
-function sanitiseTurnText(text: string, maximumCharacters: number): string {
+function sanitiseTurnText(text: string, maximumCharacters: number): { text: string; truncated: boolean } {
   const cleaned = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-  return [...cleaned].slice(0, maximumCharacters).join("");
+  const characters = Array.from(cleaned);
+  return {
+    text: characters.slice(0, maximumCharacters).join(""),
+    truncated: characters.length > maximumCharacters,
+  };
 }
