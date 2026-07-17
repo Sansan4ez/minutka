@@ -74,7 +74,7 @@ export type CompleteOnboardingInput = {
   /** Legacy direct-completion fields retained for backward-compatible clients. */
   role?: string; typicalTasks?: string[]; aiLevel?: AiLevel;
 };
-export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; profile: UserProfile; firstResponse: string };
+export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string };
 export type SubmitOnboardingAnswerInput = { employeeId: string; text: string };
 export type ConfirmOnboardingInput = { employeeId: string };
 export type ResetOnboardingDraftInput = { employeeId: string };
@@ -282,7 +282,7 @@ export class MinutkaService {
     if (allowUpdate && existing && changedFields.length === 0) {
       await this.materializeOnboardingContext(input.employeeId);
       await this.deleteOnboardingDraftSafely(input.employeeId);
-      return { employeeId: input.employeeId, status: "profile_completed", profile: existing, firstResponse: "Профиль уже сохранён." };
+      return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: existing, firstResponse: "Профиль уже сохранён." };
     }
     // Context documents are persisted before the profile completion marker. If
     // document storage fails, confirmation remains retryable and no completed
@@ -291,11 +291,11 @@ export class MinutkaService {
     // Profile completion and draft removal are one storage transaction. This
     // makes the finalized profile the source of truth even under stale writes.
     const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
-    if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
+    if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
     await this.auditProfileCompletionSafely({ requestId, employeeId: input.employeeId, timestamp, changedFields, persona: completed.profile.persona, isNewProfile: !completed.wasCompleted });
-    if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse: "Профиль обновлён." };
+    if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse: "Профиль обновлён." };
     const firstResponse = await this.createFirstOnboardingResponse(completed.profile);
-    return { employeeId: input.employeeId, status: "profile_completed", profile: completed.profile, firstResponse };
+    return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse };
   }
 
   async submitOnboardingAnswer(input: SubmitOnboardingAnswerInput): Promise<OnboardingProgress> {
@@ -358,7 +358,7 @@ export class MinutkaService {
     if (existingProfile) {
       await this.materializeOnboardingContext(employeeId);
       await this.deleteOnboardingDraftSafely(employeeId);
-      return { employeeId, status: "profile_completed", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
+      return { employeeId, status: "profile_completed", completion: "already", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
     }
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
     if (!draft || draft.status !== "awaiting_confirmation" || !isCompleteOnboardingDraft(draft)) throw new Error("onboarding draft is incomplete");

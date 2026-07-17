@@ -41,4 +41,16 @@ export interface TelegramSessionStore {
     employeeId: string;
     deliveryKey: string;
   }): Promise<void>;
+  /** Claims one Telegram action message durably so stale keyboards stay idempotent after restarts. */
+  claimActionMessage(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    messageId: number;
+  }): Promise<{ status: "claimed" | "already_claimed" }>;
+  /** Releases only the matching failed action so a retry can perform the side effect. */
+  releaseActionMessage(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    messageId: number;
+  }): Promise<void>;
 }

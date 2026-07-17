@@ -293,10 +293,12 @@ describe("PostgreSQL storage contracts", () => {
       id: "ins_delete", employeeId: "emp_delete", threadId: "thread_delete", sourceMessageId: "msg_delete",
       kind: "task_category", label: "reporting", confidence: "low", category: "reporting", createdAt: now,
     }]);
-    await createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper).claim({
+    const telegramSessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    await telegramSessions.claim({
       identity: { chatId: "chat_delete", userId: "user_delete" },
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
+    await telegramSessions.claimActionMessage({ identity: { chatId: "chat_delete", userId: "user_delete" }, employeeId: "emp_delete", messageId: 1 });
     await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
     await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
       ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",
@@ -305,7 +307,7 @@ describe("PostgreSQL storage contracts", () => {
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
     await profiles.deleteEmployeePersonalData("emp_delete");
-    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "onboarding_drafts"]) {
+    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "telegram_action_messages", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
     }

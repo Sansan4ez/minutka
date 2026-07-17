@@ -213,7 +213,9 @@ Telegram использует inline buttons, когда выбор ограни
 
 После явного подтверждения application вызывает `completeOnboarding()` с
 черновиком. При успешном завершении черновик удаляется/закрывается, а бот
-отправляет существующий `firstResponse`.
+отправляет существующий `firstResponse`. Результат также содержит typed-поле
+`completion: "new" | "already"`: transport использует его для дедупликации
+приветствия и не выводит смысл из текста `firstResponse`.
 
 ## Architecture
 

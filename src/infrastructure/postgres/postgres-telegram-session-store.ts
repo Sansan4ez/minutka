@@ -149,5 +149,62 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
+    async claimActionMessage({ identity, employeeId, messageId }) {
+      try {
+        const chat = keyedDigest(identity.chatId, pepper);
+        const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
+        const claimed = await pool.query(
+          `INSERT INTO minutka_private.telegram_action_messages (chat_id_digest, message_id, employee_id)
+           SELECT chat_id_digest, $4, employee_id
+           FROM minutka_private.telegram_sessions
+           WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3
+           ON CONFLICT DO NOTHING`,
+          [chat, user, employeeId, messageId],
+        );
+        if (claimed.rowCount === 1) return { status: "claimed" };
+        const existing = await pool.query(
+          `SELECT 1 FROM minutka_private.telegram_sessions
+           WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3`,
+          [chat, user, employeeId],
+        );
+        if (!existing.rowCount) throw new PersistenceError("session_not_found");
+        return { status: "already_claimed" };
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
+    async releaseActionMessage({ identity, employeeId, messageId }) {
+      try {
+        const chat = keyedDigest(identity.chatId, pepper);
+        const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
+        const existing = await pool.query(
+          `SELECT 1 FROM minutka_private.telegram_sessions s
+           JOIN minutka_private.telegram_action_messages a ON a.chat_id_digest = s.chat_id_digest
+           WHERE s.chat_id_digest = $1
+             AND s.user_id_digest IS NOT DISTINCT FROM $2
+             AND s.employee_id = $3
+             AND a.message_id = $4`,
+          [chat, user, employeeId, messageId],
+        );
+        if (!existing.rowCount) {
+          const session = await pool.query(
+            `SELECT 1 FROM minutka_private.telegram_sessions
+             WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3`,
+            [chat, user, employeeId],
+          );
+          if (!session.rowCount) throw new PersistenceError("session_not_found");
+          return;
+        }
+        await pool.query(
+          `DELETE FROM minutka_private.telegram_action_messages
+           WHERE chat_id_digest = $1 AND message_id = $2 AND employee_id = $3`,
+          [chat, messageId, employeeId],
+        );
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
   };
 }

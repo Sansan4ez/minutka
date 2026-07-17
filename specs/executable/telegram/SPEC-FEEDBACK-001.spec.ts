@@ -632,6 +632,67 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()).toHaveLength(0);
   });
 
+  it("10ac. Keeps stale consent keyboards idempotent after the Telegram shell restarts", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    await runtime.service.issueInvite({ employeeId: "emp_consent_restart", inviteCode: "invite_consent_restart" });
+    const firstShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await firstShell.start({ chatId: "chat_consent_restart", inviteCode: "invite_consent_restart" });
+    const prompt = firstShell.sentMessages()[0];
+    const consent = prompt.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await firstShell.deliverCallback({ chatId: "chat_consent_restart", callbackData: consent!, messageId: prompt.messageId, callbackQueryId: "consent_first" });
+
+    const restartedShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await restartedShell.deliverCallback({ chatId: "chat_consent_restart", callbackData: consent!, messageId: prompt.messageId, callbackQueryId: "consent_stale" });
+
+    expect(restartedShell.callbackAnswers()).toContainEqual({ callbackQueryId: "consent_stale", text: "Уже обработано." });
+    expect(restartedShell.sentMessages()).toHaveLength(0);
+    expect(world.auditEvents.filter((event) => event.type === "consent_accepted")).toHaveLength(1);
+  });
+
+  it("10ad. Retries a double-click when the first callback attempt fails", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    let attempts = 0;
+    let startFirstAttempt!: () => void;
+    let rejectFirstAttempt!: () => void;
+    const firstAttemptStarted = new Promise<void>((resolve) => { startFirstAttempt = resolve; });
+    const firstAttemptFailure = new Promise<never>((_, reject) => { rejectFirstAttempt = () => reject(new Error("temporary context failure")); });
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: dummyAgentRunner,
+      deps: {
+        onboardingContextMaterializer: {
+          async materialize() {
+            attempts += 1;
+            if (attempts === 1) { startFirstAttempt(); return await firstAttemptFailure; }
+            return [];
+          },
+        },
+      },
+    });
+    await runtime.service.issueInvite({ employeeId: "emp_confirm_retry", inviteCode: "invite_confirm_retry" });
+    const telegram = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await telegram.start({ chatId: "chat_confirm_retry", inviteCode: "invite_confirm_retry" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_confirm_retry", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_confirm_retry", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    const confirmation = telegram.sentMessages()[0];
+    const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
+
+    const first = telegram.deliverCallback({ chatId: "chat_confirm_retry", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_failing" });
+    await firstAttemptStarted;
+    const second = telegram.deliverCallback({ chatId: "chat_confirm_retry", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_retry" });
+    rejectFirstAttempt();
+    await Promise.all([first, second]);
+
+    expect(attempts).toBe(2);
+    expect(world.profiles).toHaveLength(1);
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_failing", text: "Не удалось сохранить профиль. Попробуйте ещё раз позже." });
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_retry", text: "Профиль сохранён!" });
+    expect(telegram.callbackAnswers()).not.toContainEqual({ callbackQueryId: "confirm_retry", text: "Профиль уже сохранён." });
+  });
+
   it("10a. Lets the employee correct a summary through the edit callback and textual confirmation", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

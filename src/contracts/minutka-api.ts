@@ -88,7 +88,7 @@ export const completeOnboardingRequestSchema = z.strictObject({
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   role: z.string().min(1).optional(), typicalTasks: z.array(z.string().min(1)).min(1).max(7).optional(), aiLevel: aiLevelSchema.optional(),
 });
-export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), profile: userProfileSchema, firstResponse: z.string() });
+export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
 export const onboardingFieldSchema = z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);
 export const onboardingAnswerRequestSchema = z.strictObject({ text: z.string().min(1).max(4_096) });
 export const onboardingProgressSchema = z.discriminatedUnion("status", [
