@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { extractDeterministicOnboardingPatch } from "../../../src/application/onboarding-profile-extractor.js";
+import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "../../../src/application/onboarding-profile-extractor.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
@@ -140,6 +140,42 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Зови меня Алексей" })).resolves.toMatchObject({
       status: "needs_confirmation", summary: { preferredName: "Алексей", assistantName: "Спарк" },
+    });
+  });
+
+  it("normalizes extractor names and rejects invalid timezone before saving the draft", async () => {
+    expect(normalizeOnboardingProfilePatch({ preferredName: "   ", assistantName: "  Спарк  ", timezone: "Moscow", ambiguousFields: [] })).toEqual({
+      assistantName: "Спарк",
+      ambiguousFields: [],
+    });
+
+    const runtime = await consentedRuntime("emp_untrusted_patch");
+    const extractedRuntime = createInMemoryRuntime({
+      world: runtime.world,
+      agentRunner: async () => "ok",
+      deps: {
+        onboardingProfileExtractor: async () => ({
+          preferredName: "Максим",
+          assistantName: "  Спарк  ",
+          addressForm: "informal",
+          persona: "efficiency",
+          responseLength: "short",
+          timezone: "Moscow",
+          ambiguousFields: [],
+        }),
+      },
+    });
+
+    await expect(extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_untrusted_patch", text: "данные профиля" })).resolves.toMatchObject({
+      status: "needs_answer",
+      field: "timezone",
+    });
+    expect(runtime.world.onboardingDrafts[0]).toMatchObject({
+      preferredName: "Максим",
+      assistantName: "Спарк",
+      timezone: undefined,
+      status: "collecting",
+      pendingField: "timezone",
     });
   });
 

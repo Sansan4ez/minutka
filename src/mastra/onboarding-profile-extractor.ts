@@ -1,14 +1,14 @@
 import { z } from "zod";
-import type { OnboardingProfileExtractor } from "../application/onboarding-profile-extractor.js";
+import { normalizeTimezone, type OnboardingProfileExtractor } from "../application/onboarding-profile-extractor.js";
 import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
 
 const transportSchema = z.strictObject({
-  preferredName: z.string().min(1).max(128).nullable(),
-  assistantName: z.string().min(1).max(128).nullable(),
+  preferredName: z.string().trim().min(1).max(128).nullable(),
+  assistantName: z.string().trim().min(1).max(128).nullable(),
   addressForm: z.enum(["informal", "formal"]).nullable(),
   persona: z.enum(["support", "efficiency"]).nullable(),
   responseLength: z.enum(["short", "balanced", "detailed"]).nullable(),
-  timezone: z.string().min(1).max(64).nullable(),
+  timezone: z.string().trim().max(64).refine((value) => normalizeTimezone(value) !== undefined, "Invalid IANA timezone").nullable(),
   ambiguousFields: z.array(z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"])),
 });
 

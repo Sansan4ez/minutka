@@ -10,7 +10,7 @@ import type { InsightStore } from "./insight-store.js";
 import type { ProfileStore } from "./profile-store.js";
 import type { OnboardingDraftStore } from "./onboarding-draft-store.js";
 import type { OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
-import { extractDeterministicOnboardingPatch } from "./onboarding-profile-extractor.js";
+import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "./onboarding-profile-extractor.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
 import type { OnboardingContextMaterializer } from "./onboarding-context-materializer.js";
 import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
@@ -318,7 +318,7 @@ export class MinutkaService {
       extracted = extractDeterministicOnboardingPatch({ text, currentDraft: current });
     }
     const fallback = extractDeterministicOnboardingPatch({ text, currentDraft: current });
-    const patch = mergePatches(extracted, fallback);
+    const patch = normalizeOnboardingProfilePatch(mergePatches(extracted, fallback));
     let draft = current;
     // A second Telegram delivery may have filled a different field while the
     // extractor was running. Re-merge the same bounded patch once instead of

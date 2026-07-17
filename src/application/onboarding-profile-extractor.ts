@@ -28,7 +28,7 @@ export function extractDeterministicOnboardingPatch(input: {
     patch.persona = persona(pipe[3]);
     patch.responseLength = responseLength(pipe[4]);
     patch.timezone = normalizeTimezone(pipe[5]);
-    return validatePatch(patch);
+    return normalizeOnboardingProfilePatch(patch);
   }
 
   patch.preferredName = capture(text, /(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|мо[её] имя)\s*[-—:]?\s*([^.;|\n]+)/iu);
@@ -46,7 +46,7 @@ export function extractDeterministicOnboardingPatch(input: {
   if (pending === "responseLength" && !patch.responseLength) patch.responseLength = responseLength(text);
   if (pending === "timezone" && !patch.timezone) patch.timezone = normalizeTimezone(text);
 
-  return validatePatch(patch);
+  return normalizeOnboardingProfilePatch(patch);
 }
 
 export function normalizePersona(value: string): Persona | undefined {
@@ -97,11 +97,19 @@ function extractTimezone(value: string): string | undefined {
   const standalone = value.match(/\b([A-Za-z_+-]+\/[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)?)\b/u)?.[1];
   return standalone ? normalizeTimezone(standalone) : undefined;
 }
-function validatePatch(patch: OnboardingProfilePatch): OnboardingProfilePatch {
-  if (patch.preferredName && !cleanName(patch.preferredName)) delete patch.preferredName;
-  if (patch.assistantName && !cleanName(patch.assistantName)) delete patch.assistantName;
-  if (patch.timezone && !normalizeTimezone(patch.timezone)) delete patch.timezone;
-  return patch;
+export function normalizeOnboardingProfilePatch(patch: OnboardingProfilePatch): OnboardingProfilePatch {
+  const preferredName = patch.preferredName === undefined ? undefined : cleanName(patch.preferredName);
+  const assistantName = patch.assistantName === undefined ? undefined : cleanName(patch.assistantName);
+  const timezone = patch.timezone === undefined ? undefined : normalizeTimezone(patch.timezone);
+  return {
+    ...(preferredName ? { preferredName } : {}),
+    ...(assistantName ? { assistantName } : {}),
+    ...(patch.addressForm ? { addressForm: patch.addressForm } : {}),
+    ...(patch.persona ? { persona: patch.persona } : {}),
+    ...(patch.responseLength ? { responseLength: patch.responseLength } : {}),
+    ...(timezone ? { timezone } : {}),
+    ambiguousFields: [...new Set(patch.ambiguousFields)],
+  };
 }
 
 export function emptyOnboardingPatch(): OnboardingProfilePatch { return { ambiguousFields: [] as OnboardingField[] }; }
