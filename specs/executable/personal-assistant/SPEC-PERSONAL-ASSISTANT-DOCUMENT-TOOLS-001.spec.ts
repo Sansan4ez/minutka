@@ -70,8 +70,27 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]).toMatchObject({ path: "/proc/context/search.md" });
     expect(result.matches[0]!.snippet).toContain("needle");
-    expect(result.matches[0]!.snippet.length).toBeLessThanOrEqual(documentReadLimits.searchSnippetCharacters + 2);
+    expect(Array.from(result.matches[0]!.snippet)).toHaveLength(documentReadLimits.searchSnippetCharacters + 2);
     expect(JSON.stringify(result)).not.toContain("чужой секрет");
+  });
+
+  it("returns emoji snippets through Mastra output validation", async () => {
+    const store = await fixture();
+    await store.put("owner", "context/emoji-search.md", `${"🙂".repeat(400)}needle${"🚀".repeat(400)}`);
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+    const searchTool = createDocumentTools(reader).searchDocuments;
+    const result = await searchTool.execute?.({ query: "needle", limit: 1 }, {} as never);
+
+    expect(result).toMatchObject({
+      matches: [{ path: "/proc/context/emoji-search.md" }],
+      truncated: false,
+    });
+    expect(result).not.toMatchObject({ error: true });
+    if (result && "matches" in result) {
+      expect(result.matches[0]!.snippet).toContain("needle");
+      expect(Array.from(result.matches[0]!.snippet)).toHaveLength(documentReadLimits.searchSnippetCharacters + 2);
+      expect(result.matches[0]!.snippet.length).toBeGreaterThan(documentReadLimits.searchSnippetCharacters + 2);
+    }
   });
 
   it("rejects traversal and alternate namespaces, isolates owners, and handles missing files", async () => {

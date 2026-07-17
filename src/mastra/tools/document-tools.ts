@@ -1,8 +1,12 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import type { createOwnerDocumentReader } from "../../application/document-reader.js";
+import { documentReadLimits, type createOwnerDocumentReader } from "../../application/document-reader.js";
 
 const documentPathSchema = z.string().startsWith("/proc/context/");
+const searchSnippetSchema = z.string().refine(
+  (snippet) => Array.from(snippet).length <= documentReadLimits.searchSnippetCharacters + 2,
+  { message: `snippet must contain at most ${documentReadLimits.searchSnippetCharacters + 2} Unicode characters` },
+);
 const metadataSchema = z.strictObject({
   path: documentPathSchema,
   version: z.string(),
@@ -67,7 +71,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
       outputSchema: z.strictObject({
         matches: z.array(z.strictObject({
           path: documentPathSchema,
-          snippet: z.string().max(502),
+          snippet: searchSnippetSchema,
           version: z.string(),
           updatedAt: z.string(),
         })),
