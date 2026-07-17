@@ -67,21 +67,26 @@ describeMinio("MinIO personal-vault contracts", () => {
     const legacyPath = "context/imported-knowledge-base/10_user_memory/01_Persona.md";
     const canonicalPath = "context/10_user_memory/01_Persona.md";
     const legacyOnlyPath = "context/imported-knowledge-base/10_user_memory/02_Goals_and_priorities.md";
+    const canonicalLegacyOnlyPath = "context/10_user_memory/02_Goals_and_priorities.md";
     await documents.put(owner, legacyPath, "legacy persona");
     await documents.put(owner, canonicalPath, "canonical persona");
     await documents.put(owner, legacyOnlyPath, "legacy goals");
 
     expect(await documents.get(owner, canonicalPath)).toMatchObject({ path: canonicalPath, content: "canonical persona" });
-    expect(await documents.get(owner, "context/10_user_memory/02_Goals_and_priorities.md")).toMatchObject({
-      path: "context/10_user_memory/02_Goals_and_priorities.md",
+    expect(await documents.get(owner, canonicalLegacyOnlyPath)).toMatchObject({
+      path: canonicalLegacyOnlyPath,
       content: "legacy goals",
     });
 
     const listed = await documents.list(owner);
     expect(listed.filter(({ path }) => path === canonicalPath)).toHaveLength(1);
     expect(listed.find(({ path }) => path === canonicalPath)?.content).toBe("canonical persona");
-    expect(listed.find(({ path }) => path === "context/10_user_memory/02_Goals_and_priorities.md")?.content).toBe("legacy goals");
+    expect(listed.find(({ path }) => path === canonicalLegacyOnlyPath)?.content).toBe("legacy goals");
     expect(listed.some(({ path }) => path.startsWith("context/imported-knowledge-base/"))).toBe(false);
+
+    const listedContext = await documents.list(owner, "context/");
+    expect(listedContext.map(({ path }) => path)).toContain(canonicalLegacyOnlyPath);
+    expect(listedContext.find(({ path }) => path === canonicalPath)?.content).toBe("canonical persona");
   });
 
   it("creates a context document once without overwriting concurrent or repeated onboarding writes", async () => {

@@ -100,11 +100,11 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     },
     async list(userId, prefix) {
       const safeUserId = assertUserId(userId);
-      const canonicalPrefix = prefix === undefined ? "" : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
-      const storagePrefixes = new Set<string>([canonicalPrefix]);
-      const legacyPrefix = canonicalPrefix ? legacyDocumentPath(canonicalPrefix.slice(0, -1)) : null;
+      const canonicalPrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
+      const storagePrefixes = new Set<string | undefined>([canonicalPrefix]);
+      const legacyPrefix = canonicalPrefix === undefined ? null : legacyDocumentPath(canonicalPrefix.slice(0, -1));
       if (legacyPrefix) storagePrefixes.add(`${legacyPrefix}/`);
-      const documentGroups = await Promise.all([...storagePrefixes].map((storagePrefix) => listExact(safeUserId, storagePrefix || undefined)));
+      const documentGroups = await Promise.all([...storagePrefixes].map((storagePrefix) => listExact(safeUserId, storagePrefix)));
       const selectedDocuments = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
       for (const document of documentGroups.flat()) {
         const canonicalPath = canonicalDocumentPath(document.path);
