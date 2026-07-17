@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
+import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
 export const aiLevelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 export const responseLengthSchema = z.enum(["short", "balanced", "detailed"]);
 export const addressFormSchema = z.enum(["informal", "formal"]);
-export const timezoneSchema = z.string().min(1).max(64).refine((value) => {
-  try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(); return /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/u.test(value); }
-  catch { return false; }
-}, "Invalid IANA timezone");
+export const timezoneSchema = z.string().min(1).max(64).transform((value, context) => {
+  const timezone = normalizeIanaTimezone(value);
+  if (timezone) return timezone;
+  context.addIssue({ code: "custom", message: "Invalid IANA timezone" });
+  return z.NEVER;
+});
 export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
 export const employeeIdSchema = z.string().min(1).max(128);
 export const threadIdSchema = z.string().min(1).max(128);

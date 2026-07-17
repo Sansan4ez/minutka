@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "../../../src/application/onboarding-profile-extractor.js";
+import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
+import { timezoneSchema } from "../../../src/contracts/minutka-api.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
@@ -129,6 +130,33 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Europe/Moscow" })).toMatchObject({ status: "needs_confirmation" });
   });
 
+  it("does not infer unanswered choice fields from unrelated substrings", async () => {
+    const namePatch = extractDeterministicOnboardingPatch({
+      text: "Обычно меня зовут Саша",
+      currentDraft: {
+        employeeId: "emp_substrings",
+        status: "collecting",
+        pendingField: "preferredName",
+        revision: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-31T00:00:00.000Z",
+      },
+    });
+    expect(namePatch).toMatchObject({ preferredName: "Саша" });
+    expect(namePatch.responseLength).toBeUndefined();
+
+    const runtime = await consentedRuntime("emp_substrings");
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "Саша" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "Спарк" });
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "на тыловой стороне" })).resolves.toMatchObject({
+      status: "needs_choice",
+      field: "addressForm",
+    });
+    expect(runtime.world.onboardingDrafts[0].addressForm).toBeUndefined();
+    expect(runtime.world.onboardingDrafts[0].persona).toBeUndefined();
+  });
+
   it("does not overwrite collected values before confirmation and accepts explicit corrections after the summary", async () => {
     const runtime = await consentedRuntime();
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Максим" });
@@ -177,6 +205,24 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       status: "collecting",
       pendingField: "timezone",
     });
+  });
+
+  it("canonicalizes valid IANA timezone casing at extractor, contract and service boundaries", async () => {
+    expect(normalizeTimezone("europe/moscow")).toBe("Europe/Moscow");
+    expect(normalizeTimezone("america/argentina/buenos_aires")).toBe("America/Buenos_Aires");
+    expect(timezoneSchema.parse("europe/moscow")).toBe("Europe/Moscow");
+
+    const runtime = await consentedRuntime("emp_canonical_tz");
+    await expect(runtime.service.completeOnboarding({
+      employeeId: "emp_canonical_tz",
+      preferredName: "Максим",
+      assistantName: "Спарк",
+      addressForm: "informal",
+      persona: "efficiency",
+      responseLength: "short",
+      timezone: "europe/moscow",
+    })).resolves.toMatchObject({ profile: { timezone: "Europe/Moscow" } });
+    expect(runtime.world.profiles[0].timezone).toBe("Europe/Moscow");
   });
 
   it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {

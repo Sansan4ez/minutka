@@ -1,5 +1,6 @@
 import type { AddressForm, AiLevel, Consent, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
+import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
 import { createMinutkaContextBuilder, type MinutkaContextBuilderLike } from "./minutka-context-builder.js";
@@ -257,6 +258,7 @@ export class MinutkaService {
     await this.requireParticipant(input.employeeId);
     if (!hasCurrentConsent(await this.stores.profileStore.getConsent(input.employeeId))) throw new PersistenceError("consent_required");
     this.validateProfileInput(input);
+    const normalizedTimezone = input.timezone === undefined ? undefined : normalizeIanaTimezone(input.timezone);
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
     const existing = await this.stores.profileStore.getProfile(input.employeeId);
@@ -268,7 +270,7 @@ export class MinutkaService {
       addressForm: input.addressForm ?? existing?.addressForm ?? "informal",
       persona: input.persona,
       responseLength: input.responseLength ?? "balanced",
-      timezone: input.timezone ?? existing?.timezone ?? "Etc/UTC",
+      timezone: normalizedTimezone ?? existing?.timezone ?? "Etc/UTC",
       ...(input.role?.trim() ? { role: input.role.trim() } : existing?.role ? { role: existing.role } : {}),
       ...(input.typicalTasks ? { typicalTasks: input.typicalTasks.map((task) => task.trim()) } : existing?.typicalTasks ? { typicalTasks: existing.typicalTasks } : {}),
       ...(input.aiLevel ? { aiLevel: input.aiLevel } : existing?.aiLevel ? { aiLevel: existing.aiLevel } : {}),
@@ -532,7 +534,7 @@ export class MinutkaService {
   private validateProfileInput(input: CompleteOnboardingInput) {
     if (input.preferredName !== undefined && !input.preferredName.trim()) throw new Error("preferredName is required");
     if (input.assistantName !== undefined && !input.assistantName.trim()) throw new Error("assistantName is required");
-    if (input.timezone !== undefined && !isValidTimezone(input.timezone)) throw new Error("timezone must be a valid IANA timezone");
+    if (input.timezone !== undefined && normalizeIanaTimezone(input.timezone) === undefined) throw new Error("timezone must be a valid IANA timezone");
     if (input.role !== undefined && !input.role.trim()) throw new Error("role is required");
     if (input.typicalTasks !== undefined) {
       const tasks = input.typicalTasks.map((task) => task.trim());
@@ -610,10 +612,6 @@ function onboardingProgress(draft: OnboardingDraft): OnboardingProgress {
   return { status: "needs_answer", field, prompt: "Какой у вас часовой пояс? Укажите IANA timezone, например Europe/Moscow." };
 }
 const trackedProfileFields = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
-function isValidTimezone(value: string): boolean {
-  try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(); return /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/u.test(value); }
-  catch { return false; }
-}
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
   return trackedProfileFields.filter((field) =>
     // Omitted optional data is not a change on initial creation, while a later

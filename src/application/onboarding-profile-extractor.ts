@@ -1,4 +1,5 @@
 import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
+import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from "./onboarding-types.js";
 
 export type OnboardingProfileExtractor = (input: {
@@ -17,7 +18,6 @@ export function extractDeterministicOnboardingPatch(input: {
   currentDraft: OnboardingDraft;
 }): OnboardingProfilePatch {
   const text = input.text.trim();
-  const normalized = normalize(text);
   const patch: OnboardingProfilePatch = { ambiguousFields: [] };
 
   const pipe = text.split("|").map((part) => part.trim());
@@ -33,9 +33,6 @@ export function extractDeterministicOnboardingPatch(input: {
 
   patch.preferredName = capture(text, /(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|мо[её] имя)\s*[-—:]?\s*([^.;|\n]+)/iu);
   patch.assistantName = capture(text, /(?:тебя зовут|буду звать тебя|назову тебя|имя ассистента|ассистента зовут)\s*[-—:]?\s*([^.;|\n]+)/iu);
-  patch.addressForm = addressForm(normalized);
-  patch.persona = persona(normalized);
-  patch.responseLength = responseLength(normalized);
   patch.timezone = extractTimezone(text);
 
   const pending = input.currentDraft.pendingField;
@@ -51,41 +48,37 @@ export function extractDeterministicOnboardingPatch(input: {
 
 export function normalizePersona(value: string): Persona | undefined {
   const text = normalize(value);
-  if (/(?:support|поддержк\w*|бережн\w*|тепл\w*|эмпатичн\w*)/u.test(text)) return "support";
-  if (/(?:efficiency|эффективност\w*|по делу|делов\w*|коротко и практично|структурн\w*)/u.test(text)) return "efficiency";
+  if (hasBoundedSignal(text, /(?:support|поддержк\p{L}*|бережн\p{L}*|тепл\p{L}*|эмпатичн\p{L}*)/u)) return "support";
+  if (hasBoundedSignal(text, /(?:efficiency|эффективност\p{L}*|по делу|делов\p{L}*|коротко и практично|структурн\p{L}*)/u)) return "efficiency";
   return undefined;
 }
 
 export function normalizeResponseLength(value: string): ResponseLengthPreference | undefined {
   const text = normalize(value);
-  if (/(?:short|кратк\w*|коротк\w*|лаконичн\w*)/u.test(text)) return "short";
-  if (/(?:detailed|подробн\w*|детальн\w*|разв[её]рнут\w*)/u.test(text)) return "detailed";
-  if (/(?:balanced|сбалансированн\w*|средн\w*|обычн\w*)/u.test(text)) return "balanced";
+  if (hasBoundedSignal(text, /(?:short|кратк\p{L}*|коротк\p{L}*|лаконичн\p{L}*)/u)) return "short";
+  if (hasBoundedSignal(text, /(?:detailed|подробн\p{L}*|детальн\p{L}*|разв[её]рнут\p{L}*)/u)) return "detailed";
+  if (hasBoundedSignal(text, /(?:balanced|сбалансированн\p{L}*|средн\p{L}*|обычн\p{L}*)/u)) return "balanced";
   return undefined;
 }
 
 export function normalizeAddressForm(value: string): AddressForm | undefined {
   const text = normalize(value);
-  if (/(?:informal|на ты|обращайся на ты|тыкай)/u.test(text)) return "informal";
-  if (/(?:formal|на вы|обращайтесь на вы)/u.test(text)) return "formal";
+  if (hasBoundedSignal(text, /(?:informal|на ты|обращайся на ты|тыкай)/u)) return "informal";
+  if (hasBoundedSignal(text, /(?:formal|на вы|обращайтесь на вы)/u)) return "formal";
   return undefined;
 }
 
 export function normalizeTimezone(value: string): string | undefined {
-  const candidate = value.trim().replace(/[.,;!?]+$/u, "");
-  if (!candidate || candidate.length > 64 || !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/u.test(candidate)) return undefined;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format();
-    return candidate;
-  } catch {
-    return undefined;
-  }
+  return normalizeIanaTimezone(value.trim().replace(/[.,;!?]+$/u, ""));
 }
 
 function addressForm(value: string): AddressForm | undefined { return normalizeAddressForm(value); }
 function persona(value: string): Persona | undefined { return normalizePersona(value); }
 function responseLength(value: string): ResponseLengthPreference | undefined { return normalizeResponseLength(value); }
 function normalize(value: string): string { return value.toLocaleLowerCase("ru-RU").replace(/[«»"']/g, " ").replace(/\s+/g, " ").trim(); }
+function hasBoundedSignal(value: string, signal: RegExp): boolean {
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}_])(?:${signal.source})(?=$|[^\\p{L}\\p{N}_])`, "u").test(value);
+}
 function capture(value: string, pattern: RegExp): string | undefined { const match = value.match(pattern); return match?.[1] ? cleanName(match[1]) : undefined; }
 function cleanName(value: string): string | undefined {
   const cleaned = value.trim().replace(/^(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|тебя зовут|буду звать тебя|назову тебя)\s*[-—:]?\s*/iu, "").trim();
