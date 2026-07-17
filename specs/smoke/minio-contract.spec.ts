@@ -68,9 +68,9 @@ describeMinio("MinIO personal-vault contracts", () => {
     const canonicalPath = "context/10_user_memory/01_Persona.md";
     const legacyOnlyPath = "context/imported-knowledge-base/10_user_memory/02_Goals_and_priorities.md";
     const canonicalLegacyOnlyPath = "context/10_user_memory/02_Goals_and_priorities.md";
-    await documents.put(owner, legacyPath, "legacy persona");
+    await client.putObject(config.bucket, `${owner}/${legacyPath}`, Buffer.from("legacy persona"));
     await documents.put(owner, canonicalPath, "canonical persona");
-    await documents.put(owner, legacyOnlyPath, "legacy goals");
+    await client.putObject(config.bucket, `${owner}/${legacyOnlyPath}`, Buffer.from("legacy goals"));
 
     expect(await documents.get(owner, canonicalPath)).toMatchObject({ path: canonicalPath, content: "canonical persona" });
     expect(await documents.get(owner, canonicalLegacyOnlyPath)).toMatchObject({
@@ -87,6 +87,25 @@ describeMinio("MinIO personal-vault contracts", () => {
     const listedContext = await documents.list(owner, "context/");
     expect(listedContext.map(({ path }) => path)).toContain(canonicalLegacyOnlyPath);
     expect(listedContext.find(({ path }) => path === canonicalPath)?.content).toBe("canonical persona");
+  });
+
+  it("canonicalizes logical writes and deletes while preserving legacy owner content on create", async () => {
+    const legacyPath = "context/imported-knowledge-base/10_user_memory/03_Preferences.md";
+    const canonicalPath = "context/10_user_memory/03_Preferences.md";
+    await client.putObject(config.bucket, `${owner}/${legacyPath}`, Buffer.from("legacy owner content"));
+
+    await expect(documents.putIfAbsent(owner, canonicalPath, "scaffold")).resolves.toMatchObject({
+      path: canonicalPath,
+      content: "legacy owner content",
+    });
+    await expect(documents.getExact(owner, canonicalPath)).resolves.toBeNull();
+
+    await expect(documents.put(owner, legacyPath, "canonical update")).resolves.toMatchObject({ path: canonicalPath });
+    await expect(documents.getExact(owner, canonicalPath)).resolves.toMatchObject({ content: "canonical update" });
+
+    await documents.delete(owner, legacyPath);
+    await expect(documents.get(owner, canonicalPath)).resolves.toBeNull();
+    await expect(documents.getExact(owner, legacyPath)).resolves.toBeNull();
   });
 
   it("creates a context document once without overwriting concurrent or repeated onboarding writes", async () => {

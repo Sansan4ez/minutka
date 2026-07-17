@@ -75,8 +75,12 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
   });
 
   it("reads legacy aliases, migrates them idempotently, and fails closed on collisions", async () => {
-    const { documentStore, ingestionService } = setup();
-    await documentStore.put("pilot", "context/imported-knowledge-base/10_user_memory/01_goals.md", "# Legacy goals\n");
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const legacyGoalsPath = "context/imported-knowledge-base/10_user_memory/01_goals.md";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: legacyGoalsPath, content: "# Legacy goals\n" },
+    ]);
+    const ingestionService = createIngestionService({ documentStore, blobStore: createInMemoryBlobStore(clock) });
 
     await expect(documentStore.get("pilot", "context/10_user_memory/01_goals.md")).resolves.toMatchObject({
       path: "context/10_user_memory/01_goals.md",
@@ -91,12 +95,38 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const retry = await migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore, ingestionService });
     expect(first).toMatchObject({ migrated: 1, skipped: 0 });
     expect(retry).toMatchObject({ migrated: 0, skipped: 1 });
-    expect(await documentStore.getExact("pilot", "context/imported-knowledge-base/10_user_memory/01_goals.md")).not.toBeNull();
+    expect(await documentStore.getExact("pilot", legacyGoalsPath)).not.toBeNull();
 
-    await documentStore.put("pilot", "context/40_projects/project-a/README.MD", "different canonical content");
-    await documentStore.put("pilot", "context/imported-knowledge-base/40_projects/project-a/README.MD", "legacy content");
-    await expect(migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore, ingestionService }))
+    const legacyProjectPath = "context/imported-knowledge-base/40_projects/project-a/README.MD";
+    const collisionStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: legacyProjectPath, content: "legacy content" },
+    ]);
+    const collisionIngestion = createIngestionService({ documentStore: collisionStore, blobStore: createInMemoryBlobStore(clock) });
+    await collisionStore.put("pilot", "context/40_projects/project-a/README.MD", "different canonical content");
+    await expect(migrateLegacyPilotKnowledgeBase({ userId: "pilot", documentStore: collisionStore, ingestionService: collisionIngestion }))
       .rejects.toThrow("knowledge-base migration collision");
+  });
+
+  it("canonicalizes logical writes and deletes while preserving legacy owner content on create", async () => {
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const legacyPath = "context/imported-knowledge-base/10_user_memory/01_goals.md";
+    const canonicalPath = "context/10_user_memory/01_goals.md";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: legacyPath, content: "legacy owner content" },
+    ]);
+
+    await expect(documentStore.putIfAbsent("pilot", canonicalPath, "scaffold")).resolves.toMatchObject({
+      path: canonicalPath,
+      content: "legacy owner content",
+    });
+    await expect(documentStore.getExact("pilot", canonicalPath)).resolves.toBeNull();
+
+    await expect(documentStore.put("pilot", legacyPath, "canonical update")).resolves.toMatchObject({ path: canonicalPath });
+    await expect(documentStore.getExact("pilot", canonicalPath)).resolves.toMatchObject({ content: "canonical update" });
+
+    await documentStore.delete("pilot", legacyPath);
+    await expect(documentStore.get("pilot", canonicalPath)).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", legacyPath)).resolves.toBeNull();
   });
 
   it("rejects case and Unicode-normalization collisions", async () => {

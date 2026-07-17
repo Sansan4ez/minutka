@@ -22,10 +22,12 @@ export type DocumentStore = {
   getExact(userId: string, path: string): Promise<UserDocument | null>;
   /** Exact storage list reserved for migrations; it does not canonicalize aliases. */
   listExact(userId: string, prefix?: string): Promise<UserDocument[]>;
+  /** Writes to the canonical logical path, including when passed a legacy alias. */
   put(userId: string, path: string, content: string): Promise<UserDocument>;
-  /** Atomically creates a missing document and never overwrites existing owner content. */
+  /** Atomically creates a missing logical document and never overwrites canonical or legacy owner content. */
   putIfAbsent(userId: string, path: string, content: string): Promise<UserDocument>;
   list(userId: string, prefix?: string): Promise<UserDocument[]>;
+  /** Deletes the logical document together with its known legacy alias. */
   delete(userId: string, path: string): Promise<void>;
 };
 

@@ -72,28 +72,31 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     listExact,
     async put(userId, path, content) {
       const safeUserId = assertUserId(userId);
-      const safePath = assertSafeVaultPath(path);
-      const result = await options.client.putObject(options.bucket, objectKey(safeUserId, safePath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
+      const canonicalPath = canonicalDocumentPath(path);
+      const result = await options.client.putObject(options.bucket, objectKey(safeUserId, canonicalPath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
         "Content-Type": "text/markdown; charset=utf-8",
       });
-      return { userId: safeUserId, path: safePath, content, version: result.versionId ?? result.etag, updatedAt: now() };
+      return { userId: safeUserId, path: canonicalPath, content, version: result.versionId ?? result.etag, updatedAt: now() };
     },
     async putIfAbsent(userId, path, content) {
       const safeUserId = assertUserId(userId);
-      const safePath = assertSafeVaultPath(path);
-      const existing = await getExact(safeUserId, safePath);
-      if (existing) return existing;
+      const canonicalPath = canonicalDocumentPath(path);
+      const canonical = await getExact(safeUserId, canonicalPath);
+      if (canonical) return canonical;
+      const legacyPath = legacyDocumentPath(canonicalPath);
+      const legacy = legacyPath ? await getExact(safeUserId, legacyPath) : null;
+      if (legacy) return { ...legacy, path: canonicalPath };
       try {
-        const result = await options.client.putObject(options.bucket, objectKey(safeUserId, safePath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
+        const result = await options.client.putObject(options.bucket, objectKey(safeUserId, canonicalPath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
           "Content-Type": "text/markdown; charset=utf-8",
           "If-None-Match": "*",
         });
-        return { userId: safeUserId, path: safePath, content, version: result.versionId ?? result.etag, updatedAt: now() };
+        return { userId: safeUserId, path: canonicalPath, content, version: result.versionId ?? result.etag, updatedAt: now() };
       } catch (error) {
         // A losing conditional PUT may be reported either as an S3
         // precondition error or as a dropped connection by older gateways.
         // Reconcile from storage before deciding that the create failed.
-        const concurrent = await readAfterFailedCreate(safeUserId, safePath);
+        const concurrent = await readAfterFailedCreate(safeUserId, canonicalPath);
         if (concurrent) return concurrent;
         throw error;
       }
@@ -119,7 +122,12 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
         .sort((left, right) => left.path.localeCompare(right.path));
     },
     async delete(userId, path) {
-      await options.client.removeObject(options.bucket, objectKey(assertUserId(userId), path));
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const paths = [canonicalPath];
+      const legacyPath = legacyDocumentPath(canonicalPath);
+      if (legacyPath) paths.push(legacyPath);
+      await Promise.all(paths.map((documentPath) => options.client.removeObject(options.bucket, objectKey(safeUserId, documentPath))));
     },
   };
 }
