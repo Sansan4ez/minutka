@@ -105,44 +105,81 @@ bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank scores
 
 ```bash
 br ready              # Show issues ready to work (no blockers)
+br ready --epic <id>  # Show ready executable descendants of an epic
 br list --status=open # All open issues
 br show <id>          # Full issue details with dependencies
 br create --title="..." --type=task --priority=2
-br update <id> --status=in_progress
+br update <id> --claim # Atomically claim an issue and mark it in_progress
 br close <id> --reason="Completed"
 br close <id1> <id2>  # Close multiple issues at once
-br sync --flush-only  # Export DB to JSONL
+br sync --flush-only  # Export DB to .beads/issues.jsonl
 ```
 
 ### Workflow Pattern
 
-1. **Triage**: Run `bv --robot-triage` to find the highest-impact actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
+1. **Triage**: Run `bv --robot-triage` to find the highest-impact actionable work.
+2. **Inspect**: Run `br show <id>` and inspect dependencies before implementation.
+3. **Decompose**: Treat `epic` as a container. Run executable child issues; if an epic has no children, decompose it before implementation.
+4. **Claim**: Use `br update <id> --claim`. The sequential orchestrator performs this after the worker readiness signal.
+5. **Work**: Implement only the claimed issue and run focused verification.
+6. **Complete**: Run `br close <id> --reason="..."`, then `br sync --flush-only`.
+7. **Commit**: Create exactly one local atomic commit for the issue, including the related `.beads/issues.jsonl` change.
+8. **Review and publish**: The operator reviews the complete local commit series and performs `git push` explicitly; workers and the orchestrator do not push.
 
 ### Key Concepts
 
 - **Dependencies**: Issues can block other issues. `br ready` shows only unblocked work.
-- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
-- **Types**: task, bug, feature, epic, chore, docs, question
-- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
+- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words).
+- **Types**: task, bug, feature, chore, and docs are executable when their scope is concrete. Epic is a container and must not be implemented as one worker task. Question must be resolved or converted to an executable issue before orchestration.
+- **Blocking**: `br dep add <issue> <depends-on>` adds dependencies.
+- **Source of truth**: Scope and status live in `br`; implementation and the synchronized `.beads/issues.jsonl` live in the same Git commit.
 
-### Session Protocol
+### Git Boundary for Agent Work
+
+```text
+worker       → one local atomic commit per issue
+orchestrator → verify commit and clean worktree
+operator     → review the complete commit series, then push explicitly
+```
+
+Worker requirements:
+
+- do not start from or overwrite unrelated dirty changes;
+- keep all implementation, tests, docs, and `.beads/issues.jsonl` updates for one issue in one commit;
+- include the exact `br` issue ID in the commit message;
+- stage only files related to the issue; do not use broad staging when unrelated files may exist;
+- do not amend or rewrite commits created for earlier issues;
+- do not run `git push`;
+- finish with a clean worktree.
+
+Sequential orchestrator requirements:
+
+- require a clean worktree before the sequence and before every issue;
+- record `HEAD` before launching a worker;
+- continue only when the issue is closed, the worker exits successfully, and exactly one new commit exists;
+- verify that the commit message contains the issue ID and that `.beads/issues.jsonl` is included;
+- verify that the worktree is clean before launching the next issue;
+- stop on any failed invariant and leave publishing to the operator;
+- print the exact `base..HEAD` commit range for operator review after a successful sequence.
+
+Operator review and publish protocol:
 
 ```bash
-git status              # Check what changed
-git add <files>         # Stage code changes
-br sync --flush-only    # Export beads changes to JSONL
-git commit -m "..."     # Commit everything
-git push                # Push to remote
+git status --short                    # Must be clean before orchestration
+base="$(git rev-parse HEAD)"          # Save before starting the sequence
+# run the sequential orchestrator
+git log --oneline "$base"..HEAD       # Review one commit per issue
+git diff --stat "$base"..HEAD
+git diff "$base"..HEAD               # Review the complete local series
+git push                              # Only after explicit operator approval
 ```
 
 ### After task implementation
 
-- mark task as Done in `br`
-- create atomic commits with task ID from `br`
-- define next step/task
+- close the task in `br` and run `br sync --flush-only`;
+- create exactly one local atomic commit with the task ID in its message;
+- include `.beads/issues.jsonl` in that same commit;
+- leave the worktree clean and define the next step/task;
+- do not push unless the operator explicitly requests it after reviewing the series.
 
 <!-- end-bv-agent-instructions -->
