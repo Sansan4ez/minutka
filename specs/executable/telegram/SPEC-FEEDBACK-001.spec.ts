@@ -668,6 +668,32 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages().at(-1)?.text).toContain("часовой пояс");
   });
 
+  it("10ba. Serializes onboarding callbacks with concurrent text deliveries", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_callback_text_race", "--employee", "emp_callback_text_race"]);
+    await telegram.start({ chatId: "chat_callback_text_race", inviteCode: "invite_callback_text_race" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_callback_text_race", callbackData: consent! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_callback_text_race", text: "Меня зовут Максим. Тебя зовут Спарк." });
+    const choiceMessage = telegram.sentMessages().at(-1)!;
+    const informal = choiceMessage.replyMarkup?.inlineKeyboard[0][0];
+    expect(informal).toMatchObject({ text: "На ты", callbackData: "ob:addressForm:informal" });
+    telegram.clear();
+
+    await Promise.all([
+      telegram.deliverCallback({ chatId: "chat_callback_text_race", callbackData: informal!.callbackData, messageId: choiceMessage.messageId, callbackQueryId: "choice_race" }),
+      telegram.deliverText({ chatId: "chat_callback_text_race", text: "Деловой" }),
+    ]);
+
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "choice_race", text: undefined });
+    expect(telegram.sentMessages().filter((message) => message.text.includes("стиль общения"))).toHaveLength(1);
+    expect(telegram.sentMessages()).toContainEqual(expect.objectContaining({ text: "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение." }));
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_callback_text_race", messageId: choiceMessage.messageId, replyMarkup: undefined });
+  });
+
   it("10b. Repeated consent callback is idempotent under concurrent delivery", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

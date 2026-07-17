@@ -45,6 +45,7 @@ const typingRefreshMilliseconds = 4_000;
 const maxTelegramCallbackDataBytes = 64;
 export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
+const inFlightDeliveryMessage = "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.";
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
@@ -257,16 +258,17 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       }
     },
     async handleText(chatId: string, text: string, userId?: string) {
-      await removeActiveReplyMarkup(chatId);
-      const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
-      try { const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId); }
-      catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
+      try {
+        await removeActiveReplyMarkup(chatId);
+        const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
+        const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
-      await removeActiveReplyMarkup(chatId);
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
+      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
       try {
+        await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (!artifactIntake || !fileGateway) return void await replyPort.sendMessage(chatId, "Сохранение файлов сейчас недоступно. Попробуйте ещё раз позже.");
         if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > maxTelegramArtifactFileSizeBytes) return void await replyPort.sendMessage(chatId, "Файл слишком большой (максимум 100 МБ).");
@@ -305,9 +307,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       catch (error) { logShellError("unsupported attachment", error); await replyPort.sendMessage(chatId, "Не удалось обработать вложение. Попробуйте ещё раз позже."); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
-      await removeActiveReplyMarkup(chatId);
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение."); inFlightChatIds.add(chatId);
+      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
       try {
+        await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (!speechToText || !voiceFileGateway) return void await replyPort.sendMessage(chatId, "Голосовые сообщения сейчас недоступны. Пожалуйста, напишите текстом.");
         if (voice.durationSeconds > maxVoiceDurationSeconds) return void await replyPort.sendMessage(chatId, "Голосовое сообщение слишком длинное (максимум 5 минут).");
@@ -339,6 +341,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
+      if (inFlightChatIds.has(chatId)) return void await replyPort.answerCallbackQuery(callbackQueryId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
       try {
         const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
         if (data.startsWith("tg:consent:")) {
@@ -390,7 +393,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
         logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
-      }
+      } finally { inFlightChatIds.delete(chatId); }
     },
   };
 }
