@@ -62,8 +62,8 @@ export function createOwnerDocumentReader(input: {
       const prefix = storagePrefix(options.prefix);
       const cursor = options.cursor === undefined ? undefined : storagePath(options.cursor);
       const limit = boundedInteger(options.limit, limits.listDefault, 1, limits.listMaximum, "limit");
-      const source = await input.documentStore.list(input.userId, prefix);
-      const page = source.filter((document) => cursor === undefined || document.path.localeCompare(cursor) > 0).slice(0, limit + 1);
+      const source = (await input.documentStore.list(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
+      const page = source.filter((document) => cursor === undefined || compareCodeUnits(document.path, cursor) > 0).slice(0, limit + 1);
       const truncated = page.length > limit;
       const selected = page.slice(0, limit);
       const result: ListDocumentsResult = {
@@ -120,14 +120,13 @@ export function createOwnerDocumentReader(input: {
       if (query.length < 2) throw new Error("query must contain at least 2 characters");
       const prefix = storagePrefix(options.prefix);
       const limit = boundedInteger(options.limit, limits.searchDefault, 1, limits.searchMaximum, "limit");
-      const normalizedQuery = query.toLocaleLowerCase();
       const source = await input.documentStore.list(input.userId, prefix);
       const matches: SearchDocumentsResult["matches"] = [];
       let truncated = false;
       for (const document of source) {
         const path = contextDocumentHandle(document.path);
-        const contentIndex = document.content.toLocaleLowerCase().indexOf(normalizedQuery);
-        if (contentIndex < 0 && path.toLocaleLowerCase().indexOf(normalizedQuery) < 0) continue;
+        const contentIndex = caseInsensitiveIndex(document.content, query);
+        if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
         if (matches.length === limit) {
           truncated = true;
           break;
@@ -169,15 +168,53 @@ function missingReadResult(path: `/proc/context/${string}`, offset: number): Rea
 }
 
 function markdownSection(content: string, requestedSection: string): string | null {
-  const section = requestedSection.trim().toLocaleLowerCase();
+  const section = requestedSection.trim().toLowerCase();
   if (!section) throw new Error("section must not be empty");
-  const headings = [...content.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm)];
-  const selectedIndex = headings.findIndex((match) => match[2]?.trim().toLocaleLowerCase() === section);
+  const headings = markdownHeadings(content);
+  const selectedIndex = headings.findIndex((heading) => heading.title.toLowerCase() === section);
   if (selectedIndex < 0) return null;
   const selected = headings[selectedIndex]!;
-  const level = selected[1]!.length;
-  const next = headings.slice(selectedIndex + 1).find((match) => match[1]!.length <= level);
-  return content.slice(selected.index!, next?.index ?? content.length).trimEnd();
+  const next = headings.slice(selectedIndex + 1).find((heading) => heading.level <= selected.level);
+  return content.slice(selected.index, next?.index ?? content.length).trimEnd();
+}
+
+function markdownHeadings(content: string): Array<{ index: number; level: number; title: string }> {
+  const headings: Array<{ index: number; level: number; title: string }> = [];
+  let fence: { marker: "`" | "~"; length: number } | null = null;
+  for (const line of content.matchAll(/^.*$/gm)) {
+    const value = line[0]!;
+    if (fence) {
+      const closing = value.match(/^[ \t]{0,3}(`+|~+)[ \t]*\r?$/);
+      if (closing?.[1]?.[0] === fence.marker && closing[1].length >= fence.length) fence = null;
+      continue;
+    }
+    const opening = value.match(/^[ \t]{0,3}(`{3,}|~{3,})(?:[^\r\n]*)\r?$/);
+    if (opening?.[1]) {
+      fence = { marker: opening[1][0] as "`" | "~", length: opening[1].length };
+      continue;
+    }
+    const heading = value.match(/^[ \t]{0,3}(#{1,6})\s+(.+?)\s*#*\s*\r?$/);
+    if (heading?.[1] && heading[2]) headings.push({ index: line.index!, level: heading[1].length, title: heading[2].trim() });
+  }
+  return headings;
+}
+
+function caseInsensitiveIndex(value: string, query: string): number {
+  const foldedQuery = query.toLowerCase();
+  const foldedValue = value.toLowerCase();
+  const sourceIndices: number[] = [];
+  let sourceIndex = 0;
+  for (const character of value) {
+    const foldedLength = character.toLowerCase().length;
+    for (let index = 0; index < foldedLength; index += 1) sourceIndices.push(sourceIndex);
+    sourceIndex += character.length;
+  }
+  const foldedIndex = foldedValue.indexOf(foldedQuery);
+  return foldedIndex < 0 ? -1 : sourceIndices[foldedIndex] ?? value.length;
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function boundedSnippet(content: string, matchIndex: number, maximumCharacters: number): string {

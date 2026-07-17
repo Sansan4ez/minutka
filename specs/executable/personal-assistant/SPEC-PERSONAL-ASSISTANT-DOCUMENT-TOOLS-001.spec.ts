@@ -38,6 +38,20 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(JSON.stringify([first, second])).not.toContain("private.md");
   });
 
+  it("paginates paths by stable code-unit order without collapsing Unicode equivalents", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/café.md", "NFC");
+    await store.put("owner", "context/café.md", "NFD");
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    const first = await reader.listDocuments({ limit: 1 });
+    const second = await reader.listDocuments({ cursor: first.nextCursor!, limit: 1 });
+
+    expect(first.documents.map(({ path }) => path)).toEqual(["/proc/context/café.md"]);
+    expect(second.documents.map(({ path }) => path)).toEqual(["/proc/context/café.md"]);
+    expect(second).toMatchObject({ nextCursor: null, truncated: false });
+  });
+
   it("opens an imported personal constitution even when it was not auto-injected", async () => {
     const reader = createOwnerDocumentReader({ userId: "owner", documentStore: await fixture() });
     const result = await reader.readDocument({
@@ -48,6 +62,38 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(result).toMatchObject({ found: true, sectionFound: true, truncated: false });
     expect(result.content).toContain("Сначала ясность, затем скорость.");
     expect(result.content).not.toContain("Беречь утренний фокус");
+  });
+
+  it("ignores Markdown headings inside fenced code blocks", async () => {
+    const store = await fixture();
+    await store.put("owner", "context/fenced.md", [
+      "# Target",
+      "before fence",
+      "```markdown",
+      "# Fake boundary",
+      "```",
+      "after fence",
+      "## Child",
+      "child content",
+      "# Real boundary",
+      "outside target",
+    ].join("\n"));
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    const result = await reader.readDocument({ path: "/proc/context/fenced.md", section: "Target", maxCharacters: 500 });
+
+    expect(result.content).toContain("# Fake boundary");
+    expect(result.content).toContain("after fence");
+    expect(result.content).toContain("child content");
+    expect(result.content).not.toContain("outside target");
+  });
+
+  it("does not select a Markdown heading that exists only inside a fenced code block", async () => {
+    const store = await fixture();
+    await store.put("owner", "context/fenced-only.md", "```md\n# Hidden\n```\n# Visible\ncontent");
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    await expect(reader.readDocument({ path: "/proc/context/fenced-only.md", section: "Hidden" })).resolves.toMatchObject({ found: true, sectionFound: false });
   });
 
   it("bounds large reads with character offsets and explicit truncation", async () => {
@@ -72,6 +118,18 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(result.matches[0]!.snippet).toContain("needle");
     expect(Array.from(result.matches[0]!.snippet)).toHaveLength(documentReadLimits.searchSnippetCharacters + 2);
     expect(JSON.stringify(result)).not.toContain("чужой секрет");
+  });
+
+  it("keeps case-insensitive snippets aligned when lowercase expands a character", async () => {
+    const store = await fixture();
+    await store.put("owner", "context/expanding-lowercase.md", `${"İ".repeat(400)}needle${"b".repeat(400)}`);
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    const result = await reader.searchDocuments({ query: "NEEDLE", limit: 1 });
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]!.snippet).toContain("needle");
+    expect(Array.from(result.matches[0]!.snippet)).toHaveLength(documentReadLimits.searchSnippetCharacters + 2);
   });
 
   it("returns emoji snippets through Mastra output validation", async () => {
