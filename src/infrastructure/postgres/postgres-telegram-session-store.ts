@@ -97,23 +97,24 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
-    async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+    async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt, staleBefore }) {
       try {
         const chat = keyedDigest(identity.chatId, pepper);
         const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
         const claimed = await pool.query(
           `UPDATE minutka_private.telegram_sessions
-           SET onboarding_confirmation_delivery_key = $4
+           SET onboarding_confirmation_claim_key = $4,
+               onboarding_confirmation_claimed_at = $5
            WHERE chat_id_digest = $1
              AND user_id_digest IS NOT DISTINCT FROM $2
              AND employee_id = $3
-             AND onboarding_confirmation_delivery_key IS DISTINCT FROM $4`,
-          [chat, user, employeeId, deliveryKey],
+             AND onboarding_confirmation_delivery_key IS DISTINCT FROM $4
+             AND (onboarding_confirmation_claimed_at IS NULL OR onboarding_confirmation_claimed_at < $6)`,
+          [chat, user, employeeId, deliveryKey, claimedAt, staleBefore],
         );
         if (claimed.rowCount === 1) return { status: "claimed" };
         const existing = await pool.query(
-          `SELECT onboarding_confirmation_delivery_key
-           FROM minutka_private.telegram_sessions
+          `SELECT 1 FROM minutka_private.telegram_sessions
            WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3`,
           [chat, user, employeeId],
         );
@@ -124,18 +125,48 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
-    async releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+    async completeOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt }) {
       try {
         const chat = keyedDigest(identity.chatId, pepper);
         const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
         const result = await pool.query(
           `UPDATE minutka_private.telegram_sessions
-           SET onboarding_confirmation_delivery_key = NULL
+           SET onboarding_confirmation_delivery_key = $4,
+               onboarding_confirmation_claim_key = NULL,
+               onboarding_confirmation_claimed_at = NULL
            WHERE chat_id_digest = $1
              AND user_id_digest IS NOT DISTINCT FROM $2
              AND employee_id = $3
-             AND onboarding_confirmation_delivery_key = $4`,
-          [chat, user, employeeId, deliveryKey],
+             AND onboarding_confirmation_claim_key = $4
+             AND onboarding_confirmation_claimed_at = $5`,
+          [chat, user, employeeId, deliveryKey, claimedAt],
+        );
+        if (result.rowCount === 1) return;
+        const existing = await pool.query(
+          `SELECT 1 FROM minutka_private.telegram_sessions
+           WHERE chat_id_digest = $1 AND user_id_digest IS NOT DISTINCT FROM $2 AND employee_id = $3`,
+          [chat, user, employeeId],
+        );
+        if (!existing.rowCount) throw new PersistenceError("session_not_found");
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
+    async releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt }) {
+      try {
+        const chat = keyedDigest(identity.chatId, pepper);
+        const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
+        const result = await pool.query(
+          `UPDATE minutka_private.telegram_sessions
+           SET onboarding_confirmation_claim_key = NULL,
+               onboarding_confirmation_claimed_at = NULL
+           WHERE chat_id_digest = $1
+             AND user_id_digest IS NOT DISTINCT FROM $2
+             AND employee_id = $3
+             AND onboarding_confirmation_claim_key = $4
+             AND onboarding_confirmation_claimed_at = $5`,
+          [chat, user, employeeId, deliveryKey, claimedAt],
         );
         if (result.rowCount === 1) return;
         const existing = await pool.query(

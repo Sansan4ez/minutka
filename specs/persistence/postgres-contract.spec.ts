@@ -105,21 +105,29 @@ describe("PostgreSQL storage contracts", () => {
     expect(await sessions.getByIdentity({ chatId: "chat_probe", userId: "wrong_user" })).toBeUndefined();
   });
 
-  it("claims each Telegram onboarding confirmation delivery key once", async () => {
+  it("leases Telegram onboarding confirmation delivery and recovers stale claims", async () => {
     await issueProfileReadyParticipant(pool, "emp_confirmation_claim", "invite_confirmation_claim");
     const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
     const identity = { chatId: "chat_confirmation_claim", userId: "user_confirmation_claim" };
-    expect(await sessions.claim({ identity, session: { employeeId: "emp_confirmation_claim", threadId: "thread_confirmation_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
+    const employeeId = "emp_confirmation_claim";
+    expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_confirmation_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
 
+    const firstClaimedAt = "2026-07-17T10:00:00.000Z";
     const [first, second] = await Promise.all([
-      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-a:7" }),
-      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-a:7" }),
+      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-a:7", claimedAt: firstClaimedAt, staleBefore: "2026-07-17T09:59:00.000Z" }),
+      sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-a:7", claimedAt: "2026-07-17T10:00:00.001Z", staleBefore: "2026-07-17T09:59:00.001Z" }),
     ]);
     expect([first.status, second.status].sort()).toEqual(["already_claimed", "claimed"]);
-    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" })).resolves.toEqual({ status: "claimed" });
 
-    await sessions.releaseOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" });
-    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId: "emp_confirmation_claim", deliveryKey: "draft-b:1" })).resolves.toEqual({ status: "claimed" });
+    const recoveredAt = "2026-07-17T10:02:00.000Z";
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-a:7", claimedAt: recoveredAt, staleBefore: "2026-07-17T10:01:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await sessions.completeOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-a:7", claimedAt: recoveredAt });
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-a:7", claimedAt: "2026-07-17T10:03:00.000Z", staleBefore: "2026-07-17T10:02:00.000Z" })).resolves.toEqual({ status: "already_claimed" });
+
+    const nextClaimedAt = "2026-07-17T10:04:00.000Z";
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-b:1", claimedAt: nextClaimedAt, staleBefore: "2026-07-17T10:03:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await sessions.releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-b:1", claimedAt: nextClaimedAt });
+    await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-b:1", claimedAt: "2026-07-17T10:04:01.000Z", staleBefore: "2026-07-17T10:03:01.000Z" })).resolves.toEqual({ status: "claimed" });
   });
 
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {

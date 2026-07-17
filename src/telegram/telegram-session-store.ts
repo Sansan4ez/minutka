@@ -29,17 +29,27 @@ export interface TelegramSessionStore {
     employeeId: string;
     acceptedAt: string;
   }): Promise<void>;
-  /** Claims delivery of one onboarding confirmation draft atomically. */
+  /** Claims delivery of one onboarding confirmation draft atomically. Stale claims are recoverable after the supplied instant. */
   claimOnboardingConfirmationDelivery(input: {
     identity: TelegramIdentity;
     employeeId: string;
     deliveryKey: string;
+    claimedAt: string;
+    staleBefore: string;
   }): Promise<TelegramOnboardingConfirmationClaimResult>;
+  /** Commits only the matching successful delivery claim. */
+  completeOnboardingConfirmationDelivery(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    deliveryKey: string;
+    claimedAt: string;
+  }): Promise<void>;
   /** Makes a failed delivery retryable without clearing a newer claim. */
   releaseOnboardingConfirmationDelivery(input: {
     identity: TelegramIdentity;
     employeeId: string;
     deliveryKey: string;
+    claimedAt: string;
   }): Promise<void>;
   /** Claims one Telegram action message durably so stale keyboards stay idempotent after restarts. */
   claimActionMessage(input: {

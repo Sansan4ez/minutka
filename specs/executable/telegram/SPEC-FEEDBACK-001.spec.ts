@@ -566,7 +566,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
-  it("10a. Deduplicates repeated confirmation delivery and concurrent confirm callbacks", async () => {
+  it("10a. Keeps repeated confirmation input responsive and concurrent confirm callbacks idempotent", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await spec.cli.run(["employee", "issue-invite", "--invite", "invite_confirmation_dedupe", "--employee", "emp_confirmation_dedupe"]);
@@ -581,6 +581,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     const confirmations = telegram.sentMessages().filter((message) => message.text.includes("Проверьте, пожалуйста"));
     expect(confirmations).toHaveLength(1);
+    expect(telegram.sentMessages()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("Анкета уже готова к подтверждению") }));
     const confirmation = confirmations[0];
     const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
     telegram.clear();

@@ -46,6 +46,8 @@ const maxTelegramCallbackDataBytes = 64;
 export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
 const inFlightDeliveryMessage = "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.";
+const onboardingConfirmationClaimLeaseMilliseconds = 60_000;
+const onboardingConfirmationAlreadySentMessage = "Анкета уже готова к подтверждению. Напишите «Да», если всё верно, или «Исправить».";
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
@@ -114,7 +116,7 @@ async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string,
   // relationship between the original input and text sent to the agent.
   for (const chunk of splitTelegramMessage(`Распознано:\n${transcript}`)) await replyPort.sendMessage(chatId, chunk, { replyToMessageId });
 }
-async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<boolean>; release(deliveryKey: string): Promise<void> }): Promise<void> {
+async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<{ status: "claimed"; claimedAt: string } | { status: "already_claimed" }>; complete(deliveryKey: string, claimedAt: string): Promise<void>; release(deliveryKey: string, claimedAt: string): Promise<void> }): Promise<void> {
   if (progress.status === "needs_answer") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_choice") {
     const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
@@ -123,12 +125,17 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   }
   if (progress.status === "needs_correction") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_confirmation") {
-    if (confirmationDelivery && !await confirmationDelivery.claim(progress.deliveryKey)) return;
+    const claim = confirmationDelivery ? await confirmationDelivery.claim(progress.deliveryKey) : undefined;
+    if (claim?.status === "already_claimed") {
+      await replyPort.sendMessage(chatId, onboardingConfirmationAlreadySentMessage);
+      return;
+    }
     const summary = progress.summary;
     try {
       await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone}.`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+      if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.complete(progress.deliveryKey, claim.claimedAt);
     } catch (error) {
-      if (confirmationDelivery) await confirmationDelivery.release(progress.deliveryKey).catch((releaseError) => logShellError("onboarding confirmation claim release", releaseError));
+      if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.release(progress.deliveryKey, claim.claimedAt).catch((releaseError) => logShellError("onboarding confirmation claim release", releaseError));
       throw error;
     }
     return;
@@ -228,8 +235,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   function onboardingConfirmationDelivery(chatId: string, userId: string | undefined, employeeId: string) {
     const telegramIdentity = identity(chatId, userId);
     return {
-      async claim(deliveryKey: string) { return (await sessionStore.claimOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey })).status === "claimed"; },
-      async release(deliveryKey: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey }); },
+      async claim(deliveryKey: string) {
+        const claimedAt = new Date().toISOString();
+        const staleBefore = new Date(Date.parse(claimedAt) - onboardingConfirmationClaimLeaseMilliseconds).toISOString();
+        const result = await sessionStore.claimOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt, staleBefore });
+        return result.status === "claimed" ? { status: "claimed" as const, claimedAt } : result;
+      },
+      async complete(deliveryKey: string, claimedAt: string) { await sessionStore.completeOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
+      async release(deliveryKey: string, claimedAt: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
     };
   }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {

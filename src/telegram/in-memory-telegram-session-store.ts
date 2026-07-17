@@ -4,7 +4,7 @@ import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, Tel
 
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
 export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
-  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string; handledActionMessageIds: Set<number> }>();
+  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; handledActionMessageIds: Set<number> }>();
   return {
     async getByIdentity(identity) {
       const found = store.get(identity.chatId);
@@ -29,21 +29,32 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       }
       found.session = { ...found.session, consentAcceptedAt: acceptedAt, consentPrivacyVersion: currentPrivacyVersion, updatedAt: acceptedAt };
     },
-    async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+    async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt, staleBefore }) {
       const found = store.get(identity.chatId);
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
       if (found.onboardingConfirmationDeliveryKey === deliveryKey) return { status: "already_claimed" };
-      found.onboardingConfirmationDeliveryKey = deliveryKey;
+      if (found.onboardingConfirmationClaim && found.onboardingConfirmationClaim.claimedAt >= staleBefore) return { status: "already_claimed" };
+      found.onboardingConfirmationClaim = { deliveryKey, claimedAt };
       return { status: "claimed" };
     },
-    async releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey }) {
+    async completeOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt }) {
       const found = store.get(identity.chatId);
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
-      if (found.onboardingConfirmationDeliveryKey === deliveryKey) found.onboardingConfirmationDeliveryKey = undefined;
+      if (found.onboardingConfirmationClaim?.deliveryKey === deliveryKey && found.onboardingConfirmationClaim.claimedAt === claimedAt) {
+        found.onboardingConfirmationDeliveryKey = deliveryKey;
+        found.onboardingConfirmationClaim = undefined;
+      }
+    },
+    async releaseOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
+        throw new PersistenceError("session_not_found");
+      }
+      if (found.onboardingConfirmationClaim?.deliveryKey === deliveryKey && found.onboardingConfirmationClaim.claimedAt === claimedAt) found.onboardingConfirmationClaim = undefined;
     },
     async claimActionMessage({ identity, employeeId, messageId }) {
       const found = store.get(identity.chatId);
