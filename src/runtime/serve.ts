@@ -8,7 +8,7 @@ import { sttConfigFromEnv } from "./stt-config.js";
 import { createAssistantAgentRunner } from "../mastra/agent-runner.js";
 import { personalAssistantAgent } from "../mastra/agents/personal-assistant-agent.js";
 import { createOpenAiSpeechToText } from "../mastra/voice-transcriber.js";
-import { createTelegramShell, maxTelegramMessageCharacters } from "../telegram/telegram-shell.js";
+import { createTelegramShell, maxTelegramMessageCharacters, telegramMessageLength } from "../telegram/telegram-shell.js";
 import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
 import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { parseInviteSeeds } from "../telegram/invite-seeds.js";
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
       let activeBot: Telegraf | undefined;
       const replyPort: TelegramReplyPort = {
         async sendMessage(chatId, text, options) {
-          if (Array.from(text).length > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000-character limit");
+          if (telegramMessageLength(text) > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000 UTF-16-unit limit");
           if (!activeBot) throw new Error("Bot not running");
           const sent = await activeBot.telegram.sendMessage(chatId, text, {
             ...(options?.replyToMessageId === undefined ? {} : { reply_parameters: { message_id: options.replyToMessageId } }),

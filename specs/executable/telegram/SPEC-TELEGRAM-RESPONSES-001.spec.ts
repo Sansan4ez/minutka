@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createResponsePolicy, renderResponsePolicy } from "../../../src/domain/response-policy.js";
-import { maxTelegramMessageCharacters, splitTelegramMessage } from "../../../src/telegram/telegram-shell.js";
+import { maxTelegramMessageCharacters, splitTelegramMessage, telegramMessageLength } from "../../../src/telegram/telegram-shell.js";
 import { createSpecWorld } from "../support/spec-harness.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
-
-function length(text: string): number { return Array.from(text).length; }
 
 describe("SPEC-TELEGRAM-RESPONSES-001: Telegram-aware response policy and delivery", () => {
   it.each([
@@ -49,17 +47,35 @@ describe("SPEC-TELEGRAM-RESPONSES-001: Telegram-aware response policy and delive
     const chunks = splitTelegramMessage(source);
 
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => length(chunk) <= maxTelegramMessageCharacters)).toBe(true);
+    expect(chunks.every((chunk) => telegramMessageLength(chunk) <= maxTelegramMessageCharacters)).toBe(true);
     expect(chunks[0]).toBe(paragraph);
     expect(chunks.join("\n")).toContain("🙂".repeat(100));
     expect(chunks.join("\n")).toContain("- пункт 80");
   });
 
-  it("uses a Unicode-safe hard split when a single block has no boundary", () => {
-    const source = "🧭".repeat(maxTelegramMessageCharacters * 2 + 17);
+  it("uses Telegram UTF-16 units for Unicode-safe hard splits", () => {
+    const source = "🧭".repeat(maxTelegramMessageCharacters + 17);
     const chunks = splitTelegramMessage(source);
 
-    expect(chunks.map(length)).toEqual([maxTelegramMessageCharacters, maxTelegramMessageCharacters, 17]);
+    expect(chunks.map(telegramMessageLength)).toEqual([maxTelegramMessageCharacters, maxTelegramMessageCharacters, 34]);
     expect(chunks.join("")).toBe(source);
+    expect(chunks.every((chunk) => telegramMessageLength(chunk) <= maxTelegramMessageCharacters)).toBe(true);
+  });
+
+  it("does not emit an empty chunk for a long whitespace prefix", () => {
+    const source = `${" ".repeat(maxTelegramMessageCharacters)}важный ответ`;
+    const chunks = splitTelegramMessage(source);
+
+    expect(chunks).toEqual(["важный ответ"]);
+    expect(chunks.every((chunk) => chunk.length > 0)).toBe(true);
+  });
+
+  it("keeps fenced plain text lossless until the renderer owns markup-aware splitting", () => {
+    const source = `\`\`\`text\n${"x".repeat(maxTelegramMessageCharacters)}\n\`\`\``;
+    const chunks = splitTelegramMessage(source);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe(source);
+    expect(chunks.every((chunk) => telegramMessageLength(chunk) <= maxTelegramMessageCharacters)).toBe(true);
   });
 });

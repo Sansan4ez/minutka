@@ -17,23 +17,37 @@ import { pipeline, Transform } from "node:stream";
 export const maxTelegramMessageCharacters = 4_000;
 const telegramPreferredSplitBoundaries = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "] as const;
 
+export function telegramMessageLength(text: string): number { return text.length; }
+
+function hardSplitEnd(text: string): number {
+  let end = Math.min(maxTelegramMessageCharacters, telegramMessageLength(text));
+  if (end < text.length) {
+    const lastCodeUnit = text.charCodeAt(end - 1);
+    const nextCodeUnit = text.charCodeAt(end);
+    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) end -= 1;
+  }
+  return end;
+}
+
 function splitTelegramChunk(text: string): { chunk: string; remainder: string } {
-  const characters = Array.from(text);
-  if (characters.length <= maxTelegramMessageCharacters) return { chunk: text, remainder: "" };
-  const prefix = characters.slice(0, maxTelegramMessageCharacters).join("");
+  if (telegramMessageLength(text) <= maxTelegramMessageCharacters) return { chunk: text, remainder: "" };
+  const hardEnd = hardSplitEnd(text);
+  const prefix = text.slice(0, hardEnd);
   const minimumUsefulBoundary = Math.floor(maxTelegramMessageCharacters * 0.5);
   for (const boundary of telegramPreferredSplitBoundaries) {
     const boundaryIndex = prefix.lastIndexOf(boundary);
     if (boundaryIndex < minimumUsefulBoundary) continue;
     const end = boundaryIndex + boundary.length;
-    return { chunk: prefix.slice(0, end).trimEnd(), remainder: text.slice(end).trimStart() };
+    const chunk = prefix.slice(0, end).trimEnd();
+    if (!chunk) continue;
+    return { chunk, remainder: text.slice(end).trimStart() };
   }
-  return { chunk: prefix, remainder: characters.slice(maxTelegramMessageCharacters).join("") };
+  return { chunk: prefix, remainder: text.slice(hardEnd) };
 }
 
 export function splitTelegramMessage(text: string): string[] {
   const chunks: string[] = [];
-  let remainder = text;
+  let remainder = text.trim();
   while (remainder) {
     const split = splitTelegramChunk(remainder);
     chunks.push(split.chunk);
