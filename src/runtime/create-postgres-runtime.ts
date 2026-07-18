@@ -1,5 +1,5 @@
 import { AssistantService } from "../application/assistant-service.js";
-import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
+import { assertContextSourceContentFits, contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { createIngestionService } from "../application/ingestion-service.js";
@@ -36,6 +36,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const agentInstructions = loadAssistantAgentInstructions();
   const config = postgresConfigFromEnv(input.env);
   const contextBudget = contextBudgetConfigFromEnv(input.env);
+  assertContextSourceContentFits({
+    config: contextBudget,
+    sourceId: "agent_manual",
+    content: agentInstructions,
+    label: "loaded assistant agent manual",
+  });
   const privacy = privacyConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {

@@ -1,3 +1,5 @@
+import { maxChatInputCharacters } from "../shared/chat-limits.js";
+
 export const contextSourceIds = [
   "base_instructions",
   "agent_manual",
@@ -74,8 +76,8 @@ export const defaultContextBudget: ContextBudgetConfig = {
   total: 48_000,
   responseReserve: 8_000,
   sources: [
-    { id: "base_instructions", priority: 1, ceiling: 2_500 },
-    { id: "agent_manual", priority: 2, ceiling: 36_000 },
+    { id: "base_instructions", priority: 1, ceiling: 2_000 },
+    { id: "agent_manual", priority: 2, ceiling: 33_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
     { id: "context", priority: 4, ceiling: 16_000 },
     { id: "records", priority: 5, ceiling: 12_000 },
@@ -141,6 +143,12 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (projectionLimits.contextDocumentCharacters > sourceCeiling(sources, "context")) throw new Error("context document limit must not exceed the context source ceiling");
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
   if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
+  const trustedCeiling = trustedControlPlaneCeiling(sources);
+  if (trustedCeiling + maxChatInputCharacters + responseReserve > total) {
+    throw new Error(
+      `trusted context ceilings (${trustedCeiling}) plus maximum user input (${maxChatInputCharacters}) and response reserve (${responseReserve}) must not exceed total budget (${total})`,
+    );
+  }
   return {
     ...defaultContextBudget,
     total,
@@ -209,6 +217,7 @@ export function applyContextBudget(input: {
   const sourceRegistry = new Map(config.sources.map((source) => [source.id, source]));
   if (sourceRegistry.size !== contextSourceIds.length) throw new Error("context budget registry must contain every source exactly once");
   const inputCharacters = countUnicodeCharacters(input.userInput);
+  if (inputCharacters > maxChatInputCharacters) throw new Error(`current user input exceeds the ${maxChatInputCharacters}-character maximum`);
   const available = config.total - config.responseReserve - inputCharacters;
   if (available < 0) throw new Error("current user input and response reserve exceed the total context budget");
 
@@ -255,6 +264,19 @@ export function sourceCharacterCeiling(config: ContextBudgetConfig, id: ContextS
   return source.ceiling;
 }
 
+export function assertContextSourceContentFits(input: {
+  config: ContextBudgetConfig;
+  sourceId: ContextSourceId;
+  content: string;
+  label?: string;
+}): void {
+  const characters = countUnicodeCharacters(input.content);
+  const ceiling = sourceCharacterCeiling(input.config, input.sourceId);
+  if (characters > ceiling) {
+    throw new Error(`${input.label ?? `context source ${input.sourceId}`} has ${characters} Unicode characters and exceeds the ${ceiling}-character ${input.sourceId} ceiling`);
+  }
+}
+
 export function countUnicodeCharacters(value: string): number {
   return Array.from(value).length;
 }
@@ -263,6 +285,12 @@ function sourceCeiling(sources: readonly ContextSourceBudget[], id: ContextSourc
   const source = sources.find((candidate) => candidate.id === id);
   if (!source) throw new Error(`missing context budget source: ${id}`);
   return source.ceiling;
+}
+
+function trustedControlPlaneCeiling(sources: readonly ContextSourceBudget[]): number {
+  const ceilings = sources.filter(({ id }) => isTrustedControlPlane(id)).map(({ ceiling }) => ceiling);
+  const separators = Math.max(0, ceilings.filter((ceiling) => ceiling > 0).length - 1) * countUnicodeCharacters("\n\n");
+  return ceilings.reduce((sum, ceiling) => sum + ceiling, 0) + separators;
 }
 
 function isTrustedControlPlane(sourceId: ContextSourceId): boolean {

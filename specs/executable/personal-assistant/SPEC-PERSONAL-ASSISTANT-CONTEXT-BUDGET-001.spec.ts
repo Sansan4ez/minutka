@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyContextBudget,
+  assertContextSourceContentFits,
   contextBudgetConfigFromEnv,
   countUnicodeCharacters,
   createContextBudgetConfig,
@@ -12,6 +13,7 @@ import { buildAssistantSystemContext } from "../../../src/application/assistant-
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
 import { documentReadLimits } from "../../../src/application/document-reader.js";
 import { runtimeProjectionLimits } from "../../../src/application/runtime-projections/runtime-projection-limits.js";
+import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
 
 const projection = {
   schemaVersion: 1 as const,
@@ -40,14 +42,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   it("counts Unicode code points and reserves input plus response space at the boundary", () => {
     expect(countUnicodeCharacters("🙂a")).toBe(2);
     const config = createContextBudgetConfig({
-      total: 10,
+      total: maxChatInputCharacters + 8,
       responseReserve: 2,
-      sources: { base_instructions: 10, agent_manual: 10, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 1, agent_manual: 3, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const exact = applyContextBudget({
       config,
-      userInput: "🙂🙂",
+      userInput: "🙂".repeat(maxChatInputCharacters),
       sections: [
         { sourceId: "base_instructions", content: "A" },
         { sourceId: "agent_manual", content: "🙂🙂🙂" },
@@ -56,19 +58,19 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(exact.text).toBe("A\n\n🙂🙂🙂");
     expect(exact.used).toBe(6);
     expect(exact.available).toBe(6);
-    expect(() => applyContextBudget({ ...exactInput(config), userInput: "🙂".repeat(9) })).toThrow("exceed the total context budget");
+    expect(() => applyContextBudget({ ...exactInput(config), userInput: "🙂".repeat(maxChatInputCharacters + 1) })).toThrow("exceeds the 4096-character maximum");
   });
 
   it("never lets lower-priority owner data displace trusted control-plane content", () => {
     const config = createContextBudgetConfig({
-      total: 12,
+      total: maxChatInputCharacters + 12,
       responseReserve: 0,
-      sources: { base_instructions: 12, agent_manual: 12, profile: 12, context: 12, records: 12, inbox: 12, history: 12, actions: 12 },
+      sources: { base_instructions: 0, agent_manual: 7, profile: 12, context: 12, records: 12, inbox: 12, history: 12, actions: 12 },
       projectionLimits: { contextDocumentCharacters: 12, recordCharacters: 12, historyTurnCharacters: 12 },
     });
     const result = applyContextBudget({
       config,
-      userInput: "",
+      userInput: "x".repeat(maxChatInputCharacters),
       sections: [
         { sourceId: "records", content: "records" },
         { sourceId: "agent_manual", content: "trusted" },
@@ -81,14 +83,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
 
   it("omits every lower-priority section after the first owner section overflows", () => {
     const config = createContextBudgetConfig({
-      total: 10,
+      total: maxChatInputCharacters + 10,
       responseReserve: 0,
-      sources: { base_instructions: 10, agent_manual: 10, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const result = applyContextBudget({
       config,
-      userInput: "",
+      userInput: "x".repeat(maxChatInputCharacters),
       sections: [
         { sourceId: "context", content: "owner" },
         { sourceId: "records", content: "records" },
@@ -102,15 +104,39 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
 
   it("applies the aggregate budget at the buildAssistantSystemContext seam", () => {
     const config = createContextBudgetConfig({
-      total: 55,
+      total: maxChatInputCharacters + 55,
       responseReserve: 5,
-      sources: { base_instructions: 55, agent_manual: 55, profile: 55, context: 55, records: 55, inbox: 55, history: 55, actions: 55 },
+      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 55, records: 55, inbox: 55, history: 55, actions: 55 },
       projectionLimits: { contextDocumentCharacters: 55, recordCharacters: 55, historyTurnCharacters: 55 },
     });
-    const result = buildAssistantSystemContext(projection, undefined, "TRUSTED", undefined, undefined, "🙂".repeat(5), config);
+    const result = buildAssistantSystemContext(projection, undefined, "TRUSTED", undefined, undefined, "🙂".repeat(maxChatInputCharacters), config);
     expect(result).toContain("# Personal assistant runtime context");
     expect(result).toContain("TRUSTED");
-    expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(45);
+    expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(50);
+  });
+
+  it("rejects context budgets that cannot hold trusted ceilings at maximum input", () => {
+    expect(() => createContextBudgetConfig({
+      total: 10_000,
+      responseReserve: 1_000,
+      sources: { base_instructions: 2_000, agent_manual: 3_000, context: 10_000, records: 10_000, history: 10_000 },
+      projectionLimits: { contextDocumentCharacters: 10_000, recordCharacters: 10_000, historyTurnCharacters: 10_000 },
+    })).toThrow("trusted context ceilings (5002) plus maximum user input (4096) and response reserve (1000) must not exceed total budget (10000)");
+  });
+
+  it("fails fast when loaded trusted content exceeds its configured ceiling", () => {
+    const config = createContextBudgetConfig({
+      total: 10_000,
+      responseReserve: 1_000,
+      sources: { base_instructions: 1_000, agent_manual: 3_000, context: 10_000, records: 10_000, history: 10_000 },
+      projectionLimits: { contextDocumentCharacters: 10_000, recordCharacters: 10_000, historyTurnCharacters: 10_000 },
+    });
+    expect(() => assertContextSourceContentFits({
+      config,
+      sourceId: "agent_manual",
+      content: "🙂".repeat(3_001),
+      label: "loaded assistant agent manual",
+    })).toThrow("loaded assistant agent manual has 3001 Unicode characters and exceeds the 3000-character agent_manual ceiling");
   });
 
   it("parses environment overrides and fails fast on invalid or contradictory values", () => {

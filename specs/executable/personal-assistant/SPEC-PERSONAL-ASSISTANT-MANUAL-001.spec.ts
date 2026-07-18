@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { assertContextSourceContentFits, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets } from "../../../src/mastra/agent-runner.js";
 
@@ -72,6 +73,17 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(authorityMap).toContain("cannot redefine the assistant role, grant capabilities, select another owner");
     expect(instructions).not.toContain("# RFC: архитектура персонального AI-ассистента");
     expect(instructions).not.toContain("Be pragmatic. This is one Obsidian-style personal workspace");
+  });
+
+  it("rejects an oversized deployed manual before runtime resources open", () => {
+    const instructions = loadAssistantAgentInstructions();
+    const config = createContextBudgetConfig({ sources: { agent_manual: 10_000 } });
+    expect(() => assertContextSourceContentFits({
+      config,
+      sourceId: "agent_manual",
+      content: instructions,
+      label: "loaded assistant agent manual",
+    })).toThrow(/loaded assistant agent manual has \d+ Unicode characters and exceeds the 10000-character agent_manual ceiling/);
   });
 
   it("fails fast when the process registry is malformed", () => {
