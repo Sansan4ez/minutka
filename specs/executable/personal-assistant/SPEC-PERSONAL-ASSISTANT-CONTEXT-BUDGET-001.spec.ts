@@ -79,6 +79,27 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(result.omittedSourceIds).toEqual(["context", "records"]);
   });
 
+  it("omits every lower-priority section after the first owner section overflows", () => {
+    const config = createContextBudgetConfig({
+      total: 10,
+      responseReserve: 0,
+      sources: { base_instructions: 10, agent_manual: 10, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
+    });
+    const result = applyContextBudget({
+      config,
+      userInput: "",
+      sections: [
+        { sourceId: "context", content: "owner" },
+        { sourceId: "records", content: "records" },
+        { sourceId: "history", content: "h" },
+      ],
+    });
+    expect(result.text).toBe("owner");
+    expect(result.used).toBe(5);
+    expect(result.omittedSourceIds).toEqual(["records", "history"]);
+  });
+
   it("applies the aggregate budget at the buildAssistantSystemContext seam", () => {
     const config = createContextBudgetConfig({
       total: 55,
