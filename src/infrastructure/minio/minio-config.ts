@@ -39,8 +39,10 @@ export async function prepareMinioBucket(client: Minio.Client, bucket: string): 
 
 async function assertConditionalObjectCreation(client: Minio.Client, bucket: string): Promise<void> {
   const probeKey = `.runtime-probes/conditional-create-${randomBytes(16).toString("hex")}`;
+  let probeVersionId: string | undefined;
   try {
-    await client.putObject(bucket, probeKey, Buffer.from("first"), 5, { "If-None-Match": "*" });
+    const created = await client.putObject(bucket, probeKey, Buffer.from("first"), 5, { "If-None-Match": "*" });
+    probeVersionId = created.versionId ?? undefined;
     try {
       await client.putObject(bucket, probeKey, Buffer.from("second"), 6, { "If-None-Match": "*" });
     } catch (error) {
@@ -49,8 +51,25 @@ async function assertConditionalObjectCreation(client: Minio.Client, bucket: str
     }
     throw new Error(`MinIO bucket ${bucket} must enforce conditional object creation`);
   } finally {
-    await client.removeObject(bucket, probeKey, { forceDelete: true }).catch(() => undefined);
+    await removeProbeObject(client, bucket, probeKey, probeVersionId);
   }
+}
+
+async function removeProbeObject(client: Minio.Client, bucket: string, probeKey: string, versionId: string | undefined): Promise<void> {
+  let cleanupError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await client.removeObject(bucket, probeKey, { forceDelete: true, versionId });
+      return;
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
+  logOperationalError("conditional-create probe cleanup", cleanupError);
+}
+
+function logOperationalError(operation: string, error: unknown): void {
+  console.warn(`MinIO ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`);
 }
 
 function isPreconditionFailed(error: unknown): boolean {

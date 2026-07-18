@@ -37,7 +37,10 @@ describeMinio("MinIO personal-vault contracts", () => {
     documents = createMinioDocumentStore({ client, bucket: config.bucket });
     blobs = createMinioBlobStore({ client, bucket: config.bucket });
     artifactContents = createMinioArtifactContentStore({ client, bucket: config.bucket });
+    const probeVersionsBefore = await collectObjectVersions(client.listObjects(config.bucket, ".runtime-probes/", true, { IncludeVersion: true }));
     await prepareMinioBucket(client, config.bucket);
+    const probeVersionsAfter = await collectObjectVersions(client.listObjects(config.bucket, ".runtime-probes/", true, { IncludeVersion: true }));
+    expect(probeVersionsAfter).toEqual(probeVersionsBefore);
     setupComplete = true;
   });
 
@@ -150,10 +153,20 @@ describeMinio("MinIO personal-vault contracts", () => {
 });
 
 function collectObjectNames(stream: NodeJS.ReadableStream): Promise<string[]> {
+  return collectObjects(stream).then((objects) => objects.flatMap((object) => object.name ? [object.name] : []));
+}
+
+function collectObjectVersions(stream: NodeJS.ReadableStream): Promise<string[]> {
+  return collectObjects(stream).then((objects) => objects
+    .map((object) => `${object.name ?? ""}:${object.versionId ?? ""}:${object.isDeleteMarker === true}`)
+    .sort());
+}
+
+function collectObjects(stream: NodeJS.ReadableStream): Promise<Array<{ name?: string; versionId?: string; isDeleteMarker?: boolean }>> {
   return new Promise((resolve, reject) => {
-    const names: string[] = [];
-    stream.on("data", (object: { name?: string }) => { if (object.name) names.push(object.name); });
+    const objects: Array<{ name?: string; versionId?: string; isDeleteMarker?: boolean }> = [];
+    stream.on("data", (object: { name?: string; versionId?: string; isDeleteMarker?: boolean }) => objects.push(object));
     stream.once("error", reject);
-    stream.once("end", () => resolve(names));
+    stream.once("end", () => resolve(objects));
   });
 }

@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as Minio from "minio";
 import { prepareMinioBucket } from "../../../src/infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../../../src/infrastructure/minio/minio-document-store.js";
@@ -7,6 +7,8 @@ import { createMinioDocumentStore } from "../../../src/infrastructure/minio/mini
 const bucket = "personal-assistant";
 
 describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("refuses startup when the object store overwrites If-None-Match creates", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: false });
 
@@ -20,6 +22,17 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation", () => {
 
     await expect(prepareMinioBucket(client, bucket)).resolves.toBeUndefined();
     expect(client.objectCount()).toBe(0);
+    expect(client.lastRemoveOptions()).toEqual({ forceDelete: true, versionId: "version-1" });
+  });
+
+  it("warns without exposing the probe key when conditional-create cleanup fails", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true, cleanupFailures: 2 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(prepareMinioBucket(client, bucket)).resolves.toBeUndefined();
+    expect(client.removeAttempts()).toBe(2);
+    expect(warn).toHaveBeenCalledWith("MinIO conditional-create probe cleanup failed (TypeError).");
+    expect(warn.mock.calls.flat().join(" ")).not.toContain(".runtime-probes/");
   });
 
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
@@ -48,9 +61,12 @@ type StoredObject = {
   lastModified: Date;
 };
 
-function createFakeMinioClient(input: { honorsConditionalCreate: boolean }) {
+function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanupFailures?: number }) {
   const objects = new Map<string, StoredObject>();
   let version = 0;
+  let cleanupFailures = input.cleanupFailures ?? 0;
+  let removeCount = 0;
+  let removeOptions: Minio.RemoveOptions | undefined;
   const client = {
     async bucketExists(requestedBucket: string) {
       return requestedBucket === bucket;
@@ -91,11 +107,23 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean }) {
     listObjectsV2() {
       return Readable.from([]);
     },
-    async removeObject(_bucket: string, objectName: string) {
+    async removeObject(_bucket: string, objectName: string, options?: Minio.RemoveOptions) {
+      removeCount += 1;
+      removeOptions = options;
+      if (cleanupFailures > 0) {
+        cleanupFailures -= 1;
+        throw new TypeError("sensitive probe key");
+      }
       objects.delete(objectName);
     },
     objectCount() {
       return objects.size;
+    },
+    removeAttempts() {
+      return removeCount;
+    },
+    lastRemoveOptions() {
+      return removeOptions;
     },
   };
   return client as typeof client & Minio.Client;

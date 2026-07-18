@@ -85,6 +85,14 @@ Changing the linked policy content requires publishing a new privacy version and
 updating both `currentPrivacyVersion` and its corresponding environment variable;
 do not replace content in place under an already accepted version.
 
+При старте runtime проверяет поддержку атомарного conditional create в MinIO и
+временно создаёт объект `.runtime-probes/conditional-create-*`. После проверки
+runtime удаляет созданную версию probe-объекта через `forceDelete`; сбой очистки
+попадает в operational warning только с именем класса ошибки. Префикс
+`.runtime-probes/` не содержит пользовательских данных. Его можно включить в
+lifecycle-правило как защитную очистку накопившихся probe-объектов, но правило
+не заменяет мониторинг warning и устранение причины ошибок `removeObject`.
+
 ## Migration and startup
 
 ```bash
