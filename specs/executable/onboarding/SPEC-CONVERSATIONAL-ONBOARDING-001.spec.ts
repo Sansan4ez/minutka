@@ -3,6 +3,7 @@ import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-run
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
 import { timezoneSchema } from "../../../src/contracts/minutka-api.js";
+import { normalizeIanaTimezone } from "../../../src/shared/iana-timezone.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
@@ -230,8 +231,14 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
   });
 
-  it("canonicalizes valid IANA timezone casing at extractor, contract and service boundaries", async () => {
-    expect(normalizeTimezone("europe/moscow")).toBe("Europe/Moscow");
+  it("canonicalizes valid IANA timezone casing and preserves Etc aliases", async () => {
+    expect(normalizeIanaTimezone("Etc/GMT")).toBe("Etc/GMT");
+    expect(normalizeIanaTimezone("Etc/Universal")).toBe("Etc/Universal");
+    expect(normalizeIanaTimezone("Etc/UCT")).toBe("Etc/UCT");
+    expect(normalizeIanaTimezone("Etc/Zulu")).toBe("Etc/Zulu");
+    expect(normalizeIanaTimezone("Etc/UTC")).toBe("Etc/UTC");
+    expect(normalizeIanaTimezone("europe/moscow")).toBe("Europe/Moscow");
+    expect(normalizeIanaTimezone("Asia/Calcutta")).toBe("Asia/Calcutta");
     expect(normalizeTimezone("america/argentina/buenos_aires")).toBe("America/Buenos_Aires");
     expect(timezoneSchema.parse("europe/moscow")).toBe("Europe/Moscow");
 
@@ -246,6 +253,21 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       timezone: "europe/moscow",
     })).resolves.toMatchObject({ profile: { timezone: "Europe/Moscow" } });
     expect(runtime.world.profiles[0].timezone).toBe("Europe/Moscow");
+  });
+
+  it("saves an onboarding profile that uses an Etc timezone alias", async () => {
+    const runtime = await consentedRuntime("emp_etc_tz");
+    const answer = "Максим | Спарк | На ты | Деловой | Коротко | Etc/GMT";
+
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_etc_tz", text: answer })).resolves.toMatchObject({
+      status: "needs_confirmation",
+      summary: { timezone: "Etc/GMT" },
+    });
+    await expect(runtime.service.confirmOnboarding({ employeeId: "emp_etc_tz" })).resolves.toMatchObject({
+      status: "profile_completed",
+      profile: { timezone: "Etc/GMT" },
+    });
+    expect(runtime.world.profiles[0].timezone).toBe("Etc/GMT");
   });
 
   it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {
