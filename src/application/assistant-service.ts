@@ -5,7 +5,7 @@ import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
 import type { CaptureIdeaInput, CaptureIdeaResult, IngestionService } from "./ingestion-service.js";
 import { NO_PROJECT } from "../domain/classification.js";
-import { createAssistantContextProjectionBuilder, renderAssistantContextIndex, renderAssistantContextProjection, type AssistantContextProjection } from "./assistant-context-projection.js";
+import { createAssistantContextProjectionBuilder, renderAssistantContextIndex, renderAssistantContextProjection, type AssistantContextProjection, type ContextProjectionAudit } from "./assistant-context-projection.js";
 import { createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection, type AssistantRecordsProjection } from "./assistant-records-projection.js";
 import type { IdeaSource, IdeaStore } from "./idea-store.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
@@ -125,7 +125,13 @@ export class AssistantService {
         outcome: { status: "denied", reason: integrityOutcome.reason },
       };
     }
-    const personalContext = await this.projectionBuilder.build({ userId, requestId });
+    const auditContextProjection = async (event: ContextProjectionAudit) => {
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId, type: "context_projection_degraded", employeeId: userId, threadId, messageId,
+        occurredAt: this.clock.now(), metadata: safeAuditMetadata("context_projection_degraded", event),
+      }, "context projection audit");
+    };
+    const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {

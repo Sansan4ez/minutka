@@ -7,6 +7,11 @@ export type ContextTreeIndex = {
   level: ContextTreeIndexLevel;
   documentCount: number;
   text: string;
+  degradation?: {
+    reason: "folder_rollup" | "top_level_rollup";
+    ceiling: number;
+    actualCharacters: number;
+  };
 };
 
 type TreeNode = {
@@ -38,9 +43,25 @@ export function renderContextTreeIndex(input: {
     { level: "folders", lines: renderFolderRollup(root, input.depth) },
     { level: "top-level", lines: renderTopLevelRollup(root) },
   ];
-  for (const candidate of candidates) {
-    const text = renderIndex(candidate.level, documents.length, candidate.lines);
-    if (countUnicodeCharacters(text) <= input.ceiling) return { level: candidate.level, documentCount: documents.length, text };
+  const renderedCandidates = candidates.map((candidate) => ({
+    level: candidate.level,
+    text: renderIndex(candidate.level, documents.length, candidate.lines),
+  }));
+  const fullCharacters = countUnicodeCharacters(renderedCandidates[0]!.text);
+  for (const candidate of renderedCandidates) {
+    if (countUnicodeCharacters(candidate.text) > input.ceiling) continue;
+    return {
+      level: candidate.level,
+      documentCount: documents.length,
+      text: candidate.text,
+      ...(candidate.level === "files" ? {} : {
+        degradation: {
+          reason: candidate.level === "folders" ? "folder_rollup" as const : "top_level_rollup" as const,
+          ceiling: input.ceiling,
+          actualCharacters: fullCharacters,
+        },
+      }),
+    };
   }
   throw new Error(`top-level context index exceeds its ${input.ceiling}-character ceiling`);
 }
