@@ -33,6 +33,9 @@ export function extractDeterministicOnboardingPatch(input: {
 
   patch.preferredName = capture(text, /(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|мо[её] имя)\s*[-—:]?\s*([^.;|\n]+)/iu);
   patch.assistantName = capture(text, /(?:тебя зовут|буду звать тебя|назову тебя|имя ассистента|ассистента зовут)\s*[-—:]?\s*([^.;|\n]+)/iu);
+  patch.addressForm = addressForm(text);
+  patch.persona = persona(text);
+  patch.responseLength = responseLengthFromMessage(text);
   patch.timezone = extractTimezone(text);
 
   const pending = input.currentDraft.pendingField;
@@ -75,6 +78,12 @@ export function normalizeTimezone(value: string): string | undefined {
 function addressForm(value: string): AddressForm | undefined { return normalizeAddressForm(value); }
 function persona(value: string): Persona | undefined { return normalizePersona(value); }
 function responseLength(value: string): ResponseLengthPreference | undefined { return normalizeResponseLength(value); }
+function responseLengthFromMessage(value: string): ResponseLengthPreference | undefined {
+  const text = normalize(value);
+  const result = normalizeResponseLength(text);
+  if (result !== "balanced") return result;
+  return hasBoundedSignal(text, /(?:balanced|сбалансированн\p{L}*|средн\p{L}*|обычн\p{L}*\s+(?:длин\p{L}*|ответ\p{L}*))/u) ? result : undefined;
+}
 function normalize(value: string): string { return value.toLocaleLowerCase("ru-RU").replace(/[«»"']/g, " ").replace(/\s+/g, " ").trim(); }
 function hasBoundedSignal(value: string, signal: RegExp): boolean {
   return new RegExp(`(?:^|[^\\p{L}\\p{N}_])(?:${signal.source})(?=$|[^\\p{L}\\p{N}_])`, "u").test(value);

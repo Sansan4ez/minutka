@@ -130,6 +130,29 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Europe/Moscow" })).toMatchObject({ status: "needs_confirmation" });
   });
 
+  it("extracts multiple choice fields from one message through bounded signals", () => {
+    const patch = extractDeterministicOnboardingPatch({
+      text: "Меня зовут Максим. Тебя зовут Спарк. Общаемся на ты, стиль деловой.",
+      currentDraft: {
+        employeeId: "emp_multi_field",
+        status: "collecting",
+        pendingField: "preferredName",
+        revision: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-31T00:00:00.000Z",
+      },
+    });
+
+    expect(patch).toMatchObject({
+      preferredName: "Максим",
+      assistantName: "Спарк",
+      addressForm: "informal",
+      persona: "efficiency",
+    });
+    expect(patch.responseLength).toBeUndefined();
+  });
+
   it("does not infer unanswered choice fields from unrelated substrings", async () => {
     const namePatch = extractDeterministicOnboardingPatch({
       text: "Обычно меня зовут Саша",
