@@ -12,7 +12,7 @@ import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../application/
 import type { SaveArtifactInput, SaveArtifactResult, TelegramArtifactPayloadKind } from "../application/artifact-store.js";
 import type { TelegramFileGateway } from "./telegram-file-gateway.js";
 import { randomUUID } from "node:crypto";
-import { maxChatInputCharacters } from "../shared/chat-limits.js";
+import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { pipeline, Transform } from "node:stream";
 
 export const maxTelegramMessageCharacters = 4_000;
@@ -310,7 +310,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
       try {
         await removeActiveReplyMarkup(chatId);
-        const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > maxChatInputCharacters) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
+        const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
       } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
@@ -379,7 +379,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             return speechToText.transcribe({ audio, filetype: file.filetype, signal });
           }))).trim();
           if (!transcript) return void await replyPort.sendMessage(chatId, "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.");
-          if (Array.from(transcript).length > maxChatInputCharacters) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
+          if (!chatInputFitsCharacterLimit(transcript)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
           await sendVoiceTranscript(replyPort, chatId, transcript, voice.messageId);
           await dispatchText(chatId, transcript, session, "voice", userId);
         } finally {

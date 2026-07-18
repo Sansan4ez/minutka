@@ -5,6 +5,8 @@ import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { testInvite } from "../support/fixtures.js";
 import type { AgentRunner } from "../../../src/application/minutka-service.js";
 import { maxVoiceFileSizeBytes } from "../../../src/telegram/telegram-shell.js";
+import { chatRequestSchema, onboardingAnswerRequestSchema } from "../../../src/contracts/minutka-api.js";
+import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
 
 registerSpecMetadata({
   id: "SPEC-VOICE-001",
@@ -112,6 +114,23 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     expect(connected.telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
       expect.stringContaining("слишком длинное"), expect.stringContaining("слишком большое"),
     ]));
+  });
+
+  it("uses Unicode code points consistently from an astral STT transcript through the request contracts", async () => {
+    const { spec, telegram } = await connectedDriver();
+    const maximumAstralTranscript = "🙂".repeat(maxChatInputCharacters);
+    const oversizedAstralTranscript = `${maximumAstralTranscript}🙂`;
+
+    expect(maximumAstralTranscript.length).toBe(maxChatInputCharacters * 2);
+    expect(chatRequestSchema.safeParse({ threadId: "voice_chat", text: maximumAstralTranscript, inputModality: "voice" }).success).toBe(true);
+    expect(onboardingAnswerRequestSchema.safeParse({ text: maximumAstralTranscript }).success).toBe(true);
+    expect(chatRequestSchema.safeParse({ threadId: "voice_chat", text: oversizedAstralTranscript }).success).toBe(false);
+    expect(onboardingAnswerRequestSchema.safeParse({ text: oversizedAstralTranscript }).success).toBe(false);
+
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "astral_limit", durationSeconds: 1, transcript: maximumAstralTranscript });
+
+    expect(spec.world.messages).toContainEqual(expect.objectContaining({ text: maximumAstralTranscript }));
+    expect(telegram.sentMessages().map((message) => message.text)).not.toContain("Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже.");
   });
 
   it("handles download/STT errors, blank and oversized transcripts without chat", async () => {

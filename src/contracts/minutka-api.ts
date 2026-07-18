@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
-import { maxChatInputCharacters } from "../shared/chat-limits.js";
+import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
@@ -36,7 +36,10 @@ export const userProfileSchema = z.strictObject({
 
 export const chatInputModalitySchema = z.enum(["text", "voice"]);
 export const responseChannelSchema = z.enum(["generic", "telegram"]);
-export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: z.string().min(1).max(maxChatInputCharacters), inputModality: chatInputModalitySchema.optional() });
+const chatInputTextSchema = z.string().min(1).refine(chatInputFitsCharacterLimit, {
+  message: `Too big: expected string to have <=${maxChatInputCharacters} Unicode code points`,
+});
+export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: chatInputTextSchema, inputModality: chatInputModalitySchema.optional() });
 export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChannel: responseChannelSchema.optional() });
 export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema) });
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
@@ -91,7 +94,7 @@ export const completeOnboardingRequestSchema = z.strictObject({
 });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
 export const onboardingFieldSchema = z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);
-export const onboardingAnswerRequestSchema = z.strictObject({ text: z.string().min(1).max(4_096) });
+export const onboardingAnswerRequestSchema = z.strictObject({ text: chatInputTextSchema });
 export const onboardingProgressSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["addressForm", "persona", "responseLength"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(2) }),

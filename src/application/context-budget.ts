@@ -1,4 +1,4 @@
-import { maxChatInputCharacters } from "../shared/chat-limits.js";
+import { countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
 
 export const contextSourceIds = [
   "base_instructions",
@@ -278,7 +278,7 @@ export function assertContextSourceContentFits(input: {
 }
 
 export function countUnicodeCharacters(value: string): number {
-  return Array.from(value).length;
+  return countUnicodeCodePoints(value);
 }
 
 function sourceCeiling(sources: readonly ContextSourceBudget[], id: ContextSourceId): number {
