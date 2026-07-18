@@ -82,5 +82,17 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       const existing = found.actionMessages.get(messageId);
       if (existing?.claimedAt === claimedAt && !existing.completed) found.actionMessages.delete(messageId);
     },
+    async purgeActionMessages({ claimedBefore }) {
+      let deleted = 0;
+      for (const entry of store.values()) {
+        for (const [messageId, action] of entry.actionMessages) {
+          if (action.claimedAt < claimedBefore) {
+            entry.actionMessages.delete(messageId);
+            deleted += 1;
+          }
+        }
+      }
+      return deleted;
+    },
   };
 }

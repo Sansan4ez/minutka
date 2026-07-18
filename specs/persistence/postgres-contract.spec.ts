@@ -155,6 +155,25 @@ describe("PostgreSQL storage contracts", () => {
     await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 2, claimedAt: "2026-07-17T10:05:00.000Z", staleBefore: "2026-07-17T10:04:00.000Z" })).resolves.toEqual({ status: "claimed" });
   });
 
+  it("sweeps only Telegram action messages older than the retention boundary", async () => {
+    await issueProfileReadyParticipant(pool, "emp_action_sweep", "invite_action_sweep");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const identity = { chatId: "chat_action_sweep", userId: "user_action_sweep" };
+    const employeeId = "emp_action_sweep";
+    expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_action_sweep", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
+
+    const oldClaimedAt = "2026-06-01T00:00:00.000Z";
+    const freshClaimedAt = "2026-07-17T10:00:00.000Z";
+    await sessions.claimActionMessage({ identity, employeeId, messageId: 10, claimedAt: oldClaimedAt, staleBefore: "2026-05-31T23:59:00.000Z" });
+    await sessions.completeActionMessage({ identity, employeeId, messageId: 10, claimedAt: oldClaimedAt });
+    await sessions.claimActionMessage({ identity, employeeId, messageId: 11, claimedAt: freshClaimedAt, staleBefore: "2026-07-17T09:59:00.000Z" });
+    await sessions.completeActionMessage({ identity, employeeId, messageId: 11, claimedAt: freshClaimedAt });
+
+    await expect(sessions.purgeActionMessages({ claimedBefore: "2026-07-01T00:00:00.000Z" })).resolves.toBe(1);
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 10, claimedAt: "2026-07-18T00:00:00.000Z", staleBefore: "2026-07-17T23:59:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 11, claimedAt: "2026-07-18T00:00:00.000Z", staleBefore: "2026-07-17T23:59:00.000Z" })).resolves.toEqual({ status: "already_claimed" });
+  });
+
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {
     await issueProfileReadyParticipant(pool, "emp_chat_a", "invite_chat_a");
     await issueProfileReadyParticipant(pool, "emp_chat_b", "invite_chat_b");

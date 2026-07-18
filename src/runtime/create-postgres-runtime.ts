@@ -25,6 +25,7 @@ import { createMinioBlobStore } from "../infrastructure/minio/minio-blob-store.j
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
+import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 
@@ -40,8 +41,15 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const status = await migrationStatus(pool);
     if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
     const onboardingDraftStore = createPostgresOnboardingDraftStore(pool);
+    const telegramSessionStore = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    if (telegramActionMessageRetentionMilliseconds <= telegramActionMessageClaimLeaseMilliseconds) {
+      throw new Error("Telegram action-message retention must exceed the claim lease.");
+    }
+    const purgeExpiredTelegramActions = () => telegramSessionStore.purgeActionMessages({
+      claimedBefore: new Date(Date.now() - telegramActionMessageRetentionMilliseconds).toISOString(),
+    });
     // Startup cleanup bounds retention even for employees who never return.
-    await onboardingDraftStore.purgeExpired();
+    await Promise.all([onboardingDraftStore.purgeExpired(), purgeExpiredTelegramActions()]);
     const minioConfig = minioConfigFromEnv(input.env);
     const minioClient = createMinioClient(minioConfig);
     await prepareMinioBucket(minioClient, minioConfig.bucket);
@@ -96,24 +104,27 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore);
-    // The bounded TTL permits hourly sweeping; startup cleanup handles restarts.
-    const draftCleanup = setInterval(() => {
+    // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
+    const retentionCleanup = setInterval(() => {
       void onboardingDraftStore.purgeExpired().catch((error: unknown) => {
         console.warn(`Minutka onboarding draft cleanup failed (${error instanceof Error ? error.name : "UnknownError"}).`);
       });
+      void purgeExpiredTelegramActions().catch((error: unknown) => {
+        console.warn(`Minutka Telegram action-message cleanup failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+      });
     }, 60 * 60 * 1_000);
-    draftCleanup.unref();
+    retentionCleanup.unref();
     return {
       assistant,
       ingestion,
       artifactContentStore,
-      telegramSessionStore: createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper),
+      telegramSessionStore,
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
         catch { return false; }
       },
-      shutdown: async () => { clearInterval(draftCleanup); await pool.end(); },
+      shutdown: async () => { clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
 }

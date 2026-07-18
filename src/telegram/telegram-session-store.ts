@@ -1,5 +1,8 @@
 export type TelegramIdentity = { chatId: string; userId?: string };
 
+export const telegramActionMessageClaimLeaseMilliseconds = 60_000;
+export const telegramActionMessageRetentionMilliseconds = 30 * 24 * 60 * 60 * 1_000;
+
 /** Raw transport identifiers are accepted only at this private boundary. */
 export type TelegramSession = {
   employeeId: string;
@@ -73,4 +76,10 @@ export interface TelegramSessionStore {
     messageId: number;
     claimedAt: string;
   }): Promise<void>;
+  /**
+   * Deletes action deduplication rows older than the retention boundary.
+   * Retention must remain longer than the claim lease. Once swept, pressing an
+   * ancient inline keyboard may execute its idempotent action again.
+   */
+  purgeActionMessages(input: { claimedBefore: string }): Promise<number>;
 }

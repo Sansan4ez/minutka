@@ -268,5 +268,16 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
+    async purgeActionMessages({ claimedBefore }) {
+      try {
+        const result = await pool.query(
+          "DELETE FROM minutka_private.telegram_action_messages WHERE claimed_at < $1",
+          [claimedBefore],
+        );
+        return result.rowCount ?? 0;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
   };
 }

@@ -1,7 +1,7 @@
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
-import type { TelegramIdentity, TelegramSessionStore } from "./telegram-session-store.js";
+import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
@@ -61,7 +61,6 @@ export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
 const inFlightDeliveryMessage = "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.";
 const onboardingConfirmationClaimLeaseMilliseconds = 60_000;
-const actionMessageClaimLeaseMilliseconds = 60_000;
 const onboardingConfirmationAlreadySentMessage = "Анкета уже готова к подтверждению. Напишите «Да», если всё верно, или «Исправить».";
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
@@ -226,7 +225,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       return { repeated: true };
     }
     const claimedAt = new Date().toISOString();
-    const staleBefore = new Date(Date.parse(claimedAt) - actionMessageClaimLeaseMilliseconds).toISOString();
+    const staleBefore = new Date(Date.parse(claimedAt) - telegramActionMessageClaimLeaseMilliseconds).toISOString();
     const telegramIdentity = identity(chatId, userId);
     const claim = await sessionStore.claimActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt, staleBefore });
     if (claim.status === "already_claimed") {
