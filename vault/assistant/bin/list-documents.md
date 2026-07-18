@@ -16,7 +16,7 @@ No.
 
 ## Output
 
-- logical paths, versions, update timestamps, and character counts
+- logical paths, versions, update timestamps, and UTF-8 byte sizes
 - `nextCursor`
 - explicit `truncated`
 

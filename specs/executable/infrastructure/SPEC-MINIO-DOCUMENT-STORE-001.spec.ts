@@ -6,7 +6,7 @@ import { createMinioDocumentStore } from "../../../src/infrastructure/minio/mini
 
 const bucket = "personal-assistant";
 
-describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation", () => {
+describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata listing", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("refuses startup when the object store overwrites If-None-Match creates", async () => {
@@ -33,6 +33,34 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation", () => {
     expect(client.removeAttempts()).toBe(2);
     expect(warn).toHaveBeenCalledWith("MinIO conditional-create probe cleanup failed (TypeError).");
     expect(warn.mock.calls.flat().join(" ")).not.toContain(".runtime-probes/");
+  });
+
+  it("lists canonical metadata without reading bodies or statting a legacy alias twice", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/imported-knowledge-base/legacy.md", Buffer.from("legacy🙂"));
+    await client.putObject(bucket, "owner/context/canonical.md", Buffer.from("canonical"));
+
+    const metadata = await documents.listMetadata("owner");
+
+    expect(metadata.map(({ path }) => path)).toEqual(["context/canonical.md", "context/legacy.md"]);
+    expect(metadata.find(({ path }) => path === "context/legacy.md")?.size).toBe(Buffer.byteLength("legacy🙂", "utf8"));
+    expect(client.getObjectCalls()).toBe(0);
+    expect(client.statCallsFor("owner/context/imported-knowledge-base/legacy.md")).toBe(1);
+  });
+
+  it("prefers canonical metadata before stat when a legacy alias also exists", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/imported-knowledge-base/shared.md", Buffer.from("legacy"));
+    await client.putObject(bucket, "owner/context/shared.md", Buffer.from("canonical🙂"));
+
+    const metadata = await documents.listMetadata("owner", "context/");
+
+    expect(metadata).toMatchObject([{ path: "context/shared.md", size: Buffer.byteLength("canonical🙂", "utf8") }]);
+    expect(client.getObjectCalls()).toBe(0);
+    expect(client.statCallsFor("owner/context/shared.md")).toBe(1);
+    expect(client.statCallsFor("owner/context/imported-knowledge-base/shared.md")).toBe(0);
   });
 
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
@@ -66,6 +94,8 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
   let version = 0;
   let cleanupFailures = input.cleanupFailures ?? 0;
   let removeCount = 0;
+  let getObjectCount = 0;
+  const statCounts = new Map<string, number>();
   let removeOptions: Minio.RemoveOptions | undefined;
   const client = {
     async bucketExists(requestedBucket: string) {
@@ -89,6 +119,7 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
       return { etag: stored.etag, versionId: stored.versionId };
     },
     async statObject(_bucket: string, objectName: string) {
+      statCounts.set(objectName, (statCounts.get(objectName) ?? 0) + 1);
       const stored = objects.get(objectName);
       if (!stored) throw objectStoreError("NotFound");
       return {
@@ -100,12 +131,15 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
       };
     },
     async getObject(_bucket: string, objectName: string) {
+      getObjectCount += 1;
       const stored = objects.get(objectName);
       if (!stored) throw objectStoreError("NotFound");
       return Readable.from(stored.body);
     },
-    listObjectsV2() {
-      return Readable.from([]);
+    listObjectsV2(_bucket: string, prefix: string) {
+      return Readable.from([...objects.keys()]
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => ({ name })));
     },
     async removeObject(_bucket: string, objectName: string, options?: Minio.RemoveOptions) {
       removeCount += 1;
@@ -121,6 +155,12 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
     },
     removeAttempts() {
       return removeCount;
+    },
+    getObjectCalls() {
+      return getObjectCount;
+    },
+    statCallsFor(objectName: string) {
+      return statCounts.get(objectName) ?? 0;
     },
     lastRemoveOptions() {
       return removeOptions;

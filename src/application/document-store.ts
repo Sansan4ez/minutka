@@ -7,6 +7,11 @@ export type UserDocument = {
   updatedAt: string;
 };
 
+export type UserDocumentMetadata = Pick<UserDocument, "userId" | "path" | "version" | "updatedAt"> & {
+  /** UTF-8 object size in bytes. */
+  size: number;
+};
+
 /** Legacy import prefix retained only for compatibility with already stored objects. */
 export const legacyImportedKnowledgeBasePrefix = "context/imported-knowledge-base/";
 
@@ -26,6 +31,9 @@ export type DocumentStore = {
   put(userId: string, path: string, content: string): Promise<UserDocument>;
   /** Atomically creates a missing logical document and never overwrites canonical or legacy owner content. */
   putIfAbsent(userId: string, path: string, content: string): Promise<UserDocument>;
+  /** Lists logical metadata without reading document bodies. */
+  listMetadata(userId: string, prefix?: string): Promise<UserDocumentMetadata[]>;
+  /** Lists logical documents with their complete bodies. */
   list(userId: string, prefix?: string): Promise<UserDocument[]>;
   /** Deletes the logical document together with its known legacy alias. */
   delete(userId: string, path: string): Promise<void>;

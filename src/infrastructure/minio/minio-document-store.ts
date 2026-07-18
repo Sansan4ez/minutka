@@ -7,6 +7,7 @@ import {
   objectKey,
   type DocumentStore,
   type UserDocument,
+  type UserDocumentMetadata,
 } from "../../application/document-store.js";
 
 export type MinioDocumentStoreOptions = {
@@ -58,6 +59,45 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       }));
     return documents.sort((left, right) => left.path.localeCompare(right.path));
   };
+  const listMetadata = async (userId: string, prefix?: string): Promise<UserDocumentMetadata[]> => {
+    const safeUserId = assertUserId(userId);
+    const canonicalPrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
+    const storagePrefixes = new Set<string | undefined>([canonicalPrefix]);
+    const legacyPrefix = canonicalPrefix === undefined ? null : legacyDocumentPath(canonicalPrefix.slice(0, -1));
+    if (legacyPrefix && !`${legacyPrefix}/`.startsWith(canonicalPrefix!)) storagePrefixes.add(`${legacyPrefix}/`);
+
+    const objectGroups = await Promise.all([...storagePrefixes].map(async (storagePrefix) => {
+      const prefixKey = storagePrefix
+        ? `${objectKey(safeUserId, storagePrefix.slice(0, -1))}/`
+        : `${safeUserId}/`;
+      return collectObjects(options.client.listObjectsV2(options.bucket, prefixKey, true));
+    }));
+    const selectedObjects = new Map<string, { name: string; path: string; canonicalSource: boolean }>();
+    const seenObjectNames = new Set<string>();
+    for (const object of objectGroups.flat()) {
+      if (!object.name || object.name.endsWith("/") || seenObjectNames.has(object.name)) continue;
+      seenObjectNames.add(object.name);
+      const storagePath = object.name.slice(`${safeUserId}/`.length);
+      const canonicalPath = canonicalDocumentPath(storagePath);
+      if (canonicalPrefix && !canonicalPath.startsWith(canonicalPrefix)) continue;
+      const canonicalSource = storagePath === canonicalPath;
+      const existing = selectedObjects.get(canonicalPath);
+      if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
+      selectedObjects.set(canonicalPath, { name: object.name, path: canonicalPath, canonicalSource });
+    }
+
+    const metadata = await Promise.all([...selectedObjects.values()].map(async (object): Promise<UserDocumentMetadata> => {
+      const stat = await options.client.statObject(options.bucket, object.name);
+      return {
+        userId: safeUserId,
+        path: object.path,
+        version: versionOf(stat),
+        updatedAt: stat.lastModified.toISOString(),
+        size: stat.size,
+      };
+    }));
+    return metadata.sort((left, right) => left.path.localeCompare(right.path));
+  };
   return {
     async get(userId, path) {
       const safeUserId = assertUserId(userId);
@@ -101,6 +141,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
         throw error;
       }
     },
+    listMetadata,
     async list(userId, prefix) {
       const safeUserId = assertUserId(userId);
       const canonicalPrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;

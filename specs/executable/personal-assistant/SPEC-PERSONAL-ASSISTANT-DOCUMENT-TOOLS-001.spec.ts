@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { contextBudgetConfigFromEnv } from "../../../src/application/context-budget.js";
 import { createOwnerDocumentReader, documentReadLimits } from "../../../src/application/document-reader.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import type { DocumentStore } from "../../../src/application/document-store.js";
 import { assistantDocumentToolNames, createDocumentTools } from "../../../src/mastra/tools/document-tools.js";
 
 const clock = { now: () => "2026-07-16T12:00:00.000Z" };
@@ -39,6 +40,39 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(JSON.stringify([first, second])).not.toContain("private.md");
   });
 
+  it("lists stable UTF-8 byte sizes without reading document bodies", async () => {
+    const store = await fixture();
+    await store.put("owner", "context/размер🙂.md", "Привет🙂");
+    let bodyReads = 0;
+    const metadataOnlyStore: DocumentStore = {
+      ...store,
+      async get(userId, path) {
+        bodyReads += 1;
+        return store.get(userId, path);
+      },
+      async getExact(userId, path) {
+        bodyReads += 1;
+        return store.getExact(userId, path);
+      },
+      async list(userId, prefix) {
+        bodyReads += 1;
+        return store.list(userId, prefix);
+      },
+      async listExact(userId, prefix) {
+        bodyReads += 1;
+        return store.listExact(userId, prefix);
+      },
+    };
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: metadataOnlyStore });
+
+    const result = await reader.listDocuments({ prefix: "/proc/context", limit: 10 });
+
+    expect(bodyReads).toBe(0);
+    expect(result.documents.find(({ path }) => path === "/proc/context/размер🙂.md")).toMatchObject({
+      size: Buffer.byteLength("Привет🙂", "utf8"),
+    });
+  });
+
   it("paginates paths by stable code-unit order without collapsing Unicode equivalents", async () => {
     const store = createInMemoryDocumentStore(clock);
     await store.put("owner", "context/café.md", "NFC");
@@ -51,6 +85,24 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(first.documents.map(({ path }) => path)).toEqual(["/proc/context/café.md"]);
     expect(second.documents.map(({ path }) => path)).toEqual(["/proc/context/café.md"]);
     expect(second).toMatchObject({ nextCursor: null, truncated: false });
+  });
+
+  it("lists one canonical metadata entry for a legacy alias and supports an empty prefix", async () => {
+    const store = createInMemoryDocumentStore(clock, [
+      { userId: "owner", path: "context/imported-knowledge-base/legacy.md", content: "legacy🙂" },
+      { userId: "owner", path: "context/legacy.md", content: "canonical" },
+      { userId: "owner", path: "context/imported-knowledge-base/only-legacy.md", content: "старое" },
+    ]);
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    const result = await reader.listDocuments({ prefix: "", limit: 10 });
+
+    expect(result.documents.map(({ path }) => path)).toEqual([
+      "/proc/context/legacy.md",
+      "/proc/context/only-legacy.md",
+    ]);
+    expect(result.documents.find(({ path }) => path === "/proc/context/legacy.md")?.size).toBe(Buffer.byteLength("canonical", "utf8"));
+    expect(result.documents.find(({ path }) => path === "/proc/context/only-legacy.md")?.size).toBe(Buffer.byteLength("старое", "utf8"));
   });
 
   it("opens an imported personal constitution even when it was not auto-injected", async () => {

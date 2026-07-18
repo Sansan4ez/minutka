@@ -4,13 +4,13 @@ import {
   contextDocumentHandle,
   type DocumentStore,
   type UserDocument,
+  type UserDocumentMetadata,
 } from "./document-store.js";
 
 export const documentReadLimits = defaultContextBudget.documentTools;
 
-export type DocumentMetadata = Pick<UserDocument, "version" | "updatedAt"> & {
+export type DocumentMetadata = Pick<UserDocumentMetadata, "version" | "updatedAt" | "size"> & {
   path: `/proc/context/${string}`;
-  characters: number;
 };
 
 export type ListDocumentsResult = {
@@ -63,7 +63,7 @@ export function createOwnerDocumentReader(input: {
       const prefix = storagePrefix(options.prefix);
       const cursor = options.cursor === undefined ? undefined : storagePath(options.cursor);
       const limit = boundedInteger(options.limit, limits.listDefault, 1, limits.listMaximum, "limit");
-      const source = (await input.documentStore.list(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
+      const source = (await input.documentStore.listMetadata(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
       const page = source.filter((document) => cursor === undefined || compareCodeUnits(document.path, cursor) > 0).slice(0, limit + 1);
       const truncated = page.length > limit;
       const selected = page.slice(0, limit);
@@ -72,7 +72,7 @@ export function createOwnerDocumentReader(input: {
           path: contextDocumentHandle(document.path),
           version: document.version,
           updatedAt: document.updatedAt,
-          characters: Array.from(document.content).length,
+          size: document.size,
         })),
         nextCursor: truncated && selected.length > 0 ? contextDocumentHandle(selected[selected.length - 1]!.path) : null,
         truncated,
@@ -147,8 +147,9 @@ export function createOwnerDocumentReader(input: {
 }
 
 function storagePrefix(prefix?: string): string {
-  if (prefix === undefined || prefix.trim().replace(/\/+$/, "") === "/proc/context") return "context/";
-  return storagePath(prefix.replace(/\/+$/, ""));
+  const normalized = prefix?.trim().replace(/\/+$/, "");
+  if (!normalized || normalized === "/proc/context") return "context/";
+  return storagePath(normalized);
 }
 
 function storagePath(path: string): string {

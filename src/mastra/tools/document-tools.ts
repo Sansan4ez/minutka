@@ -7,7 +7,7 @@ const metadataSchema = z.strictObject({
   path: documentPathSchema,
   version: z.string(),
   updatedAt: z.string(),
-  characters: z.number().int().nonnegative(),
+  size: z.number().int().nonnegative(),
 });
 
 export const assistantDocumentToolNames = ["listDocuments", "readDocument", "searchDocuments"] as const;

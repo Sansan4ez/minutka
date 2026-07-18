@@ -5,6 +5,7 @@ import {
   legacyDocumentPath,
   type DocumentStore,
   type UserDocument,
+  type UserDocumentMetadata,
 } from "./document-store.js";
 import type { Clock } from "./runtime-primitives.js";
 
@@ -30,6 +31,27 @@ export function createInMemoryDocumentStore(
   const readExact = (userId: string, path: string): UserDocument | null => {
     const document = documents.get(key(userId, path));
     return document ? { ...document } : null;
+  };
+  const logicalEntries = <T extends UserDocument | UserDocumentMetadata>(
+    userId: string,
+    prefix: string | undefined,
+    entries: Iterable<T>,
+  ): T[] => {
+    const safeUserId = assertUserId(userId);
+    const safePrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
+    const selected = new Map<string, { entry: T; canonicalSource: boolean }>();
+    for (const entry of entries) {
+      if (entry.userId !== safeUserId) continue;
+      const canonicalPath = canonicalDocumentPath(entry.path);
+      if (safePrefix && !canonicalPath.startsWith(safePrefix)) continue;
+      const canonicalSource = entry.path === canonicalPath;
+      const existing = selected.get(canonicalPath);
+      if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
+      selected.set(canonicalPath, { entry: { ...entry, path: canonicalPath }, canonicalSource });
+    }
+    return [...selected.values()]
+      .map(({ entry }) => entry)
+      .sort((left, right) => left.path.localeCompare(right.path));
   };
   return {
     async get(userId, path) {
@@ -71,22 +93,17 @@ export function createInMemoryDocumentStore(
       documents.set(key(safeUserId, canonicalPath), document);
       return { ...document };
     },
+    async listMetadata(userId, prefix) {
+      return logicalEntries(userId, prefix, [...documents.values()].map((document): UserDocumentMetadata => ({
+        userId: document.userId,
+        path: document.path,
+        version: document.version,
+        updatedAt: document.updatedAt,
+        size: Buffer.byteLength(document.content, "utf8"),
+      })));
+    },
     async list(userId, prefix) {
-      const safeUserId = assertUserId(userId);
-      const safePrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
-      const logicalDocuments = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
-      for (const document of documents.values()) {
-        if (document.userId !== safeUserId) continue;
-        const canonicalPath = canonicalDocumentPath(document.path);
-        if (safePrefix && !canonicalPath.startsWith(safePrefix)) continue;
-        const canonicalSource = document.path === canonicalPath;
-        const existing = logicalDocuments.get(canonicalPath);
-        if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
-        logicalDocuments.set(canonicalPath, { document: { ...document, path: canonicalPath }, canonicalSource });
-      }
-      return [...logicalDocuments.values()]
-        .map(({ document }) => document)
-        .sort((left, right) => left.path.localeCompare(right.path));
+      return logicalEntries(userId, prefix, documents.values()).map((document) => ({ ...document }));
     },
     async delete(userId, path) {
       const safeUserId = assertUserId(userId);
