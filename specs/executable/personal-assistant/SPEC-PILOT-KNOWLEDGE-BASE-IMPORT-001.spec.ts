@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +21,7 @@ function fixture(): string {
   mkdirSync(join(root, "40_projects", "project-a"), { recursive: true });
   writeFileSync(join(root, "10_user_memory", "01_goals.md"), "# Goals\nShip safely.\n");
   writeFileSync(join(root, "40_projects", "project-a", "README.MD"), "# Project A\n");
-  writeFileSync(join(root, "AGENTS.MD"), "# Owner notes\nNever trusted policy.\n");
+  writeFileSync(join(root, "INDEX.md"), "# Owner index\nUntrusted navigation data.\n");
   return root;
 }
 
@@ -68,7 +68,7 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     expect(retry.files.map(({ path, status }) => ({ path, status }))).toEqual([
       { path: "context/10_user_memory/01_goals.md", status: "skipped" },
       { path: "context/40_projects/project-a/README.MD", status: "skipped" },
-      { path: "context/AGENTS.MD", status: "skipped" },
+      { path: "context/INDEX.md", status: "skipped" },
     ]);
     expect(await documentStore.list("pilot", "context/")).toHaveLength(3);
     expect(await documentStore.list("other-owner", "context/")).toEqual([]);
@@ -131,9 +131,40 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
 
   it("rejects case and Unicode-normalization collisions", async () => {
     const root = fixture();
-    writeFileSync(join(root, "10_user_memory", "readme.md"), "lowercase");
-    writeFileSync(join(root, "10_user_memory", "README.MD"), "uppercase");
+    writeFileSync(join(root, "10_user_memory", "index.md"), "lowercase");
+    writeFileSync(join(root, "10_user_memory", "INDEX.md"), "uppercase");
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("collide");
+  });
+
+  it("fails closed on the retired root AGENTS.MD navigation name", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "AGENTS.MD"), "retired owner navigation name");
+    await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("not allow-listed");
+  });
+
+  it("accepts the repository pilot tree with the INDEX.md convention", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-repo-copy-"));
+    roots.push(root);
+    cpSync("vault/user/knowledge_base", root, { recursive: true });
+    await expect(discoverPilotKnowledgeBase(root)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "context/INDEX.md" }),
+      expect.objectContaining({ path: "context/10_user_memory/INDEX.md" }),
+      expect.objectContaining({ path: "context/90_agent_memory/INDEX.md" }),
+    ]));
+  });
+
+  it("validates INDEX.md links as existing direct children", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "INDEX.md"), "- [memory](10_user_memory/)\n");
+    await expect(discoverPilotKnowledgeBase(root)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "context/INDEX.md" }),
+    ]));
+
+    writeFileSync(join(root, "INDEX.md"), "- [missing](missing/)\n");
+    await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("link does not exist");
+
+    writeFileSync(join(root, "INDEX.md"), "- [deep](40_projects/project-a/)\n");
+    await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("only direct children");
   });
 
   it("rejects unknown top-level entries", async () => {

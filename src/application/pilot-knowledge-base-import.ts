@@ -1,10 +1,12 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
-import { extname, join, relative, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { assertSafeVaultPath, assertUserId, legacyDocumentPath, type DocumentStore } from "./document-store.js";
 import type { IngestionService } from "./ingestion-service.js";
 
 const allowedTopLevelEntries = new Set([
   "00_inbox",
+  "07_rfcs",
+  "08_entities",
   "10_user_memory",
   "20_work",
   "30_knowledge",
@@ -13,7 +15,7 @@ const allowedTopLevelEntries = new Set([
   "60_outbox",
   "90_agent_memory",
   "99_system",
-  "AGENTS.MD",
+  "INDEX.md",
 ]);
 const allowedExtensions = new Set([".md", ".txt", ".vtt"]);
 const destinationPrefix = "context";
@@ -78,7 +80,35 @@ export async function discoverPilotKnowledgeBase(sourceRoot: string): Promise<Pi
     if (paths.has(collisionKey)) throw new Error(`knowledge-base paths collide after normalization: ${file.path}`);
     paths.add(collisionKey);
   }
+  await validatePilotKnowledgeBaseIndexes(sourceRoot, sorted);
   return sorted;
+}
+
+/** Validates that exact-case INDEX.md links resolve to direct children only. */
+export async function validatePilotKnowledgeBaseIndexes(sourceRoot: string, files: PilotKnowledgeBaseFile[]): Promise<void> {
+  for (const index of files.filter(({ sourcePath }) => sourcePath.endsWith(`${sep}INDEX.md`) || sourcePath === join(sourceRoot, "INDEX.md"))) {
+    const content = await readFile(index.sourcePath, "utf8");
+    for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+      const rawTarget = match[1]?.trim() ?? "";
+      if (!rawTarget || rawTarget.startsWith("#") || /^(?:https?:|mailto:)/i.test(rawTarget)) continue;
+      const pathTarget = rawTarget.split("#", 1)[0]!.split("?", 1)[0]!;
+      let decodedTarget: string;
+      try {
+        decodedTarget = decodeURIComponent(pathTarget);
+      } catch {
+        throw new Error(`knowledge-base INDEX.md has an invalid encoded link: ${index.path} -> ${rawTarget}`);
+      }
+      if (!decodedTarget || isAbsolute(decodedTarget)) throw new Error(`knowledge-base INDEX.md link must be relative: ${index.path} -> ${rawTarget}`);
+      const targetPath = resolve(dirname(index.sourcePath), decodedTarget);
+      const directChild = relative(dirname(index.sourcePath), targetPath).split(sep).filter(Boolean);
+      if (directChild.length !== 1 || directChild[0] === "..") {
+        throw new Error(`knowledge-base INDEX.md may link only direct children: ${index.path} -> ${rawTarget}`);
+      }
+      const targetStat = await lstat(targetPath).catch(() => null);
+      if (!targetStat) throw new Error(`knowledge-base INDEX.md link does not exist: ${index.path} -> ${rawTarget}`);
+      if (targetStat.isSymbolicLink()) throw new Error(`knowledge-base INDEX.md link targets a symlink: ${index.path} -> ${rawTarget}`);
+    }
+  }
 }
 
 /** Writes only through IngestionService and skips byte-identical documents. */

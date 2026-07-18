@@ -21,6 +21,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
   it("loads core, the routing index, and process files without preselecting a process", () => {
     const instructions = loadAssistantAgentInstructions();
     expect(instructions).toContain("Personal Assistant runtime instructions");
+    expect(instructions).toContain("Navigate owner context index-first");
+    expect(instructions).toContain("continue from `nextOffset` until complete");
     expect(instructions).toContain("Personal Assistant process index");
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");

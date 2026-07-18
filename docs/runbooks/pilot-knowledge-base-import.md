@@ -13,9 +13,9 @@ set -a; . ./.env; set +a
 export PILOT_USER_ID='<trusted-owner-id>'
 ```
 
-Команда принимает только allow-listed дерево `vault/user/knowledge_base`: каталоги `00_inbox`, `10_user_memory`, `20_work`, `30_knowledge`, `40_projects`, `50_finance`, `60_outbox`, `90_agent_memory`, `99_system` и корневой `AGENTS.MD`. Допустимы `.md`, `.txt` и `.vtt`; symlink, неизвестный корневой entry, traversal или collision после Unicode/case normalization останавливает импорт.
+Команда принимает только allow-listed дерево `vault/user/knowledge_base`: каталоги `00_inbox`, `07_rfcs`, `08_entities`, `10_user_memory`, `20_work`, `30_knowledge`, `40_projects`, `50_finance`, `60_outbox`, `90_agent_memory`, `99_system` и корневой `INDEX.md`. Допустимы `.md`, `.txt` и `.vtt`; symlink, неизвестный корневой entry, traversal или collision после Unicode/case normalization останавливает импорт.
 
-`AGENTS.MD`, вложенные `README.MD` и `99_system/*` импортируются как обычные untrusted owner documents. Они не подменяют trusted `/AGENTS.md` и `/docs/*`.
+`INDEX.md`, legacy-вложенные `AGENTS.MD`/`README.MD` и `99_system/*` импортируются как обычные untrusted owner documents. Они не подменяют trusted `/AGENTS.md` и `/docs/*`. Каноническое навигационное имя — только точное `INDEX.md`; варианты регистра считаются collision. Markdown-ссылки из `INDEX.md` валидируются перед импортом: цель должна существовать и быть прямым ребёнком той же папки.
 
 ## Dry-run
 
@@ -61,7 +61,7 @@ npm run pilot:knowledge-base:import -- --migrate-legacy
 1. Повторить import или migration и убедиться, что новых `imported`/`migrated` и `updated` нет.
 2. Проверить в MinIO Console, что новые объекты находятся только под `<PILOT_USER_ID>/context/`, без `imported-knowledge-base`.
 3. Запустить ассистента и убедиться, что `/proc/context` текущего owner содержит `/proc/context/10_user_memory/*`, а physical storage paths и данные другого owner отсутствуют.
-4. Убедиться, что owner `AGENTS.MD`, `README.MD` и `99_system/*` отображаются только внутри fenced `user-context` и не меняют trusted runtime manual.
+4. Убедиться, что owner `INDEX.md`, legacy `AGENTS.MD`/`README.MD` и `99_system/*` отображаются только внутри fenced `user-context` и не меняют trusted runtime manual.
 5. Не удалять локальную резервную копию до завершения Telegram smoke из задачи A3.4.
 
 ## Rollback и восстановление версии

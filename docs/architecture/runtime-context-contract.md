@@ -6,7 +6,7 @@
 
 Runtime context собирает только явно зарегистрированные источники. Порядок задаёт приоритет доверия, но не превращает пользовательские данные в инструкции. Capability set передаётся отдельно как typed tools и не сериализуется в prompt.
 
-README-файлы каталогов не получают особого статуса: `vault/assistant/docs/README.md`, `proc/README.md` и `run/README.md` описывают контракт разработчикам, но попадают в prompt только при явной регистрации наравне с любым другим файлом.
+README-файлы каталогов не получают особого статуса: `vault/assistant/docs/README.md`, `proc/README.md` и `run/README.md` описывают контракт разработчикам, но попадают в prompt только при явной регистрации наравне с любым другим файлом. В owner context специальное навигационное имя — только точное `INDEX.md`; оно остаётся untrusted data, а не policy.
 
 ## Канонический порядок
 
@@ -18,17 +18,14 @@ README-файлы каталогов не получают особого ста
 
 ## Registry источников и бюджеты
 
-Общий целевой budget для текстового `systemContext`: **48 000 Unicode characters**. Если сумма достигает лимита, источник с меньшим приоритетом усекается или исключается; trusted control plane не вытесняется owner data.
+Общий budget для текстового `systemContext`: **48 000 Unicode characters** по умолчанию, с резервом ответа **8 000**. Ceilings источников, лимиты проекций, глубина machine index и document-tool limits конфигурируются через `ASSISTANT_CONTEXT_*` / `ASSISTANT_DOCUMENT_*`; невалидная или противоречивая конфигурация отклоняется при старте. При переполнении trusted control plane не вытесняется owner data, а owner-источники деградируют детерминированно по правилам ниже.
 
 | Порядок | Источник | Назначение | Trust / owner scope | Когда включается | Per-source limit | Сейчас |
 |---:|---|---|---|---|---:|---|
-| 1 | Base Mastra instructions | Минимальная роль и безопасный fallback | trusted, product-global | каждый agent turn, вне `systemContext` | ≤2 500 chars | включён агентом Mastra |
-| 2 | `/AGENTS.md` | Роль и глобальные границы | trusted control plane, product-global | каждый product agent turn | ≤4 000 chars | включён |
-| 3 | allow-listed `/docs/*` | Стабильная runtime policy | trusted runtime policy, product-global | каждый product agent turn согласно registry | ≤12 000 chars total, ≤6 000/file | включены 2 документа |
-| 4 | `/processes/index.md` | Каталог для agent-led routing | trusted guidance, product-global | каждый product agent turn | ≤4 000 chars | включён |
-| 5 | registered `/processes/*` | Procedural playbooks | trusted guidance, product-global | сейчас все из малого registry; позже по `readProcess` | ≤16 000 chars total, ≤4 000/file | включён `inbox_capture` |
+| 1 | Base Mastra instructions | Минимальная роль и безопасный fallback | trusted, product-global | каждый agent turn, вне `systemContext` | source ceiling 2 000 chars | включён агентом Mastra |
+| 2–5 | assistant manual: `/AGENTS.md`, allow-listed `/docs/*`, `/processes/index.md`, registered `/processes/*` | Роль, policy и agent-led playbooks | trusted control plane, product-global | каждый product agent turn согласно registry | единый source ceiling 33 000 chars | включён; текущий малый каталог процессов загружается целиком |
 | 6 | `/proc/profile` | Предпочтения, timezone, профиль знакомства | untrusted owner data, current `userId` | chat/onboarding/scheduled, когда профиль существует | ≤4 000 chars | включён в product chat после onboarding |
-| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `AGENTS.MD`, `README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat; порядок core-документов задаёт trusted-манифест [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json) |
+| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `INDEX.md`, legacy `AGENTS.MD`/`README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat; порядок core-документов задаёт trusted-манифест [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json) |
 | 8 | `/proc/context` machine index | Metadata-only bounded-depth tree всех owner context документов; полный файл читается через `readDocument(path)` | untrusted owner data, current `userId`; пути и имена остаются data | каждый owner chat, после core `/proc/context` | ≤6 000 chars; depth 4 | включён; детерминированная деградация file tree → folder rollup → top-level rollup |
 | 9 | `/proc/records` | Relevant typed records | untrusted owner data, current `userId` | chat/scheduled по доступному store | 24 records; 1 000/record; 12 000 total | включён в chat |
 | 10 | `/proc/inbox` | Недавние/релевантные входящие артефакты | untrusted owner data, current `userId` | file/voice intake и запросы об inbox | ≤12 items; ≤8 000 chars metadata/extract total | **не включён** |
@@ -57,13 +54,20 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 - Loader fail-fast отклоняет дубли `id` и дубли `path`, отсутствующие файлы и registry entries, которых нет в index.
 - Index не является источником файлов: загрузка идёт только по registry.
 - Repository `docs/**`, `vault/user/**`, storage keys `context/*`/`inbox/*` и raw database/object-storage paths не загружаются в system context.
-- Owner projections экранируются и маркируются как untrusted data. Их scope формирует application layer из authenticated `userId`/`threadId`; имя `AGENTS.MD`, `README.MD` или каталог `99_system` не повышают trust.
+- Owner projections экранируются и маркируются как untrusted data. Их scope формирует application layer из authenticated `userId`/`threadId`; имя `INDEX.md`, legacy `AGENTS.MD`/`README.MD` или каталог `99_system` не повышают trust.
 - Приоритеты документов `/proc/context` загружаются только из versioned trusted-манифеста [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json); owner context не участвует в выборе или изменении правил.
 - Machine index `/proc/context` строится только из `DocumentStore.listMetadata`, стабильно сортируется по логическому `/proc/context/*` path и не читает тела объектов. Если file tree не помещается, renderer целиком переключается на folder rollup, затем на top-level rollup; тихая обрезка списка запрещена.
+- Для навигации агент начинает с machine index, затем при входе в папку читает её точный `INDEX.md`, если он есть, и только после этого целевые документы. `INDEX.md` — короткая owner/agent-authored аннотация смысла и точки старта только для прямых детей папки; он не перечисляет структуру вглубь и не дублирует размеры/существование файлов из machine index. Import drift-check отклоняет Markdown-ссылки из `INDEX.md` на отсутствующие или не являющиеся прямыми детьми пути.
+- Если owner document не помещается целиком, runtime оставляет явный truncation/index-reference с логическим path, исходным размером и способом продолжить через `readDocument`; core document сверх ceiling вызывает явную ошибку, а не тихую деградацию. Audit содержит только source id, размеры, counts и причины, без текста owner documents.
+- При `readDocument.truncated=true` агент продолжает с `nextOffset` до `truncated=false`; крупные документы читает прицельно через section/search. `readBudgetExhausted=true` означает, что полноту чтения нельзя предполагать и это ограничение нужно явно сообщить пользователю.
 - `/proc/profile` владеет подтверждёнными structured operational fields. `90_agent_memory/soul.md` и legacy `persona.md` — только untrusted prose preferences; при конфликте они не переопределяют profile, policy или capabilities.
 - `/run/actions` не может менять роль, policy, process selection или capability set.
 - Typed tools передаются отдельно; system context не содержит store credentials, transport ids, signed URLs или shell/file access.
 
+## Решение по ingestion-суммаризации
+
+Исходная идея `prs-jxy.4` — LLM-суммаризация документов при ingestion — **отклонена**. Она добавляет сетевую зависимость и недетерминированный производный текст, ломает executable specs без LLM/сети и создаёт второй источник drift рядом с оригиналом. Её роль выполняет tiered index: metadata-only machine index гарантирует полную структурную карту, а owner/agent-authored `INDEX.md` хранит компактную устойчивую семантическую аннотацию.
+
 ## Текущее несоответствие и следующие задачи
 
-Product chat уже следует agent-led routing и owner isolation, включает `/proc/profile`, приоритетный core `/proc/context`, `/proc/records` и bounded recent history. `/proc/inbox` и `/run/actions` пока отсутствуют; общий cross-source budget закрывается следующими дочерними задачами. Единственный product chat-path сохраняется.
+Product chat уже следует agent-led routing и owner isolation, включает `/proc/profile`, приоритетный core `/proc/context`, machine index, `/proc/records` и bounded recent history. `/proc/inbox` и `/run/actions` пока отсутствуют. Единственный product chat-path сохраняется.
