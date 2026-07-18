@@ -1,5 +1,5 @@
 import type { ConversationStore } from "./conversation-store.js";
-import { applyContextBudget, defaultContextBudget, type ContextBudgetConfig } from "./context-budget.js";
+import { applyContextBudget, defaultContextBudget, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -35,6 +35,10 @@ export type AssistantAgentContext = {
   documents: ReturnType<typeof createOwnerDocumentReader>;
 };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
+export type AssistantOperationalWarning = Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & {
+  type: "context_budget_overflow";
+};
+export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
   | { status: "completed" }
   | { status: "denied"; reason: RequestIntegrityDenialReason };
@@ -61,7 +65,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; operationalLogger?: AssistantOperationalLogger },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -155,6 +159,15 @@ export class AssistantService {
       }, "document tool audit");
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.deps.contextBudget });
+    const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.deps.contextBudget);
+    if (systemContextBudget.omittedSourceIds.length > 0) {
+      this.warnOperationally({
+        type: "context_budget_overflow",
+        omittedSourceIds: systemContextBudget.omittedSourceIds,
+        used: systemContextBudget.used,
+        available: systemContextBudget.available,
+      });
+    }
     let response: string | undefined;
     let agentError: unknown;
     try {
@@ -163,7 +176,7 @@ export class AssistantService {
         profileAndHistory,
         records,
         source,
-        systemContext: buildAssistantSystemContext(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.deps.contextBudget),
+        systemContext: systemContextBudget.text,
         captureIdea,
         documents,
       });
@@ -216,6 +229,11 @@ export class AssistantService {
     try { await this.deps.auditEventStore.append(event); }
     catch (error) { logAssistantOperationalError(operation, error); }
   }
+
+  private warnOperationally(warning: AssistantOperationalWarning): void {
+    try { (this.deps.operationalLogger ?? logAssistantOperationalWarning)(warning); }
+    catch (error) { logAssistantOperationalError("operational warning", error); }
+  }
 }
 
 export function buildAssistantSystemContext(
@@ -227,6 +245,18 @@ export function buildAssistantSystemContext(
   userInput = "",
   contextBudget: ContextBudgetConfig = defaultContextBudget,
 ): string {
+  return buildAssistantSystemContextBudget(personalContext, records, agentInstructions, responsePolicy, profileAndHistory, userInput, contextBudget).text;
+}
+
+export function buildAssistantSystemContextBudget(
+  personalContext: AssistantContextProjection,
+  records?: AssistantRecordsProjection,
+  agentInstructions = loadAssistantAgentInstructions(),
+  responsePolicy?: string,
+  profileAndHistory?: ChatProcSnapshot,
+  userInput = "",
+  contextBudget: ContextBudgetConfig = defaultContextBudget,
+): ContextBudgetResult {
   const runtimeProjection = profileAndHistory === undefined ? undefined : renderRuntimeProjection(profileAndHistory);
   const profileSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/profile");
   const historySection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/thread");
@@ -241,7 +271,7 @@ export function buildAssistantSystemContext(
       ...(records === undefined ? [] : [{ sourceId: "records" as const, content: renderAssistantRecordsProjection(records) }]),
       { sourceId: "history", content: historySection ?? "" },
     ],
-  }).text;
+  });
 }
 
 function extractRuntimeProjectionSection(rendered: string, path: "/proc/profile" | "/proc/thread"): string | undefined {
@@ -253,6 +283,10 @@ function extractRuntimeProjectionSection(rendered: string, path: "/proc/profile"
 }
 
 const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";
+
+function logAssistantOperationalWarning(warning: AssistantOperationalWarning): void {
+  console.warn("Assistant operational warning.", warning);
+}
 
 function logAssistantOperationalError(operation: string, error: unknown): void {
   console.warn(`Assistant ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`);

@@ -6,10 +6,16 @@ import {
   countUnicodeCharacters,
   createContextBudgetConfig,
   defaultContextBudget,
+  type ContextSourceId,
 } from "../../../src/application/context-budget.js";
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
 import { assistantRecordsLimits } from "../../../src/application/assistant-records-projection.js";
-import { buildAssistantSystemContext } from "../../../src/application/assistant-service.js";
+import { AssistantService, buildAssistantSystemContext, type AssistantOperationalWarning } from "../../../src/application/assistant-service.js";
+import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
+import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
+import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
 import { documentReadLimits } from "../../../src/application/document-reader.js";
 import { runtimeProjectionLimits } from "../../../src/application/runtime-projections/runtime-projection-limits.js";
@@ -115,6 +121,34 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(50);
   });
 
+  it("emits a sanitized warning only when chat context sections are omitted", async () => {
+    const overflowingWarnings: AssistantOperationalWarning[] = [];
+    const overflowing = await createService({
+      contextBudget: warningSpecBudget({ total: 5_000, context: 4_800 }),
+      operationalLogger: (warning) => overflowingWarnings.push(warning),
+      contextDocument: "private owner context".repeat(240),
+    });
+    await overflowing.chat({ userId: "owner", threadId: "thread", text: "request" });
+
+    expect(overflowingWarnings).toHaveLength(1);
+    expect(overflowingWarnings[0]).toEqual({
+      type: "context_budget_overflow",
+      omittedSourceIds: ["context"],
+      used: expect.any(Number),
+      available: expect.any(Number),
+    });
+    expect(Object.keys(overflowingWarnings[0] ?? {}).sort()).toEqual(["available", "omittedSourceIds", "type", "used"]);
+
+    const happyPathWarnings: AssistantOperationalWarning[] = [];
+    const happyPath = await createService({
+      contextBudget: warningSpecBudget({ total: 10_000, context: 4_800 }),
+      operationalLogger: (warning) => happyPathWarnings.push(warning),
+      contextDocument: "private owner context".repeat(240),
+    });
+    await happyPath.chat({ userId: "owner", threadId: "thread", text: "request" });
+    expect(happyPathWarnings).toEqual([]);
+  });
+
   it("rejects context budgets that cannot hold trusted ceilings at maximum input", () => {
     expect(() => createContextBudgetConfig({
       total: 10_000,
@@ -160,4 +194,40 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
 
 function exactInput(config: ReturnType<typeof createContextBudgetConfig>) {
   return { config, userInput: "", sections: [{ sourceId: "agent_manual" as const, content: "x" }] };
+}
+
+function warningSpecBudget(input: { total: number; context: number }) {
+  const sources: Partial<Record<ContextSourceId, number>> = {
+    base_instructions: 36,
+    agent_manual: 600,
+    profile: input.total,
+    context: input.context,
+    records: input.total,
+    inbox: input.total,
+    history: input.total,
+    actions: input.total,
+  };
+  return createContextBudgetConfig({
+    total: input.total,
+    responseReserve: 0,
+    sources,
+    projectionLimits: { contextDocumentCharacters: input.context, recordCharacters: input.total, historyTurnCharacters: input.total },
+  });
+}
+
+async function createService(input: { contextBudget: ReturnType<typeof createContextBudgetConfig>; operationalLogger: (warning: AssistantOperationalWarning) => void; contextDocument: string }) {
+  const world = createInMemoryWorld(() => "2026-07-18T00:00:00.000Z");
+  const documentStore = createInMemoryDocumentStore({ now: world.now });
+  const ingestionService = createIngestionService({ documentStore, blobStore: createInMemoryBlobStore({ now: world.now }) });
+  await ingestionService.saveContextDocument({ userId: "owner", path: "context/private.md", content: input.contextDocument });
+  return new AssistantService(async () => "ok", {
+    documentStore,
+    conversationStore: createInMemoryConversationStore(world),
+    ingestionService,
+    requestIntegrityGuard: async () => ({ status: "allowed" }),
+    clock: { now: world.now },
+    agentInstructions: "manual",
+    contextBudget: input.contextBudget,
+    operationalLogger: input.operationalLogger,
+  });
 }
