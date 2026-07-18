@@ -5,7 +5,7 @@ import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
 import type { CaptureIdeaInput, CaptureIdeaResult, IngestionService } from "./ingestion-service.js";
 import { NO_PROJECT } from "../domain/classification.js";
-import { createAssistantContextProjectionBuilder, renderAssistantContextProjection, type AssistantContextProjection } from "./assistant-context-projection.js";
+import { createAssistantContextProjectionBuilder, renderAssistantContextIndex, renderAssistantContextProjection, type AssistantContextProjection } from "./assistant-context-projection.js";
 import { createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection, type AssistantRecordsProjection } from "./assistant-records-projection.js";
 import type { IdeaSource, IdeaStore } from "./idea-store.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
@@ -269,6 +269,7 @@ export function buildAssistantSystemContextBudget(
       { sourceId: "agent_manual", content: [agentInstructions, responsePolicy].filter(Boolean).join("\n\n") },
       { sourceId: "profile", content: profileSection ?? "" },
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
+      { sourceId: "context_index", content: renderAssistantContextIndex(personalContext) },
       ...(records === undefined ? [] : [{ sourceId: "records" as const, content: renderAssistantRecordsProjection(records) }]),
       { sourceId: "history", content: historySection ?? "" },
     ],

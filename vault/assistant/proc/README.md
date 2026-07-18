@@ -8,6 +8,7 @@ The canonical assembly order and budgets are defined in [`docs/architecture/runt
 |---|---|---:|---|
 | `/proc/profile` | `ProfileStore` | field allow-list; ≤4,000 chars | not included |
 | `/proc/context` | `DocumentStore`, current owner `context/*` | 12 docs; 4,000/doc; 16,000 total | included |
+| `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner `context/*` paths | 6,000 chars; depth 4; file tree → folder → top-level rollup | included after context documents |
 | `/proc/records` | owner-scoped record stores | 24 records; 1,000/record; 12,000 total | included |
 | `/proc/inbox` | `ArtifactStore` / `BlobStore` | 12 relevant items; ≤8,000 chars | not included |
 | recent conversation history | `ConversationStore`, current owner and thread | 10 completed turns; 12,000 chars | not included |

@@ -26,16 +26,20 @@ const projection = {
   path: "/proc/context" as const,
   generatedAt: "2026-07-17T00:00:00.000Z",
   scope: { userId: "owner", requestId: "request" },
-  data: { documents: [], truncated: false },
+  data: {
+    documents: [],
+    truncated: false,
+    index: { level: "files" as const, documentCount: 0, text: "## Machine index: /proc/context\n(empty)" },
+  },
 };
 
 describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context budget", () => {
   it("keeps the documented defaults as the single source for legacy limit exports", () => {
     expect(defaultContextBudget.total).toBe(48_000);
     expect(defaultContextBudget.sources.map(({ id }) => id)).toEqual([
-      "base_instructions", "agent_manual", "profile", "context", "records", "inbox", "history", "actions",
+      "base_instructions", "agent_manual", "profile", "context", "context_index", "records", "inbox", "history", "actions",
     ]);
-    expect(assistantContextLimits).toEqual({ documents: 12, characters: 16_000, documentCharacters: 4_000 });
+    expect(assistantContextLimits).toEqual({ documents: 12, characters: 16_000, documentCharacters: 4_000, indexCharacters: 6_000, indexDepth: 4 });
     expect(assistantRecordsLimits).toEqual({ records: 24, characters: 12_000, recordCharacters: 1_000 });
     expect(conversationContextLimits).toMatchObject({ responseTurns: 10, responseCharacters: 12_000, responseFieldCharacters: 6_000 });
     expect(runtimeProjectionLimits).toMatchObject({ threadTurns: 10, threadCharacters: 12_000, threadTurnTextCharacters: 6_000 });
@@ -50,7 +54,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + 8,
       responseReserve: 2,
-      sources: { base_instructions: 1, agent_manual: 3, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 1, agent_manual: 3, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const exact = applyContextBudget({
@@ -71,7 +75,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + 12,
       responseReserve: 0,
-      sources: { base_instructions: 0, agent_manual: 7, profile: 12, context: 12, records: 12, inbox: 12, history: 12, actions: 12 },
+      sources: { base_instructions: 0, agent_manual: 7, profile: 12, context: 12, context_index: 12, records: 12, inbox: 12, history: 12, actions: 12 },
       projectionLimits: { contextDocumentCharacters: 12, recordCharacters: 12, historyTurnCharacters: 12 },
     });
     const result = applyContextBudget({
@@ -91,7 +95,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + 10,
       responseReserve: 0,
-      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const result = applyContextBudget({
@@ -112,7 +116,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + 55,
       responseReserve: 5,
-      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 55, records: 55, inbox: 55, history: 55, actions: 55 },
+      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 55, context_index: 55, records: 55, inbox: 55, history: 55, actions: 55 },
       projectionLimits: { contextDocumentCharacters: 55, recordCharacters: 55, historyTurnCharacters: 55 },
     });
     const result = buildAssistantSystemContext(projection, undefined, "TRUSTED", undefined, undefined, "🙂".repeat(maxChatInputCharacters), config);
@@ -133,7 +137,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(overflowingWarnings).toHaveLength(1);
     expect(overflowingWarnings[0]).toEqual({
       type: "context_budget_overflow",
-      omittedSourceIds: ["context"],
+      omittedSourceIds: ["context", "context_index"],
       used: expect.any(Number),
       available: expect.any(Number),
     });
@@ -202,6 +206,7 @@ function warningSpecBudget(input: { total: number; context: number }) {
     agent_manual: 600,
     profile: input.total,
     context: input.context,
+    context_index: input.total,
     records: input.total,
     inbox: input.total,
     history: input.total,

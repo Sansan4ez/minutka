@@ -5,6 +5,7 @@ export const contextSourceIds = [
   "agent_manual",
   "profile",
   "context",
+  "context_index",
   "records",
   "inbox",
   "history",
@@ -26,6 +27,7 @@ export type ContextBudgetConfig = {
   projectionLimits: {
     contextDocuments: number;
     contextDocumentCharacters: number;
+    contextIndexDepth: number;
     records: number;
     recordCharacters: number;
     historyTurns: number;
@@ -80,14 +82,16 @@ export const defaultContextBudget: ContextBudgetConfig = {
     { id: "agent_manual", priority: 2, ceiling: 33_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
     { id: "context", priority: 4, ceiling: 16_000 },
-    { id: "records", priority: 5, ceiling: 12_000 },
-    { id: "inbox", priority: 6, ceiling: 8_000 },
-    { id: "history", priority: 7, ceiling: 12_000 },
-    { id: "actions", priority: 8, ceiling: 8_000 },
+    { id: "context_index", priority: 5, ceiling: 6_000 },
+    { id: "records", priority: 6, ceiling: 12_000 },
+    { id: "inbox", priority: 7, ceiling: 8_000 },
+    { id: "history", priority: 8, ceiling: 12_000 },
+    { id: "actions", priority: 9, ceiling: 8_000 },
   ],
   projectionLimits: {
     contextDocuments: 12,
     contextDocumentCharacters: 4_000,
+    contextIndexDepth: 4,
     records: 24,
     recordCharacters: 1_000,
     historyTurns: 10,
@@ -162,6 +166,7 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
 const projectionLimitEnv = {
   contextDocuments: "ASSISTANT_CONTEXT_DOCUMENTS",
   contextDocumentCharacters: "ASSISTANT_CONTEXT_DOCUMENT_CHARACTERS",
+  contextIndexDepth: "ASSISTANT_CONTEXT_INDEX_DEPTH",
   records: "ASSISTANT_CONTEXT_RECORDS",
   recordCharacters: "ASSISTANT_CONTEXT_RECORD_CHARACTERS",
   historyTurns: "ASSISTANT_CONTEXT_HISTORY_TURNS",
