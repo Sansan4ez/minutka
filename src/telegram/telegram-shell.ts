@@ -227,26 +227,32 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await removeReplyMarkup(chatId, messageId);
       return { repeated: true };
     }
+    let settleCompletion!: (completed: boolean) => void;
+    const completion = new Promise<boolean>((resolve) => { settleCompletion = resolve; });
+    inFlightActionMessages.set(key, completion);
     const claimedAt = new Date().toISOString();
     const staleBefore = new Date(Date.parse(claimedAt) - telegramActionMessageClaimLeaseMilliseconds).toISOString();
     const telegramIdentity = identity(chatId, userId);
-    const claim = await sessionStore.claimActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt, staleBefore });
-    if (claim.status === "already_claimed") {
-      await replyPort.answerCallbackQuery(callbackQueryId, repeatedText);
-      await removeReplyMarkup(chatId, messageId);
-      return { repeated: true };
-    }
-    const actionPromise = action();
-    const completion = actionPromise.then(() => true, () => false);
-    inFlightActionMessages.set(key, completion);
+    let claimAcquired = false;
+    let completed = false;
     try {
-      const result = await actionPromise;
+      const claim = await sessionStore.claimActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt, staleBefore });
+      if (claim.status === "already_claimed") {
+        await replyPort.answerCallbackQuery(callbackQueryId, repeatedText);
+        await removeReplyMarkup(chatId, messageId);
+        completed = true;
+        return { repeated: true };
+      }
+      claimAcquired = true;
+      const result = await action();
       await sessionStore.completeActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt });
+      completed = true;
       return { repeated: false, result };
     } catch (error) {
-      await sessionStore.releaseActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt }).catch((releaseError) => logShellError("action message claim release", releaseError));
+      if (claimAcquired) await sessionStore.releaseActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt }).catch((releaseError) => logShellError("action message claim release", releaseError));
       throw error;
     } finally {
+      settleCompletion(completed);
       if (inFlightActionMessages.get(key) === completion) inFlightActionMessages.delete(key);
     }
   }

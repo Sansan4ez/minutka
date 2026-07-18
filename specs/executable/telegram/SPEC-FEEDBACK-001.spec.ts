@@ -718,6 +718,69 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.callbackAnswers()).not.toContainEqual({ callbackQueryId: "confirm_retry", text: "Профиль уже сохранён." });
   });
 
+  it("10ada. Shares callback work before the durable action claim resolves", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    let attempts = 0;
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: dummyAgentRunner,
+      deps: {
+        onboardingContextMaterializer: {
+          async materialize() {
+            attempts += 1;
+            if (attempts === 1) throw new Error("temporary context failure");
+            return [];
+          },
+        },
+      },
+    });
+    await runtime.service.issueInvite({ employeeId: "emp_confirm_claim_race", inviteCode: "invite_confirm_claim_race" });
+    const telegram = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await telegram.start({ chatId: "chat_confirm_claim_race", inviteCode: "invite_confirm_claim_race" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_confirm_claim_race", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_confirm_claim_race", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    const confirmation = telegram.sentMessages()[0];
+    const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    telegram.clear();
+
+    const originalClaim = runtime.telegramSessionStore.claimActionMessage.bind(runtime.telegramSessionStore);
+    let claimCalls = 0;
+    let firstClaimCompleted!: () => void;
+    let releaseFirstClaim!: () => void;
+    const firstClaimCompletion = new Promise<void>((resolve) => { firstClaimCompleted = resolve; });
+    const firstClaimRelease = new Promise<void>((resolve) => { releaseFirstClaim = resolve; });
+    runtime.telegramSessionStore.claimActionMessage = async (input) => {
+      claimCalls += 1;
+      const result = await originalClaim(input);
+      if (claimCalls === 1) {
+        firstClaimCompleted();
+        await firstClaimRelease;
+      }
+      return result;
+    };
+
+    const first = telegram.deliverCallback({ chatId: "chat_confirm_claim_race", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_claim_failing" });
+    await firstClaimCompletion;
+    const second = telegram.deliverCallback({ chatId: "chat_confirm_claim_race", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_claim_retry" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(claimCalls).toBe(1);
+    expect(telegram.callbackAnswers()).not.toContainEqual({ callbackQueryId: "confirm_claim_retry", text: "Профиль уже сохранён." });
+    expect(telegram.replyMarkupEditCalls()).toHaveLength(0);
+
+    releaseFirstClaim();
+    await Promise.all([first, second]);
+
+    expect(attempts).toBe(2);
+    expect(world.profiles).toHaveLength(1);
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_claim_failing", text: "Не удалось сохранить профиль. Попробуйте ещё раз позже." });
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_claim_retry", text: "Профиль сохранён!" });
+    expect(telegram.callbackAnswers()).not.toContainEqual({ callbackQueryId: "confirm_claim_retry", text: "Профиль уже сохранён." });
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_confirm_claim_race", messageId: confirmation.messageId, replyMarkup: undefined });
+  });
+
   it("10a. Lets the employee correct a summary through the edit callback and textual confirmation", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
