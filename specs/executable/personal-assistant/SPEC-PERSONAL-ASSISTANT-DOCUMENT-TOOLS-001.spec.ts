@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { contextBudgetConfigFromEnv } from "../../../src/application/context-budget.js";
 import { createOwnerDocumentReader, documentReadLimits } from "../../../src/application/document-reader.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { assistantDocumentToolNames, createDocumentTools } from "../../../src/mastra/tools/document-tools.js";
@@ -149,6 +150,42 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
       expect(Array.from(result.matches[0]!.snippet)).toHaveLength(documentReadLimits.searchSnippetCharacters + 2);
       expect(result.matches[0]!.snippet.length).toBeGreaterThan(documentReadLimits.searchSnippetCharacters + 2);
     }
+  });
+
+  it("validates Mastra search output against the configured environment snippet limit", async () => {
+    const store = await fixture();
+    const configuredSnippetCharacters = 1_000;
+    await store.put("owner", "context/configured-search.md", `${"🙂".repeat(700)}needle${"🚀".repeat(700)}`);
+    const contextBudget = contextBudgetConfigFromEnv({
+      ASSISTANT_DOCUMENT_SEARCH_SNIPPET_CHARACTERS: String(configuredSnippetCharacters),
+    });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store, contextBudget });
+    const result = await createDocumentTools(reader).searchDocuments.execute?.({ query: "needle", limit: 1 }, {} as never);
+
+    expect(result).not.toMatchObject({ error: true });
+    if (result && "matches" in result) {
+      expect(result.matches[0]!.snippet).toContain("needle");
+      expect(Array.from(result.matches[0]!.snippet)).toHaveLength(configuredSnippetCharacters + 2);
+    }
+  });
+
+  it("uses configured list, read, and search maxima in Mastra input schemas", async () => {
+    const store = await fixture();
+    const contextBudget = contextBudgetConfigFromEnv({
+      ASSISTANT_DOCUMENT_LIST_MAXIMUM: "51",
+      ASSISTANT_DOCUMENT_READ_MAXIMUM_CHARACTERS: "8001",
+      ASSISTANT_DOCUMENT_SEARCH_MAXIMUM: "21",
+    });
+    const tools = createDocumentTools(createOwnerDocumentReader({ userId: "owner", documentStore: store, contextBudget }));
+
+    await expect(tools.listDocuments.execute?.({ limit: 51 }, {} as never)).resolves.toMatchObject({ truncated: false });
+    await expect(tools.readDocument.execute?.({
+      path: "/proc/context/90_agent_memory/soul.md",
+      maxCharacters: 8_001,
+    }, {} as never)).resolves.toMatchObject({ found: true });
+    await expect(tools.searchDocuments.execute?.({ query: "Тон", limit: 21 }, {} as never)).resolves.toMatchObject({
+      matches: [{ path: "/proc/context/90_agent_memory/soul.md" }],
+    });
   });
 
   it("rejects traversal and alternate namespaces, isolates owners, and handles missing files", async () => {

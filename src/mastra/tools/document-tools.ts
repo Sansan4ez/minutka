@@ -1,12 +1,8 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { documentReadLimits, type createOwnerDocumentReader } from "../../application/document-reader.js";
+import type { createOwnerDocumentReader } from "../../application/document-reader.js";
 
 const documentPathSchema = z.string().startsWith("/proc/context/");
-const searchSnippetSchema = z.string().refine(
-  (snippet) => Array.from(snippet).length <= documentReadLimits.searchSnippetCharacters + 2,
-  { message: `snippet must contain at most ${documentReadLimits.searchSnippetCharacters + 2} Unicode characters` },
-);
 const metadataSchema = z.strictObject({
   path: documentPathSchema,
   version: z.string(),
@@ -17,6 +13,12 @@ const metadataSchema = z.strictObject({
 export const assistantDocumentToolNames = ["listDocuments", "readDocument", "searchDocuments"] as const;
 
 export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumentReader>) {
+  const searchSnippetMaximum = reader.limits.searchSnippetCharacters + 2;
+  const searchSnippetSchema = z.string().refine(
+    (snippet) => Array.from(snippet).length <= searchSnippetMaximum,
+    { message: `snippet must contain at most ${searchSnippetMaximum} Unicode characters` },
+  );
+
   return {
     listDocuments: createTool({
       id: "listDocuments",
@@ -25,7 +27,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
       inputSchema: z.strictObject({
         prefix: z.string().optional(),
         cursor: documentPathSchema.optional(),
-        limit: z.number().int().min(1).max(50).optional(),
+        limit: z.number().int().min(1).max(reader.limits.listMaximum).optional(),
       }),
       outputSchema: z.strictObject({
         documents: z.array(metadataSchema),
@@ -43,7 +45,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
         path: documentPathSchema,
         offset: z.number().int().nonnegative().optional(),
         section: z.string().min(1).optional(),
-        maxCharacters: z.number().int().min(1).max(8_000).optional(),
+        maxCharacters: z.number().int().min(1).max(reader.limits.readMaximumCharacters).optional(),
       }),
       outputSchema: z.strictObject({
         path: documentPathSchema,
@@ -66,7 +68,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
       inputSchema: z.strictObject({
         query: z.string().min(2),
         prefix: z.string().optional(),
-        limit: z.number().int().min(1).max(20).optional(),
+        limit: z.number().int().min(1).max(reader.limits.searchMaximum).optional(),
       }),
       outputSchema: z.strictObject({
         matches: z.array(z.strictObject({

@@ -56,6 +56,15 @@ describe("A2.6: legacy Minutka agent removal", () => {
       records: {} as never,
       source: { kind: "text", text: "capture" },
       documents: {
+        limits: {
+          listDefault: 20,
+          listMaximum: 50,
+          readDefaultCharacters: 4_000,
+          readMaximumCharacters: 8_000,
+          searchDefault: 10,
+          searchMaximum: 20,
+          searchSnippetCharacters: 500,
+        },
         listDocuments: async () => ({ documents: [], nextCursor: null, truncated: false }),
         readDocument: async ({ path, offset = 0 }) => ({ path: path as `/proc/context/${string}`, found: false, sectionFound: false, content: "", offset, nextOffset: null, truncated: false, version: "", updatedAt: "" }),
         searchDocuments: async () => ({ matches: [], truncated: false }),

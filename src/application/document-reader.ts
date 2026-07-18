@@ -58,6 +58,7 @@ export function createOwnerDocumentReader(input: {
   const audit = async (event: Parameters<DocumentToolAudit>[0]) => input.audit?.(event);
 
   return {
+    limits,
     async listDocuments(options: { prefix?: string; cursor?: string; limit?: number } = {}): Promise<ListDocumentsResult> {
       const prefix = storagePrefix(options.prefix);
       const cursor = options.cursor === undefined ? undefined : storagePath(options.cursor);
