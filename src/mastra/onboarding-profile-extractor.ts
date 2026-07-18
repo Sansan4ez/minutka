@@ -8,12 +8,9 @@ const transportSchema = z.strictObject({
   addressForm: z.enum(["informal", "formal"]).nullable(),
   persona: z.enum(["support", "efficiency"]).nullable(),
   responseLength: z.enum(["short", "balanced", "detailed"]).nullable(),
-  timezone: z.string().trim().max(64).transform((value, context) => {
-    const timezone = normalizeTimezone(value);
-    if (timezone) return timezone;
-    context.addIssue({ code: "custom", message: "Invalid IANA timezone" });
-    return z.NEVER;
-  }).nullable(),
+  timezone: z.string().trim().max(64).nullable().transform((value) =>
+    value === null ? null : normalizeTimezone(value) ?? null
+  ),
   ambiguousFields: z.array(z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"])),
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
@@ -11,6 +11,12 @@ import { createOnboardingContextMaterializer } from "../../../src/application/on
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import type { DocumentStore } from "../../../src/application/document-store.js";
+import { extractOnboardingProfileWithAgent } from "../../../src/mastra/onboarding-profile-extractor.js";
+import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function consentedRuntime(employeeId = "emp_conversational") {
   const world = createInMemoryWorld();
@@ -192,6 +198,40 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Зови меня Алексей" })).resolves.toMatchObject({
       status: "needs_confirmation", summary: { preferredName: "Алексей", assistantName: "Спарк" },
+    });
+  });
+
+  it("keeps valid agent fields when the structured result contains an invalid timezone", async () => {
+    vi.spyOn(onboardingProfileExtractorAgent, "generate").mockResolvedValue({
+      object: {
+        preferredName: "Максим",
+        assistantName: "Спарк",
+        addressForm: "informal",
+        persona: "efficiency",
+        responseLength: "short",
+        timezone: "Moscow",
+        ambiguousFields: [],
+      },
+    } as Awaited<ReturnType<typeof onboardingProfileExtractorAgent.generate>>);
+
+    await expect(extractOnboardingProfileWithAgent({
+      text: "Меня зовут Максим, тебя — Спарк, часовой пояс Moscow",
+      currentDraft: {
+        employeeId: "emp_agent_invalid_tz",
+        status: "collecting",
+        pendingField: "preferredName",
+        revision: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-31T00:00:00.000Z",
+      },
+    })).resolves.toEqual({
+      preferredName: "Максим",
+      assistantName: "Спарк",
+      addressForm: "informal",
+      persona: "efficiency",
+      responseLength: "short",
+      ambiguousFields: [],
     });
   });
 
