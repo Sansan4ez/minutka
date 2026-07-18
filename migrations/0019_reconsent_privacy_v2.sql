@@ -1,6 +1,8 @@
--- privacy-v2 materially changes the Personal Assistant disclosure. Existing
--- privacy-v1 acceptance remains as history in the consent row but is not
--- current; runtime guards require an explicit privacy-v2 re-consent.
+-- privacy-v2 materially changes the Personal Assistant disclosure.
+-- minutka_private.consents is the current snapshot, so re-consent replaces the
+-- privacy-v1 row. For the limited pilot, prior versions exist only in
+-- consent_accepted audit events and follow their retention/deletion lifecycle;
+-- runtime guards require an explicit privacy-v2 re-consent.
 UPDATE minutka_private.telegram_sessions AS session
 SET consent_accepted_at = NULL,
     updated_at = CURRENT_TIMESTAMP

@@ -133,10 +133,14 @@ connectivity and that no migrations are pending; it fails before Telegram
 polling starts on failure.
 
 Backup policy and retention periods require explicit pilot approval. Until then,
-use only approved limited pilot data. `ProfileStore.deleteEmployeePersonalData`
-removes employee-keyed private records through FK cascades and retains only an
-anonymous `employee_data_deleted` marker (no employee ID, transport identity,
-or personal content).
+use only approved limited pilot data. `minutka_private.consents` is the current
+consent snapshot: accepting a new privacy version replaces the previous row.
+For the limited pilot, prior accepted versions exist only as `consent_accepted`
+events in `minutka_audit.events`, subject to the audit retention and deletion
+lifecycle; there is no append-only consent ledger. `ProfileStore.deleteEmployeePersonalData`
+removes employee-keyed private records, including those audit events, through FK
+cascades and retains only an anonymous `employee_data_deleted` marker (no
+employee ID, transport identity, or personal content).
 
 ## Restart smoke
 
