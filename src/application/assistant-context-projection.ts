@@ -1,5 +1,6 @@
 import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import { contextDocumentHandle, type DocumentStore, type UserDocument } from "./document-store.js";
+import { loadContextPriorityManifest, type ContextPriorityManifest } from "./context-priority-manifest.js";
 
 export type AssistantContextProjection = {
   schemaVersion: 1;
@@ -16,7 +17,8 @@ export const assistantContextLimits = {
 } as const;
 
 /** Builds the bounded `/proc/context` read model from the owner's context files only. */
-export function createAssistantContextProjectionBuilder(deps: { documentStore: DocumentStore; now: () => string; contextBudget?: ContextBudgetConfig }) {
+export function createAssistantContextProjectionBuilder(deps: { documentStore: DocumentStore; now: () => string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest }) {
+  const contextPriorities = deps.contextPriorities ?? loadContextPriorityManifest();
   const limits = {
     documents: deps.contextBudget?.projectionLimits.contextDocuments ?? assistantContextLimits.documents,
     characters: sourceCharacterCeiling(deps.contextBudget ?? defaultContextBudget, "context"),
@@ -24,7 +26,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
   };
   return {
     async build(input: { userId: string; requestId: string }): Promise<AssistantContextProjection> {
-      const source = prioritizeContextDocuments(await deps.documentStore.list(input.userId, "context/"));
+      const source = prioritizeContextDocuments(await deps.documentStore.list(input.userId, "context/"), contextPriorities);
       let characters = 0;
       let truncated = source.length > limits.documents;
       const documents: AssistantContextProjection["data"]["documents"] = [];
@@ -62,24 +64,17 @@ export function renderAssistantContextProjection(projection: AssistantContextPro
   ].join("\n\n");
 }
 
-const coreContextPathPatterns = [
-  /(?:^|\/)(?:01_persona|01_личная_конституция)\.md$/iu,
-  /(?:^|\/)(?:02_goals_and_priorities|02_цели_и_приоритеты)\.md$/iu,
-  /^context\/40_projects\/(?:00_проекты|[^/]*мои_проекты)\.md$/iu,
-  /(?:^|\/)(?:05_характер[^/]*|soul)\.md$/iu,
-  /(?:^|\/)(?:06_tags_and_classifications|06_классификатор)\.md$/iu,
-] as const;
-
-function prioritizeContextDocuments(documents: UserDocument[]): UserDocument[] {
+export function prioritizeContextDocuments(documents: UserDocument[], manifest: ContextPriorityManifest): UserDocument[] {
   return documents
-    .map((document, index) => ({ document, index, priority: contextDocumentPriority(document.path) }))
+    .map((document, index) => ({ document, index, priority: contextDocumentPriority(document.path, manifest) }))
     .sort((left, right) => left.priority - right.priority || left.index - right.index)
     .map(({ document }) => document);
 }
 
-function contextDocumentPriority(path: string): number {
-  const coreIndex = coreContextPathPatterns.findIndex((pattern) => pattern.test(path));
-  return coreIndex === -1 ? coreContextPathPatterns.length : coreIndex;
+function contextDocumentPriority(path: string, manifest: ContextPriorityManifest): number {
+  const handle = contextDocumentHandle(path);
+  const coreIndex = manifest.rules.findIndex(({ matcher }) => matcher.test(handle));
+  return coreIndex === -1 ? manifest.rules.length : coreIndex;
 }
 
 function escapeUserData(value: string): string {

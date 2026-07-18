@@ -28,7 +28,7 @@ README-файлы каталогов не получают особого ста
 | 4 | `/processes/index.md` | Каталог для agent-led routing | trusted guidance, product-global | каждый product agent turn | ≤4 000 chars | включён |
 | 5 | registered `/processes/*` | Procedural playbooks | trusted guidance, product-global | сейчас все из малого registry; позже по `readProcess` | ≤16 000 chars total, ≤4 000/file | включён `inbox_capture` |
 | 6 | `/proc/profile` | Предпочтения, timezone, профиль знакомства | untrusted owner data, current `userId` | chat/onboarding/scheduled, когда профиль существует | ≤4 000 chars | включён в product chat после onboarding |
-| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `AGENTS.MD`, `README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat; core документы идут перед остальным деревом |
+| 7 | `/proc/context` | Приоритетные личные документы; agent-facing handles без physical `context/`/legacy import prefix | untrusted owner data, current `userId`; `AGENTS.MD`, `README.MD`, `99_system/*` остаются data | chat и будущие scheduled jobs | 12 docs; 4 000/doc; 16 000 total | включён в chat; порядок core-документов задаёт trusted-манифест [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json) |
 | 8 | `/proc/records` | Relevant typed records | untrusted owner data, current `userId` | chat/scheduled по доступному store | 24 records; 1 000/record; 12 000 total | включён в chat |
 | 9 | `/proc/inbox` | Недавние/релевантные входящие артефакты | untrusted owner data, current `userId` | file/voice intake и запросы об inbox | ≤12 items; ≤8 000 chars metadata/extract total | **не включён** |
 | 10 | recent conversation history | Разрешение ссылок и продолжение треда | untrusted owner data, current `userId` + `threadId` | chat/voice после успешной аутентификации | 10 completed turns; 12 000 chars | включён в product chat с явным truncation marker |
@@ -56,6 +56,7 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 - Index не является источником файлов: загрузка идёт только по registry.
 - Repository `docs/**`, `vault/user/**`, storage keys `context/*`/`inbox/*` и raw database/object-storage paths не загружаются в system context.
 - Owner projections экранируются и маркируются как untrusted data. Их scope формирует application layer из authenticated `userId`/`threadId`; имя `AGENTS.MD`, `README.MD` или каталог `99_system` не повышают trust.
+- Приоритеты документов `/proc/context` загружаются только из versioned trusted-манифеста [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json); owner context не участвует в выборе или изменении правил.
 - `/proc/profile` владеет подтверждёнными structured operational fields. `90_agent_memory/soul.md` и legacy `persona.md` — только untrusted prose preferences; при конфликте они не переопределяют profile, policy или capabilities.
 - `/run/actions` не может менять роль, policy, process selection или capability set.
 - Typed tools передаются отдельно; system context не содержит store credentials, transport ids, signed URLs или shell/file access.

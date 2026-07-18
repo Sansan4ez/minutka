@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "personal-constitution",
+      "pattern": "^/proc/context/(?:.*/)?(?:01_persona|01_личная_конституция)\\.md$"
+    },
+    {
+      "id": "goals-and-priorities",
+      "pattern": "^/proc/context/(?:.*/)?(?:02_goals_and_priorities|02_цели_и_приоритеты)\\.md$"
+    },
+    {
+      "id": "projects",
+      "pattern": "^/proc/context/40_projects/(?:00_проекты|[^/]*мои_проекты)\\.md$"
+    },
+    {
+      "id": "assistant-character",
+      "pattern": "^/proc/context/(?:.*/)?(?:05_характер[^/]*|soul)\\.md$"
+    },
+    {
+      "id": "tags-and-classifications",
+      "pattern": "^/proc/context/(?:.*/)?(?:06_tags_and_classifications|06_классификатор)\\.md$"
+    }
+  ]
+}

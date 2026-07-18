@@ -2,6 +2,7 @@ import { AssistantService } from "../application/assistant-service.js";
 import { assertContextSourceContentFits, contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
+import { loadContextPriorityManifest } from "../application/context-priority-manifest.js";
 import { createIngestionService } from "../application/ingestion-service.js";
 import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
@@ -34,6 +35,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   // The process manual is deployment configuration: validate it before opening
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();
+  const contextPriorities = loadContextPriorityManifest();
   const config = postgresConfigFromEnv(input.env);
   const contextBudget = contextBudgetConfigFromEnv(input.env);
   assertContextSourceContentFits({
@@ -111,6 +113,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
       agentInstructions,
       contextBudget,
+      contextPriorities,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
