@@ -780,6 +780,58 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_callback_text_race", messageId: choiceMessage.messageId, replyMarkup: undefined });
   });
 
+  it("10bb. Keeps the chat busy until both callbacks from a double-click finish", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    await runtime.service.issueInvite({ employeeId: "emp_callback_double", inviteCode: "invite_callback_double" });
+    const sent: Array<{ messageId: number; text: string; replyMarkup?: { inlineKeyboard: Array<Array<{ callbackData: string }>> } }> = [];
+    const callbacks: Array<{ callbackQueryId: string; text?: string }> = [];
+    let firstAnswerStarted!: () => void;
+    let releaseFirstAnswer!: () => void;
+    let secondAnswerStarted!: () => void;
+    let releaseSecondAnswer!: () => void;
+    const firstAnswer = new Promise<void>((resolve) => { firstAnswerStarted = resolve; });
+    const firstAnswerRelease = new Promise<void>((resolve) => { releaseFirstAnswer = resolve; });
+    const secondAnswer = new Promise<void>((resolve) => { secondAnswerStarted = resolve; });
+    const secondAnswerRelease = new Promise<void>((resolve) => { releaseSecondAnswer = resolve; });
+    const shell = createTelegramShell({
+      client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      sessionStore: runtime.telegramSessionStore,
+      replyPort: {
+        async sendMessage(_chatId, text, options) {
+          const messageId = sent.length + 1;
+          sent.push({ messageId, text, ...(options?.replyMarkup === undefined ? {} : { replyMarkup: options.replyMarkup }) });
+          return { messageId };
+        },
+        async editReplyMarkup() {},
+        async sendChatAction() {},
+        async answerCallbackQuery(callbackQueryId, text) {
+          if (callbackQueryId === "consent_first") { firstAnswerStarted(); await firstAnswerRelease; }
+          if (callbackQueryId === "consent_second") { secondAnswerStarted(); await secondAnswerRelease; }
+          callbacks.push({ callbackQueryId, text });
+        },
+      },
+    });
+    await shell.handleStart("chat_callback_double", "invite_callback_double", "user_callback_double");
+    const prompt = sent[0];
+    const consent = prompt.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    sent.length = 0;
+
+    const first = shell.handleCallback("chat_callback_double", "consent_first", consent!, "user_callback_double", prompt.messageId);
+    await firstAnswer;
+    const second = shell.handleCallback("chat_callback_double", "consent_second", consent!, "user_callback_double", prompt.messageId);
+    await secondAnswer;
+    releaseFirstAnswer();
+    await first;
+    await shell.handleText("chat_callback_double", "Сообщение между завершениями callback", "user_callback_double");
+
+    expect(sent).toContainEqual(expect.objectContaining({ text: "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение." }));
+    releaseSecondAnswer();
+    await second;
+    expect(callbacks).toContainEqual({ callbackQueryId: "consent_first", text: "Согласие принято!" });
+    expect(callbacks).toContainEqual({ callbackQueryId: "consent_second", text: "Уже обработано." });
+  });
+
   it("10b. Repeated consent callback is idempotent under concurrent delivery", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

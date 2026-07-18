@@ -179,11 +179,19 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
   const rawReplyPort = deps.replyPort;
   const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs;
-  const inFlightChatIds = new Set<string>();
+  const inFlightChatCounts = new Map<string, number>();
   const activeActionMessageIds = new Map<string, number>();
   const inFlightActionMessages = new Map<string, Promise<boolean>>();
   const callbackActionKeys = new Map<string, string>();
   const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
+  const isChatInFlight = (chatId: string) => (inFlightChatCounts.get(chatId) ?? 0) > 0;
+  function enterChat(chatId: string): void { inFlightChatCounts.set(chatId, (inFlightChatCounts.get(chatId) ?? 0) + 1); }
+  function leaveChat(chatId: string): number {
+    const remaining = (inFlightChatCounts.get(chatId) ?? 1) - 1;
+    if (remaining <= 0) { inFlightChatCounts.delete(chatId); return 0; }
+    inFlightChatCounts.set(chatId, remaining);
+    return remaining;
+  }
   async function removeReplyMarkup(chatId: string, messageId: number): Promise<void> {
     try {
       await rawReplyPort.editReplyMarkup(chatId, messageId);
@@ -297,15 +305,15 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       }
     },
     async handleText(chatId: string, text: string, userId?: string) {
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
       try {
         await removeActiveReplyMarkup(chatId);
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (Array.from(trimmed).length > 4096) return void await replyPort.sendMessage(chatId, "Сообщение слишком длинное (максимум 4096 символов).");
         const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
-      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
       try {
         await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
@@ -338,7 +346,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           : error instanceof ArtifactSaveTimeoutError || (error instanceof Error && error.name === "AbortError") ? "Не удалось сохранить файл вовремя. Попробуйте ещё раз позже."
           : "Не удалось сохранить файл. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
-      } finally { inFlightChatIds.delete(chatId); }
+      } finally { leaveChat(chatId); }
     },
     async handleUnsupportedAttachment(chatId: string, userId?: string) {
       await removeActiveReplyMarkup(chatId);
@@ -346,7 +354,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       catch (error) { logShellError("unsupported attachment", error); await replyPort.sendMessage(chatId, "Не удалось обработать вложение. Попробуйте ещё раз позже."); }
     },
     async handleVoice(chatId: string, voice: { fileId: string; messageId: number; durationSeconds: number; fileSizeBytes?: number }, userId?: string) {
-      if (inFlightChatIds.has(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); inFlightChatIds.add(chatId);
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
       try {
         await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
@@ -377,13 +385,13 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (audio) destroyStream(audio);
           if (audio && audio !== file?.stream) destroyStream(file!.stream);
         }
-      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { inFlightChatIds.delete(chatId); }
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
       const actionKey = messageId === undefined ? undefined : `${chatId}:${messageId}`;
       const existingActionKey = callbackActionKeys.get(chatId);
-      if (inFlightChatIds.has(chatId) && (!actionKey || existingActionKey !== actionKey)) return void await replyPort.answerCallbackQuery(callbackQueryId, inFlightDeliveryMessage);
-      inFlightChatIds.add(chatId);
+      if (isChatInFlight(chatId) && (!actionKey || existingActionKey !== actionKey)) return void await replyPort.answerCallbackQuery(callbackQueryId, inFlightDeliveryMessage);
+      enterChat(chatId);
       if (actionKey) callbackActionKeys.set(chatId, actionKey);
       try {
         const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
@@ -437,8 +445,8 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       } catch (error) {
         logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       } finally {
-        if (actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);
-        inFlightChatIds.delete(chatId);
+        const remaining = leaveChat(chatId);
+        if (remaining === 0 && actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);
       }
     },
   };
