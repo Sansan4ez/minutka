@@ -12,7 +12,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { EmployeeMinutkaClient, ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { HttpEmployeeMinutkaTransport, HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
@@ -84,7 +84,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
 
     const telegramReplies: string[] = [];
     const telegram = createTelegramShell({
-      client: new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })),
+      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })),
       sessionStore: runtime.telegramSessionStore,
       artifactIntake: facade,
       fileGateway: {

@@ -6,11 +6,11 @@ import type { AgentRunner } from "../../../src/application/minutka-service.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { decodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import { parseInviteSeeds } from "../../../src/telegram/invite-seeds.js";
-import { privacyExplanation } from "../../../src/domain/privacy.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
+const privacyExplanation = executableSpecPrivacyExplanation;
 
 registerSpecMetadata({
   id: "SPEC-FEEDBACK-001",
@@ -795,7 +795,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const secondAnswer = new Promise<void>((resolve) => { secondAnswerStarted = resolve; });
     const secondAnswerRelease = new Promise<void>((resolve) => { releaseSecondAnswer = resolve; });
     const shell = createTelegramShell({
-      client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
       sessionStore: runtime.telegramSessionStore,
       replyPort: {
         async sendMessage(_chatId, text, options) {
@@ -898,7 +898,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     });
     const sent: string[] = [];
     const shell = createTelegramShell({
-      client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
       sessionStore: runtime.telegramSessionStore,
       replyPort: {
         async sendMessage(_chatId, text) { sent.push(text); return { messageId: sent.length }; },

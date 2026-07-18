@@ -18,6 +18,10 @@ import type { ConsentAcceptanceStore } from "../application/consent-acceptance-s
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
 import type { InsightExtractor } from "../application/insight-extractor.js";
 import type { DocumentStore } from "../application/document-store.js";
+import { createPrivacyExplanation } from "../domain/privacy.js";
+
+export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v2.html";
+export const executableSpecPrivacyExplanation = createPrivacyExplanation(executableSpecPrivacyPolicyUrl);
 
 export type InMemoryRuntime = {
   service: MinutkaService;
@@ -75,6 +79,7 @@ export function createInMemoryRuntime(input: {
       sessionStore,
       auditEventStore,
     }),
+    privacyExplanation: executableSpecPrivacyExplanation,
     onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
     clock,
     idGenerator: createDeterministicIdGenerator(),

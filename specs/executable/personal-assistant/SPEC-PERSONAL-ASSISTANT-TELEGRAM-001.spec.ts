@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AssistantChatInput } from "../../../src/application/assistant-service.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../../../src/application/artifact-body-stager.js";
 import type { SaveArtifactInput, SaveArtifactResult } from "../../../src/application/artifact-store.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { ServiceMinutkaClient, type ServiceEmployeeMinutkaTransport, type ServiceMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell, maxTelegramArtifactFileSizeBytes, type TelegramFileAttachment } from "../../../src/telegram/telegram-shell.js";
@@ -42,7 +42,7 @@ async function setup(input: { saveError?: Error } = {}) {
   };
   const client = new ServiceMinutkaClient(transport);
   const shell = createTelegramShell({
-    client,
+    privacyExplanation: executableSpecPrivacyExplanation, client,
     sessionStore: runtime.telegramSessionStore,
     artifactIntake: {
       async saveArtifact(file) {

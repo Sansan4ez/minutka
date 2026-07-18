@@ -81,7 +81,7 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {

@@ -1,5 +1,5 @@
 import type { AddressForm, AiLevel, Consent, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
-import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
@@ -106,6 +106,8 @@ export type MinutkaServiceDeps = {
   agentManualRouter?: AgentManualRouter;
   conversationDecisionRouter?: ConversationDecisionRouter;
   manual?: AgentManual;
+  /** Exact versioned text shown before accepting the current privacy version. */
+  privacyExplanation?: string;
 };
 
 /** Transport- and storage-independent application use cases. */
@@ -123,6 +125,7 @@ export class MinutkaService {
   private readonly contextBuilder: MinutkaContextBuilderLike;
   private readonly projectionBuilder: RuntimeProjectionBuilder;
   private readonly manual: AgentManual;
+  private readonly privacyExplanation: string;
 
   constructor(private readonly agentRunner: AgentRunner, private readonly deps: MinutkaServiceDeps) {
     this.stores = {
@@ -136,6 +139,7 @@ export class MinutkaService {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
     this.manual = deps.manual ?? loadAgentManualFromDisk();
+    this.privacyExplanation = requireStringDependency(deps.privacyExplanation, "privacyExplanation");
     this.contextBuilder = deps.contextBuilder ?? createMinutkaContextBuilder(this.manual, deps.agentManualRouter);
     this.projectionBuilder = deps.projectionBuilder ?? createRuntimeProjectionBuilder({ ...this.stores, clock: this.clock });
   }
@@ -171,7 +175,7 @@ export class MinutkaService {
       inviteCode,
       status: opened.participant.status,
       privacyVersion: currentPrivacyVersion,
-      privacyExplanation,
+      privacyExplanation: this.privacyExplanation,
     };
   }
 
@@ -213,7 +217,7 @@ export class MinutkaService {
       employeeId: result.employeeId,
       threadId: result.threadId,
       privacyVersion: currentPrivacyVersion,
-      privacyExplanation,
+      privacyExplanation: this.privacyExplanation,
     };
   }
 
@@ -623,3 +627,4 @@ function getChangedFields(existing: UserProfile | undefined, next: UserProfile):
 /** Logs only the operation and error class; user data and driver payloads remain private. */
 function logOperationalError(operation: string, error: unknown): void { console.warn(`Minutka ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 function requireDependency<T>(value: T | undefined, name: string): T { if (!value) throw new Error(`${name} is required; production composition has no in-memory fallback`); return value; }
+function requireStringDependency(value: string | undefined, name: string): string { const normalized = value?.trim(); if (!normalized) throw new Error(`${name} is required`); return normalized; }

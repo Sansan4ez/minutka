@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { chatHandlerTimeoutMs, defaultHandlerTimeoutMs, listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import { apiAuthConfigFromEnv } from "../../../src/server/http/auth.js";
 import { PersistenceError } from "../../../src/application/persistence-error.js";
@@ -69,7 +69,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const { runtime, url } = await api();
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
     const replies: string[] = [];
-    const shell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort: { async sendMessage(_chatId, text) { replies.push(text); return { messageId: replies.length }; }, async sendChatAction() {}, async editReplyMarkup() {}, async answerCallbackQuery() {} }, speechToText: { async transcribe() { return ""; } }, voiceFileGateway: { async openVoiceFile() { throw new Error("not used in HTTP spec"); } } });
+    const shell = createTelegramShell({ privacyExplanation: executableSpecPrivacyExplanation, client, sessionStore: runtime.telegramSessionStore, replyPort: { async sendMessage(_chatId, text) { replies.push(text); return { messageId: replies.length }; }, async sendChatAction() {}, async editReplyMarkup() {}, async answerCallbackQuery() {} }, speechToText: { async transcribe() { return ""; } }, voiceFileGateway: { async openVoiceFile() { throw new Error("not used in HTTP spec"); } } });
     await shell.handleStart("owner-chat", "invite_a", "owner-user"); await shell.handleStart("other-chat", "invite_a", "other-user");
     expect(replies.at(-1)).toContain("уже привязана к другому Telegram-аккаунту");
     const redeemed = await client.redeemTelegramInvite({ inviteCode: "invite_b", identity: { chatId: "service-chat", userId: "service-user" } });

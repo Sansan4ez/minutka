@@ -4,7 +4,7 @@ import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
-import { currentPrivacyVersion, privacyExplanation } from "../domain/privacy.js";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
@@ -174,8 +174,10 @@ export type TelegramFileAttachment = {
 
 export type TelegramArtifactIntake = { saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> };
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
+  const privacyExplanation = deps.privacyExplanation.trim();
+  if (!privacyExplanation) throw new Error("privacyExplanation is required");
   const rawReplyPort = deps.replyPort;
   const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs;
   const inFlightChatCounts = new Map<string, number>();

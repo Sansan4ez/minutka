@@ -9,7 +9,7 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 import { ServiceMinutkaClient, type ServiceMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
@@ -71,7 +71,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     };
     const client = new ServiceMinutkaClient(transport);
     const shell = createTelegramShell({
-      client,
+      privacyExplanation: executableSpecPrivacyExplanation, client,
       sessionStore: legacy.telegramSessionStore,
       artifactIntake: { saveArtifact: (input) => artifactStore.save(input) },
       fileGateway: { createFileBody({ fileId, fileSizeBytes }) { downloadedFiles.push(fileId); return { ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from("photo") }; } },

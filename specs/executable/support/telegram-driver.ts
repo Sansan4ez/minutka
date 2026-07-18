@@ -1,6 +1,6 @@
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
@@ -79,7 +79,7 @@ export class TelegramDriver {
       },
     };
     this.shell = createTelegramShell({
-      client,
+      privacyExplanation: executableSpecPrivacyExplanation, client,
       sessionStore: runtime.telegramSessionStore,
       replyPort,
       ...(voiceEnabled ? { speechToText, voiceFileGateway } : {}),

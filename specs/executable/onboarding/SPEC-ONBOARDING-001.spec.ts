@@ -7,7 +7,8 @@ import {
   type ChatInput,
 } from "../../../src/application/minutka-service.js";
 import type { UserProfile } from "../../../src/domain/employee.js";
-import { currentPrivacyVersion, privacyPolicyUrl } from "../../../src/domain/privacy.js";
+import { currentPrivacyVersion } from "../../../src/domain/privacy.js";
+import { executableSpecPrivacyPolicyUrl } from "../../../src/runtime/create-in-memory-runtime.js";
 import type {
   AcceptConsentResult,
   CompleteOnboardingResult,
@@ -87,7 +88,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
     expect(invite.privacyExplanation).toContain("STT-провайдеру");
     expect(invite.privacyExplanation).toContain("явного подтверждения");
-    expect(invite.privacyExplanation).toContain(privacyPolicyUrl);
+    expect(invite.privacyExplanation).toContain(executableSpecPrivacyPolicyUrl);
     expect(invite.privacyExplanation).not.toMatch(/Минутка|компания не получает|5 сотрудников/i);
 
     const consent = await spec.cli.json<AcceptConsentResult>([

@@ -28,6 +28,7 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
+import { privacyConfigFromEnv } from "../config/privacy.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
   // The process manual is deployment configuration: validate it before opening
@@ -35,6 +36,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const agentInstructions = loadAssistantAgentInstructions();
   const config = postgresConfigFromEnv(input.env);
   const contextBudget = contextBudgetConfigFromEnv(input.env);
+  const privacy = privacyConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -82,6 +84,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         config.inviteCodePepper,
         config.telegramIdentityPepper,
       ),
+      privacyExplanation: privacy.explanation,
       onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService: ingestion }),
       clock: systemClock,
       idGenerator: randomIdGenerator,
@@ -119,6 +122,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ingestion,
       artifactContentStore,
       telegramSessionStore,
+      privacyExplanation: privacy.explanation,
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
