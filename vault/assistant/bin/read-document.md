@@ -19,11 +19,12 @@ No.
 
 - logical path and safe version metadata
 - `found` and `sectionFound`
-- bounded content, current offset, next offset
-- explicit `truncated`
+- bounded content, current offset, next offset, and `totalCharacters` for the document or selected section
+- explicit `truncated`, request-scoped `readBudgetExhausted`, and a narrowing hint when the turn budget is exhausted
 
 ## Rules
 
 - The application binds the authenticated owner; owner id is never model input.
 - Missing documents return `found: false` without leaking another owner's existence.
 - Physical storage identifiers and credentials are never returned.
+- Returned content shares the request-scoped 48k Unicode-character turn budget with search snippets; boundary reads are clamped instead of failing.

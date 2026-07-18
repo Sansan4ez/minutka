@@ -45,7 +45,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   feedback_received: ["feedbackId", "rating", "source"],
   agent_manual_load_failed: [],
   idea_captured: ["ideaId", "recordType", "sourceKind"],
-  document_tool_used: ["operation", "resultCount", "truncated", "outcome"],
+  document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
   employee_data_deleted: [],
 };

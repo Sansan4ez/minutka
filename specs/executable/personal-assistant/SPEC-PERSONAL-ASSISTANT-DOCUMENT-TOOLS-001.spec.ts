@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { contextBudgetConfigFromEnv } from "../../../src/application/context-budget.js";
+import { contextBudgetConfigFromEnv, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createOwnerDocumentReader, documentReadLimits } from "../../../src/application/document-reader.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import type { DocumentStore } from "../../../src/application/document-store.js";
@@ -161,6 +161,59 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(second).toMatchObject({ nextOffset: null, truncated: false });
   });
 
+  it("reads a 20k document page by page through truncated=false with visible totalCharacters", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/complete.md", "🙂".repeat(20_000));
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+    let offset = 0;
+    let collected = "";
+    for (;;) {
+      const page = await reader.readDocument({ path: "/proc/context/complete.md", offset, maxCharacters: 8_000 });
+      expect(page.totalCharacters).toBe(20_000);
+      collected += page.content;
+      if (!page.truncated) break;
+      offset = page.nextOffset!;
+    }
+    expect(Array.from(collected)).toHaveLength(20_000);
+  });
+
+  it("clamps Unicode reads at the remaining turn budget and returns a typed exhaustion marker", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/big.md", "🙂".repeat(20));
+    const contextBudget = createContextBudgetConfig({ documentTools: { turnReadCharacters: 7, readDefaultCharacters: 5, readMaximumCharacters: 10 } });
+    const events: unknown[] = [];
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store, contextBudget, audit: async (event) => { events.push(event); } });
+
+    const first = await reader.readDocument({ path: "/proc/context/big.md", maxCharacters: 5 });
+    const boundary = await reader.readDocument({ path: "/proc/context/big.md", offset: first.nextOffset!, maxCharacters: 5 });
+    const exhausted = await reader.readDocument({ path: "/proc/context/big.md", offset: boundary.nextOffset!, maxCharacters: 5 });
+
+    expect(Array.from(first.content)).toHaveLength(5);
+    expect(boundary).toMatchObject({ content: "🙂🙂", totalCharacters: 20, nextOffset: 7, truncated: true, readBudgetExhausted: true });
+    expect(exhausted).toMatchObject({ content: "", totalCharacters: 20, nextOffset: 7, truncated: true, readBudgetExhausted: true });
+    expect(exhausted.hint).toMatch(/section or search/);
+    expect(events).toContainEqual(expect.objectContaining({ operation: "read", path: "/proc/context/big.md", returnedCharacters: 2, reason: "budget_exhausted" }));
+  });
+
+  it("counts search snippets in the shared budget while metadata listing remains free", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/01.md", "needle-abcdef");
+    await store.put("owner", "context/02.md", "needle-ghijkl");
+    const contextBudget = createContextBudgetConfig({ documentTools: { turnReadCharacters: 6, searchSnippetCharacters: 4 } });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store, contextBudget });
+
+    await reader.listDocuments({ limit: 10 });
+    await reader.listDocuments({ limit: 10 });
+    const search = await reader.searchDocuments({ query: "needle", limit: 2 });
+    const read = await reader.readDocument({ path: "/proc/context/01.md", maxCharacters: 4 });
+
+    expect(search.matches).toHaveLength(2);
+    expect(search.matches.map(({ snippet }) => Array.from(snippet).length)).toEqual([5, 1]);
+    expect(search.matches.map(({ snippet }) => snippet)).toEqual(["need…", "…"]);
+    expect(search).toMatchObject({ truncated: true, readBudgetExhausted: true });
+    expect(read).toMatchObject({ content: "", readBudgetExhausted: true });
+  });
+
   it("searches only the bound owner and returns bounded snippets", async () => {
     const store = await fixture();
     await store.put("owner", "context/search.md", `${"a".repeat(400)}needle${"b".repeat(400)}`);
@@ -195,6 +248,8 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(result).toEqual({
       matches: [expect.objectContaining({ path: "/proc/context/01-first.md" })],
       truncated: true,
+      readBudgetExhausted: false,
+      hint: null,
     });
     expect(bodyReads).toBe(2);
   });
@@ -287,7 +342,7 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     await expect(reader.readDocument({ path: "/proc/context/10_user_memory/private.md" })).resolves.toMatchObject({ found: false, content: "", truncated: false });
   });
 
-  it("audits usage without query, path, or content", async () => {
+  it("audits logical paths and read progress without query or document text", async () => {
     const events: unknown[] = [];
     const reader = createOwnerDocumentReader({
       userId: "owner",
@@ -297,10 +352,17 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     await reader.searchDocuments({ query: "ясность" });
     await reader.readDocument({ path: "/proc/context/missing.md" });
     expect(events).toEqual([
-      { operation: "search", resultCount: 1, truncated: false, outcome: "ok" },
-      { operation: "read", resultCount: 0, truncated: false, outcome: "not_found" },
+      {
+        operation: "search", resultCount: 1, truncated: false, outcome: "ok",
+        path: "/proc/context/10_user_memory/01_личная_конституция.md",
+        totalCharacters: 98, returnedCharacters: 98, nextOffset: 98, reason: "ok",
+      },
+      {
+        operation: "read", resultCount: 0, truncated: false, outcome: "not_found",
+        path: "/proc/context/missing.md", totalCharacters: 0, returnedCharacters: 0, nextOffset: 0, reason: "ok",
+      },
     ]);
-    expect(JSON.stringify(events)).not.toMatch(/ясность|missing|content|path/);
+    expect(JSON.stringify(events)).not.toMatch(/ясность|Сначала ясность|content|query/);
   });
 
   it("keeps registry, manifests, README, and wired TypeScript toolset aligned", async () => {

@@ -45,7 +45,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(runtimeProjectionLimits).toMatchObject({ threadTurns: 10, threadCharacters: 12_000, threadTurnTextCharacters: 6_000 });
     expect(documentReadLimits).toEqual({
       listDefault: 20, listMaximum: 50, readDefaultCharacters: 4_000, readMaximumCharacters: 8_000,
-      searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,
+      turnReadCharacters: 48_000, searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,
     });
   });
 
@@ -184,11 +184,12 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       ASSISTANT_CONTEXT_SOURCE_CONTEXT_CHARACTERS: "17000",
       ASSISTANT_CONTEXT_DOCUMENT_CHARACTERS: "5000",
       ASSISTANT_DOCUMENT_READ_MAXIMUM_CHARACTERS: "9000",
+      ASSISTANT_DOCUMENT_TURN_READ_CHARACTERS: "49000",
     })).toMatchObject({
       total: 50_000,
       responseReserve: 9_000,
       projectionLimits: { contextDocumentCharacters: 5_000 },
-      documentTools: { readMaximumCharacters: 9_000 },
+      documentTools: { readMaximumCharacters: 9_000, turnReadCharacters: 49_000 },
     });
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "-1" })).toThrow("non-negative integer");
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "1000" })).toThrow("must not exceed total budget");

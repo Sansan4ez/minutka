@@ -25,8 +25,11 @@ export type ReadDocumentResult = Pick<UserDocument, "version" | "updatedAt"> & {
   sectionFound: boolean;
   content: string;
   offset: number;
+  totalCharacters: number;
   nextOffset: number | null;
   truncated: boolean;
+  readBudgetExhausted: boolean;
+  hint: string | null;
 };
 
 export type SearchDocumentsResult = {
@@ -35,6 +38,8 @@ export type SearchDocumentsResult = {
     snippet: string;
   }>;
   truncated: boolean;
+  readBudgetExhausted: boolean;
+  hint: string | null;
 };
 
 export type DocumentToolAudit = (event: {
@@ -42,6 +47,11 @@ export type DocumentToolAudit = (event: {
   resultCount: number;
   truncated: boolean;
   outcome: "ok" | "not_found";
+  path?: string;
+  totalCharacters?: number;
+  returnedCharacters?: number;
+  nextOffset?: number;
+  reason?: "ok" | "truncated" | "budget_exhausted";
 }) => Promise<void>;
 
 /**
@@ -56,6 +66,9 @@ export function createOwnerDocumentReader(input: {
 }) {
   const limits = input.contextBudget?.documentTools ?? documentReadLimits;
   const audit = async (event: Parameters<DocumentToolAudit>[0]) => input.audit?.(event);
+  let returnedContentCharacters = 0;
+  const remainingReadCharacters = () => Math.max(0, limits.turnReadCharacters - returnedContentCharacters);
+  const consumeReadCharacters = (characters: number) => { returnedContentCharacters += characters; };
 
   return {
     limits,
@@ -83,36 +96,78 @@ export function createOwnerDocumentReader(input: {
 
     async readDocument(options: { path: string; offset?: number; section?: string; maxCharacters?: number }): Promise<ReadDocumentResult> {
       const path = storagePath(options.path);
+      const logicalPath = contextDocumentHandle(path);
       const offset = boundedInteger(options.offset, 0, 0, Number.MAX_SAFE_INTEGER, "offset");
-      const maximum = boundedInteger(options.maxCharacters, limits.readDefaultCharacters, 1, limits.readMaximumCharacters, "maxCharacters");
+      const requestedMaximum = boundedInteger(options.maxCharacters, limits.readDefaultCharacters, 1, limits.readMaximumCharacters, "maxCharacters");
       const document = await input.documentStore.get(input.userId, path);
       if (!document) {
-        const result = missingReadResult(contextDocumentHandle(path), offset);
-        await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found" });
+        const result = missingReadResult(logicalPath, offset);
+        await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found", path: logicalPath, totalCharacters: 0, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
         return result;
       }
       const selectedContent = options.section === undefined ? document.content : markdownSection(document.content, options.section);
       if (selectedContent === null) {
-        const result = { ...missingReadResult(contextDocumentHandle(path), offset), found: true, version: document.version, updatedAt: document.updatedAt };
-        await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found" });
+        const result = { ...missingReadResult(logicalPath, offset), found: true, version: document.version, updatedAt: document.updatedAt };
+        await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found", path: logicalPath, totalCharacters: 0, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
         return result;
       }
       const characters = Array.from(selectedContent);
+      if (offset >= characters.length) {
+        const result: ReadDocumentResult = {
+          path: logicalPath,
+          found: true,
+          sectionFound: true,
+          content: "",
+          offset,
+          totalCharacters: characters.length,
+          nextOffset: null,
+          truncated: false,
+          readBudgetExhausted: false,
+          hint: null,
+          version: document.version,
+          updatedAt: document.updatedAt,
+        };
+        await audit({ operation: "read", resultCount: 1, truncated: false, outcome: "ok", path: logicalPath, totalCharacters: characters.length, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
+        return result;
+      }
+      const remaining = remainingReadCharacters();
+      if (remaining === 0) {
+        const result = exhaustedReadResult(logicalPath, offset, characters.length, document);
+        await audit({ operation: "read", resultCount: 0, truncated: true, outcome: "ok", path: logicalPath, totalCharacters: characters.length, returnedCharacters: 0, nextOffset: offset, reason: "budget_exhausted" });
+        return result;
+      }
+      const maximum = Math.min(requestedMaximum, remaining);
       const content = characters.slice(offset, offset + maximum).join("");
-      const nextOffset = offset + Array.from(content).length;
+      const returnedCharacters = Array.from(content).length;
+      consumeReadCharacters(returnedCharacters);
+      const nextOffset = offset + returnedCharacters;
       const truncated = nextOffset < characters.length;
+      const readBudgetExhausted = truncated && remainingReadCharacters() === 0;
       const result: ReadDocumentResult = {
-        path: contextDocumentHandle(path),
+        path: logicalPath,
         found: true,
         sectionFound: true,
         content,
         offset,
+        totalCharacters: characters.length,
         nextOffset: truncated ? nextOffset : null,
         truncated,
+        readBudgetExhausted,
+        hint: readBudgetExhausted ? readBudgetHint : null,
         version: document.version,
         updatedAt: document.updatedAt,
       };
-      await audit({ operation: "read", resultCount: 1, truncated, outcome: "ok" });
+      await audit({
+        operation: "read",
+        resultCount: 1,
+        truncated,
+        outcome: "ok",
+        path: logicalPath,
+        totalCharacters: characters.length,
+        returnedCharacters,
+        nextOffset: result.nextOffset ?? characters.length,
+        reason: readBudgetExhausted ? "budget_exhausted" : truncated ? "truncated" : "ok",
+      });
       return result;
     },
 
@@ -122,24 +177,62 @@ export function createOwnerDocumentReader(input: {
       const prefix = storagePrefix(options.prefix);
       const limit = boundedInteger(options.limit, limits.searchDefault, 1, limits.searchMaximum, "limit");
       const matches: SearchDocumentsResult["matches"] = [];
+      const matchAudits: Array<{ path: `/proc/context/${string}`; totalCharacters: number; returnedCharacters: number; nextOffset: number; truncated: boolean }> = [];
       let truncated = false;
-      for await (const document of input.documentStore.iterate(input.userId, prefix)) {
-        const path = contextDocumentHandle(document.path);
-        const contentIndex = caseInsensitiveIndex(document.content, query);
-        if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
-        if (matches.length === limit) {
-          truncated = true;
-          break;
+      let readBudgetExhausted = remainingReadCharacters() === 0;
+      if (!readBudgetExhausted) {
+        for await (const document of input.documentStore.iterate(input.userId, prefix)) {
+          const path = contextDocumentHandle(document.path);
+          const contentIndex = caseInsensitiveIndex(document.content, query);
+          if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
+          if (matches.length === limit) {
+            truncated = true;
+            break;
+          }
+          const snippet = boundedSnippetDetails(document.content, contentIndex, limits.searchSnippetCharacters, remainingReadCharacters());
+          consumeReadCharacters(snippet.returnedCharacters);
+          matches.push({ path, snippet: snippet.text, version: document.version, updatedAt: document.updatedAt });
+          matchAudits.push({ path, ...snippet });
+          if (remainingReadCharacters() === 0) {
+            readBudgetExhausted = true;
+            truncated = true;
+            break;
+          }
         }
-        matches.push({
-          path,
-          snippet: boundedSnippet(document.content, contentIndex, limits.searchSnippetCharacters),
-          version: document.version,
-          updatedAt: document.updatedAt,
-        });
+      } else {
+        truncated = true;
       }
-      const result = { matches, truncated };
-      await audit({ operation: "search", resultCount: matches.length, truncated, outcome: "ok" });
+      const result: SearchDocumentsResult = { matches, truncated, readBudgetExhausted, hint: readBudgetExhausted ? readBudgetHint : null };
+      if (matchAudits.length === 0) {
+        await audit({
+          operation: "search",
+          resultCount: 0,
+          truncated,
+          outcome: "ok",
+          path: logicalSearchPath(prefix),
+          totalCharacters: 0,
+          returnedCharacters: 0,
+          nextOffset: 0,
+          reason: readBudgetExhausted ? "budget_exhausted" : truncated ? "truncated" : "ok",
+        });
+      } else {
+        for (const [index, match] of matchAudits.entries()) {
+          const finalMatch = index === matchAudits.length - 1;
+          const budgetExhausted = readBudgetExhausted && finalMatch;
+          const resultTruncated = truncated && finalMatch;
+          await audit({
+            operation: "search",
+            resultCount: 1,
+            truncated: match.truncated || resultTruncated,
+            outcome: "ok",
+            path: match.path,
+            totalCharacters: match.totalCharacters,
+            returnedCharacters: match.returnedCharacters,
+            nextOffset: match.nextOffset,
+            reason: budgetExhausted ? "budget_exhausted" : match.truncated || resultTruncated ? "truncated" : "ok",
+          });
+        }
+      }
       return result;
     },
   };
@@ -164,8 +257,45 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return selected;
 }
 
+const readBudgetHint = "Read budget exhausted; narrow the request with section or search.";
+
 function missingReadResult(path: `/proc/context/${string}`, offset: number): ReadDocumentResult {
-  return { path, found: false, sectionFound: false, content: "", offset, nextOffset: null, truncated: false, version: "", updatedAt: "" };
+  return {
+    path,
+    found: false,
+    sectionFound: false,
+    content: "",
+    offset,
+    totalCharacters: 0,
+    nextOffset: null,
+    truncated: false,
+    readBudgetExhausted: false,
+    hint: null,
+    version: "",
+    updatedAt: "",
+  };
+}
+
+function exhaustedReadResult(
+  path: `/proc/context/${string}`,
+  offset: number,
+  totalCharacters: number,
+  document: Pick<UserDocument, "version" | "updatedAt">,
+): ReadDocumentResult {
+  return {
+    path,
+    found: true,
+    sectionFound: true,
+    content: "",
+    offset,
+    totalCharacters,
+    nextOffset: offset,
+    truncated: true,
+    readBudgetExhausted: true,
+    hint: readBudgetHint,
+    version: document.version,
+    updatedAt: document.updatedAt,
+  };
 }
 
 function markdownSection(content: string, requestedSection: string): string | null {
@@ -218,11 +348,40 @@ function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function boundedSnippet(content: string, matchIndex: number, maximumCharacters: number): string {
+function boundedSnippetDetails(content: string, matchIndex: number, maximumCharacters: number, budgetCharacters: number): {
+  text: string;
+  totalCharacters: number;
+  returnedCharacters: number;
+  nextOffset: number;
+  truncated: boolean;
+} {
   const characters = Array.from(content);
   const codeUnitPrefix = matchIndex < 0 ? 0 : Array.from(content.slice(0, matchIndex)).length;
   const radius = Math.floor(maximumCharacters / 2);
-  const start = Math.max(0, codeUnitPrefix - radius);
-  const selected = characters.slice(start, start + maximumCharacters).join("");
-  return `${start > 0 ? "…" : ""}${selected}${start + Array.from(selected).length < characters.length ? "…" : ""}`;
+  let start = Math.max(0, codeUnitPrefix - radius);
+  let selected = characters.slice(start, start + maximumCharacters);
+  let prefix = start > 0 ? "…" : "";
+  let suffix = start + selected.length < characters.length ? "…" : "";
+  while (Array.from(`${prefix}${selected.join("")}${suffix}`).length > budgetCharacters && selected.length > 0) {
+    selected = selected.slice(0, -1);
+    suffix = start + selected.length < characters.length ? "…" : "";
+  }
+  if (Array.from(`${prefix}${selected.join("")}${suffix}`).length > budgetCharacters) {
+    prefix = "";
+    suffix = "";
+    start = codeUnitPrefix;
+  }
+  const text = `${prefix}${selected.join("")}${suffix}`;
+  return {
+    text,
+    totalCharacters: characters.length,
+    returnedCharacters: Array.from(text).length,
+    nextOffset: start + selected.length,
+    truncated: start > 0 || start + selected.length < characters.length,
+  };
+}
+
+function logicalSearchPath(prefix: string): `/proc/context/${string}` {
+  const normalized = prefix === "context/" ? "context" : prefix.replace(/\/$/, "");
+  return `${normalized === "context" ? "/proc/context/" : contextDocumentHandle(normalized)}` as `/proc/context/${string}`;
 }

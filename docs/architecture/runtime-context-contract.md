@@ -35,6 +35,7 @@ README-файлы каталогов не получают особого ста
 | 11 | recent conversation history | Разрешение ссылок и продолжение треда | untrusted owner data, current `userId` + `threadId` | chat/voice после успешной аутентификации | 10 completed turns; 12 000 chars | включён в product chat с явным truncation marker |
 | 12 | `/run/actions` | Диагностика action/tool результата | diagnostic, current owner/request; not policy | только явный diagnostic/recovery сценарий | 50 events; ≤8 000 chars | **не включён** |
 | — | typed tools | Разрешённые действия | trusted request capability, owner-scoped handler | по типу запроса и confirmation state | только allow-list tool names; payload валидирует use-case | `captureIdea` для chat/intake |
+| — | document tool turn reads | Суммарный content из `readDocument` и snippets из `searchDocuments`; metadata-only `listDocuments` не учитывается | untrusted owner data, current request | один agent turn | 48 000 Unicode characters; env `ASSISTANT_DOCUMENT_TURN_READ_CHARACTERS` | при границе chunk clamp-ится; после исчерпания typed `readBudgetExhausted` предлагает сузить чтение через section/search |
 
 Per-source limits для ещё не реализованных `/proc/profile`, `/proc/inbox`, history и `/run/actions` являются целевыми верхними границами; дочерние задачи реализуют проекции и более узкие semantic filters без увеличения общего budget.
 
