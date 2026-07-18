@@ -51,7 +51,7 @@ export function createInMemoryDocumentStore(
     }
     return [...selected.values()]
       .map(({ entry }) => entry)
-      .sort((left, right) => left.path.localeCompare(right.path));
+      .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   };
   return {
     async get(userId, path) {
@@ -102,8 +102,13 @@ export function createInMemoryDocumentStore(
         size: Buffer.byteLength(document.content, "utf8"),
       })));
     },
+    async *iterate(userId, prefix) {
+      for (const document of logicalEntries(userId, prefix, documents.values())) yield { ...document };
+    },
     async list(userId, prefix) {
-      return logicalEntries(userId, prefix, documents.values()).map((document) => ({ ...document }));
+      const listed: UserDocument[] = [];
+      for await (const document of this.iterate(userId, prefix)) listed.push(document);
+      return listed;
     },
     async delete(userId, path) {
       const safeUserId = assertUserId(userId);

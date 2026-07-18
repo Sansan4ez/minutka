@@ -121,10 +121,9 @@ export function createOwnerDocumentReader(input: {
       if (query.length < 2) throw new Error("query must contain at least 2 characters");
       const prefix = storagePrefix(options.prefix);
       const limit = boundedInteger(options.limit, limits.searchDefault, 1, limits.searchMaximum, "limit");
-      const source = await input.documentStore.list(input.userId, prefix);
       const matches: SearchDocumentsResult["matches"] = [];
       let truncated = false;
-      for (const document of source) {
+      for await (const document of input.documentStore.iterate(input.userId, prefix)) {
         const path = contextDocumentHandle(document.path);
         const contentIndex = caseInsensitiveIndex(document.content, query);
         if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;

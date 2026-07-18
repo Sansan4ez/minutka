@@ -33,6 +33,8 @@ export type DocumentStore = {
   putIfAbsent(userId: string, path: string, content: string): Promise<UserDocument>;
   /** Lists logical metadata without reading document bodies. */
   listMetadata(userId: string, prefix?: string): Promise<UserDocumentMetadata[]>;
+  /** Lazily iterates logical documents in stable path order, reading one body at a time. */
+  iterate(userId: string, prefix?: string): AsyncIterable<UserDocument>;
   /** Lists logical documents with their complete bodies. */
   list(userId: string, prefix?: string): Promise<UserDocument[]>;
   /** Deletes the logical document together with its known legacy alias. */

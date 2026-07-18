@@ -23,5 +23,6 @@ No.
 ## Rules
 
 - Search is limited to the authenticated owner's personal context namespace.
+- Matching is case-insensitive literal substring search over paths and contents, not a regular expression.
 - Results never include physical object keys, bucket names, credentials, or signed URLs.
 - Tool audit stores only operation, result count, truncation, and outcome; never query or content.

@@ -173,6 +173,45 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(JSON.stringify(result)).not.toContain("чужой секрет");
   });
 
+  it("stops lazy search after the extra match needed for truncation", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/01-first.md", "needle один");
+    await store.put("owner", "context/02-second.md", "needle два");
+    await store.put("owner", "context/03-tail.md", "tail must not be read");
+    let bodyReads = 0;
+    const lazyStore: DocumentStore = {
+      ...store,
+      async *iterate(userId, prefix) {
+        for await (const document of store.iterate(userId, prefix)) {
+          bodyReads += 1;
+          yield document;
+        }
+      },
+    };
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: lazyStore });
+
+    const result = await reader.searchDocuments({ query: "needle", limit: 1 });
+
+    expect(result).toEqual({
+      matches: [expect.objectContaining({ path: "/proc/context/01-first.md" })],
+      truncated: true,
+    });
+    expect(bodyReads).toBe(2);
+  });
+
+  it("matches Unicode literal substrings in paths without requiring content matches", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/Проект-ЖАР🙂.md", "body without query");
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: store });
+
+    const result = await reader.searchDocuments({ query: "жар🙂", limit: 1 });
+
+    expect(result).toMatchObject({
+      matches: [{ path: "/proc/context/Проект-ЖАР🙂.md", snippet: "body without query" }],
+      truncated: false,
+    });
+  });
+
   it("keeps case-insensitive snippets aligned when lowercase expands a character", async () => {
     const store = await fixture();
     await store.put("owner", "context/expanding-lowercase.md", `${"İ".repeat(400)}needle${"b".repeat(400)}`);

@@ -63,6 +63,24 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(client.statCallsFor("owner/context/imported-knowledge-base/shared.md")).toBe(0);
   });
 
+  it("iterates canonical bodies lazily without reading a legacy alias twice", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/imported-knowledge-base/shared.md", Buffer.from("legacy"));
+    await client.putObject(bucket, "owner/context/shared.md", Buffer.from("canonical"));
+    await client.putObject(bucket, "owner/context/tail.md", Buffer.from("tail"));
+
+    const iterator = documents.iterate("owner", "context/")[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    await iterator.return?.();
+
+    expect(first.value).toMatchObject({ path: "context/shared.md", content: "canonical" });
+    expect(client.getObjectCalls()).toBe(1);
+    expect(client.getObjectCallsFor("owner/context/shared.md")).toBe(1);
+    expect(client.getObjectCallsFor("owner/context/imported-knowledge-base/shared.md")).toBe(0);
+    expect(client.getObjectCallsFor("owner/context/tail.md")).toBe(0);
+  });
+
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket, now: () => "2026-01-01T00:00:00.000Z" });
@@ -95,6 +113,7 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
   let cleanupFailures = input.cleanupFailures ?? 0;
   let removeCount = 0;
   let getObjectCount = 0;
+  const getObjectCounts = new Map<string, number>();
   const statCounts = new Map<string, number>();
   let removeOptions: Minio.RemoveOptions | undefined;
   const client = {
@@ -132,6 +151,7 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
     },
     async getObject(_bucket: string, objectName: string) {
       getObjectCount += 1;
+      getObjectCounts.set(objectName, (getObjectCounts.get(objectName) ?? 0) + 1);
       const stored = objects.get(objectName);
       if (!stored) throw objectStoreError("NotFound");
       return Readable.from(stored.body);
@@ -158,6 +178,9 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
     },
     getObjectCalls() {
       return getObjectCount;
+    },
+    getObjectCallsFor(objectName: string) {
+      return getObjectCounts.get(objectName) ?? 0;
     },
     statCallsFor(objectName: string) {
       return statCounts.get(objectName) ?? 0;

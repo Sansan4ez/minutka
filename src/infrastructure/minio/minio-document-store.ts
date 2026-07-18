@@ -59,7 +59,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       }));
     return documents.sort((left, right) => left.path.localeCompare(right.path));
   };
-  const listMetadata = async (userId: string, prefix?: string): Promise<UserDocumentMetadata[]> => {
+  const logicalObjects = async (userId: string, prefix?: string): Promise<Array<{ name: string; path: string }>> => {
     const safeUserId = assertUserId(userId);
     const canonicalPrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
     const storagePrefixes = new Set<string | undefined>([canonicalPrefix]);
@@ -85,8 +85,13 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
       selectedObjects.set(canonicalPath, { name: object.name, path: canonicalPath, canonicalSource });
     }
-
-    const metadata = await Promise.all([...selectedObjects.values()].map(async (object): Promise<UserDocumentMetadata> => {
+    return [...selectedObjects.values()]
+      .map(({ name, path }) => ({ name, path }))
+      .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  };
+  const listMetadata = async (userId: string, prefix?: string): Promise<UserDocumentMetadata[]> => {
+    const safeUserId = assertUserId(userId);
+    return Promise.all((await logicalObjects(safeUserId, prefix)).map(async (object): Promise<UserDocumentMetadata> => {
       const stat = await options.client.statObject(options.bucket, object.name);
       return {
         userId: safeUserId,
@@ -96,7 +101,6 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
         size: stat.size,
       };
     }));
-    return metadata.sort((left, right) => left.path.localeCompare(right.path));
   };
   return {
     async get(userId, path) {
@@ -142,25 +146,26 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       }
     },
     listMetadata,
-    async list(userId, prefix) {
+    async *iterate(userId, prefix) {
       const safeUserId = assertUserId(userId);
-      const canonicalPrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
-      const storagePrefixes = new Set<string | undefined>([canonicalPrefix]);
-      const legacyPrefix = canonicalPrefix === undefined ? null : legacyDocumentPath(canonicalPrefix.slice(0, -1));
-      if (legacyPrefix) storagePrefixes.add(`${legacyPrefix}/`);
-      const documentGroups = await Promise.all([...storagePrefixes].map((storagePrefix) => listExact(safeUserId, storagePrefix)));
-      const selectedDocuments = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
-      for (const document of documentGroups.flat()) {
-        const canonicalPath = canonicalDocumentPath(document.path);
-        if (canonicalPrefix && !canonicalPath.startsWith(canonicalPrefix)) continue;
-        const canonicalSource = document.path === canonicalPath;
-        const existing = selectedDocuments.get(canonicalPath);
-        if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
-        selectedDocuments.set(canonicalPath, { document: { ...document, path: canonicalPath }, canonicalSource });
+      for (const object of await logicalObjects(safeUserId, prefix)) {
+        const [stat, stream] = await Promise.all([
+          options.client.statObject(options.bucket, object.name),
+          options.client.getObject(options.bucket, object.name),
+        ]);
+        yield {
+          userId: safeUserId,
+          path: object.path,
+          content: await readUtf8(stream),
+          version: versionOf(stat),
+          updatedAt: stat.lastModified.toISOString(),
+        };
       }
-      return [...selectedDocuments.values()]
-        .map(({ document }) => document)
-        .sort((left, right) => left.path.localeCompare(right.path));
+    },
+    async list(userId, prefix) {
+      const documents: UserDocument[] = [];
+      for await (const document of this.iterate(userId, prefix)) documents.push(document);
+      return documents;
     },
     async delete(userId, path) {
       const safeUserId = assertUserId(userId);
