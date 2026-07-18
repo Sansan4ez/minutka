@@ -130,6 +130,31 @@ describe("PostgreSQL storage contracts", () => {
     await expect(sessions.claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey: "draft-b:1", claimedAt: "2026-07-17T10:04:01.000Z", staleBefore: "2026-07-17T10:03:01.000Z" })).resolves.toEqual({ status: "claimed" });
   });
 
+  it("leases Telegram action messages, releases failures, and preserves completed idempotency", async () => {
+    await issueProfileReadyParticipant(pool, "emp_action_claim", "invite_action_claim");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const identity = { chatId: "chat_action_claim", userId: "user_action_claim" };
+    const employeeId = "emp_action_claim";
+    expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_action_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
+
+    const firstClaimedAt = "2026-07-17T10:00:00.000Z";
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 1, claimedAt: firstClaimedAt, staleBefore: "2026-07-17T09:59:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 1, claimedAt: "2026-07-17T10:00:01.000Z", staleBefore: "2026-07-17T09:59:01.000Z" })).resolves.toEqual({ status: "already_claimed" });
+    await sessions.releaseActionMessage({ identity, employeeId, messageId: 1, claimedAt: firstClaimedAt });
+
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 1, claimedAt: "2026-07-17T10:01:00.000Z", staleBefore: "2026-07-17T10:00:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await sessions.releaseActionMessage({ identity, employeeId, messageId: 1, claimedAt: "2026-07-17T10:01:00.000Z" });
+
+    const retriedAt = "2026-07-17T10:01:01.000Z";
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 1, claimedAt: retriedAt, staleBefore: "2026-07-17T09:59:02.000Z" })).resolves.toEqual({ status: "claimed" });
+    await sessions.completeActionMessage({ identity, employeeId, messageId: 1, claimedAt: retriedAt });
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 1, claimedAt: "2026-07-17T10:02:00.000Z", staleBefore: "2026-07-17T10:01:00.000Z" })).resolves.toEqual({ status: "already_claimed" });
+
+    const crashedAt = "2026-07-17T10:03:00.000Z";
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 2, claimedAt: crashedAt, staleBefore: "2026-07-17T10:02:00.000Z" })).resolves.toEqual({ status: "claimed" });
+    await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 2, claimedAt: "2026-07-17T10:05:00.000Z", staleBefore: "2026-07-17T10:04:00.000Z" })).resolves.toEqual({ status: "claimed" });
+  });
+
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {
     await issueProfileReadyParticipant(pool, "emp_chat_a", "invite_chat_a");
     await issueProfileReadyParticipant(pool, "emp_chat_b", "invite_chat_b");
@@ -306,7 +331,7 @@ describe("PostgreSQL storage contracts", () => {
       identity: { chatId: "chat_delete", userId: "user_delete" },
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },
     });
-    await telegramSessions.claimActionMessage({ identity: { chatId: "chat_delete", userId: "user_delete" }, employeeId: "emp_delete", messageId: 1 });
+    await telegramSessions.claimActionMessage({ identity: { chatId: "chat_delete", userId: "user_delete" }, employeeId: "emp_delete", messageId: 1, claimedAt: now, staleBefore: "2026-07-11T23:59:00.000Z" });
     await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
     await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
       ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",

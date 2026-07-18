@@ -61,6 +61,7 @@ export const maxVoiceDurationSeconds = 300;
 export const maxVoiceFileSizeBytes = 20 * 1024 * 1024;
 const inFlightDeliveryMessage = "Пожалуйста, подождите, я ещё отвечаю на предыдущее сообщение.";
 const onboardingConfirmationClaimLeaseMilliseconds = 60_000;
+const actionMessageClaimLeaseMilliseconds = 60_000;
 const onboardingConfirmationAlreadySentMessage = "Анкета уже готова к подтверждению. Напишите «Да», если всё верно, или «Исправить».";
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
@@ -216,7 +217,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await removeReplyMarkup(chatId, messageId);
       return { repeated: true };
     }
-    const claim = await sessionStore.claimActionMessage({ identity: identity(chatId, userId), employeeId, messageId });
+    const claimedAt = new Date().toISOString();
+    const staleBefore = new Date(Date.parse(claimedAt) - actionMessageClaimLeaseMilliseconds).toISOString();
+    const telegramIdentity = identity(chatId, userId);
+    const claim = await sessionStore.claimActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt, staleBefore });
     if (claim.status === "already_claimed") {
       await replyPort.answerCallbackQuery(callbackQueryId, repeatedText);
       await removeReplyMarkup(chatId, messageId);
@@ -225,9 +229,12 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const actionPromise = action();
     const completion = actionPromise.then(() => true, () => false);
     inFlightActionMessages.set(key, completion);
-    try { return { repeated: false, result: await actionPromise }; }
-    catch (error) {
-      await sessionStore.releaseActionMessage({ identity: identity(chatId, userId), employeeId, messageId }).catch((releaseError) => logShellError("action message claim release", releaseError));
+    try {
+      const result = await actionPromise;
+      await sessionStore.completeActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt });
+      return { repeated: false, result };
+    } catch (error) {
+      await sessionStore.releaseActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt }).catch((releaseError) => logShellError("action message claim release", releaseError));
       throw error;
     } finally {
       if (inFlightActionMessages.get(key) === completion) inFlightActionMessages.delete(key);

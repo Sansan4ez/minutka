@@ -4,7 +4,7 @@ import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, Tel
 
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
 export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
-  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; handledActionMessageIds: Set<number> }>();
+  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; actionMessages: Map<number, { claimedAt: string; completed: boolean }> }>();
   return {
     async getByIdentity(identity) {
       const found = store.get(identity.chatId);
@@ -14,7 +14,7 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
     async claim({ identity, session }): Promise<TelegramSessionClaimResult> {
       if (store.has(identity.chatId)) return { status: "chat_already_linked" };
       if ([...store.values()].some((entry) => entry.session.employeeId === session.employeeId)) return { status: "employee_already_linked" };
-      store.set(identity.chatId, { identity: { ...identity }, session: { ...session }, handledActionMessageIds: new Set() });
+      store.set(identity.chatId, { identity: { ...identity }, session: { ...session }, actionMessages: new Map() });
       return { status: "claimed", session: { ...session } };
     },
     async deleteByEmployee(employeeId) {
@@ -56,21 +56,31 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       }
       if (found.onboardingConfirmationClaim?.deliveryKey === deliveryKey && found.onboardingConfirmationClaim.claimedAt === claimedAt) found.onboardingConfirmationClaim = undefined;
     },
-    async claimActionMessage({ identity, employeeId, messageId }) {
+    async claimActionMessage({ identity, employeeId, messageId, claimedAt, staleBefore }) {
       const found = store.get(identity.chatId);
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
-      if (found.handledActionMessageIds.has(messageId)) return { status: "already_claimed" };
-      found.handledActionMessageIds.add(messageId);
+      const existing = found.actionMessages.get(messageId);
+      if (existing?.completed || (existing && existing.claimedAt >= staleBefore)) return { status: "already_claimed" };
+      found.actionMessages.set(messageId, { claimedAt, completed: false });
       return { status: "claimed" };
     },
-    async releaseActionMessage({ identity, employeeId, messageId }) {
+    async completeActionMessage({ identity, employeeId, messageId, claimedAt }) {
       const found = store.get(identity.chatId);
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
-      found.handledActionMessageIds.delete(messageId);
+      const existing = found.actionMessages.get(messageId);
+      if (existing?.claimedAt === claimedAt && !existing.completed) found.actionMessages.set(messageId, { claimedAt, completed: true });
+    },
+    async releaseActionMessage({ identity, employeeId, messageId, claimedAt }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
+        throw new PersistenceError("session_not_found");
+      }
+      const existing = found.actionMessages.get(messageId);
+      if (existing?.claimedAt === claimedAt && !existing.completed) found.actionMessages.delete(messageId);
     },
   };
 }

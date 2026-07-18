@@ -633,7 +633,31 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()).toHaveLength(0);
   });
 
-  it("10ac. Keeps stale consent keyboards idempotent after the Telegram shell restarts", async () => {
+  it("10ac. Recovers an abandoned consent action claim after the Telegram shell restarts", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    await runtime.service.issueInvite({ employeeId: "emp_consent_crash", inviteCode: "invite_consent_crash" });
+    const firstShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await firstShell.start({ chatId: "chat_consent_crash", inviteCode: "invite_consent_crash" });
+    const prompt = firstShell.sentMessages()[0];
+    const consent = prompt.replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await runtime.telegramSessionStore.claimActionMessage({
+      identity: { chatId: "chat_consent_crash", userId: "user_chat_consent_crash" },
+      employeeId: "emp_consent_crash",
+      messageId: prompt.messageId,
+      claimedAt: new Date(Date.now() - 61_000).toISOString(),
+      staleBefore: new Date(Date.now() - 121_000).toISOString(),
+    });
+
+    const restartedShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
+    await restartedShell.deliverCallback({ chatId: "chat_consent_crash", callbackData: consent!, messageId: prompt.messageId, callbackQueryId: "consent_recovered" });
+
+    expect(restartedShell.callbackAnswers()).toContainEqual({ callbackQueryId: "consent_recovered", text: "Согласие принято!" });
+    expect(restartedShell.sentMessages()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("Давайте коротко познакомимся") }));
+    expect(world.auditEvents.filter((event) => event.type === "consent_accepted")).toHaveLength(1);
+  });
+
+  it("10aca. Keeps completed consent keyboards idempotent after the Telegram shell restarts", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
     await runtime.service.issueInvite({ employeeId: "emp_consent_restart", inviteCode: "invite_consent_restart" });

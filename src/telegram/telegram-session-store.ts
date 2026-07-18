@@ -51,16 +51,26 @@ export interface TelegramSessionStore {
     deliveryKey: string;
     claimedAt: string;
   }): Promise<void>;
-  /** Claims one Telegram action message durably so stale keyboards stay idempotent after restarts. */
+  /** Claims one Telegram action message atomically. Completed actions stay idempotent; stale in-progress claims are recoverable. */
   claimActionMessage(input: {
     identity: TelegramIdentity;
     employeeId: string;
     messageId: number;
+    claimedAt: string;
+    staleBefore: string;
   }): Promise<{ status: "claimed" | "already_claimed" }>;
+  /** Commits only the matching successful action claim. */
+  completeActionMessage(input: {
+    identity: TelegramIdentity;
+    employeeId: string;
+    messageId: number;
+    claimedAt: string;
+  }): Promise<void>;
   /** Releases only the matching failed action so a retry can perform the side effect. */
   releaseActionMessage(input: {
     identity: TelegramIdentity;
     employeeId: string;
     messageId: number;
+    claimedAt: string;
   }): Promise<void>;
 }
