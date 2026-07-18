@@ -94,9 +94,9 @@ function cleanName(value: string): string | undefined {
   return cleaned && cleaned.length <= 128 ? cleaned : undefined;
 }
 function extractTimezone(value: string): string | undefined {
-  const explicit = value.match(/(?:timezone|часов(?:ой|ого) пояс)\s*[-—:]?\s*([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+)/iu)?.[1];
+  const explicit = value.match(/(?:timezone|часов(?:ой|ого) пояс)\s*[-—:]?\s*([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*)/iu)?.[1];
   if (explicit) return normalizeTimezone(explicit);
-  const standalone = value.match(/\b([A-Za-z_+-]+\/[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)?)\b/u)?.[1];
+  const standalone = value.match(/\b([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*)\b/gu)?.find((candidate) => normalizeTimezone(candidate) !== undefined);
   return standalone ? normalizeTimezone(standalone) : undefined;
 }
 export function normalizeOnboardingProfilePatch(patch: OnboardingProfilePatch): OnboardingProfilePatch {
