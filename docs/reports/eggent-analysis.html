@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eggent × personal-assistant — анализ</title>
+<style>
+  :root{
+    --bg:#faf9f6; --surface:#ffffff; --surface-2:#f3f0ea; --ink:#28221a; --muted:#6e675c;
+    --line:#e6e1d6; --line-strong:#d4cec0;
+    --egg:#d97706; --egg-ink:#9a5200; --egg-soft:#f7ead6;
+    --pa:#2563eb; --pa-ink:#1d4ed8; --pa-soft:#e3ebfc;
+    --teal:#0d9488; --purple:#9333ea;
+    --good:#1a7f37; --warn:#9a6700; --crit:#b42318;
+    --good-soft:#e2f0e5; --warn-soft:#f7eed3; --crit-soft:#f9e3e0;
+    --code-bg:#211e19; --code-ink:#e8e2d6;
+    --shadow:0 1px 2px rgba(40,34,26,.06),0 6px 18px rgba(40,34,26,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#191713; --surface:#211e19; --surface-2:#2a261f; --ink:#eae5da; --muted:#a49b8b;
+      --line:#37322a; --line-strong:#4a4438;
+      --egg:#c8820d; --egg-ink:#e5a93d; --egg-soft:#37301f;
+      --pa:#4d8ef7; --pa-ink:#7fadf9; --pa-soft:#20293c;
+      --teal:#0f9488; --purple:#a855f7;
+      --good:#4bb56a; --warn:#d9a33a; --crit:#e0695c;
+      --good-soft:#233527; --warn-soft:#39301c; --crit-soft:#3b2521;
+      --code-bg:#14120e; --code-ink:#ddd6c8;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#191713; --surface:#211e19; --surface-2:#2a261f; --ink:#eae5da; --muted:#a49b8b;
+    --line:#37322a; --line-strong:#4a4438;
+    --egg:#c8820d; --egg-ink:#e5a93d; --egg-soft:#37301f;
+    --pa:#4d8ef7; --pa-ink:#7fadf9; --pa-soft:#20293c;
+    --teal:#0f9488; --purple:#a855f7;
+    --good:#4bb56a; --warn:#d9a33a; --crit:#e0695c;
+    --good-soft:#233527; --warn-soft:#39301c; --crit-soft:#3b2521;
+    --code-bg:#14120e; --code-ink:#ddd6c8;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+  }
+  :root[data-theme="light"]{
+    --bg:#faf9f6; --surface:#ffffff; --surface-2:#f3f0ea; --ink:#28221a; --muted:#6e675c;
+    --line:#e6e1d6; --line-strong:#d4cec0;
+    --egg:#d97706; --egg-ink:#9a5200; --egg-soft:#f7ead6;
+    --pa:#2563eb; --pa-ink:#1d4ed8; --pa-soft:#e3ebfc;
+    --teal:#0d9488; --purple:#9333ea;
+    --good:#1a7f37; --warn:#9a6700; --crit:#b42318;
+    --good-soft:#e2f0e5; --warn-soft:#f7eed3; --crit-soft:#f9e3e0;
+    --code-bg:#211e19; --code-ink:#e8e2d6;
+    --shadow:0 1px 2px rgba(40,34,26,.06),0 6px 18px rgba(40,34,26,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.55;
+  }
+  code,pre,.mono{font-family:ui-monospace,"Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  a{color:var(--pa-ink)}
+  button{font:inherit;color:inherit;cursor:pointer}
+  :is(button,input,[tabindex]):focus-visible{outline:2px solid var(--egg);outline-offset:2px;border-radius:6px}
+  @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important} }
+
+  /* ---------- header ---------- */
+  header{border-bottom:1px solid var(--line);background:var(--bg)}
+  .masthead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;padding:30px 0 6px}
+  h1{font-size:clamp(22px,3.4vw,30px);font-weight:800;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  .h1-egg{color:var(--egg-ink)} .h1-pa{color:var(--pa-ink)}
+  .masthead .meta{color:var(--muted);font-size:13px}
+  .lede{color:var(--muted);max-width:70ch;margin:4px 0 18px}
+  nav.tabs{display:flex;gap:4px;flex-wrap:wrap;position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 0 0;border-bottom:1px solid var(--line);margin-bottom:0}
+  .tabbtn{
+    border:1px solid transparent;border-bottom:none;background:transparent;color:var(--muted);
+    padding:8px 14px;border-radius:9px 9px 0 0;font-weight:600;font-size:14px;
+  }
+  .tabbtn:hover{color:var(--ink)}
+  .tabbtn[aria-selected="true"]{background:var(--surface);border-color:var(--line);color:var(--ink);box-shadow:0 2px 0 var(--surface)}
+  main{padding:26px 0 60px}
+  section[role="tabpanel"]{display:none}
+  section[role="tabpanel"].active{display:block;animation:fadein .25s ease}
+  @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  h2{font-size:20px;font-weight:800;letter-spacing:-.015em;margin:34px 0 12px;text-wrap:balance}
+  h2:first-child{margin-top:0}
+  h3{font-size:16px;font-weight:700;margin:22px 0 8px}
+  p{max-width:74ch}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+
+  /* ---------- chips / pills ---------- */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.egg{background:var(--egg-soft);color:var(--egg-ink)}
+  .chip.pa{background:var(--pa-soft);color:var(--pa-ink)}
+  .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .chip.egg .dot{background:var(--egg)} .chip.pa .dot{background:var(--pa)}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px}
+  .pill.good{background:var(--good-soft);color:var(--good)}
+  .pill.warn{background:var(--warn-soft);color:var(--warn)}
+  .pill.crit{background:var(--crit-soft);color:var(--crit)}
+
+  /* ---------- cards ---------- */
+  .grid{display:grid;gap:14px}
+  .grid.two{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid.tiles{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:var(--shadow)}
+  .card h3{margin-top:0}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .tile .k{font-size:12px;color:var(--muted);font-weight:600}
+  .tile .v{font-size:19px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:2px}
+  .tile .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .tile.egg{border-top:3px solid var(--egg)} .tile.pa{border-top:3px solid var(--pa)}
+
+  .verdict{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin:14px 0 6px}
+  .verdict .card{padding:14px 16px}
+  .verdict .num{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.06em}
+  .verdict p{font-size:13.5px;margin:6px 0 0;color:var(--ink)}
+  .verdict .head{font-weight:800;margin-top:4px}
+
+  ul.clean{margin:8px 0;padding-left:20px}
+  ul.clean li{margin:5px 0;max-width:78ch}
+  .muted{color:var(--muted)}
+  .small{font-size:13px}
+
+  /* ---------- file refs ---------- */
+  .fr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:1px 6px;white-space:nowrap}
+  body.hide-refs .fr,body.hide-refs .frblock{display:none}
+  .frblock{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+
+  /* ---------- switches ---------- */
+  .switch{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted);user-select:none}
+  .switch input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:34px;height:19px;border-radius:999px;background:var(--line-strong);position:relative;transition:background .15s;flex:none}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--surface);transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  .switch input:checked + .track{background:var(--egg)}
+  .switch input:checked + .track::after{left:17px}
+  .switch input:focus-visible + .track{outline:2px solid var(--egg);outline-offset:2px}
+
+  /* ---------- tables ---------- */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+  table{border-collapse:collapse;width:100%;min-width:760px;font-size:13.5px}
+  th,td{text-align:left;padding:10px 14px;vertical-align:top;border-top:1px solid var(--line)}
+  thead th{border-top:none;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);background:var(--surface-2)}
+  td.dim-egg{box-shadow:inset 3px 0 0 var(--egg)}
+  td.dim-pa{box-shadow:inset 3px 0 0 var(--pa)}
+  tr.hidden-row{display:none}
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+  .seg button{border:none;background:transparent;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted)}
+  .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+
+  /* ---------- diagrams ---------- */
+  .flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .fnode{border:1px solid var(--line-strong);background:var(--surface);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:600;display:flex;align-items:center;text-align:center}
+  .fnode.hl-egg{border-color:var(--egg);background:var(--egg-soft);color:var(--egg-ink)}
+  .fnode.hl-pa{border-color:var(--pa);background:var(--pa-soft);color:var(--pa-ink)}
+  .fnode.ghost{border-style:dashed;color:var(--muted);font-weight:500}
+  .farrow{align-self:center;color:var(--muted);font-size:14px}
+
+  /* ---------- charts ---------- */
+  .chart-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:var(--shadow)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-bottom:10px}
+  .legend .sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  #tooltip{
+    position:fixed;z-index:99;pointer-events:none;background:var(--surface);color:var(--ink);
+    border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:12.5px;max-width:280px;
+    box-shadow:var(--shadow);opacity:0;transition:opacity .1s;
+  }
+  #tooltip .t{font-weight:700;margin-bottom:2px}
+  .bar-hit{cursor:default}
+  svg text{fill:var(--ink)}
+  svg .axis-label{fill:var(--muted);font-size:11px}
+
+  /* scatter */
+  .plot{position:relative;height:420px;margin:6px 0 0;border-left:1px solid var(--line-strong);border-bottom:1px solid var(--line-strong)}
+  .plot .quad{position:absolute;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);opacity:.7}
+  .plot .gridline{position:absolute;background:var(--line);opacity:.55}
+  .dotpt{position:absolute;transform:translate(-50%,50%);display:flex;align-items:center;gap:6px;cursor:pointer;border:none;background:transparent;padding:2px}
+  .dotpt .d{width:13px;height:13px;border-radius:50%;background:var(--egg);box-shadow:0 0 0 2px var(--surface);flex:none}
+  .dotpt .lbl{font-size:11.5px;font-weight:600;color:var(--ink);white-space:nowrap;background:color-mix(in srgb,var(--surface) 78%,transparent);padding:0 4px;border-radius:4px}
+  .dotpt:hover .d{background:var(--egg-ink)}
+  .axis-cap{font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;margin-top:6px}
+
+  /* ---------- search & tags & idea cards ---------- */
+  .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0 16px}
+  .searchbox{flex:1 1 240px;max-width:380px;position:relative}
+  .searchbox input{
+    width:100%;padding:9px 12px 9px 34px;border-radius:9px;border:1px solid var(--line-strong);
+    background:var(--surface);color:var(--ink);font:inherit;font-size:14px;
+  }
+  .searchbox .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px}
+  .tagbar{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{border:1px solid var(--line-strong);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:600;color:var(--muted)}
+  .tag[aria-pressed="true"]{background:var(--egg-soft);border-color:var(--egg);color:var(--egg-ink)}
+  .idea{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px 18px;box-shadow:var(--shadow)}
+  .idea .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .idea h3{margin:0;font-size:15.5px}
+  .idea .score{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .idea p{font-size:13.5px;margin:8px 0 0;color:var(--ink)}
+  .idea .tags{margin-top:10px;display:flex;gap:5px;flex-wrap:wrap}
+  .idea .tags span{font-size:11px;font-weight:700;color:var(--muted);background:var(--surface-2);border-radius:999px;padding:2px 9px}
+  .idea.flash{outline:2px solid var(--egg);outline-offset:2px}
+  #ideas-empty{display:none;color:var(--muted);padding:20px;text-align:center}
+
+  /* meters */
+  .meter{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);margin-top:2px}
+  .meter .bars{display:flex;gap:2px}
+  .meter .bars i{width:10px;height:5px;border-radius:2px;background:var(--line)}
+  .meter .bars i.on{background:var(--egg)}
+  .meter.eff .bars i.on{background:var(--teal)}
+
+  /* ---------- checklist ---------- */
+  .check{display:flex;gap:10px;align-items:flex-start;padding:10px 4px;border-top:1px solid var(--line)}
+  .check:first-of-type{border-top:none}
+  .check input{width:17px;height:17px;margin-top:2px;accent-color:var(--egg)}
+  .check label{cursor:pointer}
+  .check .why{display:block;font-size:12.5px;color:var(--muted)}
+  .check input:checked ~ label .what{text-decoration:line-through;color:var(--muted)}
+  .progress{height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin:8px 0 4px}
+  .progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--egg),var(--egg-ink));border-radius:999px;transition:width .25s}
+  .check .what{font-weight:600}
+
+  /* ---------- scenarios ---------- */
+  .scen-btns{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin:14px 0}
+  .scenbtn{border:1px solid var(--line);background:var(--surface);border-radius:11px;padding:13px 15px;text-align:left;box-shadow:var(--shadow)}
+  .scenbtn .t{font-weight:700;font-size:14px;display:block;margin-bottom:4px}
+  .scenbtn .s{font-size:12.5px;color:var(--muted)}
+  .scenbtn[aria-pressed="true"]{border-color:var(--egg);background:var(--egg-soft)}
+  .scen-detail{margin-top:6px}
+  .scen-detail .head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .scen-detail h3{margin:0}
+
+  /* ---------- code ---------- */
+  .codeblock{position:relative;background:var(--code-bg);color:var(--code-ink);border-radius:11px;margin:12px 0;border:1px solid var(--line)}
+  .codeblock pre{margin:0;padding:16px 18px;overflow-x:auto;font-size:12.8px;line-height:1.6}
+  .codeblock .cap{position:absolute;top:9px;right:88px;font-size:11px;color:color-mix(in srgb,var(--code-ink) 55%,transparent);letter-spacing:.05em;text-transform:uppercase}
+  .copybtn{
+    position:absolute;top:8px;right:8px;border:1px solid color-mix(in srgb,var(--code-ink) 25%,transparent);
+    background:transparent;color:var(--code-ink);border-radius:7px;padding:3px 11px;font-size:12px;font-weight:600;
+  }
+  .copybtn:hover{background:color-mix(in srgb,var(--code-ink) 12%,transparent)}
+  .cm{color:#8f8875}
+  details{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:10px 0}
+  details summary{cursor:pointer;padding:11px 15px;font-weight:600;font-size:14px;list-style-position:inside}
+  details[open] summary{border-bottom:1px solid var(--line)}
+  details .inner{padding:12px 16px}
+  .callout{border-left:3px solid var(--warn);background:var(--warn-soft);border-radius:0 10px 10px 0;padding:12px 16px;font-size:13.5px;margin:14px 0;max-width:80ch}
+  .callout.crit{border-color:var(--crit);background:var(--crit-soft)}
+  .callout.good{border-color:var(--good);background:var(--good-soft)}
+  footer{border-top:1px solid var(--line);color:var(--muted);font-size:12.5px;padding:18px 0 40px;margin-top:20px}
+</style>
+</head>
+<body>
+
+<div id="tooltip" role="status" aria-hidden="true"></div>
+
+<header>
+  <div class="wrap">
+    <div class="masthead">
+      <h1><span class="h1-egg">Eggent</span> × <span class="h1-pa">personal-assistant</span></h1>
+      <span class="meta">исследование · 23 июля 2026</span>
+    </div>
+    <p class="lede">Сравнительный анализ репозитория <span class="mono">/home/admin/eggent</span> (v0.2.0, MIT) и нашего прототипа персонального ассистента: как проекты соотносятся, где дополняют друг друга и что стоит позаимствовать.</p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <nav class="tabs" role="tablist" aria-label="Разделы отчёта">
+        <button class="tabbtn" role="tab" aria-selected="true" data-tab="overview">Обзор</button>
+        <button class="tabbtn" role="tab" aria-selected="false" data-tab="compare">Сравнение</button>
+        <button class="tabbtn" role="tab" aria-selected="false" data-tab="together">Вместе</button>
+        <button class="tabbtn" role="tab" aria-selected="false" data-tab="adopt">Что взять</button>
+        <button class="tabbtn" role="tab" aria-selected="false" data-tab="notes">Риски и заметки</button>
+      </nav>
+      <label class="switch" style="margin-bottom:8px" title="Показывать ссылки на файлы в коде">
+        <input type="checkbox" id="refs-toggle" checked>
+        <span class="track" aria-hidden="true"></span>
+        Пути к файлам
+      </label>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ================= OVERVIEW ================= -->
+<section id="tab-overview" role="tabpanel" class="active" aria-label="Обзор">
+  <h2>Короткий ответ на четыре вопроса</h2>
+  <div class="verdict">
+    <div class="card">
+      <span class="num">1 · СООТНОШЕНИЕ</span>
+      <div class="head">Соседи, а не конкуренты</div>
+      <p>Оба — single-owner ассистенты с Telegram, но противоположные философии: Eggent — универсальный «AI-workspace» с широкими правами агента; наш проект — узкий ассистент с типизированными границами, аудитом и подтверждениями.</p>
+    </div>
+    <div class="card">
+      <span class="num">2 · ВМЕСТЕ?</span>
+      <div class="head">Да — как дополнение <span class="pill good">рекомендовано</span></div>
+      <p>Лаборатория процессов и исполнитель «тяжёлых» неперсональных задач через External API. Сливать в один продукт не стоит: модели безопасности несовместимы.</p>
+    </div>
+    <div class="card">
+      <span class="num">3 · ЧТО ВЗЯТЬ</span>
+      <div class="head">12 идей, 4 быстрых</div>
+      <p>Главное: локальный STT на whisper.cpp (вместо облачного), HTML-форматирование в Telegram, staged-прогресс, загрузчики документов, паттерны pipelines и планировщика.</p>
+    </div>
+    <div class="card">
+      <span class="num">4 · ВАЖНОЕ</span>
+      <div class="head">Живой, но «двухслойный»</div>
+      <p>Проект активен (релиз 0.2.0 — 22 июля 2026), MIT. Внутри — двойной рантайм (legacy + pi SDK), файловые сторы без БД, планировщик не переживает рестарт. Брать паттерны, не код.</p>
+    </div>
+  </div>
+
+  <h2>Два проекта в цифрах</h2>
+  <div class="grid tiles">
+    <div class="tile egg"><div class="k">Eggent · стек</div><div class="v">Next.js 15</div><div class="s">React 19 · AI SDK v6 · pi-coding-agent ^0.81</div></div>
+    <div class="tile egg"><div class="k">Eggent · версия</div><div class="v">0.2.0</div><div class="s">MIT · релиз 22.07.2026 · github.com/eggent-ai/eggent</div></div>
+    <div class="tile egg"><div class="k">Eggent · хранилище</div><div class="v">data/ (файлы)</div><div class="s">JSON + jsonl-сессии, без СУБД</div></div>
+    <div class="tile pa"><div class="k">PA · стек</div><div class="v">Mastra + TS</div><div class="s">typed use-cases · Telegraf · executable specs</div></div>
+    <div class="tile pa"><div class="k">PA · хранилище</div><div class="v">PostgreSQL + MinIO</div><div class="s">24 миграции · CAS-артефакты по SHA-256</div></div>
+    <div class="tile pa"><div class="k">PA · интерфейсы</div><div class="v">TG · HTTP · CLI</div><div class="s">web-UI нет (сознательно, прототип)</div></div>
+  </div>
+
+  <h2>Что такое Eggent</h2>
+  <p>Браузерный «local-first AI workspace»: каждый <b>проект</b> — это каталог-агент со своими инструкциями (<span class="fr">context.md</span>), памятью (<span class="fr">memory.md</span>), скиллами, MCP-конфигом и моделью. Поверх — веб-дашборд, чат, Telegram-бот, пайплайны из нескольких агентов, планировщик, External API и локальная транскрипция голоса. Агентское ядро — сторонний рантайм <b>pi-coding-agent</b> (сессии, инструменты, скиллы, субагенты, расписания), Eggent — тонкий мост над ним.</p>
+  <div class="flow" aria-label="Поток Eggent">
+    <div class="fnode hl-egg">Web-чат / Telegram / External API</div><div class="farrow">→</div>
+    <div class="fnode">Next.js API-роуты</div><div class="farrow">→</div>
+    <div class="fnode hl-egg">pi-сессия (agent + bash + файлы + MCP + скиллы)</div><div class="farrow">→</div>
+    <div class="fnode">data/ (файлы, JSON)</div>
+  </div>
+  <p class="small muted">Агент действует внутри доверенной песочницы владельца: bash, файлы, выполнение кода, установка пакетов. Ограничений на действия и аудита нет — безопасность строится на том, что весь контур принадлежит одному пользователю.</p>
+
+  <h2>Чем это отличается от нашей модели</h2>
+  <div class="flow" aria-label="Поток personal-assistant">
+    <div class="fnode hl-pa">Telegram / HTTP / CLI</div><div class="farrow">→</div>
+    <div class="fnode">AssistantService</div><div class="farrow">→</div>
+    <div class="fnode hl-pa">typed use-cases + подтверждения</div><div class="farrow">→</div>
+    <div class="fnode">PostgreSQL / MinIO + аудит</div>
+  </div>
+  <p>У нас агент <b>никогда</b> не пишет в хранилища напрямую и не выполняет внешние действия без подтверждения: только типизированные инструменты, у которых обработчик — это use-case с привязкой <span class="mono">userId</span> и записью в аудит. Контекст собирается бюджетированными проекциями <span class="mono">/proc/*</span>, а вся логика проверяется executable-спеками без LLM и сети. Это принципиально другой уровень гарантий — и именно он не позволяет просто «взять Eggent как основу».</p>
+</section>
+
+<!-- ================= COMPARE ================= -->
+<section id="tab-compare" role="tabpanel" aria-label="Сравнение">
+  <h2>Покрытие возможностей</h2>
+  <p class="small muted">Экспертная оценка развитости каждой области: 0 — нет, 1 — минимум, 2 — частично, 3 — развито. Наведите курсор на столбик — появится пояснение.</p>
+  <div class="chart-card">
+    <div class="legend">
+      <span><i class="sw" style="background:var(--egg)"></i>Eggent</span>
+      <span><i class="sw" style="background:var(--pa)"></i>personal-assistant</span>
+    </div>
+    <div id="coverage-chart" style="overflow-x:auto"></div>
+  </div>
+
+  <h2>Постатейное сравнение</h2>
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Фильтр категорий">
+      <button aria-pressed="true" data-cat="all">Все</button>
+      <button aria-pressed="false" data-cat="arch">Архитектура</button>
+      <button aria-pressed="false" data-cat="feat">Функции</button>
+      <button aria-pressed="false" data-cat="data">Данные</button>
+      <button aria-pressed="false" data-cat="sec">Безопасность</button>
+    </div>
+  </div>
+  <div class="tablewrap">
+    <table id="cmp-table">
+      <thead><tr>
+        <th style="width:19%">Аспект</th>
+        <th style="width:40.5%"><span class="chip egg"><i class="dot"></i>Eggent</span></th>
+        <th style="width:40.5%"><span class="chip pa"><i class="dot"></i>personal-assistant</span></th>
+      </tr></thead>
+      <tbody>
+        <tr data-cat="arch"><td><b>Рантайм агента</b></td>
+          <td class="dim-egg">Сторонний <b>pi-coding-agent</b>: сессии-jsonl, скиллы, MCP-адаптер, субагенты, расписания. Мост: <span class="fr">src/lib/pi/session.ts</span></td>
+          <td class="dim-pa"><b>Mastra</b>: маленький агент без ambient-инструментов, request-scoped toolsets, maxSteps 4. <span class="fr">src/mastra/agents/personal-assistant-agent.ts</span></td></tr>
+        <tr data-cat="arch sec"><td><b>Философия безопасности</b></td>
+          <td class="dim-egg">Доверенная песочница владельца: bash, файлы, код, установка пакетов. Аудита и подтверждений нет.</td>
+          <td class="dim-pa">Typed boundary: агент не пишет в сторы, внешние действия только через confirm-модель, всё в <span class="mono">AuditEventStore</span>.</td></tr>
+        <tr data-cat="arch"><td><b>Мульти-агентность</b></td>
+          <td class="dim-egg">Пайплайны проектов-агентов с передачей артефактов + субагенты pi. <span class="fr">src/lib/pipelines/runner.ts</span></td>
+          <td class="dim-pa">Один агент, agent-led routing в один ход по каталогу процессов. <span class="fr">vault/assistant/processes/index.md</span></td></tr>
+        <tr data-cat="arch"><td><b>Тестируемость</b></td>
+          <td class="dim-egg">Заметных тестов нет; проверка — typecheck и ручные прогоны.</td>
+          <td class="dim-pa">Executable specs без LLM/сети на in-memory адаптерах, transport parity, снапшоты контекста. <span class="fr">specs/executable/</span></td></tr>
+        <tr data-cat="data"><td><b>Хранилище</b></td>
+          <td class="dim-egg">Файлы и JSON под <span class="mono">data/</span>: проекты, чаты, сессии, настройки, токены. Без СУБД, один инстанс.</td>
+          <td class="dim-pa">PostgreSQL (24 миграции, ownership-инварианты) + MinIO (документы, inbox, CAS-артефакты по SHA-256).</td></tr>
+        <tr data-cat="data"><td><b>Память агента</b></td>
+          <td class="dim-egg">Два слоя: <span class="mono">memory.md</span> (плейн-маркдаун, token-overlap поиск) и <span class="mono">vectors.json</span> (эмбеддинги). <span class="fr">src/lib/storage/project-store.ts</span></td>
+          <td class="dim-pa">Бюджетированные проекции <span class="mono">/proc/*</span> (48k символов, деградация по приоритетам); vector search сознательно отложен. <span class="fr">src/application/runtime-projections/</span></td></tr>
+        <tr data-cat="feat"><td><b>Интерфейсы</b></td>
+          <td class="dim-egg">Web-дашборд (проекты, скиллы, MCP, расписания, пайплайны) + Telegram + External API.</td>
+          <td class="dim-pa">Telegram + HTTP SDK + CLI. Web-UI нет.</td></tr>
+        <tr data-cat="feat"><td><b>Telegram-бот</b></td>
+          <td class="dim-egg">Polling и webhook (автовыбор), HTML-форматирование, staged-прогресс (12/35/75 с), голос, медиа, access-коды, <span class="mono">/new</span>. <span class="fr">src/lib/telegram/telegram-message-handler.ts</span></td>
+          <td class="dim-pa">Telegraf, polling, plain-text, typing каждые 4 с, голос, медиа→CAS, inline-клавиатуры (онбординг, consent, оценки), приватные чаты. <span class="fr">src/telegram/telegram-shell.ts</span></td></tr>
+        <tr data-cat="feat"><td><b>Голос (STT)</b></td>
+          <td class="dim-egg"><b>Локально</b>: ffmpeg → whisper.cpp, автозагрузка модели, без внешних API. <span class="fr">src/lib/speech/transcriber.ts</span></td>
+          <td class="dim-pa">Облако: <span class="mono">@mastra/voice-openai</span> — аудио уходит во внешний API.</td></tr>
+        <tr data-cat="feat"><td><b>Планировщик</b></td>
+          <td class="dim-egg">Через pi-subagents: cron/`+30s` в файлах, host удерживает сессию. <b>Не переживает рестарт.</b> <span class="fr">src/lib/pi/schedule-host.ts</span></td>
+          <td class="dim-pa">Нет; фундамент запланирован эпиком D.0 (<span class="mono">prs-yjl</span>). Проактивных касаний пока нет.</td></tr>
+        <tr data-cat="feat"><td><b>Внешний API</b></td>
+          <td class="dim-egg"><span class="mono">POST /api/external/message</span>: Bearer + timingSafeEqual, sessionId-контекст, 409 на неоднозначные имена, publicMode. <span class="fr">src/lib/external/handle-external-message.ts</span></td>
+          <td class="dim-pa">Версионированный HTTP API + SDK (<span class="fr">src/client/sdk/minutka-client.ts</span>), rate-limit; принимает чат и файлы.</td></tr>
+        <tr data-cat="feat"><td><b>MCP и скиллы</b></td>
+          <td class="dim-egg">Per-project <span class="mono">.mcp.json</span>; скиллы по Agent Skills spec (<span class="mono">SKILL.md</span>), установка с GitHub, bundled-каталог.</td>
+          <td class="dim-pa">MCP нет; «скиллы» = процессы vault с registry и typed-действиями <span class="mono">bin/</span> (жёстче, но беднее каталог).</td></tr>
+        <tr data-cat="sec"><td><b>Мульти-пользовательность</b></td>
+          <td class="dim-egg">Один admin-логин (по умолчанию admin/admin) + allowlist Telegram-ID.</td>
+          <td class="dim-pa">Single-owner c структурной изоляцией: <span class="mono">userId</span> в ключах MinIO и ownership-инвариантах Postgres.</td></tr>
+        <tr data-cat="sec"><td><b>Приватность данных</b></td>
+          <td class="dim-egg">Всё в открытых файлах <span class="mono">data/</span>; секреты маскируются в API, но контур один.</td>
+          <td class="dim-pa">Consent-версионирование (privacy v2), аудит хранит только факты операций, запрет кросс-owner доступа, приватный контур.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted" style="margin-top:10px">Итог: Eggent выигрывает в <b>широте продукта</b> (UI, планировщик, пайплайны, MCP, локальный голос), наш проект — в <b>строгости фундамента</b> (границы, аудит, БД, спеки, приватность). Это и есть причина, почему они дополняют, а не заменяют друг друга.</p>
+</section>
+
+<!-- ================= TOGETHER ================= -->
+<section id="tab-together" role="tabpanel" aria-label="Совместное использование">
+  <h2>Можно ли использовать вместе?</h2>
+  <p>Да — но по ролям, с жёсткой границей по данным. Выберите сценарий, чтобы увидеть схему и вердикт:</p>
+
+  <div class="scen-btns" role="group" aria-label="Сценарии">
+    <button class="scenbtn" data-scen="0" aria-pressed="true"><span class="t">🧪 Лаборатория процессов</span><span class="s">прототипировать навыки в Eggent</span></button>
+    <button class="scenbtn" data-scen="1" aria-pressed="false"><span class="t">⚙️ Внешний исполнитель</span><span class="s">PA вызывает Eggent по API</span></button>
+    <button class="scenbtn" data-scen="2" aria-pressed="false"><span class="t">🖥 Временный web-UI</span><span class="s">дашборд для экспериментов</span></button>
+    <button class="scenbtn" data-scen="3" aria-pressed="false"><span class="t">🔀 Слияние в один продукт</span><span class="s">общий контур данных</span></button>
+  </div>
+
+  <div class="card scen-detail" id="scen-detail"></div>
+
+  <h2>Граница, которую нельзя переступать</h2>
+  <div class="callout crit"><b>Персональные данные владельца не должны попадать в контур Eggent.</b> Агент Eggent имеет bash и полный доступ к файлам без аудита и подтверждений — размещение там контактов, финансов и переписки ломает всю модель приватности, ради которой строится personal-assistant. Обмен только обезличенными задачами и артефактами, направление PA → Eggent, результаты возвращаются как файлы через типизированный intake.</div>
+</section>
+
+<!-- ================= ADOPT ================= -->
+<section id="tab-adopt" role="tabpanel" aria-label="Что взять">
+  <h2>Что полезного взять из Eggent</h2>
+  <p class="small muted">12 идей. Рантаймы несовместимы (pi-coding-agent ↔ Mastra), поэтому почти всё переносится как <b>паттерн</b>, а не копипаст — кроме транскрайбера, он практически автономен. Лицензия MIT позволяет заимствовать код с указанием авторства.</p>
+
+  <div class="toolbar">
+    <div class="searchbox">
+      <span class="icon" aria-hidden="true">⌕</span>
+      <input type="search" id="idea-search" placeholder="Поиск по идеям… (например: whisper)" aria-label="Поиск по идеям">
+    </div>
+    <div class="tagbar" id="tagbar" role="group" aria-label="Фильтр по тегам"></div>
+  </div>
+
+  <div class="grid two" id="ideas"></div>
+  <div id="ideas-empty">Ничего не найдено — сбросьте поиск или теги.</div>
+
+  <h2>Ценность против трудоёмкости</h2>
+  <p class="small muted">Каждая точка — идея; клик по точке подсветит карточку выше. Левый верхний угол — быстрые победы.</p>
+  <div class="chart-card">
+    <div class="plot" id="scatter"></div>
+    <div class="axis-cap"><span>← низкая трудоёмкость</span><span>трудоёмкость →</span></div>
+  </div>
+
+  <h2>Чек-лист внедрения</h2>
+  <p class="small muted">Рекомендуемый порядок; отметки сохраняются в браузере.</p>
+  <div class="card">
+    <div class="progress" aria-hidden="true"><i id="prog-bar"></i></div>
+    <div class="small muted" id="prog-label" style="margin-bottom:8px">0 из 8</div>
+    <div id="checklist"></div>
+  </div>
+</section>
+
+<!-- ================= NOTES ================= -->
+<section id="tab-notes" role="tabpanel" aria-label="Риски и заметки">
+  <h2>Важная дополнительная информация</h2>
+
+  <h3>Состояние проекта Eggent</h3>
+  <ul class="clean">
+    <li><b>Активен:</b> релиз 0.2.0 — 22 июля 2026 (вчера), свежие коммиты, публичный репозиторий <span class="mono">eggent-ai/eggent</span>, лицензия MIT.</li>
+    <li><b>Несостыковка версий:</b> README заявляет «Current version 2.0», а <span class="fr">package.json</span> и CHANGELOG — 0.2.0. Маркетинговое округление; ориентироваться на 0.2.0.</li>
+    <li><b>Двойной рантайм:</b> живой чат идёт через pi SDK, но в коде остался большой legacy-слой собственного агентского цикла (<span class="fr">src/lib/agent/agent.ts</span> ~42&nbsp;КБ, <span class="fr">src/lib/tools/tool.ts</span> ~61&nbsp;КБ) — при чтении кода легко изучать «мёртвый» путь.</li>
+  </ul>
+
+  <h3>Риски Eggent как продукта (если бы мы на него опирались)</h3>
+  <ul class="clean">
+    <li><span class="pill crit">критично</span> Агент с bash/файлами/кодом без аудита и подтверждений — несовместимо с нашей моделью персональных данных.</li>
+    <li><span class="pill warn">важно</span> Планировщик живёт в памяти процесса: после рестарта задания не восстанавливаются (признано в README). Наш D.0 должен строиться на персистентном сторе — этот анти-паттерн повторять нельзя.</li>
+    <li><span class="pill warn">важно</span> Файловые JSON-сторы без транзакций и конкурентного доступа — единственный инстанс, риск гонок.</li>
+    <li><span class="pill warn">важно</span> Пароль по умолчанию admin/admin (принудительная смена при онбординге есть, но дефолт слабый); данные в <span class="mono">data/</span> не шифруются.</li>
+  </ul>
+
+  <h3>Что Eggent делает хорошо (и это подтверждает наши решения)</h3>
+  <ul class="clean">
+    <li>Локальный best-effort STT без внешних API — приватность как фича.</li>
+    <li>Таймауты, timingSafeEqual, маскирование токенов, дедупликация Telegram-обновлений, docker-hardening (multi-stage, non-root, проверка утечки <span class="mono">src/</span> и <span class="mono">.git</span> в образ).</li>
+    <li>Простая файловая память <span class="mono">memory.md</span> вместо преждевременного RAG — подтверждает наш выбор отложить vector search.</li>
+    <li>«Тонкий мост» над готовым агентским рантаймом вместо своего цикла — та же ставка, что у нас на Mastra.</li>
+  </ul>
+
+  <h2>Примеры команд</h2>
+
+  <h3>Попробовать Eggent локально</h3>
+  <div class="codeblock"><span class="cap">bash</span><button class="copybtn" data-copy>Copy</button><pre>git clone https://github.com/eggent-ai/eggent.git
+cd eggent
+npm install
+npm run dev          <span class="cm"># http://localhost:3000, ключи провайдеров задаются в UI</span></pre></div>
+
+  <div class="codeblock"><span class="cap">bash · docker</span><button class="copybtn" data-copy>Copy</button><pre><span class="cm"># одна команда: клонирует в ~/.eggent, соберёт образ, поднимет контейнер</span>
+curl -fsSL https://get.eggent.ai | bash
+<span class="cm"># по умолчанию безопасный bind: http://127.0.0.1:3000</span></pre></div>
+
+  <h3>Вызов Eggent как внешнего исполнителя (сценарий Б)</h3>
+  <div class="codeblock"><span class="cap">bash · curl</span><button class="copybtn" data-copy>Copy</button><pre>curl -X POST http://127.0.0.1:3000/api/external/message \
+  -H "Authorization: Bearer $EGGENT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "pa:research-queue",
+    "projectName": "Research Agent",
+    "message": "Собери обзор по теме X и сохрани результат файлом-артефактом"
+  }'
+<span class="cm"># ответ: { "reply": "...", "context": { "activeProjectId": ... } }</span></pre></div>
+
+  <h3>Наши проверки после заимствований</h3>
+  <div class="codeblock"><span class="cap">bash · personal-assistant</span><button class="copybtn" data-copy>Copy</button><pre>npm run verify              <span class="cm"># typecheck + executable specs (без сети)</span>
+set -a; . ./.env; set +a
+npm run specs:persistence   <span class="cm"># контрактные спеки Postgres</span>
+npm run telegram:dev        <span class="cm"># локальный бот (polling) — проверить STT/форматирование</span></pre></div>
+
+  <h3>Куда это ложится в наш план (beads)</h3>
+  <div class="tablewrap"><table style="min-width:640px">
+    <thead><tr><th>Заимствование</th><th>Эпик / задача</th><th>Комментарий</th></tr></thead>
+    <tbody>
+      <tr><td>Локальный whisper.cpp STT</td><td class="mono">новая задача</td><td>Замена <span class="mono">@mastra/voice-openai</span> за портом <span class="mono">SpeechToTextPort</span> — интерфейс уже готов.</td></tr>
+      <tr><td>Loaders (pdf/docx/OCR)</td><td class="mono">prs-pdo (E.0)</td><td>Типизированная обработка сохранённых артефактов.</td></tr>
+      <tr><td>Паттерн pipelines</td><td class="mono">prs-pdo / prs-t7c (E.1)</td><td>Артефакт-директория как handoff между шагами процесса встреч.</td></tr>
+      <tr><td>Референс планировщика</td><td class="mono">prs-yjl (D.0)</td><td>Изучить pi-subagents, но хранить расписания в Postgres — рестарт обязан переживаться.</td></tr>
+      <tr><td>Telegram UX (HTML, прогресс, /new)</td><td class="mono">новая задача</td><td>Малые изменения в <span class="fr">src/telegram/telegram-shell.ts</span>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <details>
+    <summary>Методика исследования</summary>
+    <div class="inner small">
+      <p>Анализ выполнен 23 июля 2026: полное чтение README/CHANGELOG Eggent + два параллельных глубоких обхода кода (214 файлов <span class="mono">src/</span> Eggent: pi-мост, Telegram, External API, пайплайны, планировщик, STT, сторы; и все слои personal-assistant: RFC, application/mastra/infrastructure, vault, specs, миграции). Оценки «ценность/трудоёмкость» и покрытие возможностей — экспертные, по шкалам 1–5 и 0–3.</p>
+    </div>
+  </details>
+</section>
+
+</main>
+
+<footer><div class="wrap">Отчёт подготовлен Claude Code · данные на 23 июля 2026 · Eggent 0.2.0 (MIT) · personal-assistant (прототип, ветка main)</div></footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- tabs ---------- */
+  var tabs = document.querySelectorAll(".tabbtn");
+  tabs.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      tabs.forEach(function(b){ b.setAttribute("aria-selected", b===btn ? "true":"false"); });
+      document.querySelectorAll("section[role=tabpanel]").forEach(function(s){ s.classList.remove("active"); });
+      document.getElementById("tab-"+btn.dataset.tab).classList.add("active");
+      window.scrollTo({top:0});
+    });
+  });
+
+  /* ---------- file refs toggle ---------- */
+  document.getElementById("refs-toggle").addEventListener("change", function(){
+    document.body.classList.toggle("hide-refs", !this.checked);
+  });
+
+  /* ---------- tooltip ---------- */
+  var tip = document.getElementById("tooltip");
+  function showTip(html, x, y){
+    tip.innerHTML = html; tip.style.opacity = "1"; tip.setAttribute("aria-hidden","false");
+    var pad = 14, w = tip.offsetWidth;
+    var left = Math.min(x + pad, window.innerWidth - w - 10);
+    tip.style.left = left + "px"; tip.style.top = (y + pad) + "px";
+  }
+  function hideTip(){ tip.style.opacity = "0"; tip.setAttribute("aria-hidden","true"); }
+
+  /* ---------- coverage chart ---------- */
+  var LV = ["нет","минимум","частично","развито"];
+  var coverage = [
+    {c:"Web-интерфейс", e:3, p:0, te:"Полный дашборд: проекты, скиллы, MCP, расписания, пайплайны", tp:"Нет — прототип сознательно ограничен Telegram/HTTP/CLI"},
+    {c:"Telegram-бот", e:3, p:3, te:"Polling+webhook, HTML, голос, медиа, прогресс", tp:"Telegraf, голос, медиа→CAS, inline-клавиатуры, онбординг"},
+    {c:"Голос (STT)", e:3, p:2, te:"Локально: ffmpeg + whisper.cpp, без внешних API", tp:"Работает, но через облачный OpenAI STT"},
+    {c:"Планировщик", e:2, p:0, te:"pi-subagents; не переживает рестарт процесса", tp:"Нет; фундамент запланирован (D.0, prs-yjl)"},
+    {c:"Пайплайны / мульти-агент", e:3, p:0, te:"Цепочки проектов-агентов с артефакт-handoff", tp:"Один агент, agent-led routing"},
+    {c:"External API", e:3, p:2, te:"Bearer-token, sessionId-контекст, publicMode", tp:"HTTP SDK + CLI, rate-limit; сторонних потребителей пока нет"},
+    {c:"MCP + каталог скиллов", e:3, p:1, te:"Per-project .mcp.json, SKILL.md, установка с GitHub", tp:"MCP нет; процессы vault: в реестре пока один (inbox_capture)"},
+    {c:"Typed-границы и аудит", e:0, p:3, te:"Агент действует свободно, аудита нет", tp:"Typed use-cases, confirm-модель, AuditEventStore"},
+    {c:"Тесты / спеки", e:1, p:3, te:"Только typecheck", tp:"Executable specs без LLM/сети, transport parity, снапшоты"},
+    {c:"Приватность и consent", e:1, p:3, te:"Секреты маскируются, но данные в открытых файлах", tp:"Consent-версии, изоляция userId, аудит без содержимого"},
+    {c:"Персистентность (СУБД)", e:1, p:3, te:"Файлы/JSON, один инстанс, без транзакций", tp:"PostgreSQL (24 миграции) + MinIO CAS"}
+  ];
+  (function renderCoverage(){
+    var rowH = 46, barH = 13, gap = 2, labelW = 205, chartW = 640, maxV = 3;
+    var H = coverage.length * rowH + 26;
+    var css = getComputedStyle(document.documentElement);
+    var s = '<svg viewBox="0 0 '+chartW+' '+H+'" width="100%" style="min-width:560px" role="img" aria-label="Покрытие возможностей: Eggent против personal-assistant">';
+    // grid
+    for (var g=1; g<=maxV; g++){
+      var gx = labelW + (chartW-labelW-70) * g/maxV;
+      s += '<line x1="'+gx+'" y1="6" x2="'+gx+'" y2="'+(H-20)+'" stroke="var(--line)" stroke-width="1"/>';
+      s += '<text class="axis-label" x="'+gx+'" y="'+(H-6)+'" text-anchor="middle">'+LV[g]+'</text>';
+    }
+    coverage.forEach(function(d,i){
+      var y = i*rowH + 12;
+      var plotW = chartW - labelW - 70;
+      s += '<text x="'+(labelW-10)+'" y="'+(y+barH+gap/2+4)+'" text-anchor="end" font-size="12.5" font-weight="600">'+d.c+'</text>';
+      [["e","--egg"],["p","--pa"]].forEach(function(pair, k){
+        var v = d[pair[0]], w = Math.max(plotW * v/maxV, v===0?0:6);
+        var by = y + k*(barH+gap);
+        if (v===0){
+          s += '<circle cx="'+(labelW+4)+'" cy="'+(by+barH/2)+'" r="2.5" fill="var('+pair[1]+')" opacity=".55"/>';
+        } else {
+          s += '<path d="M'+labelW+','+by+' h'+Math.max(w-4,0)+' a4,4 0 0 1 4,4 v'+(barH-8)+' a4,4 0 0 1 -4,4 h-'+Math.max(w-4,0)+' z" fill="var('+pair[1]+')"/>';
+        }
+        s += '<rect class="bar-hit" data-i="'+i+'" data-s="'+pair[0]+'" x="'+labelW+'" y="'+(by-1)+'" width="'+plotW+'" height="'+(barH+2)+'" fill="transparent"/>';
+      });
+    });
+    s += '</svg>';
+    var host = document.getElementById("coverage-chart");
+    host.innerHTML = s;
+    host.querySelectorAll(".bar-hit").forEach(function(r){
+      r.addEventListener("mousemove", function(ev){
+        var d = coverage[+r.dataset.i], isE = r.dataset.s==="e";
+        showTip('<div class="t">'+d.c+' · '+(isE?'Eggent':'personal-assistant')+'</div>'
+          +'<b>'+LV[isE?d.e:d.p]+'</b> — '+(isE?d.te:d.tp), ev.clientX, ev.clientY);
+      });
+      r.addEventListener("mouseleave", hideTip);
+    });
+  })();
+
+  /* ---------- comparison table filter ---------- */
+  document.querySelectorAll(".seg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".seg button").forEach(function(x){ x.setAttribute("aria-pressed","false"); });
+      b.setAttribute("aria-pressed","true");
+      var cat = b.dataset.cat;
+      document.querySelectorAll("#cmp-table tbody tr").forEach(function(tr){
+        tr.classList.toggle("hidden-row", cat!=="all" && tr.dataset.cat.split(" ").indexOf(cat)===-1);
+      });
+    });
+  });
+
+  /* ---------- scenarios ---------- */
+  var scens = [
+    {
+      title:"Сценарий А — лаборатория процессов", verdict:["good","рекомендовано"],
+      flow:'<div class="fnode">Идея процесса</div><div class="farrow">→</div><div class="fnode hl-egg">Eggent: скилл + пайплайн, быстрые итерации</div><div class="farrow">→</div><div class="fnode hl-pa">PA: формализация в vault-процесс + typed use-case + спеки</div>',
+      body:"Eggent идеален для дешёвых экспериментов: скилл создаётся текстовым файлом, MCP подключается из UI, пайплайн собирается за минуты. Обкатали процесс (например, «встреча → протокол → follow-up») на тестовых данных — переносим проверенную логику в vault/processes с типизированными действиями и executable-спеками. Наш строгий контур не тормозит исследование, а Eggent не касается реальных данных."
+    },
+    {
+      title:"Сценарий Б — внешний исполнитель тяжёлых задач", verdict:["warn","возможно, с оговорками"],
+      flow:'<div class="fnode hl-pa">PA use-case</div><div class="farrow">→</div><div class="fnode">POST /api/external/message (Bearer)</div><div class="farrow">→</div><div class="fnode hl-egg">Eggent: research / пайплайн / web-доступ</div><div class="farrow">→</div><div class="fnode hl-pa">результат → intake артефактов PA + аудит</div>',
+      body:"External API Eggent создан ровно для этого: stable sessionId, выбор проекта по имени, финальный текстовый ответ. PA мог бы делегировать обезличенные задачи (обзор рынка, генерация черновиков по публичным данным) и принимать результат через свой типизированный intake c записью в аудит. Оговорки: только неперсональные данные; вызов оформлять как typed use-case с подтверждением владельца; таймауты щедрые (агентские прогоны — минуты)."
+    },
+    {
+      title:"Сценарий В — временный web-дашборд", verdict:["warn","осторожно"],
+      flow:'<div class="fnode hl-egg">Eggent UI</div><div class="farrow">→</div><div class="fnode ghost">только каталог экспериментов</div><div class="farrow">✕</div><div class="fnode ghost">НЕ данные PA (Postgres/MinIO)</div>',
+      body:"У PA нет web-интерфейса, у Eggent он хороший — соблазн использовать его как «окно». Но хранилища не пересекаются: Eggent видит только свой data/, а прямой доступ к данным PA обошёл бы typed boundary. Годится лишь как рабочее место для экспериментальных проектов и просмотра их файлов. Для данных PA web-окно, если понадобится, лучше строить поверх нашего HTTP API."
+    },
+    {
+      title:"Сценарий Г — слияние в один продукт", verdict:["crit","не стоит"],
+      flow:'<div class="fnode hl-egg">pi-coding-agent · файлы · bash</div><div class="farrow">⇄?</div><div class="fnode hl-pa">Mastra · typed use-cases · Postgres · аудит</div>',
+      body:"Рантаймы (pi-coding-agent против Mastra), модели хранения (файлы против Postgres/MinIO) и модели безопасности (свободный агент против confirm-границы) несовместимы на уровне архитектуры. Слияние означало бы либо потерю гарантий PA, либо переписывание Eggent целиком. Дешевле и надёжнее держать два контура и обмениваться артефактами по API."
+    }
+  ];
+  var scenHost = document.getElementById("scen-detail");
+  function renderScen(i){
+    var s = scens[i];
+    scenHost.innerHTML = '<div class="head"><h3>'+s.title+'</h3><span class="pill '+s.verdict[0]+'">'+s.verdict[1]+'</span></div>'
+      + '<div class="flow">'+s.flow+'</div><p style="font-size:13.5px">'+s.body+'</p>';
+  }
+  document.querySelectorAll(".scenbtn").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".scenbtn").forEach(function(x){ x.setAttribute("aria-pressed","false"); });
+      b.setAttribute("aria-pressed","true");
+      renderScen(+b.dataset.scen);
+    });
+  });
+  renderScen(0);
+
+  /* ---------- ideas ---------- */
+  var ideas = [
+    {id:"stt", t:"Локальный STT: whisper.cpp + ffmpeg", v:5, e:2, x:2, y:5, tags:["голос","приватность"],
+     d:"Заменить облачный @mastra/voice-openai на локальную транскрипцию: ffmpeg нормализует в mono 16kHz WAV, whisper-cli распознаёт (-otxt -nt -l auto), модель ggml-base автозагружается. Наш порт SpeechToTextPort — готовая точка подключения; голос владельца перестаёт покидать контур. Модуль почти автономен — единственный кандидат на прямой перенос кода.",
+     fr:["eggent: src/lib/speech/transcriber.ts","pa: SpeechToTextPort"]},
+    {id:"tghtml", t:"HTML-форматирование ответов в Telegram", v:4, e:1, x:1, y:4.2, tags:["telegram","ux"],
+     d:"Сейчас PA шлёт plain-text. Паттерн markdownToTelegramHtml: код-фенсы → <pre>, жирный, ссылки, inline-код, parse_mode: HTML c экранированием. Заметно улучшает читаемость длинных ответов ассистента.",
+     fr:["eggent: telegram-message-handler.ts","pa: src/telegram/telegram-shell.ts"]},
+    {id:"progress", t:"Staged-прогресс при долгих прогонах", v:3, e:1, x:1, y:3.4, tags:["telegram","ux"],
+     d:"Помимо typing (у нас уже есть), Eggent шлёт редкие содержательные сообщения на 12-й/35-й/75-й секунде («ещё работаю…»). Для будущих долгих процессов (встречи, дайджесты) снимает ощущение зависшего бота.",
+     fr:["eggent: startTelegramProgressNotifier"]},
+    {id:"newcmd", t:"Команда /new — сброс контекста", v:3, e:1, x:1.3, y:2.9, tags:["telegram","ux"],
+     d:"Ротация session id по команде: пользователь явно начинает разговор «с чистого листа». Дешёвый и понятный механизм управления контекстом диалога.",
+     fr:["eggent: createFreshTelegramSessionId"]},
+    {id:"pipelines", t:"Паттерн pipelines: артефакт-директория как handoff", v:4, e:3, x:3, y:4.4, tags:["архитектура","процессы","артефакты"],
+     d:"Шаги выполняются последовательно, каждый — отдельная агент-сессия; состояние передаётся не контекстом, а файлами в общей artifacts-директории + резюме шагов в промпте. Ложится на наши эпики E.0/E.1: «транскрипт → протокол → follow-up» как цепочка типизированных шагов над CAS-артефактами.",
+     fr:["eggent: src/lib/pipelines/runner.ts","prompt-builder.ts"]},
+    {id:"sched", t:"Референс планировщика (pi-subagents)", v:3, e:2, x:2.4, y:3.3, tags:["scheduler","архитектура"],
+     d:"Изучить как референс для D.0 (prs-yjl): расписания как данные (+30s / 6-польный cron), host-процесс удерживает сессию, вывод заданий публикуется в чат. Анти-урок: у Eggent задания не переживают рестарт — нам хранить расписания в Postgres и восстанавливать при старте.",
+     fr:["eggent: src/lib/pi/schedule-host.ts"]},
+    {id:"loaders", t:"Загрузчики документов: pdf-parse, mammoth, tesseract", v:4, e:2, x:2, y:4, tags:["артефакты","процессы"],
+     d:"Готовый набор извлечения текста: PDF (pdf-parse), DOCX (mammoth), OCR картинок (tesseract.js). Прямо отвечает эпику E.0 (prs-pdo) — типизированная обработка сохранённых артефактов из inbox.",
+     fr:["eggent: src/lib/memory/loaders/"]},
+    {id:"extapi", t:"Детали дизайна External API", v:3, e:2.5, x:2.8, y:2.7, tags:["api","безопасность"],
+     d:"Хорошие мелочи для нашего HTTP API: стабильный sessionId-контракт (telegram:<botId>:<chatId>), 409 на неоднозначные имена, timingSafeEqual для токенов, publicMode c guardrail-инструкциями, маскирование токенов в статусах.",
+     fr:["eggent: handle-external-message.ts"]},
+    {id:"memsearch", t:"Поиск по memory.md через token-overlap", v:2, e:1, x:1.2, y:2.2, tags:["память"],
+     d:"Дешёвый промежуточный шаг до pgvector: поиск релевантных блоков маркдауна по пересечению токенов. Может усилить наши /proc-проекции точечным подбором контекста без эмбеддингов.",
+     fr:["eggent: searchProjectMemory в project-store.ts"]},
+    {id:"codes", t:"Access-коды с TTL и хешированием", v:2, e:1, x:1, y:1.8, tags:["безопасность","telegram"],
+     d:"Одноразовые коды доступа EG-<hex>: хранится sha256, TTL 30 минут, потребление кода даёт доступ. У нас похожие invite-seeds — сверить детали (TTL, хеш вместо plaintext).",
+     fr:["eggent: consumeTelegramAccessCode"]},
+    {id:"docker", t:"Docker-hardening релизного образа", v:2, e:2, x:2, y:1.9, tags:["инфраструктура","безопасность"],
+     d:"Multi-stage сборка падает, если в рантайм-образ утекли src/, .git, .env или sourcemaps; non-root user; entrypoint сам чинит владельца bind-mount и генерирует секрет. Пригодится, когда PA поедет в контейнер.",
+     fr:["eggent: Dockerfile","scripts/docker-entrypoint.sh"]},
+    {id:"skillfmt", t:"Совместимость с форматом SKILL.md", v:3, e:2, x:1.8, y:3.0, tags:["процессы"],
+     d:"Eggent использует открытый Agent Skills spec (SKILL.md + frontmatter). Наши vault-процессы близки по духу; выравнивание формата откроет перенос навыков между системами и установку из GitHub-каталогов.",
+     fr:["eggent: data/projects/<id>/skills/","pa: vault/assistant/processes/"]}
+  ];
+
+  var ideasHost = document.getElementById("ideas");
+  function meter(n, cls){
+    var s = '<span class="bars">';
+    for (var i=1;i<=5;i++) s += '<i class="'+(i<=Math.round(n)?"on":"")+'"></i>';
+    return '<span class="meter '+cls+'">'+ (cls==="eff"?"трудоёмкость":"ценность") + s + '</span></span>';
+  }
+  ideasHost.innerHTML = ideas.map(function(it){
+    return '<article class="idea" id="idea-'+it.id+'" data-tags="'+it.tags.join(",")+'">'
+      + '<div class="top"><h3>'+it.t+'</h3><span class="score mono">'+it.v+'/'+'5 · eff '+it.e+'</span></div>'
+      + meter(it.v,"") + meter(it.e,"eff")
+      + '<p>'+it.d+'</p>'
+      + '<div class="tags">'+it.tags.map(function(t){return "<span>"+t+"</span>";}).join("")+'</div>'
+      + '<div class="frblock">'+it.fr.map(function(f){return '<span class="fr">'+f+'</span>';}).join("")+'</div>'
+      + '</article>';
+  }).join("");
+
+  /* tags */
+  var allTags = [];
+  ideas.forEach(function(i){ i.tags.forEach(function(t){ if(allTags.indexOf(t)<0) allTags.push(t); }); });
+  var tagbar = document.getElementById("tagbar");
+  tagbar.innerHTML = allTags.map(function(t){ return '<button class="tag" aria-pressed="false" data-tag="'+t+'">'+t+'</button>'; }).join("");
+  var activeTags = [];
+  tagbar.querySelectorAll(".tag").forEach(function(b){
+    b.addEventListener("click", function(){
+      var t = b.dataset.tag, i = activeTags.indexOf(t);
+      if (i<0) activeTags.push(t); else activeTags.splice(i,1);
+      b.setAttribute("aria-pressed", i<0 ? "true":"false");
+      filterIdeas();
+    });
+  });
+  var searchEl = document.getElementById("idea-search");
+  searchEl.addEventListener("input", filterIdeas);
+  function filterIdeas(){
+    var q = searchEl.value.trim().toLowerCase(), any = false;
+    document.querySelectorAll("#ideas .idea").forEach(function(card){
+      var tags = card.dataset.tags.split(",");
+      var okTags = activeTags.every(function(t){ return tags.indexOf(t)>=0; });
+      var okText = !q || card.textContent.toLowerCase().indexOf(q)>=0;
+      var show = okTags && okText;
+      card.style.display = show ? "" : "none";
+      if (show) any = true;
+    });
+    document.getElementById("ideas-empty").style.display = any ? "none" : "block";
+  }
+
+  /* ---------- scatter ---------- */
+  var plot = document.getElementById("scatter");
+  (function(){
+    var html = '';
+    // gridlines
+    for (var i=1;i<5;i++){
+      html += '<span class="gridline" style="left:'+(i*20)+'%;top:0;bottom:0;width:1px"></span>';
+      html += '<span class="gridline" style="top:'+(i*20)+'%;left:0;right:0;height:1px"></span>';
+    }
+    html += '<span class="quad" style="left:10px;top:8px">быстрые победы</span>';
+    html += '<span class="quad" style="right:10px;top:8px">крупные ставки</span>';
+    html += '<span class="quad" style="left:10px;bottom:8px">мелочи</span>';
+    ideas.forEach(function(it){
+      var lx = (it.x/5)*100, ly = (it.y/5)*100;
+      var flip = lx > 62;
+      html += '<button class="dotpt" data-id="'+it.id+'" style="left:'+lx+'%;bottom:'+ly+'%;'+(flip?'flex-direction:row-reverse;transform:translate(calc(-100% + 8px),50%);':'')+'" aria-label="'+it.t+'">'
+        + '<span class="d"></span><span class="lbl">'+it.t.split(":")[0].split("—")[0].trim()+'</span></button>';
+    });
+    plot.innerHTML = html;
+    plot.querySelectorAll(".dotpt").forEach(function(b){
+      var it = ideas.filter(function(x){return x.id===b.dataset.id;})[0];
+      b.addEventListener("mousemove", function(ev){
+        showTip('<div class="t">'+it.t+'</div>ценность '+it.v+'/5 · трудоёмкость '+it.e+'/5<br><span style="color:var(--muted)">клик — к карточке</span>', ev.clientX, ev.clientY);
+      });
+      b.addEventListener("mouseleave", hideTip);
+      b.addEventListener("click", function(){
+        hideTip();
+        searchEl.value=""; activeTags.length=0;
+        tagbar.querySelectorAll(".tag").forEach(function(x){x.setAttribute("aria-pressed","false");});
+        filterIdeas();
+        var card = document.getElementById("idea-"+it.id);
+        card.scrollIntoView({behavior:"smooth", block:"center"});
+        card.classList.add("flash");
+        setTimeout(function(){ card.classList.remove("flash"); }, 1800);
+      });
+    });
+  })();
+
+  /* ---------- checklist ---------- */
+  var checks = [
+    {k:"c-stt", w:"Подключить локальный whisper.cpp за SpeechToTextPort", why:"Приватность голоса + офлайн; проверить спеком SPEC-VOICE-001"},
+    {k:"c-html", w:"Внедрить HTML-форматирование ответов в Telegram", why:"markdown → parse_mode: HTML с экранированием и чанк-сплитом"},
+    {k:"c-prog", w:"Добавить staged-прогресс и команду /new", why:"UX долгих прогонов + явный сброс контекста"},
+    {k:"c-load", w:"Взять loaders (pdf/docx/OCR) в эпик E.0 (prs-pdo)", why:"Извлечение текста из сохранённых артефактов inbox"},
+    {k:"c-sched", w:"Спроектировать D.0-планировщик с оглядкой на pi-subagents", why:"Расписания в Postgres, восстановление после рестарта — обязательно"},
+    {k:"c-pipe", w:"Описать процесс встреч (E.1) как пайплайн с артефакт-handoff", why:"Транскрипт → протокол → follow-up над CAS-артефактами"},
+    {k:"c-api", w:"Сверить наш HTTP API с деталями External API Eggent", why:"sessionId-контракт, 409, timingSafeEqual, маскирование токенов"},
+    {k:"c-lab", w:"Поднять Eggent локально как лабораторию процессов", why:"Docker, 127.0.0.1; только тестовые данные, без персонального контура"}
+  ];
+  var clHost = document.getElementById("checklist");
+  clHost.innerHTML = checks.map(function(c){
+    return '<div class="check"><input type="checkbox" id="'+c.k+'"><label for="'+c.k+'"><span class="what">'+c.w+'</span><span class="why">'+c.why+'</span></label></div>';
+  }).join("");
+  var LSKEY = "eggent-report-checklist";
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(LSKEY) || "{}"); } catch(e){}
+  function updateProgress(){
+    var boxes = clHost.querySelectorAll("input"), done = 0;
+    boxes.forEach(function(b){ if (b.checked) done++; });
+    document.getElementById("prog-bar").style.width = (done/boxes.length*100) + "%";
+    document.getElementById("prog-label").textContent = done + " из " + boxes.length;
+  }
+  clHost.querySelectorAll("input").forEach(function(b){
+    if (saved[b.id]) b.checked = true;
+    b.addEventListener("change", function(){
+      saved[b.id] = b.checked;
+      try { localStorage.setItem(LSKEY, JSON.stringify(saved)); } catch(e){}
+      updateProgress();
+    });
+  });
+  updateProgress();
+
+  /* ---------- copy buttons ---------- */
+  document.querySelectorAll("[data-copy]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var pre = btn.parentElement.querySelector("pre");
+      var text = pre.innerText.replace(/^# .*$/gm, function(m){return m;});
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function(){
+        btn.textContent = "Скопировано";
+      }).catch(function(){
+        var ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); btn.textContent = "Скопировано"; } catch(e){ btn.textContent = "Ошибка"; }
+        ta.remove();
+      });
+      setTimeout(function(){ btn.textContent = "Copy"; }, 1600);
+    });
+  });
+})();
+</script>
+</body>
+</html>
