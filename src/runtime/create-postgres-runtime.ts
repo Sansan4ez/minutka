@@ -6,6 +6,7 @@ import { loadContextPriorityManifest } from "../application/context-priority-man
 import { createIngestionService } from "../application/ingestion-service.js";
 import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
+import { createThreadCompactionService } from "../application/thread-compaction-service.js";
 import { MinutkaService } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
@@ -13,6 +14,7 @@ import { createPostgresConsentAcceptanceStore } from "../infrastructure/postgres
 import { createPostgresTelegramInviteRedemptionStore } from "../infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { postgresConfigFromEnv } from "../infrastructure/postgres/postgres-config.js";
 import { createPostgresConversationStore } from "../infrastructure/postgres/postgres-conversation-store.js";
+import { createPostgresThreadSummaryStore } from "../infrastructure/postgres/postgres-thread-summary-store.js";
 import { createPostgresFeedbackStore } from "../infrastructure/postgres/postgres-feedback-store.js";
 import { createPostgresInsightStore } from "../infrastructure/postgres/postgres-insight-store.js";
 import { migrationStatus } from "../infrastructure/postgres/postgres-migrator.js";
@@ -29,6 +31,8 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
+import { extractInsightsWithAgent } from "../mastra/insight-extractor.js";
+import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
 import { privacyConfigFromEnv } from "../config/privacy.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
@@ -76,6 +80,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
       onboardingDraftStore,
       conversationStore: createPostgresConversationStore(pool),
+      threadSummaryStore: createPostgresThreadSummaryStore(pool),
       insightStore: createPostgresInsightStore(pool),
       feedbackStore: createPostgresFeedbackStore(pool),
       auditEventStore: createPostgresAuditEventStore(pool),
@@ -100,6 +105,18 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ...input.deps,
     });
     const chatProjectionBuilder = createRuntimeProjectionBuilder({ ...stores, clock: systemClock, contextBudget });
+    const threadCompactionService = createThreadCompactionService({
+      conversationStore: stores.conversationStore,
+      summaryStore: stores.threadSummaryStore,
+      summarizer: summarizeThreadWithAgent,
+      recentTurnLimit: contextBudget.projectionLimits.historyTurns,
+      summaryCeiling: contextBudget.projectionLimits.threadSummaryCharacters,
+      insightExtractor: extractInsightsWithAgent,
+      insightStore: stores.insightStore,
+      auditEventStore: stores.auditEventStore,
+      clock: systemClock,
+      idGenerator: randomIdGenerator,
+    });
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -108,6 +125,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       auditEventStore: stores.auditEventStore,
       participantStore: stores.profileStore,
       chatProjectionBuilder,
+      threadCompactionService,
       requestIntegrityGuard: evaluateRequestIntegrity,
       clock: systemClock,
       idGenerator: randomIdGenerator,

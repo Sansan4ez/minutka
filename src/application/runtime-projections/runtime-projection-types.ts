@@ -4,6 +4,7 @@ import type { StructuredInsight } from "../../domain/insights.js";
 import type { AuditEventRecord } from "../audit-event-store.js";
 import type { ConversationTurn } from "../conversation-store.js";
 import type { Consent, OnboardingStatus, UserProfile } from "../../domain/employee.js";
+import type { ThreadSummary } from "../thread-summary-store.js";
 
 export const allowedRuntimePaths = [
   "/proc/profile",
@@ -55,7 +56,7 @@ export type ConsentProjection = {
   acceptedAt?: string;
 };
 
-export type ThreadProjection = { turns: ConversationTurn[]; truncated: boolean };
+export type ThreadProjection = { summary?: ThreadSummary; turns: ConversationTurn[]; truncated: boolean };
 export type DecisionProjection = ConversationDecision;
 export type RunSnapshot = {
   current: RuntimeProjection<AuditEventRecord[]>;

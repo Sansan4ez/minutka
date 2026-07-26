@@ -14,6 +14,7 @@ Default text budget is 88,000 Unicode characters with an 8,000-character respons
 | `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner `context/*` paths | 6,000 chars; depth 4; file tree → folder → top-level rollup | included after context documents |
 | `/proc/records` | owner-scoped record stores | 24 records; 1,000/record; 12,000 total | included |
 | `/proc/inbox` | `ArtifactStore` / `BlobStore` | 12 relevant items; ≤8,000 chars | not included |
+| `thread_summary` in `/proc/thread` | regenerable `ThreadSummaryStore` checkpoint over turns outside the recent window | 4,000 chars; inclusive message-id watermark | included before recent history when present |
 | recent conversation history | `ConversationStore`, current owner and thread | 10 completed turns; 12,000 chars; 6,000/turn field | included |
 | `/run/actions` | request-scoped audit/action events | 50 events; ≤8,000 chars | not included |
 | document tool turn reads | `readDocument` content + `searchDocuments` snippets | 48,000 chars/turn; list metadata is free | included on demand; exhaustion returns a typed marker |
@@ -21,5 +22,7 @@ Default text budget is 88,000 Unicode characters with an 8,000-character respons
 Trusted `userId`, `threadId`, request scope, and capabilities come from the application and are never inferred from projection contents. Renderers label profile, context, records, inbox, and history as untrusted owner data and escape embedded markup. These values cannot override `/AGENTS.md`, process selection rules, or the request-scoped typed-tool set.
 
 Owner-context navigation is tiered: the machine index is the structural source of truth; an exact-case `INDEX.md`, when present, is an untrusted semantic annotation for that folder's direct children only. Path-like code spans in `INDEX.md` follow the same import drift-check as Markdown links. Chat projection lists metadata once and lazily fetches only candidate bodies with `get()`; it never performs a full body `list()`. Core manifest matches are validated at import, while oversized lower-priority context degrades with explicit truncation/index references and metadata-only audit. LLM summarization at ingestion is deliberately not used.
+
+Thread compaction is projection-only and non-destructive. After a successful response is durably appended, an asynchronous job processes turns that are now outside the 10-turn window: insight extraction first, then an incremental four-section summary. The summary watermark is an inclusive `fromMessageId..throughMessageId` range; raw turns remain unchanged in `ConversationStore`. Overflow triggers a second explicit reduction pass rather than silent clipping, and failures keep the previous valid checkpoint plus the normal history truncation marker.
 
 Legacy schemas in `schemas/` remain for compatibility until the corresponding assistant projections receive dedicated versioned schemas. Do not commit raw messages, actual identifiers, database rows, object-storage keys containing owner ids, or production projection snapshots under `vault/assistant/proc`.

@@ -15,6 +15,9 @@ export type AuditEventType =
   | "idea_captured"
   | "document_tool_used"
   | "context_projection_degraded"
+  | "thread_summary_updated"
+  | "thread_summary_failed"
+  | "thread_compaction_insight_failed"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -47,6 +50,9 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   idea_captured: ["ideaId", "recordType", "sourceKind"],
   document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
+  thread_summary_updated: ["turnCount", "summaryCharacters", "reduced"],
+  thread_summary_failed: ["reason", "turnCount", "previousCharacters"],
+  thread_compaction_insight_failed: ["reason", "turnCount"],
   employee_data_deleted: [],
 };
 

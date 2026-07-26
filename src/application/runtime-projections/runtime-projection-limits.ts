@@ -4,6 +4,7 @@ export type RuntimeProjectionLimits = {
   threadTurns: number;
   threadCharacters: number;
   threadTurnTextCharacters: number;
+  threadSummaryCharacters: number;
   insights: number;
   feedback: number;
   runCurrent: number;
@@ -16,6 +17,7 @@ export function runtimeProjectionLimitsFromBudget(config: ContextBudgetConfig = 
     threadCharacters: sourceCharacterCeiling(config, "history"),
     /** Individual user/assistant fields are clipped before a turn is budgeted. */
     threadTurnTextCharacters: config.projectionLimits.historyTurnCharacters,
+    threadSummaryCharacters: config.projectionLimits.threadSummaryCharacters,
     insights: config.projectionLimits.insights,
     feedback: config.projectionLimits.feedback,
     runCurrent: config.projectionLimits.runCurrent,

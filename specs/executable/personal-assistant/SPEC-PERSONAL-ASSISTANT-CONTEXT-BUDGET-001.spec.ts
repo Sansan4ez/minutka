@@ -32,12 +32,12 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   it("keeps the documented defaults as the single source for legacy limit exports", () => {
     expect(defaultContextBudget.total).toBe(88_000);
     expect(defaultContextBudget.sources.map(({ id }) => id)).toEqual([
-      "base_instructions", "agent_manual", "profile", "context", "context_index", "records", "inbox", "history", "actions",
+      "base_instructions", "agent_manual", "profile", "context", "context_index", "records", "inbox", "thread_summary", "history", "actions",
     ]);
     expect(assistantContextLimits).toEqual({ documents: 12, characters: 24_000, documentCharacters: 8_000, indexCharacters: 6_000, indexDepth: 4 });
     expect(assistantRecordsLimits).toEqual({ records: 24, characters: 12_000, recordCharacters: 1_000 });
     expect(conversationContextLimits).toMatchObject({ responseTurns: 10, responseCharacters: 12_000, responseFieldCharacters: 6_000 });
-    expect(runtimeProjectionLimits).toMatchObject({ threadTurns: 10, threadCharacters: 12_000, threadTurnTextCharacters: 6_000 });
+    expect(runtimeProjectionLimits).toMatchObject({ threadTurns: 10, threadCharacters: 12_000, threadTurnTextCharacters: 6_000, threadSummaryCharacters: 4_000 });
     expect(documentReadLimits).toEqual({
       listDefault: 20, listMaximum: 50, readDefaultCharacters: 4_000, readMaximumCharacters: 8_000,
       turnReadCharacters: 48_000, searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,

@@ -21,6 +21,7 @@ import type { RequestIntegrityGuard } from "./request-integrity-guard.js";
 import type { RequestIntegrityDenialReason } from "../domain/request-integrity.js";
 import { createResponsePolicy, renderResponsePolicy, type ResponseChannel } from "../domain/response-policy.js";
 import type { ContextPriorityManifest } from "./context-priority-manifest.js";
+import type { ThreadCompactionService } from "./thread-compaction-service.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
 export type AssistantAgentContext = {
@@ -66,7 +67,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -118,6 +119,7 @@ export class AssistantService {
         id: this.ids.auditEventId(), requestId, type: "chat_response_generated", employeeId: userId, threadId, messageId,
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
       }, "chat response audit");
+      this.scheduleThreadCompaction({ employeeId: userId, threadId, requestId });
       return {
         messageId,
         response,
@@ -221,6 +223,7 @@ export class AssistantService {
       id: this.ids.auditEventId(), requestId, type: "chat_response_generated", employeeId: userId, threadId, messageId,
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
     }, "chat response audit");
+    this.scheduleThreadCompaction({ employeeId: userId, threadId, requestId });
     const selectedProcessIds: AssistantChatResult["selectedProcessIds"] = captureResult ? ["core", "inbox_capture"] : ["core"];
     return {
       messageId,
@@ -229,6 +232,15 @@ export class AssistantService {
       outcome: { status: "completed" },
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
     };
+  }
+
+  private scheduleThreadCompaction(input: { employeeId: string; threadId: string; requestId: string }): void {
+    if (!this.deps.threadCompactionService) return;
+    queueMicrotask(() => {
+      void this.deps.threadCompactionService!.compact(input).catch((error) => {
+        logAssistantOperationalError("thread compaction", error);
+      });
+    });
   }
 
   private async auditSafely(event: Parameters<AuditEventStore["append"]>[0], operation: string): Promise<void> {
@@ -266,7 +278,8 @@ export function buildAssistantSystemContextBudget(
 ): ContextBudgetResult {
   const runtimeProjection = profileAndHistory === undefined ? undefined : renderRuntimeProjection(profileAndHistory);
   const profileSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/profile");
-  const historySection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/thread");
+  const threadSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/thread");
+  const { summary: threadSummarySection, history: historySection } = splitThreadProjectionSection(threadSection);
   return applyContextBudget({
     userInput,
     config: contextBudget,
@@ -277,6 +290,7 @@ export function buildAssistantSystemContextBudget(
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
       { sourceId: "context_index", content: renderAssistantContextIndex(personalContext) },
       ...(records === undefined ? [] : [{ sourceId: "records" as const, content: renderAssistantRecordsProjection(records) }]),
+      { sourceId: "thread_summary", content: threadSummarySection ?? "" },
       { sourceId: "history", content: historySection ?? "" },
     ],
   });
@@ -288,6 +302,19 @@ function extractRuntimeProjectionSection(rendered: string, path: "/proc/profile"
   if (start < 0) return undefined;
   const next = rendered.indexOf("\n\n## Runtime projection:", start + heading.length);
   return rendered.slice(start, next < 0 ? rendered.length : next);
+}
+
+function splitThreadProjectionSection(section: string | undefined): { summary?: string; history?: string } {
+  if (!section) return {};
+  const summaryStart = section.indexOf("### Incremental thread summary");
+  const historyStart = section.indexOf("### Recent verbatim turns");
+  const heading = "## Runtime projection: /proc/thread";
+  if (summaryStart < 0) return { history: section };
+  const summaryEnd = historyStart < 0 ? section.length : historyStart;
+  return {
+    summary: [heading, section.slice(summaryStart, summaryEnd).trim()].join("\n\n"),
+    ...(historyStart < 0 ? {} : { history: [heading, section.slice(historyStart).trim()].join("\n\n") }),
+  };
 }
 
 const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";

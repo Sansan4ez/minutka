@@ -8,6 +8,7 @@ export const contextSourceIds = [
   "context_index",
   "records",
   "inbox",
+  "thread_summary",
   "history",
   "actions",
 ] as const;
@@ -32,6 +33,7 @@ export type ContextBudgetConfig = {
     recordCharacters: number;
     historyTurns: number;
     historyTurnCharacters: number;
+    threadSummaryCharacters: number;
     routingTurns: number;
     routingCurrentTextCharacters: number;
     routingTurnFieldCharacters: number;
@@ -98,8 +100,9 @@ export const defaultContextBudget: ContextBudgetConfig = {
     { id: "context_index", priority: 5, ceiling: 6_000 },
     { id: "records", priority: 6, ceiling: 12_000 },
     { id: "inbox", priority: 7, ceiling: 8_000 },
-    { id: "history", priority: 8, ceiling: 12_000 },
-    { id: "actions", priority: 9, ceiling: 8_000 },
+    { id: "thread_summary", priority: 8, ceiling: 4_000 },
+    { id: "history", priority: 9, ceiling: 12_000 },
+    { id: "actions", priority: 10, ceiling: 8_000 },
   ],
   projectionLimits: {
     contextDocuments: 12,
@@ -109,6 +112,7 @@ export const defaultContextBudget: ContextBudgetConfig = {
     recordCharacters: 1_000,
     historyTurns: 10,
     historyTurnCharacters: 6_000,
+    threadSummaryCharacters: 4_000,
     routingTurns: 3,
     routingCurrentTextCharacters: 4_096,
     routingTurnFieldCharacters: 700,
@@ -161,6 +165,7 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (projectionLimits.contextDocumentCharacters > sourceCeiling(sources, "context")) throw new Error("context document limit must not exceed the context source ceiling");
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
   if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
+  if (projectionLimits.threadSummaryCharacters > sourceCeiling(sources, "thread_summary")) throw new Error("thread summary limit must not exceed the thread_summary source ceiling");
   const guaranteedCeiling = guaranteedContextCeiling(sources);
   if (guaranteedCeiling + maxChatInputCharacters + responseReserve + contextWrapperMarkupAllowance > total) {
     throw new Error(
@@ -185,6 +190,7 @@ const projectionLimitEnv = {
   recordCharacters: "ASSISTANT_CONTEXT_RECORD_CHARACTERS",
   historyTurns: "ASSISTANT_CONTEXT_HISTORY_TURNS",
   historyTurnCharacters: "ASSISTANT_CONTEXT_HISTORY_TURN_CHARACTERS",
+  threadSummaryCharacters: "ASSISTANT_CONTEXT_THREAD_SUMMARY_CHARACTERS",
   routingTurns: "ASSISTANT_CONTEXT_ROUTING_TURNS",
   routingCurrentTextCharacters: "ASSISTANT_CONTEXT_ROUTING_CURRENT_TEXT_CHARACTERS",
   routingTurnFieldCharacters: "ASSISTANT_CONTEXT_ROUTING_TURN_FIELD_CHARACTERS",

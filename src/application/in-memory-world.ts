@@ -4,6 +4,7 @@ import type { StructuredInsight } from "../domain/insights.js";
 import type { AuditEventRecord } from "./audit-event-store.js";
 import type { FeedbackRecord } from "../domain/feedback.js";
 import type { OnboardingDraft } from "./onboarding-types.js";
+import type { ThreadSummary } from "./thread-summary-store.js";
 
 export type ChatMessage = {
   id: string;
@@ -16,6 +17,7 @@ export type ChatMessage = {
 
 export type InMemoryWorld = {
   messages: ChatMessage[];
+  threadSummaries: ThreadSummary[];
   /** Legacy observable event fixture; application code writes AuditEventStore. */
   events: DomainEvent[];
   auditEvents: AuditEventRecord[];
@@ -34,6 +36,7 @@ export function createInMemoryWorld(
 ): InMemoryWorld {
   return {
     messages: [],
+    threadSummaries: [],
     events: [],
     auditEvents: [],
     participants: [],

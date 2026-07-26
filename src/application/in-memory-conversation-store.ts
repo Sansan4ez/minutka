@@ -27,6 +27,20 @@ export function createInMemoryConversationStore(world: InMemoryWorld): Conversat
         .map(toTurn);
     },
 
+    async getTurnsBeforeRecent(input) {
+      const turns = world.messages
+        .filter(
+          (message) =>
+            message.employeeId === input.employeeId &&
+            message.threadId === input.threadId,
+        )
+        .map(toTurn);
+      const outsideRecent = turns.slice(0, Math.max(0, turns.length - Math.max(0, input.recentLimit)));
+      if (!input.afterMessageId) return outsideRecent;
+      const watermarkIndex = outsideRecent.findIndex((turn) => turn.messageId === input.afterMessageId);
+      return watermarkIndex < 0 ? outsideRecent : outsideRecent.slice(watermarkIndex + 1);
+    },
+
     async getTurnByMessageId(input) {
       const message = world.messages.find(
         (candidate) =>

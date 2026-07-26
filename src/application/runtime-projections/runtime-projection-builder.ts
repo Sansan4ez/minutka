@@ -4,6 +4,7 @@ import { currentPrivacyVersion } from "../../domain/privacy.js";
 import type { ContextBudgetConfig } from "../context-budget.js";
 import type { Clock } from "../runtime-primitives.js";
 import type { ConversationStore, ConversationTurn } from "../conversation-store.js";
+import type { ThreadSummaryStore } from "../thread-summary-store.js";
 import type { FeedbackStore } from "../feedback-store.js";
 import type { InsightStore } from "../insight-store.js";
 import type { ProfileStore } from "../profile-store.js";
@@ -38,6 +39,7 @@ export function createRuntimeProjectionBuilder(deps: {
   auditEventStore: AuditEventStore;
   clock: Clock;
   contextBudget?: ContextBudgetConfig;
+  threadSummaryStore?: ThreadSummaryStore;
 }): RuntimeProjectionBuilder {
   const limits = runtimeProjectionLimitsFromBudget(deps.contextBudget);
   const envelope = <T>(
@@ -76,16 +78,22 @@ export function createRuntimeProjectionBuilder(deps: {
       : null;
   const thread = async (scope: RuntimeAccessScope) => {
     if (!scope.threadId) return { turns: [], truncated: false };
-    const source = await deps.conversationStore.getRecentTurns({
-      employeeId: scope.employeeId,
-      threadId: scope.threadId,
-      // Fetch one extra completed turn so the projection can report count
-      // truncation without loading unbounded history.
-      limit: limits.threadTurns + 1,
-    });
+    const [source, storedSummary] = await Promise.all([
+      deps.conversationStore.getRecentTurns({
+        employeeId: scope.employeeId,
+        threadId: scope.threadId,
+        // Fetch one extra completed turn so the projection can report count
+        // truncation without loading unbounded history.
+        limit: limits.threadTurns + 1,
+      }),
+      deps.threadSummaryStore?.get({ employeeId: scope.employeeId, threadId: scope.threadId }),
+    ]);
     const countTruncated = source.length > limits.threadTurns;
     const bounded = boundTurns(source.slice(-limits.threadTurns), limits);
-    return { turns: bounded.turns, truncated: countTruncated || bounded.truncated };
+    const summary = storedSummary && Array.from(storedSummary.text).length <= limits.threadSummaryCharacters
+      ? storedSummary
+      : undefined;
+    return { ...(summary ? { summary } : {}), turns: bounded.turns, truncated: countTruncated || bounded.truncated };
   };
 
   return {
