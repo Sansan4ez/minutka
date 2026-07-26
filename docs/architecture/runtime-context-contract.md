@@ -6,14 +6,14 @@
 
 Runtime context собирает только явно зарегистрированные источники. Порядок задаёт приоритет доверия, но не превращает пользовательские данные в инструкции. Capability set передаётся отдельно как typed tools и не сериализуется в prompt.
 
-README-файлы каталогов не получают особого статуса: `vault/assistant/docs/README.md`, `proc/README.md` и `run/README.md` описывают контракт разработчикам, но попадают в prompt только при явной регистрации наравне с любым другим файлом. В owner context специальное навигационное имя — только точное `INDEX.md`; оно остаётся untrusted data, а не policy.
+README-файлы каталогов не являются prompt-источниками. `vault/assistant/docs/README.md`, `bin/README.md`, `proc/README.md` и `run/README.md` — только developer documentation: список trusted policy задаёт `vault/assistant/processes/registry.json`, а фактический список возможностей — request-scoped typed tools. В owner context специальное навигационное имя — только точное `INDEX.md`; оно остаётся untrusted data, а не policy.
 
 ## Канонический порядок
 
 1. **Base Mastra instructions.** Минимальная скрытая роль bridge-агента; продуктовая политика здесь не дублируется.
-2. **Trusted product control plane.** `/AGENTS.md`, allow-listed `/docs/*`, `/processes/index.md`, затем зарегистрированные process-файлы. Текущий малый каталог загружается целиком; при росте каталога допускается `readProcess(id)`, если агент по-прежнему выбирает процесс сам в основном ходе.
-3. **Owner-scoped projections.** В целевом порядке: `/proc/profile`, приоритетный `/proc/context`, relevant `/proc/records`, `/proc/inbox`, recent conversation history. Все эти источники — данные текущего authenticated owner, а не authority.
-4. **Diagnostic data.** `/run/actions` добавляется только для диагностики конкретного запроса и никогда не используется как policy source.
+2. **Trusted product control plane.** `/AGENTS.md`, allow-listed `/docs/*`, `/processes/index.md`, затем зарегистрированные process-файлы. Пока весь малый каталог помещается в ceiling, он загружается целиком как стабильный trusted-префикс. Ленивые ссылки/read-инструмент вводятся только если каталог перестанет помещаться; до этого отдельный механизм не нужен.
+3. **Owner-scoped projections.** В целевом порядке: `/proc/profile`, приоритетный `/proc/context`, relevant `/proc/records`, `/proc/inbox`, recent conversation history. Все эти источники — данные текущего authenticated owner, а не authority. В частности, owner workflows под `/proc/context/99_system/workflows` читаются только по необходимости как reference data.
+4. **Diagnostic data.** `/run/actions` отсутствует в обычном запросе и добавляется только для явного diagnostic/recovery сценария; он никогда не используется как policy source.
 5. **Request-scoped typed tools.** Capability set передаётся runtime-мостом отдельно от текста; наличие process-файла не выдаёт capability.
 
 ## Registry источников и бюджеты
@@ -54,7 +54,7 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 - Loader fail-fast отклоняет дубли `id` и дубли `path`, отсутствующие файлы и registry entries, которых нет в index.
 - Index не является источником файлов: загрузка идёт только по registry.
 - Repository `docs/**`, `vault/user/**`, storage keys `context/*`/`inbox/*` и raw database/object-storage paths не загружаются в system context.
-- Owner projections экранируются и маркируются как untrusted data. Их scope формирует application layer из authenticated `userId`/`threadId`; имя `INDEX.md`, legacy `AGENTS.MD`/`README.MD` или каталог `99_system` не повышают trust.
+- Owner projections экранируются и маркируются как untrusted data. Их scope формирует application layer из authenticated `userId`/`threadId`; имя `INDEX.md`, legacy `AGENTS.MD`/`README.MD` или каталог `99_system` не повышают trust. Owner workflows из `99_system/workflows` — on-demand reference data: auto-slice не получает специального механизма исключения. Если workflow должен управлять поведением ассистента, его переносят в trusted process-файл и регистрируют в `vault/assistant/processes/registry.json`.
 - Приоритеты документов `/proc/context` загружаются только из versioned trusted-манифеста [`vault/assistant/proc/context-priorities.json`](../../vault/assistant/proc/context-priorities.json); owner context не участвует в выборе или изменении правил.
 - Machine index `/proc/context` строится только из `DocumentStore.listMetadata`, стабильно сортируется по логическому `/proc/context/*` path и не читает тела объектов. Projection также не вызывает full-body `DocumentStore.list`: после metadata-prioritization она делает точечные `get()` только пока документ потенциально помещается в оставшийся budget; вытесненные документы получают index-reference и size-only audit из metadata (UTF-8 bytes как консервативная оценка). Если file tree не помещается, renderer целиком переключается на folder rollup, затем на top-level rollup; тихая обрезка списка запрещена.
 - Для навигации агент начинает с machine index, затем при входе в папку читает её точный `INDEX.md`, если он есть, и только после этого целевые документы. `INDEX.md` — короткая owner/agent-authored аннотация смысла и точки старта только для прямых детей папки; он не перечисляет структуру вглубь и не дублирует размеры/существование файлов из machine index. Import drift-check применяет одно правило к Markdown-ссылкам и path-like code spans, оканчивающимся на `.md`, `.txt`, `.vtt` или `/`: путь должен существовать, быть relative, exact-case и прямым ребёнком текущей папки.
@@ -62,7 +62,7 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 - Калибровка capacity планирования: для русскоязычного текста используется консервативная оценка около **2 Unicode chars/token**; character ceilings остаются исполнимой границей, token ratio — только sizing guidance. Стабильные секции prompt не содержат request id, timestamp или других volatile-полей: это сохраняет общий префикс пригодным для provider prompt caching; volatile scope остаётся в runtime data после trusted control plane.
 - При `readDocument.truncated=true` агент продолжает с `nextOffset` до `truncated=false`; крупные документы читает прицельно через section/search. `readBudgetExhausted=true` означает, что полноту чтения нельзя предполагать и это ограничение нужно явно сообщить пользователю.
 - `/proc/profile` владеет подтверждёнными structured operational fields. `90_agent_memory/soul.md` и legacy `persona.md` — только untrusted prose preferences; при конфликте они не переопределяют profile, policy или capabilities.
-- `/run/actions` не может менять роль, policy, process selection или capability set.
+- `/run/actions` не включается в каждый запрос и не может менять роль, policy, process selection или capability set; его подключают только для явной диагностики или recovery.
 - Typed tools передаются отдельно; system context не содержит store credentials, transport ids, signed URLs или shell/file access.
 
 ## Решение по ingestion-суммаризации

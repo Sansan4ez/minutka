@@ -1,5 +1,7 @@
 # /bin — typed tool/action manifests
 
+This README is developer documentation, not prompt input or a capability source. The machine-readable catalog is `/bin/registry.json`; the actual capability set is the request-scoped typed tools wired by the application.
+
 `/bin` describes typed application actions available to agent runtimes. These are not arbitrary shell commands.
 
 The product-facing personal assistant chooses applicable `/processes` itself in the main turn. Tools remain mechanical: the request-scoped application handler validates input, binds owner scope, performs the side effect, and records audit data. A tool or process id never grants additional authority by itself.

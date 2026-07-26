@@ -147,11 +147,15 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-repo-copy-"));
     roots.push(root);
     cpSync("vault/user/knowledge_base", root, { recursive: true });
-    await expect(discoverPilotKnowledgeBase(root)).resolves.toEqual(expect.arrayContaining([
+    const files = await discoverPilotKnowledgeBase(root);
+    expect(files).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "context/INDEX.md" }),
       expect.objectContaining({ path: "context/10_user_memory/INDEX.md" }),
       expect.objectContaining({ path: "context/90_agent_memory/INDEX.md" }),
+      expect.objectContaining({ path: "context/99_system/schemas/INDEX.md" }),
+      expect.objectContaining({ path: "context/99_system/workflows/INDEX.md" }),
     ]));
+    expect(files.some(({ path }) => path.endsWith("/AGENTS.MD"))).toBe(false);
   });
 
   it("validates INDEX.md links and path-like code spans as existing direct children", async () => {

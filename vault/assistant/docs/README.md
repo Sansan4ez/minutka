@@ -1,6 +1,6 @@
 # /docs — curated assistant runtime documents
 
-Only files explicitly allow-listed by `vault/assistant/processes/registry.json` are loaded as runtime policy. Files elsewhere in this directory, and the repository-level `docs/` tree, are not loaded implicitly.
+Only files explicitly allow-listed by `vault/assistant/processes/registry.json` are loaded as runtime policy. This `README.md`, files elsewhere in this directory, and the repository-level `docs/` tree are developer documentation and are not loaded implicitly.
 
 Use `/docs` for stable authority, product, methodology, and boundary context. Do not use project implementation plans as runtime policy.
 

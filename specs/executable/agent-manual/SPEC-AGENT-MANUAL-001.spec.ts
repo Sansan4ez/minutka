@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   loadAgentManualFromDisk,
@@ -36,9 +36,13 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(manual.manualId).toBe("personal-assistant-vault");
     expect(manual.core.path).toBe("vault/assistant/AGENTS.md");
     expect(manual.runtimeDocs.map(({ id, path }) => ({ id, path }))).toEqual([
-      { id: "authority-and-mutability.md", path: "vault/assistant/docs/legacy-authority-and-mutability.md" },
-      { id: "privacy-boundary.md", path: "vault/assistant/docs/legacy-privacy-boundary.md" },
+      { id: "authority-and-mutability.md", path: "vault/assistant/docs/authority-and-mutability.md" },
+      { id: "privacy-boundary.md", path: "vault/assistant/docs/privacy-boundary.md" },
     ]);
+    expect(manual.runtimeDocs.every(({ path }) => !path.endsWith("/README.md"))).toBe(true);
+    expect(existsSync("vault/assistant/docs/legacy-authority-and-mutability.md")).toBe(false);
+    expect(existsSync("vault/assistant/docs/legacy-privacy-boundary.md")).toBe(false);
+    expect(existsSync("vault/assistant/docs/reflection.md")).toBe(false);
     expect(manual.processes.length).toBeGreaterThanOrEqual(6);
 
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
