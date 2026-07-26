@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
@@ -218,6 +219,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
       requestIntegrityGuard: async () => ({ status: "allowed" }),
+      contextBudget: createContextBudgetConfig({ sources: { context: 16_000 }, projectionLimits: { contextDocumentCharacters: 8_000 } }),
     });
     // Earlier paths keep their full-content priority. Overflowing and later
     // paths remain visible through the separately rendered complete index.

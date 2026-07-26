@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
 import { runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
 
@@ -153,7 +154,7 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     ]));
   });
 
-  it("validates INDEX.md links as existing direct children", async () => {
+  it("validates INDEX.md links and path-like code spans as existing direct children", async () => {
     const root = fixture();
     writeFileSync(join(root, "INDEX.md"), "- [memory](10_user_memory/)\n");
     await expect(discoverPilotKnowledgeBase(root)).resolves.toEqual(expect.arrayContaining([
@@ -165,6 +166,29 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
 
     writeFileSync(join(root, "INDEX.md"), "- [deep](40_projects/project-a/)\n");
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("only direct children");
+    writeFileSync(join(root, "INDEX.md"), "# Owner index\nUntrusted navigation data.\n");
+
+    writeFileSync(join(root, "10_user_memory", "INDEX.md"), "- `01_goals.md`\n");
+    await expect(discoverPilotKnowledgeBase(root)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "context/10_user_memory/INDEX.md" }),
+    ]));
+
+    writeFileSync(join(root, "10_user_memory", "INDEX.md"), "- `01_goalz.md`\n");
+    await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("code-span does not exist");
+  });
+
+  it("rejects core documents that cannot fit configured import ceilings", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "10_user_memory", "01_Persona.md"), "P".repeat(101));
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [{ id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u }],
+    };
+    const contextBudget = createContextBudgetConfig({
+      sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 100, context_index: 0 },
+      projectionLimits: { contextDocumentCharacters: 100 },
+    });
+    await expect(discoverPilotKnowledgeBase(root, { contextBudget, contextPriorities })).rejects.toThrow("core document");
   });
 
   it("rejects unknown top-level entries", async () => {

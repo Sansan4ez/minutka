@@ -74,15 +74,27 @@ export type ContextBudgetResult = {
   omittedSourceIds: ContextSourceId[];
 };
 
+/** Static allowance for section headings, fences, separators, and other renderer markup. */
+export const contextWrapperMarkupAllowance = 2_000;
+
+/** Sources that must be present in every owner chat when they have content. */
+export const guaranteedContextSourceIds = [
+  "base_instructions",
+  "agent_manual",
+  "profile",
+  "context",
+  "context_index",
+] as const satisfies readonly ContextSourceId[];
+
 /** Canonical request-context limits. Character counts are Unicode code points. */
 export const defaultContextBudget: ContextBudgetConfig = {
-  total: 48_000,
+  total: 88_000,
   responseReserve: 8_000,
   sources: [
     { id: "base_instructions", priority: 1, ceiling: 2_000 },
     { id: "agent_manual", priority: 2, ceiling: 33_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
-    { id: "context", priority: 4, ceiling: 16_000 },
+    { id: "context", priority: 4, ceiling: 24_000 },
     { id: "context_index", priority: 5, ceiling: 6_000 },
     { id: "records", priority: 6, ceiling: 12_000 },
     { id: "inbox", priority: 7, ceiling: 8_000 },
@@ -91,7 +103,7 @@ export const defaultContextBudget: ContextBudgetConfig = {
   ],
   projectionLimits: {
     contextDocuments: 12,
-    contextDocumentCharacters: 4_000,
+    contextDocumentCharacters: 8_000,
     contextIndexDepth: 4,
     records: 24,
     recordCharacters: 1_000,
@@ -149,10 +161,10 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (projectionLimits.contextDocumentCharacters > sourceCeiling(sources, "context")) throw new Error("context document limit must not exceed the context source ceiling");
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
   if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
-  const trustedCeiling = trustedControlPlaneCeiling(sources);
-  if (trustedCeiling + maxChatInputCharacters + responseReserve > total) {
+  const guaranteedCeiling = guaranteedContextCeiling(sources);
+  if (guaranteedCeiling + maxChatInputCharacters + responseReserve + contextWrapperMarkupAllowance > total) {
     throw new Error(
-      `trusted context ceilings (${trustedCeiling}) plus maximum user input (${maxChatInputCharacters}) and response reserve (${responseReserve}) must not exceed total budget (${total})`,
+      `guaranteed context ceilings (${guaranteedCeiling}) plus maximum user input (${maxChatInputCharacters}), response reserve (${responseReserve}), and wrapper markup allowance (${contextWrapperMarkupAllowance}) must not exceed total budget (${total})`,
     );
   }
   return {
@@ -226,8 +238,8 @@ export function applyContextBudget(input: {
   if (sourceRegistry.size !== contextSourceIds.length) throw new Error("context budget registry must contain every source exactly once");
   const inputCharacters = countUnicodeCharacters(input.userInput);
   if (inputCharacters > maxChatInputCharacters) throw new Error(`current user input exceeds the ${maxChatInputCharacters}-character maximum`);
-  const available = config.total - config.responseReserve - inputCharacters;
-  if (available < 0) throw new Error("current user input and response reserve exceed the total context budget");
+  const available = config.total - config.responseReserve - inputCharacters - contextWrapperMarkupAllowance;
+  if (available < 0) throw new Error("current user input, response reserve, and wrapper markup allowance exceed the total context budget");
 
   const selected: string[] = [];
   const omittedSourceIds: ContextSourceId[] = [];
@@ -295,10 +307,8 @@ function sourceCeiling(sources: readonly ContextSourceBudget[], id: ContextSourc
   return source.ceiling;
 }
 
-function trustedControlPlaneCeiling(sources: readonly ContextSourceBudget[]): number {
-  const ceilings = sources.filter(({ id }) => isTrustedControlPlane(id)).map(({ ceiling }) => ceiling);
-  const separators = Math.max(0, ceilings.filter((ceiling) => ceiling > 0).length - 1) * countUnicodeCharacters("\n\n");
-  return ceilings.reduce((sum, ceiling) => sum + ceiling, 0) + separators;
+function guaranteedContextCeiling(sources: readonly ContextSourceBudget[]): number {
+  return guaranteedContextSourceIds.reduce((sum, id) => sum + sourceCeiling(sources, id), 0);
 }
 
 function isTrustedControlPlane(sourceId: ContextSourceId): boolean {

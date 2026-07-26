@@ -1,6 +1,8 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { assertSafeVaultPath, assertUserId, legacyDocumentPath, type DocumentStore } from "./document-store.js";
+import { countUnicodeCharacters, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
+import { loadContextPriorityManifest, matchesContextPriority, type ContextPriorityManifest } from "./context-priority-manifest.js";
 import type { IngestionService } from "./ingestion-service.js";
 
 const allowedTopLevelEntries = new Set([
@@ -44,7 +46,10 @@ export type PilotKnowledgeBaseMigrationResult = {
  * Enumerates only the explicitly approved legacy tree. Symlinks and unknown
  * file types fail closed so the migration cannot accidentally ingest secrets.
  */
-export async function discoverPilotKnowledgeBase(sourceRoot: string): Promise<PilotKnowledgeBaseFile[]> {
+export async function discoverPilotKnowledgeBase(
+  sourceRoot: string,
+  options: { contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest } = {},
+): Promise<PilotKnowledgeBaseFile[]> {
   const rootStat = await lstat(sourceRoot);
   if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error("knowledge-base source must be a real directory");
   const rootEntries = await readdir(sourceRoot, { withFileTypes: true });
@@ -81,33 +86,71 @@ export async function discoverPilotKnowledgeBase(sourceRoot: string): Promise<Pi
     paths.add(collisionKey);
   }
   await validatePilotKnowledgeBaseIndexes(sourceRoot, sorted);
+  await validatePilotKnowledgeBaseCoreDocuments({
+    files: sorted,
+    contextBudget: options.contextBudget ?? defaultContextBudget,
+    contextPriorities: options.contextPriorities ?? loadContextPriorityManifest(),
+  });
   return sorted;
 }
 
-/** Validates that exact-case INDEX.md links resolve to direct children only. */
+/** Validates that exact-case INDEX.md links and path-like code spans resolve to direct children only. */
 export async function validatePilotKnowledgeBaseIndexes(sourceRoot: string, files: PilotKnowledgeBaseFile[]): Promise<void> {
   for (const index of files.filter(({ sourcePath }) => sourcePath.endsWith(`${sep}INDEX.md`) || sourcePath === join(sourceRoot, "INDEX.md"))) {
     const content = await readFile(index.sourcePath, "utf8");
-    for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-      const rawTarget = match[1]?.trim() ?? "";
-      if (!rawTarget || rawTarget.startsWith("#") || /^(?:https?:|mailto:)/i.test(rawTarget)) continue;
-      const pathTarget = rawTarget.split("#", 1)[0]!.split("?", 1)[0]!;
-      let decodedTarget: string;
-      try {
-        decodedTarget = decodeURIComponent(pathTarget);
-      } catch {
-        throw new Error(`knowledge-base INDEX.md has an invalid encoded link: ${index.path} -> ${rawTarget}`);
-      }
-      if (!decodedTarget || isAbsolute(decodedTarget)) throw new Error(`knowledge-base INDEX.md link must be relative: ${index.path} -> ${rawTarget}`);
-      const targetPath = resolve(dirname(index.sourcePath), decodedTarget);
-      const directChild = relative(dirname(index.sourcePath), targetPath).split(sep).filter(Boolean);
-      if (directChild.length !== 1 || directChild[0] === "..") {
-        throw new Error(`knowledge-base INDEX.md may link only direct children: ${index.path} -> ${rawTarget}`);
-      }
-      const targetStat = await lstat(targetPath).catch(() => null);
-      if (!targetStat) throw new Error(`knowledge-base INDEX.md link does not exist: ${index.path} -> ${rawTarget}`);
-      if (targetStat.isSymbolicLink()) throw new Error(`knowledge-base INDEX.md link targets a symlink: ${index.path} -> ${rawTarget}`);
+    const targets = [
+      ...[...content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => ({ target: match[1]?.trim() ?? "", kind: "link" as const })),
+      ...[...content.matchAll(/`([^`\r\n]+)`/g)]
+        .map((match) => match[1]?.trim() ?? "")
+        .filter((target) => /(?:\.(?:md|txt|vtt)|\/)$/iu.test(target))
+        .map((target) => ({ target, kind: "code-span" as const })),
+    ];
+    const uniqueTargets = new Map(targets.map((target) => [`${target.kind}:${target.target}`, target]));
+    for (const { target, kind } of uniqueTargets.values()) await validateIndexTarget(index, target, kind);
+  }
+}
+
+async function validateIndexTarget(index: PilotKnowledgeBaseFile, rawTarget: string, kind: "link" | "code-span"): Promise<void> {
+  if (!rawTarget || rawTarget.startsWith("#") || /^(?:https?:|mailto:)/i.test(rawTarget)) return;
+  const pathTarget = rawTarget.split("#", 1)[0]!.split("?", 1)[0]!;
+  let decodedTarget: string;
+  try {
+    decodedTarget = decodeURIComponent(pathTarget);
+  } catch {
+    throw new Error(`knowledge-base INDEX.md has an invalid encoded path: ${index.path} -> ${rawTarget}`);
+  }
+  if (!decodedTarget || isAbsolute(decodedTarget)) throw new Error(`knowledge-base INDEX.md path must be relative: ${index.path} -> ${rawTarget}`);
+  const targetPath = resolve(dirname(index.sourcePath), decodedTarget);
+  const directChild = relative(dirname(index.sourcePath), targetPath).split(sep).filter(Boolean);
+  if (directChild.length !== 1 || directChild[0] === "..") {
+    throw new Error(`knowledge-base INDEX.md may reference only direct children: ${index.path} -> ${rawTarget}`);
+  }
+  const targetStat = await lstat(targetPath).catch(() => null);
+  if (!targetStat) throw new Error(`knowledge-base INDEX.md ${kind} does not exist: ${index.path} -> ${rawTarget}`);
+  if (targetStat.isSymbolicLink()) throw new Error(`knowledge-base INDEX.md ${kind} targets a symlink: ${index.path} -> ${rawTarget}`);
+}
+
+export async function validatePilotKnowledgeBaseCoreDocuments(input: {
+  files: PilotKnowledgeBaseFile[];
+  contextBudget: ContextBudgetConfig;
+  contextPriorities: ContextPriorityManifest;
+}): Promise<void> {
+  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
+  const documentCeiling = input.contextBudget.projectionLimits.contextDocumentCharacters;
+  const totalCeiling = sourceCharacterCeiling(input.contextBudget, "context");
+  if (coreFiles.length > input.contextBudget.projectionLimits.contextDocuments) {
+    throw new Error(`knowledge-base core documents exceed the ${input.contextBudget.projectionLimits.contextDocuments}-document projection limit`);
+  }
+  let totalCharacters = 0;
+  for (const file of coreFiles) {
+    const characters = countUnicodeCharacters(await readFile(file.sourcePath, "utf8"));
+    if (characters > documentCeiling) {
+      throw new Error(`knowledge-base core document ${file.path} has ${characters} Unicode characters and exceeds the ${documentCeiling}-character per-file ceiling`);
     }
+    totalCharacters += characters;
+  }
+  if (totalCharacters > totalCeiling) {
+    throw new Error(`knowledge-base core documents have ${totalCharacters} Unicode characters and exceed the ${totalCeiling}-character context ceiling`);
   }
 }
 
@@ -117,6 +160,8 @@ export async function importPilotKnowledgeBase(input: {
   files: PilotKnowledgeBaseFile[];
   documentStore: Pick<DocumentStore, "getExact">;
   ingestionService: Pick<IngestionService, "saveContextDocument">;
+  contextBudget?: ContextBudgetConfig;
+  contextPriorities?: ContextPriorityManifest;
 }): Promise<PilotKnowledgeBaseImportResult> {
   const userId = assertUserId(input.userId);
   const prepared = await Promise.all(input.files.map(async (file) => {
@@ -124,6 +169,12 @@ export async function importPilotKnowledgeBase(input: {
     if (!content.trim()) throw new Error(`knowledge-base file is empty: ${file.path}`);
     return { ...file, content };
   }));
+
+  validatePreparedCoreDocuments({
+    files: prepared,
+    contextBudget: input.contextBudget ?? defaultContextBudget,
+    contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
+  });
 
   const result: PilotKnowledgeBaseImportResult = { files: [], imported: 0, updated: 0, skipped: 0, bytes: 0 };
   for (const file of prepared) {
@@ -168,6 +219,30 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
     result.files.push({ from: legacyPath, to: canonicalPath, status });
   }
   return result;
+}
+
+function validatePreparedCoreDocuments(input: {
+  files: Array<PilotKnowledgeBaseFile & { content: string }>;
+  contextBudget: ContextBudgetConfig;
+  contextPriorities: ContextPriorityManifest;
+}): void {
+  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
+  const documentCeiling = input.contextBudget.projectionLimits.contextDocumentCharacters;
+  const totalCeiling = sourceCharacterCeiling(input.contextBudget, "context");
+  if (coreFiles.length > input.contextBudget.projectionLimits.contextDocuments) {
+    throw new Error(`knowledge-base core documents exceed the ${input.contextBudget.projectionLimits.contextDocuments}-document projection limit`);
+  }
+  let totalCharacters = 0;
+  for (const file of coreFiles) {
+    const characters = countUnicodeCharacters(file.content);
+    if (characters > documentCeiling) {
+      throw new Error(`knowledge-base core document ${file.path} has ${characters} Unicode characters and exceeds the ${documentCeiling}-character per-file ceiling`);
+    }
+    totalCharacters += characters;
+  }
+  if (totalCharacters > totalCeiling) {
+    throw new Error(`knowledge-base core documents have ${totalCharacters} Unicode characters and exceed the ${totalCeiling}-character context ceiling`);
+  }
 }
 
 export function pilotUserIdFromEnv(env: NodeJS.ProcessEnv): string {

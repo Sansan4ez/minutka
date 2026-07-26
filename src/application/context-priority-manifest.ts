@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { findRepoRoot } from "./agent-manual-loader.js";
+import { contextDocumentHandle } from "./document-store.js";
 
 const contextPriorityRuleSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/),
@@ -43,6 +44,11 @@ export function loadContextPriorityManifest(input: { repoRoot?: string } = {}): 
       matcher: compileAnchoredPattern(rule.id, rule.pattern),
     })),
   };
+}
+
+export function matchesContextPriority(path: string, manifest: ContextPriorityManifest): boolean {
+  const handle = contextDocumentHandle(path);
+  return manifest.rules.some(({ matcher }) => matcher.test(handle));
 }
 
 function compileAnchoredPattern(id: string, pattern: string): RegExp {

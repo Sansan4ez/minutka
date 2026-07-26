@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { loadDotEnv } from "../config/env.js";
 import type { BlobStore } from "../application/blob-store.js";
 import { createIngestionService } from "../application/ingestion-service.js";
+import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
+import { loadContextPriorityManifest } from "../application/context-priority-manifest.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../application/pilot-knowledge-base-import.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
@@ -15,7 +17,9 @@ export async function runPilotKnowledgeBaseImport(input: {
   const env = input.env ?? process.env;
   const userId = pilotUserIdFromEnv(env);
   const sourceRoot = resolve(input.sourceRoot ?? "vault/user/knowledge_base");
-  const files = await discoverPilotKnowledgeBase(sourceRoot);
+  const contextBudget = contextBudgetConfigFromEnv(env);
+  const contextPriorities = loadContextPriorityManifest();
+  const files = await discoverPilotKnowledgeBase(sourceRoot, { contextBudget, contextPriorities });
   if (files.length === 0) throw new Error("pilot knowledge-base source is empty");
 
   if (input.dryRun ?? false) {
@@ -33,7 +37,7 @@ export async function runPilotKnowledgeBaseImport(input: {
     printJson({ dryRun: false, migration: true, ...result });
     return;
   }
-  const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService });
+  const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService, contextBudget, contextPriorities });
   printJson({ dryRun: false, migration: false, ...result });
 }
 

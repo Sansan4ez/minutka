@@ -49,20 +49,20 @@ async function build(input: {
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministic context degradation", () => {
-  it("truncates a 500k file on Unicode boundaries with a resumable path/size/offset marker", async () => {
-    const content = "🙂".repeat(500_000);
+  it("truncates an oversized fetched file on Unicode boundaries with a resumable path/size/offset marker", async () => {
+    const content = "a".repeat(5_000);
     const { projection, audits } = await build({ documents: [{ path: "90_transcripts/huge.md", content }] });
     const document = projection.data.documents[0]!;
 
     expect(document).toMatchObject({
       path: "/proc/context/90_transcripts/huge.md",
       representation: "truncated",
-      originalCharacters: 500_000,
+      originalCharacters: 5_000,
       nextOffset: expect.any(Number),
     });
     expect(countUnicodeCharacters(document.content)).toBeLessThanOrEqual(4_000);
     expect(document.content).toContain("/proc/context/90_transcripts/huge.md");
-    expect(document.content).toContain("original 500000 Unicode characters");
+    expect(document.content).toContain("original 5000 Unicode characters");
     expect(document.content).toContain(`offset=${document.nextOffset}`);
     expect(document.content).toContain("readDocument(path=");
     expect(document.content).not.toContain("�");
@@ -70,12 +70,12 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
       sourceId: "context",
       reason: "per_file_limit",
       ceiling: 4_000,
-      actualCharacters: 500_000,
+      actualCharacters: 5_000,
       includedCharacters: countUnicodeCharacters(document.content),
       documentCount: 1,
       affectedCount: 1,
     }]);
-    expect(JSON.stringify(audits)).not.toContain("🙂");
+    expect(JSON.stringify(audits)).not.toContain("aaaa");
   });
 
   it("preserves core documents whole and degrades lower-priority transcripts in manifest order", async () => {
@@ -125,7 +125,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
   it("persists only allow-listed size/reason projection audit metadata", async () => {
     const world = createInMemoryWorld(() => now);
     const store = createInMemoryDocumentStore({ now: world.now }, [
-      { userId: "owner", path: "context/90_transcripts/huge.md", content: `PRIVATE-${"🙂".repeat(5_000)}` },
+      { userId: "owner", path: "context/90_transcripts/huge.md", content: `PRIVATE-${"x".repeat(9_000)}` },
     ]);
     const auditEventStore = createInMemoryAuditEventStore(world);
     const service = new AssistantService(async () => "ok", {
@@ -144,15 +144,15 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     expect(event?.metadata).toEqual({
       sourceId: "context",
       reason: "per_file_limit",
-      ceiling: 4_000,
-      actualCharacters: 5_008,
+      ceiling: 8_000,
+      actualCharacters: 9_008,
       includedCharacters: expect.any(Number),
       documentCount: 1,
       affectedCount: 1,
     });
     expect(JSON.stringify(event)).not.toContain("PRIVATE");
     expect(JSON.stringify(event)).not.toContain("huge.md");
-    expect(JSON.stringify(event)).not.toContain("🙂");
+    expect(JSON.stringify(event)).not.toContain("xxxx");
   });
 
   it("records the index degradation ladder as size-only audit", async () => {

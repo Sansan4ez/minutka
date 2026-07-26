@@ -82,7 +82,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-INDEX-001: metadata-only context tree 
       { userId: "owner", path: "context/archive/hidden.md", content: "HIDDEN" },
     ]);
     let metadataCalls = 0;
-    let bodyListCalls = 0;
+    let bodyGetCalls = 0;
     const projection = await createAssistantContextProjectionBuilder({
       documentStore: {
         ...store,
@@ -90,9 +90,12 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-INDEX-001: metadata-only context tree 
           metadataCalls += 1;
           return store.listMetadata(userId, prefix);
         },
-        async list(userId, prefix) {
-          bodyListCalls += 1;
-          return (await store.list(userId, prefix)).filter((document) => document.path.endsWith("core.md"));
+        async get(userId, path) {
+          bodyGetCalls += 1;
+          return store.get(userId, path);
+        },
+        async list() {
+          throw new Error("projection must not list document bodies");
         },
       },
       now: () => now,
@@ -101,7 +104,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-INDEX-001: metadata-only context tree 
     }).build({ userId: "owner", requestId: "request" });
 
     expect(metadataCalls).toBe(1);
-    expect(bodyListCalls).toBe(1);
+    expect(bodyGetCalls).toBe(1);
     expect(projection.data.documents.map(({ path }) => path)).toEqual(["/proc/context/core.md"]);
     expect(projection.data.index.text).toContain("archive/");
     expect(projection.data.index.text).toContain("hidden.md");

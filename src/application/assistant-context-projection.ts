@@ -1,5 +1,5 @@
 import { countUnicodeCharacters, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
-import { contextDocumentHandle, type DocumentStore, type UserDocument } from "./document-store.js";
+import { contextDocumentHandle, type DocumentStore, type UserDocument, type UserDocumentMetadata } from "./document-store.js";
 import { loadContextPriorityManifest, type ContextPriorityManifest } from "./context-priority-manifest.js";
 import { renderContextTreeIndex, type ContextTreeIndexLevel } from "./context-tree-index.js";
 
@@ -58,27 +58,25 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
   };
   return {
     async build(input: { userId: string; requestId: string; audit?: (event: ContextProjectionAudit) => void | Promise<void> }): Promise<AssistantContextProjection> {
-      const [sourceDocuments, metadata] = await Promise.all([
-        deps.documentStore.list(input.userId, "context/"),
-        deps.documentStore.listMetadata(input.userId, "context/"),
-      ]);
-      const source = prioritizeContextDocumentsWithPolicy(sourceDocuments, contextPriorities);
+      const metadata = await deps.documentStore.listMetadata(input.userId, "context/");
+      const source = prioritizeContextMetadataWithPolicy(metadata, contextPriorities);
       const index = renderContextTreeIndex({ documents: metadata, ceiling: limits.indexCharacters, depth: limits.indexDepth });
       const audits: ContextProjectionAudit[] = [];
       let characters = 0;
       const documents: AssistantContextProjection["data"]["documents"] = [];
 
-      for (const { document, core } of source) {
-        const path = contextDocumentHandle(document.path);
-        const contentCharacters = [...document.content];
-        const actualCharacters = contentCharacters.length;
+      for (const { metadata: candidate, core } of source) {
+        const path = contextDocumentHandle(candidate.path);
+        const estimatedCharacters = candidate.size;
 
         if (core) {
-          if (actualCharacters > limits.documentCharacters) {
-            throw new Error(`core context document ${path} has ${actualCharacters} Unicode characters and exceeds the ${limits.documentCharacters}-character per-file ceiling`);
-          }
           if (documents.length >= limits.documents) {
             throw new Error(`core context documents exceed the ${limits.documents}-document projection limit`);
+          }
+          const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
+          const actualCharacters = countUnicodeCharacters(document.content);
+          if (actualCharacters > limits.documentCharacters) {
+            throw new Error(`core context document ${path} has ${actualCharacters} Unicode characters and exceeds the ${limits.documentCharacters}-character per-file ceiling`);
           }
           if (characters + actualCharacters > limits.characters) {
             throw new Error(`core context documents exceed the ${limits.characters}-character context ceiling`);
@@ -89,11 +87,30 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
         }
 
         if (documents.length >= limits.documents) {
-          audits.push(degradation("context", "document_limit", limits.documents, actualCharacters, 0, source.length, 1));
+          audits.push(degradation("context", "document_limit", limits.documents, estimatedCharacters, 0, source.length, 1));
           continue;
         }
 
         const remaining = limits.characters - characters;
+        if (remaining <= 0) {
+          audits.push(degradation("context", "context_ceiling", limits.characters, estimatedCharacters, 0, source.length, 1));
+          continue;
+        }
+
+        const reference = renderIndexReference(path, estimatedCharacters, "UTF-8 bytes");
+        const referenceCharacters = countUnicodeCharacters(reference);
+        if (estimatedCharacters > remaining) {
+          if (referenceCharacters <= remaining) {
+            documents.push(projectedMetadata(candidate, reference, "index-reference", estimatedCharacters, 0));
+            characters += referenceCharacters;
+          }
+          audits.push(degradation("context", "context_ceiling", limits.characters, estimatedCharacters, referenceCharacters <= remaining ? referenceCharacters : 0, source.length, 1));
+          continue;
+        }
+
+        const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
+        const contentCharacters = [...document.content];
+        const actualCharacters = contentCharacters.length;
         if (actualCharacters <= limits.documentCharacters && actualCharacters <= remaining) {
           documents.push(projectedDocument(document, document.content, "full", actualCharacters, null));
           characters += actualCharacters;
@@ -110,13 +127,13 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           }
         }
 
-        const reference = renderIndexReference(path, actualCharacters);
-        const referenceCharacters = countUnicodeCharacters(reference);
-        if (referenceCharacters <= remaining) {
-          documents.push(projectedDocument(document, reference, "index-reference", actualCharacters, 0));
-          characters += referenceCharacters;
+        const exactReference = renderIndexReference(path, actualCharacters, "Unicode characters");
+        const exactReferenceCharacters = countUnicodeCharacters(exactReference);
+        if (exactReferenceCharacters <= remaining) {
+          documents.push(projectedDocument(document, exactReference, "index-reference", actualCharacters, 0));
+          characters += exactReferenceCharacters;
         }
-        audits.push(degradation("context", "context_ceiling", limits.characters, actualCharacters, 0, source.length, 1));
+        audits.push(degradation("context", "context_ceiling", limits.characters, actualCharacters, exactReferenceCharacters <= remaining ? exactReferenceCharacters : 0, source.length, 1));
       }
 
       if (index.degradation) {
@@ -168,6 +185,13 @@ function prioritizeContextDocumentsWithPolicy(documents: UserDocument[], manifes
     .map(({ document, priority }) => ({ document, core: priority < manifest.rules.length }));
 }
 
+function prioritizeContextMetadataWithPolicy(documents: UserDocumentMetadata[], manifest: ContextPriorityManifest): Array<{ metadata: UserDocumentMetadata; core: boolean }> {
+  return documents
+    .map((metadata, index) => ({ metadata, index, priority: contextDocumentPriority(metadata.path, manifest) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map(({ metadata, priority }) => ({ metadata, core: priority < manifest.rules.length }));
+}
+
 function contextDocumentPriority(path: string, manifest: ContextPriorityManifest): number {
   const handle = contextDocumentHandle(path);
   const coreIndex = manifest.rules.findIndex(({ matcher }) => matcher.test(handle));
@@ -176,6 +200,16 @@ function contextDocumentPriority(path: string, manifest: ContextPriorityManifest
 
 function projectedDocument(document: UserDocument, content: string, representation: ProjectedContextDocument["representation"], originalCharacters: number, nextOffset: number | null): ProjectedContextDocument {
   return { path: contextDocumentHandle(document.path), content, version: document.version, updatedAt: document.updatedAt, representation, originalCharacters, nextOffset };
+}
+
+function projectedMetadata(document: UserDocumentMetadata, content: string, representation: ProjectedContextDocument["representation"], originalCharacters: number, nextOffset: number | null): ProjectedContextDocument {
+  return { path: contextDocumentHandle(document.path), content, version: document.version, updatedAt: document.updatedAt, representation, originalCharacters, nextOffset };
+}
+
+async function getRequiredDocument(documentStore: DocumentStore, userId: string, path: string): Promise<UserDocument> {
+  const document = await documentStore.get(userId, path);
+  if (!document) throw new Error(`context document disappeared after metadata listing: ${contextDocumentHandle(path)}`);
+  return document;
 }
 
 function renderPartialDocument(path: string, characters: string[], originalCharacters: number, ceiling: number): { content: string; characters: number; nextOffset: number } | null {
@@ -201,8 +235,8 @@ function truncationMarker(path: string, originalCharacters: number, nextOffset: 
   return `[TRUNCATED ${path}: original ${originalCharacters} Unicode characters; continue with readDocument(path="${path}", offset=${nextOffset}).]`;
 }
 
-function renderIndexReference(path: string, originalCharacters: number): string {
-  return `[INDEX REFERENCE ${path}: original ${originalCharacters} Unicode characters; read with readDocument(path="${path}").]`;
+function renderIndexReference(path: string, originalSize: number, unit: "Unicode characters" | "UTF-8 bytes"): string {
+  return `[INDEX REFERENCE ${path}: original ${originalSize} ${unit}; read with readDocument(path="${path}").]`;
 }
 
 function degradation(sourceId: ContextProjectionAudit["sourceId"], reason: ContextProjectionDegradationReason, ceiling: number, actualCharacters: number, includedCharacters: number, documentCount: number, affectedCount: number): ContextProjectionAudit {

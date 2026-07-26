@@ -8,10 +8,55 @@ import { createInMemoryConversationStore } from "../../../src/application/in-mem
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { discoverPilotKnowledgeBase, importPilotKnowledgeBase } from "../../../src/application/pilot-knowledge-base-import.js";
 
 const now = "2026-07-18T12:00:00.000Z";
 
 describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-shaped tiered context gate", () => {
+  it("imports the real pilot tree and builds a complete owner-chat context with bounded body reads", async () => {
+    const world = createInMemoryWorld(() => now);
+    const baseStore = createInMemoryDocumentStore({ now: world.now });
+    const ingestionService = createIngestionService({ documentStore: baseStore, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    const files = await discoverPilotKnowledgeBase("vault/user/knowledge_base");
+    await importPilotKnowledgeBase({ userId: "owner", files, documentStore: baseStore, ingestionService });
+
+    let bodyReads = 0;
+    const documentStore = {
+      ...baseStore,
+      async get(userId: string, path: string) {
+        bodyReads += 1;
+        return baseStore.get(userId, path);
+      },
+      async list() {
+        throw new Error("production chat projection must not list document bodies");
+      },
+    };
+    let systemContext = "";
+    const service = new AssistantService(async (_input, context) => {
+      systemContext = context.systemContext;
+      return "ok";
+    }, {
+      documentStore,
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      clock: { now: world.now },
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "Собери краткий обзор моего контекста" });
+
+    expect(files.length).toBeGreaterThan(140);
+    expect(bodyReads).toBeLessThanOrEqual(13);
+    expect(result.personalContextDocuments).toEqual(expect.arrayContaining([
+      "/proc/context/10_user_memory/01_Persona.md",
+      "/proc/context/10_user_memory/02_Goals_and_priorities.md",
+      "/proc/context/10_user_memory/06_Tags_and_Classifications.md",
+      "/proc/context/90_agent_memory/soul.md",
+    ]));
+    expect(systemContext).toContain("## Machine index: /proc/context");
+    expect(systemContext).toContain("documents: 166");
+  });
+
   it("keeps every document on the map while projection and tool reads degrade explicitly within one turn", async () => {
     const world = createInMemoryWorld(() => now);
     const documentStore = createInMemoryDocumentStore({ now: world.now }, [
