@@ -37,6 +37,12 @@ README-файлы каталогов не являются prompt-источни
 
 Per-source limits для ещё не реализованных `/proc/profile`, `/proc/inbox`, history и `/run/actions` являются целевыми верхними границами; дочерние задачи реализуют проекции и более узкие semantic filters без увеличения общего budget.
 
+## Реактивное восстановление при overflow провайдера
+
+Статический budget остаётся основной гарантией, но provider context-window error запускает ровно **один** повтор того же agent turn. Повтор детерминированно пересобирает `systemContext` через `createContextBudgetConfig`: ceilings `records`, recent `history` и `/proc/context` machine index уменьшаются до 3 000 chars, число records — до 8, recent turns — до 4, глубина index — до 2. `base_instructions`, assistant manual, `/proc/profile`, основной `/proc/context` и `thread_summary` не уменьшаются; LLM-компакшн не выполняется.
+
+Классификатор принимает OpenAI/Anthropic-подобные сообщения о context length, слишком длинном prompt/input и превышении token limit, включая вложенные `cause/error/response` Mastra errors. `429`, rate-limit, quota и throttling явно не считаются overflow и не ретраятся. Перед единственным retry пишется metadata-only `overflow_recovery` с причиной, номером попытки и применёнными ceilings, без prompt/user text. Если повтор снова возвращает overflow, application выбрасывает typed `context_overflow`, fallback `captureIdea` всё равно сохраняет исходный ввод, а transport явно сообщает владельцу об ограничении контекста вместо тихой деградации.
+
 ## Матрица типов запросов
 
 | Тип запроса | Фактический runtime | Целевой runtime |

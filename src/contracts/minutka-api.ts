@@ -104,7 +104,7 @@ export const onboardingProgressSchema = z.discriminatedUnion("status", [
 ]);
 
 export const errorCodeSchema = z.enum([
-  "unauthorized", "forbidden", "invalid_request", "rate_limited", "internal_error",
+  "unauthorized", "forbidden", "invalid_request", "rate_limited", "context_overflow", "internal_error",
   "invite_not_found", "employee_already_linked", "chat_already_linked", "participant_not_found",
   "session_not_found", "consent_required", "profile_not_found", "profile_already_completed", "message_not_found",
   "persistence_unavailable", "persistence_conflict",

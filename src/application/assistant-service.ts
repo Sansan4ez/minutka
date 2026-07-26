@@ -1,5 +1,6 @@
 import type { ConversationStore } from "./conversation-store.js";
-import { applyContextBudget, defaultContextBudget, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
+import { applyContextBudget, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
+import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget } from "./assistant-overflow-recovery.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -60,10 +61,14 @@ export type AssistantChatResult = {
  */
 export class AssistantService {
   private readonly projectionBuilder;
+  private readonly overflowProjectionBuilder;
   private readonly recordsProjectionBuilder?: ReturnType<typeof createAssistantRecordsProjectionBuilder>;
+  private readonly overflowRecordsProjectionBuilder?: ReturnType<typeof createAssistantRecordsProjectionBuilder>;
   private readonly chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">;
   private readonly clock: Clock;
   private readonly ids: IdGenerator;
+  private readonly contextBudget: ContextBudgetConfig;
+  private readonly overflowRecoveryContextBudget: ContextBudgetConfig;
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
@@ -71,8 +76,12 @@ export class AssistantService {
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
-    this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: deps.contextBudget, contextPriorities: deps.contextPriorities });
-    this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: deps.contextBudget });
+    this.contextBudget = deps.contextBudget ?? defaultContextBudget;
+    this.overflowRecoveryContextBudget = createOverflowRecoveryContextBudget(this.contextBudget);
+    this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: this.contextBudget, contextPriorities: deps.contextPriorities });
+    this.overflowProjectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget, contextPriorities: deps.contextPriorities });
+    this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: this.contextBudget });
+    this.overflowRecordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget });
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
   }
 
@@ -167,8 +176,8 @@ export class AssistantService {
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("document_tool_used", event),
       }, "document tool audit");
     };
-    const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.deps.contextBudget });
-    const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.deps.contextBudget);
+    const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
+    const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget);
     if (systemContextBudget.omittedSourceIds.length > 0) {
       this.warnOperationally({
         type: "context_budget_overflow",
@@ -179,18 +188,60 @@ export class AssistantService {
     }
     let response: string | undefined;
     let agentError: unknown;
+    const agentContext = {
+      personalContext,
+      profileAndHistory,
+      records,
+      source,
+      systemContext: systemContextBudget.text,
+      captureIdea,
+      documents,
+    } satisfies AssistantAgentContext;
     try {
-      response = await this.agentRunner({ userId, threadId, text }, {
-        personalContext,
-        profileAndHistory,
-        records,
-        source,
-        systemContext: systemContextBudget.text,
-        captureIdea,
-        documents,
-      });
+      response = await this.agentRunner({ userId, threadId, text }, agentContext);
     } catch (error) {
-      agentError = error;
+      const overflowReason = classifyProviderContextOverflow(error);
+      if (!overflowReason) {
+        agentError = error;
+      } else {
+        const [reducedPersonalContext, reducedRecords] = await Promise.all([
+          this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
+          this.overflowRecordsProjectionBuilder?.build({ userId, requestId }) ?? Promise.resolve(emptyRecordsProjection({ userId, requestId, now: this.clock.now() })),
+        ]);
+        const reducedProfileAndHistory = reduceProfileAndHistory(profileAndHistory, this.overflowRecoveryContextBudget);
+        const reduced = buildAssistantSystemContextBudget(
+          reducedPersonalContext,
+          reducedRecords,
+          this.deps.agentInstructions,
+          renderResponsePolicy(responsePolicy),
+          reducedProfileAndHistory,
+          text,
+          this.overflowRecoveryContextBudget,
+        );
+        await this.auditSafely({
+          id: this.ids.auditEventId(), requestId, type: "overflow_recovery", employeeId: userId, threadId, messageId,
+          occurredAt: this.clock.now(), metadata: safeAuditMetadata("overflow_recovery", {
+            reason: overflowReason,
+            attempt: 1,
+            recordsCeiling: sourceCharacterCeiling(this.overflowRecoveryContextBudget, "records"),
+            historyCeiling: sourceCharacterCeiling(this.overflowRecoveryContextBudget, "history"),
+            contextIndexCeiling: sourceCharacterCeiling(this.overflowRecoveryContextBudget, "context_index"),
+          }),
+        }, "overflow recovery audit");
+        try {
+          response = await this.agentRunner({ userId, threadId, text }, {
+            ...agentContext,
+            personalContext: reducedPersonalContext,
+            profileAndHistory: reducedProfileAndHistory,
+            records: reducedRecords,
+            systemContext: reduced.text,
+          });
+        } catch (retryError) {
+          agentError = classifyProviderContextOverflow(retryError)
+            ? new AssistantContextOverflowError(overflowReason, { cause: retryError })
+            : retryError;
+        }
+      }
     }
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
@@ -203,10 +254,10 @@ export class AssistantService {
         suggestedNextStep: "Уточнить проект и следующий шаг.",
         needsProjectClarification: true,
       });
-      if (agentError !== undefined) response = fallback.response;
+      if (agentError !== undefined && !(agentError instanceof AssistantContextOverflowError)) response = fallback.response;
     }
     if (response !== undefined && !response.trim()) response = undefined;
-    if (response === undefined && captureResult) response = captureResult.response;
+    if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
     await this.deps.conversationStore.appendTurn({
@@ -344,6 +395,32 @@ function emptyChatProcSnapshot(input: { userId: string; threadId: string; reques
   return {
     profile: { schemaVersion: 1, path: "/proc/profile", generatedAt: input.now, scope, data: profile },
     thread: { schemaVersion: 1, path: "/proc/thread", generatedAt: input.now, scope, data: { turns: [], truncated: false } },
+  };
+}
+
+function reduceProfileAndHistory(snapshot: ChatProcSnapshot, budget: ContextBudgetConfig): ChatProcSnapshot {
+  const turns = snapshot.thread.data.turns.slice(-budget.projectionLimits.historyTurns);
+  let characters = 0;
+  const retained: typeof turns = [];
+  for (const turn of [...turns].reverse()) {
+    const userText = Array.from(turn.userText).slice(0, budget.projectionLimits.historyTurnCharacters).join("");
+    const agentResponse = Array.from(turn.agentResponse).slice(0, budget.projectionLimits.historyTurnCharacters).join("");
+    const size = Array.from(userText).length + Array.from(agentResponse).length;
+    if (characters + size > sourceCharacterCeiling(budget, "history")) break;
+    retained.push({ ...turn, userText, agentResponse });
+    characters += size;
+  }
+  const bounded = retained.reverse();
+  return {
+    profile: snapshot.profile,
+    thread: {
+      ...snapshot.thread,
+      data: {
+        ...snapshot.thread.data,
+        turns: bounded,
+        truncated: snapshot.thread.data.truncated || bounded.length < snapshot.thread.data.turns.length,
+      },
+    },
   };
 }
 

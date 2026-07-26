@@ -15,6 +15,7 @@ export type AuditEventType =
   | "idea_captured"
   | "document_tool_used"
   | "context_projection_degraded"
+  | "overflow_recovery"
   | "thread_summary_updated"
   | "thread_summary_failed"
   | "thread_compaction_insight_failed"
@@ -50,6 +51,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   idea_captured: ["ideaId", "recordType", "sourceKind"],
   document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
+  overflow_recovery: ["reason", "attempt", "recordsCeiling", "historyCeiling", "contextIndexCeiling"],
   thread_summary_updated: ["turnCount", "summaryCharacters", "reduced"],
   thread_summary_failed: ["reason", "turnCount", "previousCharacters"],
   thread_compaction_insight_failed: ["reason", "turnCount"],
