@@ -222,10 +222,11 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       contextBudget: createContextBudgetConfig({ sources: { context: 16_000 }, projectionLimits: { contextDocumentCharacters: 8_000 } }),
     });
     // Earlier paths keep their full-content priority. Overflowing and later
-    // paths remain visible through the separately rendered complete index.
+    // paths use bounded index references and remain visible in the complete index.
     const result = await service.chat({ userId: "maxim", threadId: "thread", text: "context" });
     expect(result.personalContextDocuments).toEqual([
       "/proc/context/01_priority.md", "/proc/context/02_priority.md", "/proc/context/03_priority.md", "/proc/context/04_priority.md",
+      "/proc/context/05_over_budget.md", "/proc/context/06_later.md",
     ]);
   });
 

@@ -181,9 +181,9 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("code-span does not exist");
   });
 
-  it("rejects core documents that cannot fit configured import ceilings", async () => {
+  it("rejects core documents that cannot fit configured rendered import ceilings", async () => {
     const root = fixture();
-    writeFileSync(join(root, "10_user_memory", "01_Persona.md"), "P".repeat(101));
+    writeFileSync(join(root, "10_user_memory", "01_Persona.md"), "<".repeat(30));
     const contextPriorities = {
       version: 1 as const,
       rules: [{ id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u }],
@@ -192,7 +192,15 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
       sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 100, context_index: 0 },
       projectionLimits: { contextDocumentCharacters: 100 },
     });
-    await expect(discoverPilotKnowledgeBase(root, { contextBudget, contextPriorities })).rejects.toThrow("core document");
+    await expect(discoverPilotKnowledgeBase(root, { contextBudget, contextPriorities })).rejects.toThrow("rendered per-file ceiling");
+    const files = await discoverPilotKnowledgeBase(root, { contextBudget: createContextBudgetConfig({
+      sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 1_000, context_index: 0 },
+      projectionLimits: { contextDocumentCharacters: 500 },
+    }), contextPriorities });
+    writeFileSync(join(root, "10_user_memory", "01_Persona.md"), "<".repeat(60));
+    const { documentStore, ingestionService } = setup();
+    await expect(importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService, contextBudget, contextPriorities }))
+      .rejects.toThrow("rendered per-file ceiling");
   });
 
   it("rejects unknown top-level entries", async () => {

@@ -1,7 +1,12 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assertSafeVaultPath, assertUserId, legacyDocumentPath, type DocumentStore } from "./document-store.js";
-import { countUnicodeCharacters, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
+import { assertSafeVaultPath, assertUserId, contextDocumentHandle, legacyDocumentPath, type DocumentStore } from "./document-store.js";
+import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
+import {
+  renderedAssistantContextDocumentCharacters,
+  renderedAssistantContextSectionCharacters,
+  type RenderableAssistantContextDocument,
+} from "./assistant-context-renderer.js";
 import { loadContextPriorityManifest, matchesContextPriority, type ContextPriorityManifest } from "./context-priority-manifest.js";
 import type { IngestionService } from "./ingestion-service.js";
 
@@ -135,23 +140,10 @@ export async function validatePilotKnowledgeBaseCoreDocuments(input: {
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
 }): Promise<void> {
-  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
-  const documentCeiling = input.contextBudget.projectionLimits.contextDocumentCharacters;
-  const totalCeiling = sourceCharacterCeiling(input.contextBudget, "context");
-  if (coreFiles.length > input.contextBudget.projectionLimits.contextDocuments) {
-    throw new Error(`knowledge-base core documents exceed the ${input.contextBudget.projectionLimits.contextDocuments}-document projection limit`);
-  }
-  let totalCharacters = 0;
-  for (const file of coreFiles) {
-    const characters = countUnicodeCharacters(await readFile(file.sourcePath, "utf8"));
-    if (characters > documentCeiling) {
-      throw new Error(`knowledge-base core document ${file.path} has ${characters} Unicode characters and exceeds the ${documentCeiling}-character per-file ceiling`);
-    }
-    totalCharacters += characters;
-  }
-  if (totalCharacters > totalCeiling) {
-    throw new Error(`knowledge-base core documents have ${totalCharacters} Unicode characters and exceed the ${totalCeiling}-character context ceiling`);
-  }
+  const coreFiles = await Promise.all(input.files
+    .filter(({ path }) => matchesContextPriority(path, input.contextPriorities))
+    .map(async (file) => ({ ...file, content: await readFile(file.sourcePath, "utf8") })));
+  validateCoreDocumentContents({ files: coreFiles, contextBudget: input.contextBudget });
 }
 
 /** Writes only through IngestionService and skips byte-identical documents. */
@@ -226,22 +218,37 @@ function validatePreparedCoreDocuments(input: {
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
 }): void {
-  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
+  validateCoreDocumentContents({
+    files: input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities)),
+    contextBudget: input.contextBudget,
+  });
+}
+
+function validateCoreDocumentContents(input: {
+  files: Array<{ path: string; content: string }>;
+  contextBudget: ContextBudgetConfig;
+}): void {
   const documentCeiling = input.contextBudget.projectionLimits.contextDocumentCharacters;
   const totalCeiling = sourceCharacterCeiling(input.contextBudget, "context");
-  if (coreFiles.length > input.contextBudget.projectionLimits.contextDocuments) {
+  if (input.files.length > input.contextBudget.projectionLimits.contextDocuments) {
     throw new Error(`knowledge-base core documents exceed the ${input.contextBudget.projectionLimits.contextDocuments}-document projection limit`);
   }
-  let totalCharacters = 0;
-  for (const file of coreFiles) {
-    const characters = countUnicodeCharacters(file.content);
-    if (characters > documentCeiling) {
-      throw new Error(`knowledge-base core document ${file.path} has ${characters} Unicode characters and exceeds the ${documentCeiling}-character per-file ceiling`);
+  const renderedDocuments: RenderableAssistantContextDocument[] = [];
+  for (const file of input.files) {
+    const document = {
+      path: contextDocumentHandle(file.path),
+      content: file.content,
+      representation: "full" as const,
+    };
+    const renderedCharacters = renderedAssistantContextDocumentCharacters(document);
+    if (renderedCharacters > documentCeiling) {
+      throw new Error(`knowledge-base core document ${file.path} renders to ${renderedCharacters} Unicode characters and exceeds the ${documentCeiling}-character rendered per-file ceiling`);
     }
-    totalCharacters += characters;
+    renderedDocuments.push(document);
   }
-  if (totalCharacters > totalCeiling) {
-    throw new Error(`knowledge-base core documents have ${totalCharacters} Unicode characters and exceed the ${totalCeiling}-character context ceiling`);
+  const renderedCharacters = renderedAssistantContextSectionCharacters({ documents: renderedDocuments, truncated: false });
+  if (renderedCharacters > totalCeiling) {
+    throw new Error(`knowledge-base core documents render to ${renderedCharacters} Unicode characters and exceed the ${totalCeiling}-character rendered context ceiling`);
   }
 }
 

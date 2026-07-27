@@ -266,20 +266,22 @@ export function applyContextBudget(input: {
     })) {
     if (!section.source) throw new Error(`unknown context budget source: ${section.sourceId}`);
     if (lowerPrioritySectionsOmitted) {
+      if (isGuaranteedContextSource(section.sourceId)) {
+        throw new Error(`guaranteed ${section.sourceId} cannot follow an omitted lower-priority context section`);
+      }
       omittedSourceIds.push(section.sourceId);
       continue;
     }
     const contentCharacters = countUnicodeCharacters(section.content);
-    // Owner projections enforce their data ceilings before rendering. Rendered
-    // wrappers/metadata are counted only against the aggregate request budget,
-    // otherwise a projection at its exact data ceiling could be dropped solely
-    // because of its safety markup.
-    if (contentCharacters > section.source.ceiling && isTrustedControlPlane(section.sourceId)) {
-      throw new Error(`trusted ${section.sourceId} exceeds its ${section.source.ceiling}-character ceiling`);
+    const guaranteed = isGuaranteedContextSource(section.sourceId);
+    if (contentCharacters > section.source.ceiling && (guaranteed || isTrustedControlPlane(section.sourceId))) {
+      throw new Error(`${guaranteed ? "guaranteed" : "trusted"} ${section.sourceId} exceeds its ${section.source.ceiling}-character rendered source ceiling`);
     }
     const separatorCharacters = selected.length === 0 ? 0 : 2;
     if (used + separatorCharacters + contentCharacters > available) {
-      if (isTrustedControlPlane(section.sourceId)) throw new Error(`trusted ${section.sourceId} does not fit the available request context budget`);
+      if (guaranteed || isTrustedControlPlane(section.sourceId)) {
+        throw new Error(`${guaranteed ? "guaranteed" : "trusted"} ${section.sourceId} does not fit the available request context budget`);
+      }
       omittedSourceIds.push(section.sourceId);
       lowerPrioritySectionsOmitted = true;
       continue;
@@ -321,6 +323,10 @@ function sourceCeiling(sources: readonly ContextSourceBudget[], id: ContextSourc
 
 function guaranteedContextCeiling(sources: readonly ContextSourceBudget[]): number {
   return guaranteedContextSourceIds.reduce((sum, id) => sum + sourceCeiling(sources, id), 0);
+}
+
+function isGuaranteedContextSource(sourceId: ContextSourceId): boolean {
+  return guaranteedContextSourceIds.includes(sourceId as typeof guaranteedContextSourceIds[number]);
 }
 
 function isTrustedControlPlane(sourceId: ContextSourceId): boolean {

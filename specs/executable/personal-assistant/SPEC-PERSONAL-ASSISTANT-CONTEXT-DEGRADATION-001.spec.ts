@@ -4,7 +4,7 @@ import {
   renderAssistantContextProjection,
   type ContextProjectionAudit,
 } from "../../../src/application/assistant-context-projection.js";
-import { createContextBudgetConfig, countUnicodeCharacters } from "../../../src/application/context-budget.js";
+import { createContextBudgetConfig, countUnicodeCharacters, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -19,10 +19,11 @@ const coreManifest = {
   rules: [{ id: "constitution", pattern: "^/proc/context/01_core\\.md$", matcher: /^\/proc\/context\/01_core\.md$/u }],
 };
 
-function budget(input: { context?: number; perFile?: number; documents?: number; index?: number } = {}) {
+function budget(input: { context?: number; perFile?: number; documents?: number; index?: number; total?: number } = {}) {
   const context = input.context ?? 16_000;
   const perFile = input.perFile ?? Math.min(4_000, context);
   return createContextBudgetConfig({
+    ...(input.total === undefined ? {} : { total: input.total }),
     sources: { context, context_index: input.index ?? 6_000 },
     projectionLimits: {
       contextDocuments: input.documents ?? 12,
@@ -71,7 +72,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
       reason: "per_file_limit",
       ceiling: 4_000,
       actualCharacters: 5_000,
-      includedCharacters: countUnicodeCharacters(document.content),
+      includedCharacters: 4_000,
       documentCount: 1,
       affectedCount: 1,
     }]);
@@ -86,7 +87,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
         { path: "01_core.md", content: core },
         { path: "20_work/note.md", content: "N".repeat(300) },
       ],
-      config: budget({ context: 570, perFile: 570 }),
+      config: budget({ context: 1_000, perFile: 700 }),
     });
 
     expect(projection.data.documents[0]).toMatchObject({ path: "/proc/context/01_core.md", content: core, representation: "full" });
@@ -96,22 +97,73 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     expect(audits).toEqual([{
       sourceId: "context",
       reason: "context_ceiling",
-      ceiling: 570,
+      ceiling: 1_000,
       actualCharacters: 600,
-      includedCharacters: countUnicodeCharacters(projection.data.documents[1]!.content),
+      includedCharacters: 244,
       documentCount: 3,
       affectedCount: 2,
     }]);
     expect(renderAssistantContextProjection(projection)).toMatchSnapshot();
   });
 
-  it("fails fast instead of truncating an oversized core document", async () => {
+  it("fails fast instead of truncating an oversized rendered core document", async () => {
     await expect(build({
       documents: [
         { path: "01_core.md", content: "C".repeat(4_001) },
         { path: "90_transcripts/meeting.md", content: "T".repeat(500) },
       ],
-    })).rejects.toThrow("core context document /proc/context/01_core.md has 4001 Unicode characters and exceeds the 4000-character per-file ceiling");
+    })).rejects.toThrow("rendered per-file ceiling");
+  });
+
+  it("rejects three 8k expansion-sensitive core documents under raw-era defaults", async () => {
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [0, 1, 2].map((index) => ({
+        id: `core-${index}`,
+        pattern: `^/proc/context/0${index + 1}_core\\.md$`,
+        matcher: new RegExp(`^/proc/context/0${index + 1}_core\\.md$`, "u"),
+      })),
+    };
+    await expect(build({
+      documents: [0, 1, 2].map((index) => ({ path: `0${index + 1}_core.md`, content: "<".repeat(8_000) })),
+      manifest: contextPriorities,
+    })).rejects.toThrow("rendered per-file ceiling");
+  });
+
+  it("keeps expansion-sensitive core context and machine index present when rendered ceilings are valid", async () => {
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [0, 1, 2].map((index) => ({
+        id: `core-${index}`,
+        pattern: `^/proc/context/0${index + 1}_core\\.md$`,
+        matcher: new RegExp(`^/proc/context/0${index + 1}_core\\.md$`, "u"),
+      })),
+    };
+    const config = budget({ context: 105_000, perFile: 41_000, index: 6_000, total: 169_096 });
+    const documents = ["<", ">", "&"].map((character, index) => ({ path: `0${index + 1}_core.md`, content: character.repeat(8_000) }));
+    const { projection } = await build({ documents, config, manifest: contextPriorities });
+    const rendered = renderAssistantContextProjection(projection);
+
+    expect(projection.data.documents).toHaveLength(3);
+    expect(projection.data.documents.every(({ representation }) => representation === "full")).toBe(true);
+    expect(countUnicodeCharacters(rendered)).toBeLessThanOrEqual(sourceCharacterCeiling(config, "context"));
+    expect(rendered).toContain("&lt;");
+    expect(rendered).toContain("&gt;");
+    expect(rendered).toContain("&amp;");
+    expect(projection.data.index.text).toContain("01_core.md");
+  });
+
+  it("accepts ordinary Unicode at the exact rendered per-file boundary", async () => {
+    const path = "/proc/context/01_core.md";
+    const wrapperCharacters = countUnicodeCharacters(`<user-context path="${path}" representation="full">\n\n</user-context>`);
+    const perFile = 500;
+    const content = "🙂".repeat(perFile - wrapperCharacters);
+    const { projection } = await build({
+      documents: [{ path: "01_core.md", content }],
+      config: budget({ context: 2_000, perFile }),
+    });
+
+    expect(projection.data.documents[0]).toMatchObject({ content, representation: "full" });
   });
 
   it("aggregates document-limit omissions without paths or document text while the index keeps every file visible", async () => {

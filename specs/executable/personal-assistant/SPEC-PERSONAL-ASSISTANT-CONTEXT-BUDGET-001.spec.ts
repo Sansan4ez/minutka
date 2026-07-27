@@ -112,15 +112,15 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
 
   it("applies the aggregate budget at the buildAssistantSystemContext seam", () => {
     const config = createContextBudgetConfig({
-      total: maxChatInputCharacters + contextWrapperMarkupAllowance + 213,
+      total: maxChatInputCharacters + contextWrapperMarkupAllowance + 408,
       responseReserve: 5,
-      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 55, context_index: 55, records: 55, inbox: 55, history: 55, actions: 55 },
-      projectionLimits: { contextDocumentCharacters: 55, recordCharacters: 55, historyTurnCharacters: 55 },
+      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 250, context_index: 55, records: 55, inbox: 55, history: 55, actions: 55 },
+      projectionLimits: { contextDocumentCharacters: 250, recordCharacters: 55, historyTurnCharacters: 55 },
     });
     const result = buildAssistantSystemContext(projection, undefined, "TRUSTED", undefined, undefined, "🙂".repeat(maxChatInputCharacters), config);
     expect(result).toContain("# Personal assistant runtime context");
     expect(result).toContain("TRUSTED");
-    expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(208);
+    expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(403);
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
@@ -139,6 +139,24 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     });
     expect(result.text).toContain("index");
     expect(result.omittedSourceIds).toEqual(["records"]);
+  });
+
+  it("fails fast instead of omitting guaranteed owner sections", () => {
+    const config = createContextBudgetConfig({
+      total: maxChatInputCharacters + contextWrapperMarkupAllowance + 42,
+      responseReserve: 0,
+      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
+    });
+    expect(() => applyContextBudget({
+      config,
+      userInput: "x".repeat(maxChatInputCharacters),
+      sections: [
+        { sourceId: "profile", content: "P".repeat(10) },
+        { sourceId: "context", content: "C".repeat(11) },
+        { sourceId: "context_index", content: "I".repeat(10) },
+      ],
+    })).toThrow("guaranteed context exceeds its 10-character rendered source ceiling");
   });
 
   it("rejects context budgets that cannot hold trusted ceilings at maximum input", () => {
