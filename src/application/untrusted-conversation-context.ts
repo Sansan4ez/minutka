@@ -19,12 +19,21 @@ export function renderUntrustedCurrentText(text: string, maxCharacters: number):
 
 /** Preserves checkpoint line structure while preventing it from creating prompt structure. */
 export function renderUntrustedPreviousThreadSummary(text: string, maxCharacters: number): string {
-  const escaped = sliceUnicode(text, maxCharacters)
+  const escaped = escapeMultilineUntrustedPromptData(sliceUnicode(text, maxCharacters));
+  return `<untrusted-previous-checkpoint>\n${escaped}\n</untrusted-previous-checkpoint>`;
+}
+
+/** Quotes multiline untrusted data without allowing XML, headings, or Markdown fences to become prompt structure. */
+export function escapeMultilineUntrustedPromptData(text: string): string {
+  return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replace(/^([ \t]*)(#+)(?=[ \t]|$)/gm, "$1> $2");
-  return `<untrusted-previous-checkpoint>\n${escaped}\n</untrusted-previous-checkpoint>`;
+    .replace(/^([ \t]*)(#+)(?=[ \t]|$)/gm, "$1> $2")
+    .replace(/^([ \t]*)(`{3,}|~{3,})/gm, (_match, indentation: string, fence: string) => {
+      const escapedMarker = fence[0] === "`" ? "\\u0060" : "\\u007E";
+      return `${indentation}${escapedMarker.repeat(fence.length)}`;
+    });
 }
 
 function escapePromptData(text: string, maxCharacters: number): string {
