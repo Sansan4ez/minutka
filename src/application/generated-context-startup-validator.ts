@@ -1,4 +1,5 @@
 import { renderEmptyAssistantContextSection } from "./assistant-context-renderer.js";
+import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import {
   countUnicodeCharacters,
   sourceCharacterCeiling,
@@ -8,13 +9,19 @@ import {
 import { renderEmptyContextTreeIndex } from "./context-tree-index.js";
 import { renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "./thread-summarizer.js";
+import { renderMaximumResponsePolicy } from "../domain/response-policy.js";
 
 /**
  * Rejects source ceilings that cannot hold generated sections even when the
  * authenticated owner has no context documents.
  */
-export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig): void {
+export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig, agentInstructions: string): void {
   const generatedSections: ReadonlyArray<{ sourceId: ContextSourceId; content: string }> = [
+    { sourceId: "base_instructions", content: renderAssistantBaseInstructions() },
+    {
+      sourceId: "agent_manual",
+      content: renderAssistantAgentManual(agentInstructions, renderMaximumResponsePolicy()),
+    },
     { sourceId: "context", content: renderEmptyAssistantContextSection() },
     { sourceId: "context_index", content: renderEmptyContextTreeIndex(config.projectionLimits.contextIndexDepth) },
     {

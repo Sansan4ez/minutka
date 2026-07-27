@@ -4,7 +4,9 @@ export type Persona = "support" | "efficiency";
 
 export type AiLevel = "beginner" | "intermediate" | "advanced";
 
-export type ResponseLengthPreference = "short" | "balanced" | "detailed";
+export const responseLengthPreferences = ["short", "balanced", "detailed"] as const;
+
+export type ResponseLengthPreference = typeof responseLengthPreferences[number];
 
 export type AddressForm = "informal" | "formal";
 

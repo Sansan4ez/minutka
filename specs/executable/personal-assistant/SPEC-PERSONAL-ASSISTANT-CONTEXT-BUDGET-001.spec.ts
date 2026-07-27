@@ -235,6 +235,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("validates minimum viable generated sections from the production renderers", () => {
+    const agentInstructions = loadAssistantAgentInstructions();
     const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
     const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(defaultContextBudget.projectionLimits.contextIndexDepth));
     const summaryMinimum = countUnicodeCharacters(renderThreadSummaryProjection({
@@ -249,16 +250,19 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       projectionLimits: { contextDocumentCharacters: contextMinimum },
     });
 
-    expect(() => assertGeneratedContextSourceMinimums(exact)).not.toThrow();
+    expect(() => assertGeneratedContextSourceMinimums(exact, agentInstructions)).not.toThrow();
     expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
       sources: { context: contextMinimum - 1 },
       projectionLimits: { contextDocumentCharacters: contextMinimum - 1 },
-    }))).toThrow(`context source context requires a minimum rendered representation of ${contextMinimum} Unicode characters, but its configured ceiling is ${contextMinimum - 1}`);
+    }), agentInstructions)).toThrow(`context source context requires a minimum rendered representation of ${contextMinimum} Unicode characters, but its configured ceiling is ${contextMinimum - 1}`);
     expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
       sources: { context_index: indexMinimum - 1 },
-    }))).toThrow(`context source context_index requires a minimum rendered representation of ${indexMinimum} Unicode characters, but its configured ceiling is ${indexMinimum - 1}`);
+    }), agentInstructions)).toThrow(`context source context_index requires a minimum rendered representation of ${indexMinimum} Unicode characters, but its configured ceiling is ${indexMinimum - 1}`);
+    expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
+      sources: { base_instructions: 1 },
+    }), agentInstructions)).toThrow(/context source base_instructions requires a minimum rendered representation of \d+ Unicode characters, but its configured ceiling is 1/u);
     expect(summaryMinimum).toBeLessThanOrEqual(defaultContextBudget.projectionLimits.threadSummaryCharacters);
-    expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget)).not.toThrow();
+    expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget, agentInstructions)).not.toThrow();
   });
 });
 

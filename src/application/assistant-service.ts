@@ -24,6 +24,7 @@ import type { RequestIntegrityDenialReason } from "../domain/request-integrity.j
 import { createResponsePolicy, renderResponsePolicy, type ResponseChannel } from "../domain/response-policy.js";
 import type { ContextPriorityManifest } from "./context-priority-manifest.js";
 import type { ThreadCompactionService } from "./thread-compaction-service.js";
+import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
 export type AssistantAgentContext = {
@@ -361,8 +362,8 @@ export function buildAssistantSystemContextBudget(
     userInput,
     config: contextBudget,
     sections: [
-      { sourceId: "base_instructions", content: "# Personal assistant runtime context" },
-      { sourceId: "agent_manual", content: [agentInstructions, responsePolicy].filter(Boolean).join("\n\n") },
+      { sourceId: "base_instructions", content: renderAssistantBaseInstructions() },
+      { sourceId: "agent_manual", content: renderAssistantAgentManual(agentInstructions, responsePolicy) },
       { sourceId: "profile", content: profileSection },
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
       { sourceId: "context_index", content: renderAssistantContextIndex(personalContext) },

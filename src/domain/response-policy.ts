@@ -1,6 +1,8 @@
-import type { ResponseLengthPreference } from "./employee.js";
+import { responseLengthPreferences, type ResponseLengthPreference } from "./employee.js";
 
-export type ResponseChannel = "generic" | "telegram";
+export const responseChannels = ["generic", "telegram"] as const;
+
+export type ResponseChannel = typeof responseChannels[number];
 
 export type ResponsePolicy = {
   channel: ResponseChannel;
@@ -33,6 +35,12 @@ export function createResponsePolicy(input: {
   };
 }
 
+export function renderMaximumResponsePolicy(): string {
+  return responseChannels
+    .flatMap((channel) => responseLengthPreferences.map((preferredLength) => renderResponsePolicy(createResponsePolicy({ channel, preferredLength }))))
+    .reduce((maximum, candidate) => unicodeCharacters(candidate) > unicodeCharacters(maximum) ? candidate : maximum);
+}
+
 export function renderResponsePolicy(policy: ResponsePolicy): string {
   return [
     "## Trusted response policy",
@@ -43,4 +51,8 @@ export function renderResponsePolicy(policy: ResponsePolicy): string {
     "- If the complete result would exceed the target budget, give a useful summary now and offer continuation in parts or a separate artifact.",
     "- A detailed preference increases the budget, but does not authorize several near-limit transport messages by default.",
   ].join("\n");
+}
+
+function unicodeCharacters(value: string): number {
+  return Array.from(value).length;
 }
