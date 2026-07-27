@@ -22,6 +22,7 @@ import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService, type IngestionService } from "../../../src/application/ingestion-service.js";
 import { boundRecentHistory } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
+import { minimumRecentHistoryCharacters } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
 import type { ChatProcSnapshot } from "../../../src/application/runtime-projections/runtime-projection-types.js";
 import { MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
 import { mapError } from "../../../src/server/http/error-mapping.js";
@@ -361,6 +362,10 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(classifyProviderContextOverflow({ status: 429, message: "maximum context length mentioned by a rate limit wrapper" })).toBeUndefined();
 
     const reduced = createOverflowRecoveryContextBudget(defaultContextBudget);
+    expect(() => createOverflowRecoveryContextBudget(createContextBudgetConfig({
+      sources: { history: minimumRecentHistoryCharacters },
+      projectionLimits: { historyTurnCharacters: 1 },
+    }))).not.toThrow();
     expect(reduced).toEqual(createContextBudgetConfig({
       total: defaultContextBudget.total,
       responseReserve: defaultContextBudget.responseReserve,

@@ -1,4 +1,5 @@
 import { countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
+import { minimumRecentHistoryCharacters } from "./runtime-projections/runtime-projection-renderer.js";
 import { minimumThreadSummaryCharacters } from "./thread-summarizer.js";
 
 export const contextSourceIds = [
@@ -169,7 +170,11 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (documentTools.searchDefault > documentTools.searchMaximum) throw new Error("document search default must not exceed its maximum");
   if (projectionLimits.contextDocumentCharacters > sourceCeiling(sources, "context")) throw new Error("context document limit must not exceed the context source ceiling");
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
-  if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
+  const historyCeiling = sourceCeiling(sources, "history");
+  if (historyCeiling < minimumRecentHistoryCharacters) {
+    throw new Error(`context source history ceiling must be at least ${minimumRecentHistoryCharacters} Unicode characters for the exact rendered minimum recent-history section`);
+  }
+  if (projectionLimits.historyTurnCharacters > historyCeiling) throw new Error("history turn limit must not exceed the history source ceiling");
   if (projectionLimits.threadSummaryCharacters < minimumThreadSummaryCharacters) {
     throw new Error(`thread summary limit must be at least ${minimumThreadSummaryCharacters} Unicode characters for the exact rendered required headings, reduction marker, and canonical watermark`);
   }

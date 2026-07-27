@@ -8,6 +8,7 @@ import {
   countUnicodeCharacters,
   createContextBudgetConfig,
   defaultContextBudget,
+  sourceCharacterCeiling,
 } from "../../../src/application/context-budget.js";
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
 import { renderEmptyAssistantContextSection } from "../../../src/application/assistant-context-renderer.js";
@@ -19,7 +20,7 @@ import { buildAssistantSystemContext } from "../../../src/application/assistant-
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
 import { documentReadLimits } from "../../../src/application/document-reader.js";
 import { runtimeProjectionLimits } from "../../../src/application/runtime-projections/runtime-projection-limits.js";
-import { renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
+import { minimumRecentHistoryCharacters, renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
 import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "../../../src/application/thread-summarizer.js";
 import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
 
@@ -57,7 +58,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + contextWrapperMarkupAllowance + 36,
       responseReserve: 2,
-      sources: { base_instructions: 1, agent_manual: 3, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 1, agent_manual: 3, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: minimumRecentHistoryCharacters, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const exact = applyContextBudget({
@@ -78,7 +79,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + contextWrapperMarkupAllowance + 43,
       responseReserve: 0,
-      sources: { base_instructions: 0, agent_manual: 7, profile: 12, context: 12, context_index: 12, records: 12, inbox: 12, history: 12, actions: 12 },
+      sources: { base_instructions: 0, agent_manual: 7, profile: 12, context: 12, context_index: 12, records: 12, inbox: 12, history: minimumRecentHistoryCharacters, actions: 12 },
       projectionLimits: { contextDocumentCharacters: 12, recordCharacters: 12, historyTurnCharacters: 12 },
     });
     const result = applyContextBudget({
@@ -98,7 +99,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + contextWrapperMarkupAllowance + 30,
       responseReserve: 0,
-      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: minimumRecentHistoryCharacters, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     const result = applyContextBudget({
@@ -119,7 +120,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + contextWrapperMarkupAllowance + 408,
       responseReserve: 5,
-      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 250, context_index: 55, records: 55, inbox: 55, history: 55, actions: 55 },
+      sources: { base_instructions: 36, agent_manual: 7, profile: 55, context: 250, context_index: 55, records: 55, inbox: 55, history: minimumRecentHistoryCharacters, actions: 55 },
       projectionLimits: { contextDocumentCharacters: 250, recordCharacters: 55, historyTurnCharacters: 55 },
     });
     const result = buildAssistantSystemContext(projection, undefined, "TRUSTED", undefined, undefined, "🙂".repeat(maxChatInputCharacters), config);
@@ -150,7 +151,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     const config = createContextBudgetConfig({
       total: maxChatInputCharacters + contextWrapperMarkupAllowance + 42,
       responseReserve: 0,
-      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: 10, actions: 10 },
+      sources: { base_instructions: 0, agent_manual: 0, profile: 10, context: 10, context_index: 10, records: 10, inbox: 10, history: minimumRecentHistoryCharacters, actions: 10 },
       projectionLimits: { contextDocumentCharacters: 10, recordCharacters: 10, historyTurnCharacters: 10 },
     });
     expect(() => applyContextBudget({
@@ -211,6 +212,18 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       content: loadAssistantAgentInstructions(),
       label: "loaded assistant agent manual",
     })).not.toThrow();
+  });
+
+  it("rejects history ceilings below the production-rendered minimum and accepts the exact boundary", () => {
+    expect(minimumRecentHistoryCharacters).toBeGreaterThan(0);
+    expect(() => createContextBudgetConfig({
+      sources: { history: minimumRecentHistoryCharacters - 1 },
+      projectionLimits: { historyTurnCharacters: 1 },
+    })).toThrow(`context source history ceiling must be at least ${minimumRecentHistoryCharacters} Unicode characters`);
+    expect(sourceCharacterCeiling(createContextBudgetConfig({
+      sources: { history: minimumRecentHistoryCharacters },
+      projectionLimits: { historyTurnCharacters: 1 },
+    }), "history")).toBe(minimumRecentHistoryCharacters);
   });
 
   it("parses environment overrides and fails fast on invalid or contradictory values", () => {

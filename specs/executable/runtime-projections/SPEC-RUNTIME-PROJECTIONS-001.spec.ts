@@ -6,8 +6,8 @@ import { createInMemoryInsightStore } from "../../../src/application/in-memory-i
 import { createInMemoryFeedbackStore } from "../../../src/application/in-memory-feedback-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
-import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
-import { renderRecentHistoryProjection, renderRuntimeProjection, renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
+import { boundRecentHistory, createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
+import { minimumRecentHistoryCharacters, renderRecentHistoryProjection, renderRuntimeProjection, renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
 
 describe("SPEC-RUNTIME-PROJECTIONS-001: bounded, scoped and safe runtime projections", () => {
   it("renders only current employee/thread data and labels saved turns as untrusted", async () => {
@@ -132,7 +132,10 @@ describe("SPEC-RUNTIME-PROJECTIONS-001: bounded, scoped and safe runtime project
     const feedback = createInMemoryFeedbackStore(world);
     const audit = createInMemoryAuditEventStore(world);
     await conversations.appendTurn({ messageId: "msg_emoji", employeeId: "emp_emoji", threadId: "thread_emoji", userText: "😀😀", agentResponse: "ok", timestamp: world.now() });
-    const contextBudget = createContextBudgetConfig({ projectionLimits: { historyTurns: 1, historyTurnCharacters: 2 } });
+    const contextBudget = createContextBudgetConfig({
+      sources: { history: minimumRecentHistoryCharacters },
+      projectionLimits: { historyTurns: 1, historyTurnCharacters: 2 },
+    });
     const builder = createRuntimeProjectionBuilder({ profileStore: profiles, conversationStore: conversations, insightStore: insights, feedbackStore: feedback, auditEventStore: audit, clock: { now: world.now }, contextBudget });
     const snapshot = await builder.buildProc({ employeeId: "emp_emoji", threadId: "thread_emoji", requestId: "req_emoji", purpose: "chat" });
     expect(snapshot.thread.data).toMatchObject({ truncated: false, turns: [{ userText: "😀😀", agentResponse: "ok" }] });
@@ -197,6 +200,38 @@ describe("SPEC-RUNTIME-PROJECTIONS-001: bounded, scoped and safe runtime project
     const renderedProfile = renderRuntimeProjection(profileSnapshot);
     expect(renderedProfile).toContain("> ## Runtime projection: /proc/decision");
     expect(renderedProfile).not.toContain(profileInjection);
+  });
+
+  it("keeps an explicit empty newest turn and marker at the exact minimum", () => {
+    const turn = {
+      messageId: "msg_minimum",
+      employeeId: "owner",
+      threadId: "thread",
+      userText: "<&>😀".repeat(1_000),
+      agentResponse: "&&<<>>😀".repeat(1_000),
+      timestamp: "2026-07-27T00:00:00.000Z",
+    };
+    const bounded = boundRecentHistory([turn], {
+      turns: 1,
+      characters: minimumRecentHistoryCharacters,
+      fieldCharacters: 10_000,
+    });
+    const rendered = renderRecentHistoryProjection(bounded);
+
+    expect(bounded).toMatchObject({
+      truncated: true,
+      turns: [{ messageId: "msg_minimum", userText: "", agentResponse: "" }],
+    });
+    expect(Array.from(rendered)).toHaveLength(minimumRecentHistoryCharacters);
+    expect(rendered).toContain("<untrusted-turn index=\"1\">");
+    expect(rendered).toContain("Some earlier conversation turns or turn contents were omitted");
+  });
+
+  it("renders a marker-only fallback for a legacy invalid truncated snapshot", () => {
+    const rendered = renderRecentHistoryProjection({ turns: [], truncated: true });
+    expect(rendered).toContain("### Recent verbatim turns");
+    expect(rendered).toContain("Some earlier conversation turns or turn contents were omitted");
+    expect(rendered).not.toContain("<untrusted-turn index=");
   });
 
   it("fits expansion-sensitive newest history by exact rendered Unicode cost", async () => {

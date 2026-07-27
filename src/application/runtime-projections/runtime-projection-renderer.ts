@@ -56,6 +56,19 @@ export function renderRecentHistoryProjection(thread: Pick<ThreadProjection, "tu
   return body ? [threadHeading, body].join("\n\n") : "";
 }
 
+/** Exact canonical floor: one empty quoted turn plus the explicit omission marker. */
+export const minimumRecentHistoryCharacters = Array.from(renderRecentHistoryProjection({
+  turns: [{
+    messageId: "",
+    employeeId: "",
+    threadId: "",
+    userText: "",
+    agentResponse: "",
+    timestamp: "",
+  }],
+  truncated: true,
+})).length;
+
 function renderThreadSummaryBody(thread: ThreadProjection): string {
   if (!thread.summary) return "";
   return [
@@ -67,7 +80,11 @@ function renderThreadSummaryBody(thread: ThreadProjection): string {
 }
 
 function renderRecentHistoryBody(thread: Pick<ThreadProjection, "turns" | "truncated">): string {
-  if (thread.turns.length === 0) return "";
+  if (thread.turns.length === 0) {
+    return thread.truncated
+      ? [recentHistoryHeading, recentHistoryNotice, historyTruncationMarker].join("\n\n")
+      : "";
+  }
   const turns = thread.turns
     .map(
       (turn, index) =>

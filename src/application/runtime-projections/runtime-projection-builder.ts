@@ -10,7 +10,7 @@ import type { InsightStore } from "../insight-store.js";
 import type { ProfileStore } from "../profile-store.js";
 import { runtimeProjectionLimitsFromBudget } from "./runtime-projection-limits.js";
 import type { RuntimeAccessScope } from "./runtime-access-scope.js";
-import { renderedThreadSummaryCharacters, renderRecentHistoryProjection } from "./runtime-projection-renderer.js";
+import { minimumRecentHistoryCharacters, renderedThreadSummaryCharacters, renderRecentHistoryProjection } from "./runtime-projection-renderer.js";
 import type {
   AllowedRuntimePath,
   ChatProcSnapshot,
@@ -202,6 +202,7 @@ export function boundRecentHistory(
 }
 
 function fitNewestTurn(turn: ConversationTurn, ceiling: number): ConversationTurn | undefined {
+  if (ceiling < minimumRecentHistoryCharacters) return undefined;
   const userCharacters = Array.from(turn.userText);
   const assistantCharacters = Array.from(turn.agentResponse);
   let low = 0;
