@@ -8,8 +8,9 @@ import type { ThreadSummaryStore } from "../thread-summary-store.js";
 import type { FeedbackStore } from "../feedback-store.js";
 import type { InsightStore } from "../insight-store.js";
 import type { ProfileStore } from "../profile-store.js";
-import { runtimeProjectionLimitsFromBudget, type RuntimeProjectionLimits } from "./runtime-projection-limits.js";
+import { runtimeProjectionLimitsFromBudget } from "./runtime-projection-limits.js";
 import type { RuntimeAccessScope } from "./runtime-access-scope.js";
+import { renderRecentHistoryProjection } from "./runtime-projection-renderer.js";
 import type {
   AllowedRuntimePath,
   ChatProcSnapshot,
@@ -89,11 +90,16 @@ export function createRuntimeProjectionBuilder(deps: {
       deps.threadSummaryStore?.get({ employeeId: scope.employeeId, threadId: scope.threadId }),
     ]);
     const countTruncated = source.length > limits.threadTurns;
-    const bounded = boundTurns(source.slice(-limits.threadTurns), limits);
+    const bounded = boundRecentHistory(source.slice(-limits.threadTurns), {
+      turns: limits.threadTurns,
+      characters: limits.threadCharacters,
+      fieldCharacters: limits.threadTurnTextCharacters,
+      initiallyTruncated: countTruncated,
+    });
     const summary = storedSummary && Array.from(storedSummary.text).length <= limits.threadSummaryCharacters
       ? storedSummary
       : undefined;
-    return { ...(summary ? { summary } : {}), turns: bounded.turns, truncated: countTruncated || bounded.truncated };
+    return { ...(summary ? { summary } : {}), turns: bounded.turns, truncated: bounded.truncated };
   };
 
   return {
@@ -157,26 +163,85 @@ export function createRuntimeProjectionBuilder(deps: {
   };
 }
 
-function boundTurns(turns: ConversationTurn[], limits: RuntimeProjectionLimits): { turns: ConversationTurn[]; truncated: boolean } {
-  const newestFirst = [...turns].reverse();
-  let characters = 0;
-  let truncated = false;
-  const retained: ConversationTurn[] = [];
+export function boundRecentHistory(
+  turns: ConversationTurn[],
+  limits: { turns: number; characters: number; fieldCharacters: number; initiallyTruncated?: boolean },
+): { turns: ConversationTurn[]; truncated: boolean } {
+  const limitedTurns = turns.slice(-limits.turns);
+  const newestFirst = [...limitedTurns].reverse();
+  let truncated = Boolean(limits.initiallyTruncated) || limitedTurns.length < turns.length;
+  let retained: ConversationTurn[] = [];
   for (const turn of newestFirst) {
-    const userText = sanitiseTurnText(turn.userText, limits.threadTurnTextCharacters);
-    const agentResponse = sanitiseTurnText(turn.agentResponse, limits.threadTurnTextCharacters);
-    if (userText.truncated || agentResponse.truncated) truncated = true;
-    const size = Array.from(userText.text).length + Array.from(agentResponse.text).length;
-    // Turns are evaluated newest-to-oldest: on overflow, retain the contiguous
-    // newest suffix instead of creating holes or dropping the latest context.
-    if (characters + size > limits.threadCharacters) {
-      truncated = true;
-      break;
+    const userText = sanitiseTurnText(turn.userText, limits.fieldCharacters);
+    const agentResponse = sanitiseTurnText(turn.agentResponse, limits.fieldCharacters);
+    const fieldTruncated = userText.truncated || agentResponse.truncated;
+    const candidateTurn = { ...turn, userText: userText.text, agentResponse: agentResponse.text };
+    const candidate = [candidateTurn, ...retained];
+    if (renderedHistoryCharacters(candidate, truncated || fieldTruncated) <= limits.characters) {
+      retained = candidate;
+      if (fieldTruncated) truncated = true;
+      continue;
     }
-    retained.push({ ...turn, userText: userText.text, agentResponse: agentResponse.text });
-    characters += size;
+    truncated = true;
+    break;
   }
-  return { turns: retained.reverse(), truncated };
+  while (retained.length > 1 && renderedHistoryCharacters(retained, truncated) > limits.characters) {
+    retained = retained.slice(1);
+  }
+  if (retained.length === 1 && renderedHistoryCharacters(retained, truncated) > limits.characters) {
+    const fitted = fitNewestTurn(retained[0]!, limits.characters);
+    retained = fitted ? [fitted] : [];
+  }
+  if (retained.length === 0 && newestFirst.length > 0) {
+    const userText = sanitiseTurnText(newestFirst[0]!.userText, limits.fieldCharacters);
+    const agentResponse = sanitiseTurnText(newestFirst[0]!.agentResponse, limits.fieldCharacters);
+    const fitted = fitNewestTurn({ ...newestFirst[0]!, userText: userText.text, agentResponse: agentResponse.text }, limits.characters);
+    if (fitted) retained = [fitted];
+  }
+  return { turns: retained, truncated };
+}
+
+function fitNewestTurn(turn: ConversationTurn, ceiling: number): ConversationTurn | undefined {
+  const userCharacters = Array.from(turn.userText);
+  const assistantCharacters = Array.from(turn.agentResponse);
+  let low = 0;
+  let high = userCharacters.length + assistantCharacters.length;
+  let best: ConversationTurn | undefined;
+  while (low <= high) {
+    const retainedCharacters = Math.floor((low + high) / 2);
+    const candidate = truncateTurnToTotalCharacters(turn, userCharacters, assistantCharacters, retainedCharacters);
+    if (renderedHistoryCharacters([candidate], true) <= ceiling) {
+      best = candidate;
+      low = retainedCharacters + 1;
+    } else {
+      high = retainedCharacters - 1;
+    }
+  }
+  return best;
+}
+
+function truncateTurnToTotalCharacters(
+  turn: ConversationTurn,
+  userCharacters: string[],
+  assistantCharacters: string[],
+  maximumCharacters: number,
+): ConversationTurn {
+  const userShare = userCharacters.length + assistantCharacters.length === 0
+    ? 0
+    : Math.min(userCharacters.length, Math.floor(maximumCharacters * userCharacters.length / (userCharacters.length + assistantCharacters.length)));
+  const assistantShare = Math.min(assistantCharacters.length, maximumCharacters - userShare);
+  const unused = maximumCharacters - userShare - assistantShare;
+  const extraUser = Math.min(unused, userCharacters.length - userShare);
+  const extraAssistant = Math.min(unused - extraUser, assistantCharacters.length - assistantShare);
+  return {
+    ...turn,
+    userText: userCharacters.slice(0, userShare + extraUser).join(""),
+    agentResponse: assistantCharacters.slice(0, assistantShare + extraAssistant).join(""),
+  };
+}
+
+function renderedHistoryCharacters(turns: ConversationTurn[], truncated: boolean): number {
+  return Array.from(renderRecentHistoryProjection({ turns, truncated })).length;
 }
 
 function sanitiseTurnText(text: string, maximumCharacters: number): { text: string; truncated: boolean } {

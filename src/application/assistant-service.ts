@@ -13,8 +13,8 @@ import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js"
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import { PersistenceError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
-import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
-import { renderRuntimeProjection } from "./runtime-projections/runtime-projection-renderer.js";
+import { boundRecentHistory, type RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
+import { renderRecentHistoryProjection, renderRuntimeProfileProjection, renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import type { ChatProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { randomIdGenerator, systemClock } from "./runtime-primitives.js";
@@ -331,45 +331,23 @@ export function buildAssistantSystemContextBudget(
   userInput = "",
   contextBudget: ContextBudgetConfig = defaultContextBudget,
 ): ContextBudgetResult {
-  const runtimeProjection = profileAndHistory === undefined ? undefined : renderRuntimeProjection(profileAndHistory);
-  const profileSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/profile");
-  const threadSection = runtimeProjection === undefined ? undefined : extractRuntimeProjectionSection(runtimeProjection, "/proc/thread");
-  const { summary: threadSummarySection, history: historySection } = splitThreadProjectionSection(threadSection);
+  const profileSection = profileAndHistory === undefined ? "" : renderRuntimeProfileProjection(profileAndHistory.profile.data);
+  const threadSummarySection = profileAndHistory === undefined ? "" : renderThreadSummaryProjection(profileAndHistory.thread.data);
+  const historySection = profileAndHistory === undefined ? "" : renderRecentHistoryProjection(profileAndHistory.thread.data);
   return applyContextBudget({
     userInput,
     config: contextBudget,
     sections: [
       { sourceId: "base_instructions", content: "# Personal assistant runtime context" },
       { sourceId: "agent_manual", content: [agentInstructions, responsePolicy].filter(Boolean).join("\n\n") },
-      { sourceId: "profile", content: profileSection ?? "" },
+      { sourceId: "profile", content: profileSection },
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
       { sourceId: "context_index", content: renderAssistantContextIndex(personalContext) },
       ...(records === undefined ? [] : [{ sourceId: "records" as const, content: renderAssistantRecordsProjection(records) }]),
-      { sourceId: "thread_summary", content: threadSummarySection ?? "" },
-      { sourceId: "history", content: historySection ?? "" },
+      { sourceId: "thread_summary", content: threadSummarySection },
+      { sourceId: "history", content: historySection },
     ],
   });
-}
-
-function extractRuntimeProjectionSection(rendered: string, path: "/proc/profile" | "/proc/thread"): string | undefined {
-  const heading = `## Runtime projection: ${path}`;
-  const start = rendered.indexOf(heading);
-  if (start < 0) return undefined;
-  const next = rendered.indexOf("\n\n## Runtime projection:", start + heading.length);
-  return rendered.slice(start, next < 0 ? rendered.length : next);
-}
-
-function splitThreadProjectionSection(section: string | undefined): { summary?: string; history?: string } {
-  if (!section) return {};
-  const summaryStart = section.indexOf("### Incremental thread summary");
-  const historyStart = section.indexOf("### Recent verbatim turns");
-  const heading = "## Runtime projection: /proc/thread";
-  if (summaryStart < 0) return { history: section };
-  const summaryEnd = historyStart < 0 ? section.length : historyStart;
-  return {
-    summary: [heading, section.slice(summaryStart, summaryEnd).trim()].join("\n\n"),
-    ...(historyStart < 0 ? {} : { history: [heading, section.slice(historyStart).trim()].join("\n\n") }),
-  };
 }
 
 const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";
@@ -403,28 +381,15 @@ function emptyChatProcSnapshot(input: { userId: string; threadId: string; reques
 }
 
 function reduceProfileAndHistory(snapshot: ChatProcSnapshot, budget: ContextBudgetConfig): ChatProcSnapshot {
-  const turns = snapshot.thread.data.turns.slice(-budget.projectionLimits.historyTurns);
-  let characters = 0;
-  const retained: typeof turns = [];
-  for (const turn of [...turns].reverse()) {
-    const userText = Array.from(turn.userText).slice(0, budget.projectionLimits.historyTurnCharacters).join("");
-    const agentResponse = Array.from(turn.agentResponse).slice(0, budget.projectionLimits.historyTurnCharacters).join("");
-    const size = Array.from(userText).length + Array.from(agentResponse).length;
-    if (characters + size > sourceCharacterCeiling(budget, "history")) break;
-    retained.push({ ...turn, userText, agentResponse });
-    characters += size;
-  }
-  const bounded = retained.reverse();
+  const bounded = boundRecentHistory(snapshot.thread.data.turns, {
+    turns: budget.projectionLimits.historyTurns,
+    characters: sourceCharacterCeiling(budget, "history"),
+    fieldCharacters: budget.projectionLimits.historyTurnCharacters,
+    initiallyTruncated: snapshot.thread.data.truncated,
+  });
   return {
     profile: snapshot.profile,
-    thread: {
-      ...snapshot.thread,
-      data: {
-        ...snapshot.thread.data,
-        turns: bounded,
-        truncated: snapshot.thread.data.truncated || bounded.length < snapshot.thread.data.turns.length,
-      },
-    },
+    thread: { ...snapshot.thread, data: { ...snapshot.thread.data, ...bounded } },
   };
 }
 

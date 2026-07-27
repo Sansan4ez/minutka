@@ -1,4 +1,4 @@
-import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
+import { countUnicodeCharacters, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import type { Idea, IdeaStore } from "./idea-store.js";
 
 export type AssistantRecordsProjection = {
@@ -27,17 +27,12 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore: IdeaS
       // Read one extra row so truncation is known without loading the owner's full history.
       const source = await deps.ideaStore.list(input.userId, undefined, { limit: limits.records + 1, order: "activity_desc" });
       const records: AssistantRecordsProjection["data"]["records"] = [];
-      let characters = 0;
       let truncated = source.length > limits.records;
       for (const idea of source.slice(0, limits.records)) {
-        const summary = [...idea.summary].slice(0, limits.recordCharacters).join("");
-        if (summary.length !== idea.summary.length) truncated = true;
-        if (characters + Array.from(summary).length > limits.characters) {
-          truncated = true;
-          break;
-        }
-        characters += Array.from(summary).length;
-        records.push({
+        const summaryCharacters = Array.from(idea.summary);
+        const summary = summaryCharacters.slice(0, limits.recordCharacters).join("");
+        const summaryTruncated = summaryCharacters.length > limits.recordCharacters;
+        const candidate = {
           id: idea.id,
           project: idea.project,
           type: idea.type,
@@ -45,7 +40,20 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore: IdeaS
           status: idea.status,
           createdAt: idea.createdAt,
           lastActivityAt: idea.lastActivityAt,
+        };
+        const rendered = renderAssistantRecordsProjection({
+          schemaVersion: 1,
+          path: "/proc/records",
+          generatedAt: "",
+          scope: { userId: input.userId, requestId: input.requestId },
+          data: { records: [...records, candidate], truncated: truncated || summaryTruncated },
         });
+        if (countUnicodeCharacters(rendered) > limits.characters) {
+          truncated = true;
+          break;
+        }
+        if (summaryTruncated) truncated = true;
+        records.push(candidate);
       }
       return {
         schemaVersion: 1,

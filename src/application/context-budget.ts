@@ -278,8 +278,8 @@ export function applyContextBudget(input: {
     }
     const contentCharacters = countUnicodeCharacters(section.content);
     const guaranteed = isGuaranteedContextSource(section.sourceId);
-    if (contentCharacters > section.source.ceiling && (guaranteed || isTrustedControlPlane(section.sourceId))) {
-      throw new Error(`${guaranteed ? "guaranteed" : "trusted"} ${section.sourceId} exceeds its ${section.source.ceiling}-character rendered source ceiling`);
+    if (contentCharacters > section.source.ceiling) {
+      throw new Error(`context source ${section.sourceId} has ${contentCharacters} Unicode characters and exceeds its ${section.source.ceiling}-character rendered source ceiling`);
     }
     const separatorCharacters = selected.length === 0 ? 0 : 2;
     if (used + separatorCharacters + contentCharacters > available) {

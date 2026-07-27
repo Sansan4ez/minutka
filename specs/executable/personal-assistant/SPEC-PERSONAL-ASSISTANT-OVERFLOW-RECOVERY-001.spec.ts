@@ -16,6 +16,7 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { boundRecentHistory } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import type { ChatProcSnapshot } from "../../../src/application/runtime-projections/runtime-projection-types.js";
 import { MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
 
@@ -25,7 +26,11 @@ const coreManifest = {
   rules: [{ id: "core", pattern: "^/proc/context/core\\.md$", matcher: /^\/proc\/context\/core\.md$/u }],
 };
 
-function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
+function setup(
+  runner: ConstructorParameters<typeof AssistantService>[0],
+  profileAndHistory = snapshot(),
+  contextBudget = defaultContextBudget,
+) {
   const world = createInMemoryWorld(() => now);
   const documents = createInMemoryDocumentStore({ now: world.now }, [
     { userId: "owner", path: "context/core.md", content: "CORE" },
@@ -37,7 +42,6 @@ function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
     blobStore: createInMemoryBlobStore({ now: world.now }),
     ideaStore: ideas,
   });
-  const profileAndHistory = snapshot();
   const service = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(world),
@@ -47,6 +51,7 @@ function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     chatProjectionBuilder: { async buildChatProc() { return { snapshot: profileAndHistory }; } },
     contextPriorities: coreManifest,
+    contextBudget,
     clock: { now: world.now },
     idGenerator: {
       requestId: () => "req-overflow", messageId: () => "msg-overflow", insightId: () => "ins", feedbackId: () => "fb",
@@ -102,6 +107,9 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(contexts[0]?.personalContext.scope).toEqual(contexts[1]?.personalContext.scope);
     expect(contexts[1]?.documents).toBe(contexts[0]?.documents);
     expect(contexts[1]?.personalContext.data.index.text.length).toBeLessThanOrEqual(3_000);
+    const reducedHistoryStart = contexts[1]?.systemContext.indexOf("## Runtime projection: /proc/thread") ?? -1;
+    expect(reducedHistoryStart).toBeGreaterThanOrEqual(0);
+    expect(Array.from(contexts[1]!.systemContext.slice(reducedHistoryStart)).length).toBeLessThanOrEqual(3_000);
     await expect(ideas.list("owner")).resolves.toEqual([]);
 
     const recovery = world.auditEvents.find(({ type }) => type === "overflow_recovery");
@@ -110,6 +118,32 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     });
     expect(JSON.stringify(recovery)).not.toContain("Продолжи работу");
     expect(JSON.stringify(recovery)).not.toContain("HISTORY");
+  });
+
+  it("rebuilds adversarial escaped history within the reduced 3000-character ceiling", async () => {
+    const escaped = snapshot();
+    const normalBudget = createContextBudgetConfig({ sources: { history: 4_000 }, projectionLimits: { historyTurns: 4, historyTurnCharacters: 4_000 } });
+    const escapedTurns = [{
+      messageId: "escaped-newest", employeeId: "owner", threadId: "thread",
+      userText: "<&>\"😀".repeat(1_000), agentResponse: "&&<<>>😀".repeat(800), timestamp: now,
+    }];
+    const bounded = boundRecentHistory(escapedTurns, { turns: 4, characters: 4_000, fieldCharacters: 4_000 });
+    escaped.thread.data = bounded;
+    const contexts: AssistantAgentContext[] = [];
+    const { service } = setup(async (_input, context) => {
+      contexts.push(context);
+      if (contexts.length === 1) throw overflowError();
+      return "Восстановлено.";
+    }, escaped, normalBudget);
+
+    await service.chat({ userId: "owner", threadId: "thread", text: "Продолжи" });
+    const historyStart = contexts[1]!.systemContext.indexOf("## Runtime projection: /proc/thread");
+    const renderedHistory = contexts[1]!.systemContext.slice(historyStart);
+    expect(historyStart).toBeGreaterThanOrEqual(0);
+    expect(Array.from(renderedHistory).length).toBeLessThanOrEqual(3_000);
+    expect(contexts[1]!.profileAndHistory.thread.data.turns.map(({ messageId }) => messageId)).toEqual(["escaped-newest"]);
+    expect(renderedHistory).toContain("&lt;");
+    expect(renderedHistory).toContain("😀");
   });
 
   it("does not retry or fallback after a tool step committed a durable idea", async () => {

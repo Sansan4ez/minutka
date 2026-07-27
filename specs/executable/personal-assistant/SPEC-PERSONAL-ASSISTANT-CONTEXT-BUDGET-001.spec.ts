@@ -134,7 +134,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
         { sourceId: "profile", content: "P".repeat(4_000) },
         { sourceId: "context", content: "C".repeat(24_000) },
         { sourceId: "context_index", content: `index${"I".repeat(5_995)}` },
-        { sourceId: "records", content: "R".repeat(20_000) },
+        { sourceId: "records", content: "R".repeat(12_000) },
       ],
     });
     expect(result.text).toContain("index");
@@ -156,7 +156,16 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
         { sourceId: "context", content: "C".repeat(11) },
         { sourceId: "context_index", content: "I".repeat(10) },
       ],
-    })).toThrow("guaranteed context exceeds its 10-character rendered source ceiling");
+    })).toThrow("context source context has 11 Unicode characters and exceeds its 10-character rendered source ceiling");
+  });
+
+  it("rejects every non-empty source above its own rendered ceiling", () => {
+    const config = createContextBudgetConfig();
+    expect(() => applyContextBudget({
+      config,
+      userInput: "request",
+      sections: [{ sourceId: "records", content: "R".repeat(12_001) }],
+    })).toThrow("context source records has 12001 Unicode characters and exceeds its 12000-character rendered source ceiling");
   });
 
   it("rejects context budgets that cannot hold trusted ceilings at maximum input", () => {
