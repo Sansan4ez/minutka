@@ -190,31 +190,47 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
   userId: string;
   documentStore: Pick<DocumentStore, "getExact" | "listExact">;
   ingestionService: Pick<IngestionService, "saveContextDocument">;
+  contextBudget?: ContextBudgetConfig;
+  contextPriorities?: ContextPriorityManifest;
 }): Promise<PilotKnowledgeBaseMigrationResult> {
   const userId = assertUserId(input.userId);
-  const result: PilotKnowledgeBaseMigrationResult = { files: [], migrated: 0, skipped: 0 };
   const legacyDocuments = await input.documentStore.listExact(userId, "context/imported-knowledge-base/");
+  const plan: Array<{ from: string; to: string; content: string; status: "migrated" | "skipped" }> = [];
+
+  // Preflight the complete migration before the first canonical write. This
+  // keeps path/collision/content failures from leaving a partial canonical tree.
   for (const legacy of legacyDocuments) {
     const filePath = `context/${legacy.path.slice("context/imported-knowledge-base/".length)}`;
     const canonicalPath = assertSafeVaultPath(filePath, "context/");
     const legacyPath = legacyDocumentPath(canonicalPath);
     if (!legacyPath || legacyPath !== legacy.path) throw new Error(`invalid legacy knowledge-base path: ${legacy.path}`);
+    if (!legacy.content.trim()) throw new Error(`knowledge-base file is empty: ${canonicalPath}`);
     const canonical = await input.documentStore.getExact(userId, canonicalPath);
     if (canonical && canonical.content !== legacy.content) {
       throw new Error(`knowledge-base migration collision: ${canonicalPath}`);
     }
-    const status = canonical ? "skipped" : "migrated";
-    if (!canonical) {
-      await input.ingestionService.saveContextDocument({ userId, path: canonicalPath, content: legacy.content });
+    plan.push({ from: legacyPath, to: canonicalPath, content: legacy.content, status: canonical ? "skipped" : "migrated" });
+  }
+
+  validatePreparedCoreDocuments({
+    files: plan.map(({ to: path, content }) => ({ path, content })),
+    contextBudget: input.contextBudget ?? defaultContextBudget,
+    contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
+  });
+
+  const result: PilotKnowledgeBaseMigrationResult = { files: [], migrated: 0, skipped: 0 };
+  for (const file of plan) {
+    if (file.status === "migrated") {
+      await input.ingestionService.saveContextDocument({ userId, path: file.to, content: file.content });
     }
-    result[status] += 1;
-    result.files.push({ from: legacyPath, to: canonicalPath, status });
+    result[file.status] += 1;
+    result.files.push({ from: file.from, to: file.to, status: file.status });
   }
   return result;
 }
 
 function validatePreparedCoreDocuments(input: {
-  files: Array<PilotKnowledgeBaseFile & { content: string }>;
+  files: Array<{ path: string; content: string }>;
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
 }): void {

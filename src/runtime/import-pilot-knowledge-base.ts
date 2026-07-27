@@ -8,17 +8,23 @@ import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilo
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 
+export type PilotKnowledgeBaseImportRuntimeDependencies = {
+  prepareDocumentStore?: (env: NodeJS.ProcessEnv) => Promise<ReturnType<typeof createMinioDocumentStore>>;
+  loadContextPriorities?: () => ReturnType<typeof loadContextPriorityManifest>;
+};
+
 export async function runPilotKnowledgeBaseImport(input: {
   env?: NodeJS.ProcessEnv;
   sourceRoot?: string;
   dryRun?: boolean;
   migrateLegacy?: boolean;
+  dependencies?: PilotKnowledgeBaseImportRuntimeDependencies;
 } = {}): Promise<void> {
   const env = input.env ?? process.env;
   const userId = pilotUserIdFromEnv(env);
   const sourceRoot = resolve(input.sourceRoot ?? "vault/user/knowledge_base");
   const contextBudget = contextBudgetConfigFromEnv(env);
-  const contextPriorities = loadContextPriorityManifest();
+  const contextPriorities = input.dependencies?.loadContextPriorities?.() ?? loadContextPriorityManifest();
   const files = await discoverPilotKnowledgeBase(sourceRoot, { contextBudget, contextPriorities });
   if (files.length === 0) throw new Error("pilot knowledge-base source is empty");
 
@@ -27,18 +33,24 @@ export async function runPilotKnowledgeBaseImport(input: {
     return;
   }
 
-  const config = minioConfigFromEnv(env);
-  const client = createMinioClient(config);
-  await prepareMinioBucket(client, config.bucket);
-  const documentStore = createMinioDocumentStore({ client, bucket: config.bucket });
+  const documentStore = input.dependencies?.prepareDocumentStore
+    ? await input.dependencies.prepareDocumentStore(env)
+    : await prepareProductionDocumentStore(env);
   const ingestionService = createIngestionService({ documentStore, blobStore: unusedBlobStore });
   if (input.migrateLegacy ?? false) {
-    const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService });
+    const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService, contextBudget, contextPriorities });
     printJson({ dryRun: false, migration: true, ...result });
     return;
   }
   const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService, contextBudget, contextPriorities });
   printJson({ dryRun: false, migration: false, ...result });
+}
+
+async function prepareProductionDocumentStore(env: NodeJS.ProcessEnv): Promise<ReturnType<typeof createMinioDocumentStore>> {
+  const config = minioConfigFromEnv(env);
+  const client = createMinioClient(config);
+  await prepareMinioBucket(client, config.bucket);
+  return createMinioDocumentStore({ client, bucket: config.bucket });
 }
 
 const unusedBlobStore: BlobStore = {

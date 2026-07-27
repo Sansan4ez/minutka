@@ -108,6 +108,77 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
       .rejects.toThrow("knowledge-base migration collision");
   });
 
+  it("preflights all legacy documents before writing a canonical migration tree", async () => {
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const firstLegacyPath = "context/imported-knowledge-base/00_inbox/valid.md";
+    const invalidLegacyPath = "context/imported-knowledge-base/10_user_memory/01_Persona.md";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: firstLegacyPath, content: "valid non-core content" },
+      { userId: "pilot", path: invalidLegacyPath, content: "<".repeat(30) },
+    ]);
+    const saveContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+    }).saveContextDocument);
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [{ id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u }],
+    };
+    const contextBudget = createContextBudgetConfig({
+      sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 100, context_index: 0 },
+      projectionLimits: { contextDocumentCharacters: 100 },
+    });
+
+    await expect(migrateLegacyPilotKnowledgeBase({
+      userId: "pilot",
+      documentStore,
+      ingestionService: { saveContextDocument },
+      contextBudget,
+      contextPriorities,
+    })).rejects.toThrow("rendered per-file ceiling");
+
+    expect(saveContextDocument).not.toHaveBeenCalled();
+    await expect(documentStore.getExact("pilot", "context/00_inbox/valid.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", "context/10_user_memory/01_Persona.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", firstLegacyPath)).resolves.not.toBeNull();
+    await expect(documentStore.getExact("pilot", invalidLegacyPath)).resolves.not.toBeNull();
+  });
+
+  it("passes the CLI env budget and trusted manifest into legacy migration", async () => {
+    const root = fixture();
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const legacyPath = "context/imported-knowledge-base/30_knowledge/runtime-core.md";
+    const canonicalPath = "context/30_knowledge/runtime-core.md";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: legacyPath, content: "<".repeat(30) },
+    ]);
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [{ id: "runtime-core", pattern: "^/proc/context/30_knowledge/runtime-core\\.md$", matcher: /^\/proc\/context\/30_knowledge\/runtime-core\.md$/u }],
+    };
+
+    await expect(runPilotKnowledgeBaseImport({
+      env: {
+        PILOT_USER_ID: "pilot",
+        ASSISTANT_CONTEXT_SOURCE_BASE_INSTRUCTIONS_CHARACTERS: "0",
+        ASSISTANT_CONTEXT_SOURCE_AGENT_MANUAL_CHARACTERS: "0",
+        ASSISTANT_CONTEXT_SOURCE_PROFILE_CHARACTERS: "0",
+        ASSISTANT_CONTEXT_SOURCE_CONTEXT_CHARACTERS: "1000",
+        ASSISTANT_CONTEXT_SOURCE_CONTEXT_INDEX_CHARACTERS: "0",
+        ASSISTANT_CONTEXT_DOCUMENT_CHARACTERS: "100",
+      },
+      sourceRoot: root,
+      migrateLegacy: true,
+      dependencies: {
+        prepareDocumentStore: async () => documentStore,
+        loadContextPriorities: () => contextPriorities,
+      },
+    })).rejects.toThrow("rendered per-file ceiling");
+
+    await expect(documentStore.getExact("pilot", canonicalPath)).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", legacyPath)).resolves.not.toBeNull();
+  });
+
   it("canonicalizes logical writes and deletes while preserving legacy owner content on create", async () => {
     const clock = { now: () => "2026-07-16T00:00:00.000Z" };
     const legacyPath = "context/imported-knowledge-base/10_user_memory/01_goals.md";
