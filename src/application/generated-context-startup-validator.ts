@@ -6,6 +6,8 @@ import {
   type ContextSourceId,
 } from "./context-budget.js";
 import { renderEmptyContextTreeIndex } from "./context-tree-index.js";
+import { renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
+import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "./thread-summarizer.js";
 
 /**
  * Rejects source ceilings that cannot hold generated sections even when the
@@ -15,6 +17,20 @@ export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig
   const generatedSections: ReadonlyArray<{ sourceId: ContextSourceId; content: string }> = [
     { sourceId: "context", content: renderEmptyAssistantContextSection() },
     { sourceId: "context_index", content: renderEmptyContextTreeIndex(config.projectionLimits.contextIndexDepth) },
+    {
+      sourceId: "thread_summary",
+      content: renderThreadSummaryProjection({
+        summary: {
+          employeeId: "owner",
+          threadId: "thread",
+          text: minimumThreadSummaryText,
+          watermark: canonicalThreadSummaryWatermark,
+          updatedAt: "1970-01-01T00:00:00.000Z",
+        },
+        turns: [],
+        truncated: false,
+      }),
+    },
   ];
 
   for (const section of generatedSections) {

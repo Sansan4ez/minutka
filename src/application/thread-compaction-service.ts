@@ -1,6 +1,7 @@
 import type { AuditEventStore } from "./audit-event-store.js";
 import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
 import { countUnicodeCharacters } from "./context-budget.js";
+import { renderedThreadSummaryCharacters } from "./runtime-projections/runtime-projection-renderer.js";
 import {
   threadSummaryReductionMarker,
   threadSummarySectionHeadings,
@@ -57,11 +58,19 @@ export function createThreadCompactionService(deps: {
         fieldCharacters: deps.fieldCharacterLimit,
       });
       const sections = parseStructuredSummary(generated.text);
-      const canonicalText = buildCanonicalSummary(sections);
+      const watermark = {
+        fromMessageId: previous?.watermark.fromMessageId ?? pending[0]!.messageId,
+        throughMessageId: pending.at(-1)!.messageId,
+      };
+      const updatedAt = deps.clock.now();
       generated = {
-        text: countUnicodeCharacters(canonicalText) > deps.summaryCeiling
-          ? buildBoundedSummary(sections, deps.summaryCeiling)
-          : canonicalText,
+        text: buildBoundedSummary(sections, deps.summaryCeiling, (text) => renderedThreadSummaryCharacters({
+          employeeId: input.employeeId,
+          threadId: input.threadId,
+          text,
+          watermark,
+          updatedAt,
+        })),
       };
     } catch (error) {
       await auditSafely(deps, input, pending.at(-1)?.messageId, "thread_summary_failed", {
@@ -162,16 +171,41 @@ function buildCanonicalSummary(sections: ThreadSummarySections): string {
   }).join("\n");
 }
 
-function buildBoundedSummary(sections: ThreadSummarySections, ceiling: number): string {
+function buildBoundedSummary(
+  sections: ThreadSummarySections,
+  ceiling: number,
+  renderedCharacters: (text: string) => number,
+): string {
+  const canonical = buildCanonicalSummary(sections);
+  if (renderedCharacters(canonical) <= ceiling) return canonical;
+
   const prefixes = threadSummarySectionHeadings.map((heading, index) => [
     `## ${heading}`,
     ...(index === 0 ? [threadSummaryReductionMarker] : []),
   ].join("\n"));
-  const mandatoryCharacters = countUnicodeCharacters(prefixes.join("\n"));
-  if (ceiling < mandatoryCharacters) throw new Error("summary_ceiling_too_small");
+  const minimum = prefixes.join("\n");
+  if (renderedCharacters(minimum) > ceiling) throw new Error("summary_ceiling_too_small");
 
   const bodies = threadSummarySectionHeadings.map((heading) => Array.from(sections[heading]));
-  const allocations = allocateBodyCharacters(bodies.map((body) => body.length), ceiling - mandatoryCharacters);
+  const totalBodyCharacters = bodies.reduce((sum, body) => sum + body.length, 0);
+  let low = 0;
+  let high = totalBodyCharacters;
+  let best = minimum;
+  while (low <= high) {
+    const retainedCharacters = Math.floor((low + high) / 2);
+    const candidate = buildReducedSummary(prefixes, bodies, retainedCharacters);
+    if (renderedCharacters(candidate) <= ceiling) {
+      best = candidate;
+      low = retainedCharacters + 1;
+    } else {
+      high = retainedCharacters - 1;
+    }
+  }
+  return best;
+}
+
+function buildReducedSummary(prefixes: readonly string[], bodies: readonly string[][], retainedCharacters: number): string {
+  const allocations = allocateBodyCharacters(bodies.map((body) => body.length), retainedCharacters);
   return prefixes.map((prefix, index) => {
     const body = bodies[index]!.slice(0, allocations[index]).join("");
     return body.length === 0 ? prefix : `${prefix}\n${body}`;
@@ -182,9 +216,9 @@ function allocateBodyCharacters(lengths: readonly number[], budget: number): num
   const allocations = lengths.map(() => 0);
   let remaining = budget;
   for (const [index, length] of lengths.entries()) {
-    if (length === 0 || remaining < 2) continue;
+    if (length === 0 || remaining === 0) continue;
     allocations[index] = 1;
-    remaining -= 2; // One body character plus the newline that introduces the body.
+    remaining -= 1;
   }
   while (remaining > 0) {
     const active = lengths.map((length, index) => ({ length, index })).filter(({ length, index }) => allocations[index]! > 0 && allocations[index]! < length);

@@ -19,6 +19,8 @@ import { buildAssistantSystemContext } from "../../../src/application/assistant-
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
 import { documentReadLimits } from "../../../src/application/document-reader.js";
 import { runtimeProjectionLimits } from "../../../src/application/runtime-projections/runtime-projection-limits.js";
+import { renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
+import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "../../../src/application/thread-summarizer.js";
 import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
 
 const projection = {
@@ -235,6 +237,13 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   it("validates minimum viable generated sections from the production renderers", () => {
     const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
     const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(defaultContextBudget.projectionLimits.contextIndexDepth));
+    const summaryMinimum = countUnicodeCharacters(renderThreadSummaryProjection({
+      summary: {
+        employeeId: "owner", threadId: "thread", text: minimumThreadSummaryText,
+        watermark: canonicalThreadSummaryWatermark, updatedAt: "1970-01-01T00:00:00.000Z",
+      },
+      turns: [], truncated: false,
+    }));
     const exact = createContextBudgetConfig({
       sources: { context: contextMinimum, context_index: indexMinimum },
       projectionLimits: { contextDocumentCharacters: contextMinimum },
@@ -248,6 +257,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
       sources: { context_index: indexMinimum - 1 },
     }))).toThrow(`context source context_index requires a minimum rendered representation of ${indexMinimum} Unicode characters, but its configured ceiling is ${indexMinimum - 1}`);
+    expect(summaryMinimum).toBeLessThanOrEqual(defaultContextBudget.projectionLimits.threadSummaryCharacters);
     expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget)).not.toThrow();
   });
 });

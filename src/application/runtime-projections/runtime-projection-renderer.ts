@@ -44,6 +44,11 @@ export function renderThreadSummaryProjection(thread: ThreadProjection): string 
   return body ? [threadHeading, body].join("\n\n") : "";
 }
 
+/** Measures the exact production-rendered source section, including escaping and watermark markup. */
+export function renderedThreadSummaryCharacters(summary: NonNullable<ThreadProjection["summary"]>): number {
+  return Array.from(renderThreadSummaryProjection({ summary, turns: [], truncated: false })).length;
+}
+
 /** Exact source-section renderer shared by projection budgeting and final prompt assembly. */
 export function renderRecentHistoryProjection(thread: Pick<ThreadProjection, "turns" | "truncated">): string {
   const body = renderRecentHistoryBody(thread);

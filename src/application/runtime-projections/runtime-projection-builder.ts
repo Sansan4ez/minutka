@@ -10,7 +10,7 @@ import type { InsightStore } from "../insight-store.js";
 import type { ProfileStore } from "../profile-store.js";
 import { runtimeProjectionLimitsFromBudget } from "./runtime-projection-limits.js";
 import type { RuntimeAccessScope } from "./runtime-access-scope.js";
-import { renderRecentHistoryProjection } from "./runtime-projection-renderer.js";
+import { renderedThreadSummaryCharacters, renderRecentHistoryProjection } from "./runtime-projection-renderer.js";
 import type {
   AllowedRuntimePath,
   ChatProcSnapshot,
@@ -96,7 +96,7 @@ export function createRuntimeProjectionBuilder(deps: {
       fieldCharacters: limits.threadTurnTextCharacters,
       initiallyTruncated: countTruncated,
     });
-    const summary = storedSummary && Array.from(storedSummary.text).length <= limits.threadSummaryCharacters
+    const summary = storedSummary && renderedThreadSummaryCharacters(storedSummary) <= limits.threadSummaryCharacters
       ? storedSummary
       : undefined;
     return { ...(summary ? { summary } : {}), turns: bounded.turns, truncated: bounded.truncated };

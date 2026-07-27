@@ -171,7 +171,7 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
   if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
   if (projectionLimits.threadSummaryCharacters < minimumThreadSummaryCharacters) {
-    throw new Error(`thread summary limit must be at least ${minimumThreadSummaryCharacters} Unicode characters for the required headings and reduction marker`);
+    throw new Error(`thread summary limit must be at least ${minimumThreadSummaryCharacters} Unicode characters for the exact rendered required headings, reduction marker, and canonical watermark`);
   }
   if (projectionLimits.threadSummaryCharacters > sourceCeiling(sources, "thread_summary")) throw new Error("thread summary limit must not exceed the thread_summary source ceiling");
   const guaranteedCeiling = guaranteedContextCeiling(sources);
