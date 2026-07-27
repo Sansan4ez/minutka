@@ -31,7 +31,6 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
-import { extractInsightsWithAgent } from "../mastra/insight-extractor.js";
 import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
 import { privacyConfigFromEnv } from "../config/privacy.js";
 
@@ -110,9 +109,9 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       summaryStore: stores.threadSummaryStore,
       summarizer: summarizeThreadWithAgent,
       recentTurnLimit: contextBudget.projectionLimits.historyTurns,
+      batchTurnLimit: contextBudget.projectionLimits.threadCompactionTurns,
+      fieldCharacterLimit: contextBudget.projectionLimits.threadCompactionFieldCharacters,
       summaryCeiling: contextBudget.projectionLimits.threadSummaryCharacters,
-      insightExtractor: extractInsightsWithAgent,
-      insightStore: stores.insightStore,
       auditEventStore: stores.auditEventStore,
       clock: systemClock,
       idGenerator: randomIdGenerator,

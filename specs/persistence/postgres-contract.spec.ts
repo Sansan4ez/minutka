@@ -3,6 +3,7 @@ import { createPostgresPool } from "../../src/infrastructure/postgres/postgres-p
 import { migratePostgres } from "../../src/infrastructure/postgres/postgres-migrator.js";
 import { createPostgresProfileStore } from "../../src/infrastructure/postgres/postgres-profile-store.js";
 import { createPostgresConversationStore } from "../../src/infrastructure/postgres/postgres-conversation-store.js";
+import { createPostgresThreadSummaryStore } from "../../src/infrastructure/postgres/postgres-thread-summary-store.js";
 import { createPostgresFeedbackStore } from "../../src/infrastructure/postgres/postgres-feedback-store.js";
 import { createPostgresInsightStore } from "../../src/infrastructure/postgres/postgres-insight-store.js";
 import { createPostgresAuditEventStore } from "../../src/infrastructure/postgres/postgres-audit-event-store.js";
@@ -79,6 +80,54 @@ describe("PostgreSQL storage contracts", () => {
     pool = createPostgresPool(config);
     expect((await createPostgresConversationStore(pool).getRecentTurns({ employeeId: "emp_pg", threadId: "thread_pg", limit: 10 }))[0]?.userText).toBe("morning");
     expect((await createPostgresFeedbackStore(pool).getFeedbackByTarget({ employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg" }))?.rating).toBe("negative");
+  });
+
+  it("reads the oldest bounded compaction batch in order and persists its watermark", async () => {
+    await issueProfileReadyParticipant(pool, "emp_compaction", "invite_compaction");
+    const conversations = createPostgresConversationStore(pool);
+    for (let index = 1; index <= 15; index++) {
+      const suffix = String(index).padStart(2, "0");
+      await conversations.appendTurn({
+        messageId: `msg_compaction_${suffix}`,
+        employeeId: "emp_compaction",
+        threadId: "thread_compaction",
+        userText: `turn-${suffix}`,
+        agentResponse: `reply-${suffix}`,
+        timestamp: `2026-07-12T00:00:${suffix}.000Z`,
+      });
+    }
+
+    const first = await conversations.getTurnsBeforeRecent({
+      employeeId: "emp_compaction",
+      threadId: "thread_compaction",
+      recentLimit: 5,
+      limit: 3,
+    });
+    expect(first.map((turn) => turn.messageId)).toEqual([
+      "msg_compaction_01", "msg_compaction_02", "msg_compaction_03",
+    ]);
+
+    const summaries = createPostgresThreadSummaryStore(pool);
+    await summaries.save({
+      employeeId: "emp_compaction",
+      threadId: "thread_compaction",
+      text: "## Факты\ncheckpoint\n## Решения\n- нет\n## Договорённости\n- нет\n## Открытые вопросы\n- нет",
+      watermark: { fromMessageId: first[0]!.messageId, throughMessageId: first.at(-1)!.messageId },
+      updatedAt: now,
+    });
+    expect((await summaries.get({ employeeId: "emp_compaction", threadId: "thread_compaction" }))?.watermark).toEqual({
+      fromMessageId: "msg_compaction_01",
+      throughMessageId: "msg_compaction_03",
+    });
+    expect((await conversations.getTurnsBeforeRecent({
+      employeeId: "emp_compaction",
+      threadId: "thread_compaction",
+      recentLimit: 5,
+      limit: 3,
+      afterMessageId: "msg_compaction_03",
+    })).map((turn) => turn.messageId)).toEqual([
+      "msg_compaction_04", "msg_compaction_05", "msg_compaction_06",
+    ]);
   });
 
   it("atomically grants exactly one Telegram claim and writes its audit event", async () => {

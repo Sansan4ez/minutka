@@ -12,8 +12,7 @@ export type ThreadSummaryInput = {
   previous?: ThreadSummary;
   turns: ConversationTurn[];
   ceiling: number;
-  /** True when the previous generation exceeded the ceiling and must be compressed again. */
-  reduce: boolean;
+  fieldCharacters: number;
 };
 
 /** Pure derivation boundary: it receives text and returns text, with no store capabilities. */

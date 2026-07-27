@@ -18,7 +18,6 @@ export type AuditEventType =
   | "overflow_recovery"
   | "thread_summary_updated"
   | "thread_summary_failed"
-  | "thread_compaction_insight_failed"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -52,9 +51,8 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
   overflow_recovery: ["reason", "attempt", "recordsCeiling", "historyCeiling", "contextIndexCeiling"],
-  thread_summary_updated: ["turnCount", "summaryCharacters", "reduced"],
+  thread_summary_updated: ["turnCount", "summaryCharacters"],
   thread_summary_failed: ["reason", "turnCount", "previousCharacters"],
-  thread_compaction_insight_failed: ["reason", "turnCount"],
   employee_data_deleted: [],
 };
 

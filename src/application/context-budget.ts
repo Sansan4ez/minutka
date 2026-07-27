@@ -34,6 +34,8 @@ export type ContextBudgetConfig = {
     historyTurns: number;
     historyTurnCharacters: number;
     threadSummaryCharacters: number;
+    threadCompactionTurns: number;
+    threadCompactionFieldCharacters: number;
     routingTurns: number;
     routingCurrentTextCharacters: number;
     routingTurnFieldCharacters: number;
@@ -113,6 +115,8 @@ export const defaultContextBudget: ContextBudgetConfig = {
     historyTurns: 10,
     historyTurnCharacters: 6_000,
     threadSummaryCharacters: 4_000,
+    threadCompactionTurns: 10,
+    threadCompactionFieldCharacters: 2_000,
     routingTurns: 3,
     routingCurrentTextCharacters: 4_096,
     routingTurnFieldCharacters: 700,
@@ -191,6 +195,8 @@ const projectionLimitEnv = {
   historyTurns: "ASSISTANT_CONTEXT_HISTORY_TURNS",
   historyTurnCharacters: "ASSISTANT_CONTEXT_HISTORY_TURN_CHARACTERS",
   threadSummaryCharacters: "ASSISTANT_CONTEXT_THREAD_SUMMARY_CHARACTERS",
+  threadCompactionTurns: "ASSISTANT_CONTEXT_THREAD_COMPACTION_TURNS",
+  threadCompactionFieldCharacters: "ASSISTANT_CONTEXT_THREAD_COMPACTION_FIELD_CHARACTERS",
   routingTurns: "ASSISTANT_CONTEXT_ROUTING_TURNS",
   routingCurrentTextCharacters: "ASSISTANT_CONTEXT_ROUTING_CURRENT_TEXT_CHARACTERS",
   routingTurnFieldCharacters: "ASSISTANT_CONTEXT_ROUTING_TURN_FIELD_CHARACTERS",

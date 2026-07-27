@@ -15,6 +15,8 @@ import { createRuntimeProjectionBuilder } from "../../../src/application/runtime
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { createThreadCompactionService } from "../../../src/application/thread-compaction-service.js";
 import type { ThreadSummarizer } from "../../../src/application/thread-summarizer.js";
+import { summarizeThreadWithAgent } from "../../../src/mastra/thread-summarizer.js";
+import { threadSummarizerAgent } from "../../../src/mastra/agents/thread-summarizer-agent.js";
 
 const structured = (body: string) => [
   "## Факты",
@@ -27,121 +29,186 @@ const structured = (body: string) => [
   "- нет",
 ].join("\n");
 
-async function appendTurns(count: number, conversations: ReturnType<typeof createInMemoryConversationStore>) {
+async function appendTurns(
+  count: number,
+  conversations: ReturnType<typeof createInMemoryConversationStore>,
+  options: { userText?: (index: number) => string; agentResponse?: (index: number) => string } = {},
+) {
   for (let index = 1; index <= count; index++) {
     await conversations.appendTurn({
       messageId: `msg-${index}`,
       employeeId: "owner",
       threadId: "thread",
-      userText: `turn-${index}`,
-      agentResponse: `reply-${index}`,
-      timestamp: `2026-07-26T00:00:${String(index).padStart(2, "0")}.000Z`,
+      userText: options.userText?.(index) ?? `turn-${index}`,
+      agentResponse: options.agentResponse?.(index) ?? `reply-${index}`,
+      timestamp: new Date(Date.UTC(2026, 6, 26, 0, 0, index)).toISOString(),
     });
   }
 }
 
+function createCompaction(
+  world: ReturnType<typeof createInMemoryWorld>,
+  conversations: ReturnType<typeof createInMemoryConversationStore>,
+  summaries: ReturnType<typeof createInMemoryThreadSummaryStore>,
+  summarizer: ThreadSummarizer,
+  overrides: Partial<{
+    recentTurnLimit: number;
+    batchTurnLimit: number;
+    fieldCharacterLimit: number;
+    summaryCeiling: number;
+  }> = {},
+) {
+  return createThreadCompactionService({
+    conversationStore: conversations,
+    summaryStore: summaries,
+    summarizer,
+    recentTurnLimit: overrides.recentTurnLimit ?? 10,
+    batchTurnLimit: overrides.batchTurnLimit ?? 10,
+    fieldCharacterLimit: overrides.fieldCharacterLimit ?? 2_000,
+    summaryCeiling: overrides.summaryCeiling ?? 4_000,
+    clock: { now: world.now },
+    idGenerator: createDeterministicIdGenerator(),
+  });
+}
+
 describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history", () => {
-  it("summarizes exactly the turn falling outside the recent window and advances the watermark incrementally", async () => {
+  it("summarizes the oldest pending bounded batch and advances the watermark incrementally", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
-    await appendTurns(11, conversations);
+    await appendTurns(18, conversations);
     const calls: Array<{ previous?: string; ids: string[] }> = [];
     const summarizer: ThreadSummarizer = async ({ previous, turns }) => {
       calls.push({ previous: previous?.text, ids: turns.map((turn) => turn.messageId) });
       return { text: structured([previous?.text, ...turns.map((turn) => turn.userText)].filter(Boolean).join(" | ")) };
     };
-    const compaction = createThreadCompactionService({
-      conversationStore: conversations, summaryStore: summaries, summarizer,
-      recentTurnLimit: 10, summaryCeiling: 4_000, clock: { now: world.now }, idGenerator: createDeterministicIdGenerator(),
-    });
+    const compaction = createCompaction(world, conversations, summaries, summarizer, { batchTurnLimit: 3 });
 
     await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-1" });
-    expect(calls[0]?.ids).toEqual(["msg-1"]);
-    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark).toEqual({ fromMessageId: "msg-1", throughMessageId: "msg-1" });
+    expect(calls[0]?.ids).toEqual(["msg-1", "msg-2", "msg-3"]);
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark).toEqual({ fromMessageId: "msg-1", throughMessageId: "msg-3" });
 
     await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-2" });
-    expect(calls).toHaveLength(1);
-
-    await conversations.appendTurn({ messageId: "msg-12", employeeId: "owner", threadId: "thread", userText: "turn-12", agentResponse: "reply-12", timestamp: "2026-07-26T00:00:12.000Z" });
-    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-3" });
-    expect(calls[1]?.ids).toEqual(["msg-2"]);
+    expect(calls[1]?.ids).toEqual(["msg-4", "msg-5", "msg-6"]);
     expect(calls[1]?.previous).toContain("turn-1");
-    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark).toEqual({ fromMessageId: "msg-1", throughMessageId: "msg-2" });
-    expect(world.messages).toHaveLength(12);
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark).toEqual({ fromMessageId: "msg-1", throughMessageId: "msg-6" });
+    expect(world.messages).toHaveLength(18);
   });
 
-  it("extracts insights before summarization and lets either step fail independently", async () => {
+  it("does not expose insight extraction or insight writes for expired turns", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
-    const insights = createInMemoryInsightStore(world);
-    const audit = createInMemoryAuditEventStore(world);
-    await appendTurns(11, conversations);
-    const order: string[] = [];
-    const compaction = createThreadCompactionService({
-      conversationStore: conversations, summaryStore: summaries,
-      insightExtractor: async () => { order.push("insights"); throw new Error("extractor unavailable"); },
-      insightStore: insights,
-      summarizer: async ({ turns }) => { order.push("summary"); return { text: structured(turns[0]!.userText) }; },
-      auditEventStore: audit, recentTurnLimit: 10, summaryCeiling: 4_000,
-      clock: { now: world.now }, idGenerator: createDeterministicIdGenerator(),
+    await appendTurns(13, conversations, {
+      userText: (index) => index === 1 ? "personal/private" : index === 2 ? "out-of-scope" : "integrity-denied",
+    });
+    const calls: string[][] = [];
+    const compaction = createCompaction(world, conversations, summaries, async ({ turns }) => {
+      calls.push(turns.map((turn) => turn.userText));
+      return { text: structured("bounded checkpoint") };
     });
 
     await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
 
-    expect(order).toEqual(["insights", "summary"]);
-    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toBeDefined();
-    expect(world.auditEvents.find((event) => event.type === "thread_compaction_insight_failed")?.metadata).toEqual({ reason: "Error", turnCount: 1 });
+    expect(calls).toEqual([["personal/private", "out-of-scope", "integrity-denied"]]);
+    expect(world.insights).toEqual([]);
+    expect(world.auditEvents.map((event) => event.type)).not.toContain("insight_recorded");
   });
 
-  it("re-summarizes on overflow, records explicit reduction, and never silently clips", async () => {
+  it("handles a 1000+ turn backlog with one summarizer call and bounded turn/field input", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
-    const audit = createInMemoryAuditEventStore(world);
-    await appendTurns(11, conversations);
-    const passes: boolean[] = [];
-    const compaction = createThreadCompactionService({
-      conversationStore: conversations, summaryStore: summaries,
-      summarizer: async ({ reduce }) => {
-        passes.push(reduce);
-        return { text: reduce ? structured("- История сокращена для лимита.") : structured("x".repeat(500)) };
-      },
-      auditEventStore: audit, recentTurnLimit: 10, summaryCeiling: 140,
-      clock: { now: world.now }, idGenerator: createDeterministicIdGenerator(),
+    await appendTurns(1_021, conversations, {
+      userText: (index) => `user-${index}-${"u".repeat(200)}`,
+      agentResponse: (index) => `agent-${index}-${"a".repeat(200)}`,
     });
+    const generatedPrompts: string[] = [];
+    const originalGenerate = threadSummarizerAgent.generate.bind(threadSummarizerAgent);
+    threadSummarizerAgent.generate = (async (prompt: string) => {
+      generatedPrompts.push(prompt);
+      return { text: structured("bounded checkpoint") } as Awaited<ReturnType<typeof originalGenerate>>;
+    }) as typeof threadSummarizerAgent.generate;
+    try {
+      const compaction = createCompaction(world, conversations, summaries, summarizeThreadWithAgent, {
+        batchTurnLimit: 7,
+        fieldCharacterLimit: 12,
+      });
+      await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
+    } finally {
+      threadSummarizerAgent.generate = originalGenerate;
+    }
 
-    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
-
-    const summary = await summaries.get({ employeeId: "owner", threadId: "thread" });
-    expect(passes).toEqual([false, true]);
-    expect(summary?.text).toContain("История сокращена для лимита");
-    expect([...(summary?.text ?? "")].length).toBeLessThanOrEqual(140);
-    expect(world.auditEvents.find((event) => event.type === "thread_summary_updated")?.metadata.reduced).toBe(true);
+    expect(generatedPrompts).toHaveLength(1);
+    expect(generatedPrompts[0]?.match(/<untrusted-turn /g)).toHaveLength(7);
+    expect(generatedPrompts[0]).toContain("<employee>user-1-uuuuu</employee>");
+    expect(generatedPrompts[0]).not.toContain("user-8-");
+    expect(generatedPrompts[0]).not.toContain("u".repeat(20));
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-7");
   });
 
-  it("keeps the previous valid checkpoint and all turns when summarization fails", async () => {
+  it("keeps the previous checkpoint and raw turns when summarization or summary save fails", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
     const audit = createInMemoryAuditEventStore(world);
-    await appendTurns(11, conversations);
+    await appendTurns(12, conversations);
     await summaries.save({ employeeId: "owner", threadId: "thread", text: structured("old"), watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" }, updatedAt: world.now() });
-    await conversations.appendTurn({ messageId: "msg-12", employeeId: "owner", threadId: "thread", userText: "turn-12", agentResponse: "reply-12", timestamp: "2026-07-26T00:00:12.000Z" });
-    const compaction = createThreadCompactionService({
-      conversationStore: conversations, summaryStore: summaries,
+    const failingSummary = createThreadCompactionService({
+      conversationStore: conversations,
+      summaryStore: summaries,
       summarizer: async () => { throw new Error("network body must not enter audit"); },
-      auditEventStore: audit, recentTurnLimit: 10, summaryCeiling: 4_000,
-      clock: { now: world.now }, idGenerator: createDeterministicIdGenerator(),
+      auditEventStore: audit,
+      recentTurnLimit: 10,
+      batchTurnLimit: 10,
+      fieldCharacterLimit: 2_000,
+      summaryCeiling: 4_000,
+      clock: { now: world.now },
+      idGenerator: createDeterministicIdGenerator(),
     });
 
-    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
+    await failingSummary.compact({ employeeId: "owner", threadId: "thread", requestId: "req-summary" });
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-1");
 
-    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.text).toBe(structured("old"));
+    let attemptedThrough = "";
+    const failingStore = createThreadCompactionService({
+      conversationStore: conversations,
+      summaryStore: {
+        get: summaries.get,
+        save: async (summary) => { attemptedThrough = summary.watermark.throughMessageId; throw new Error("store unavailable"); },
+      },
+      summarizer: async () => ({ text: structured("new") }),
+      auditEventStore: audit,
+      recentTurnLimit: 10,
+      batchTurnLimit: 10,
+      fieldCharacterLimit: 2_000,
+      summaryCeiling: 4_000,
+      clock: { now: world.now },
+      idGenerator: createDeterministicIdGenerator(),
+    });
+    await failingStore.compact({ employeeId: "owner", threadId: "thread", requestId: "req-store" });
+
+    expect(attemptedThrough).toBe("msg-2");
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-1");
     expect(world.messages).toHaveLength(12);
     expect(JSON.stringify(world.auditEvents)).not.toContain("network body");
-    expect(world.auditEvents.find((event) => event.type === "thread_summary_failed")?.metadata.reason).toBe("Error");
+  });
+
+  it("rejects an oversized summary after one provider call without advancing the checkpoint", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const conversations = createInMemoryConversationStore(world);
+    const summaries = createInMemoryThreadSummaryStore(world);
+    await appendTurns(11, conversations);
+    let calls = 0;
+    const compaction = createCompaction(world, conversations, summaries, async () => {
+      calls += 1;
+      return { text: structured("x".repeat(500)) };
+    }, { summaryCeiling: 140 });
+
+    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
+
+    expect(calls).toBe(1);
+    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toBeUndefined();
   });
 
   it("projects the checkpoint before the ten recent verbatim turns and schedules compaction after chat", async () => {
@@ -174,11 +241,20 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect(scheduled).toBe(true);
   });
 
-  it("keeps thread-summary configuration aligned with its budgeted source", () => {
-    expect(createContextBudgetConfig({
+  it("keeps thread-summary and compaction input limits in the canonical context budget", () => {
+    const config = createContextBudgetConfig({
       sources: { thread_summary: 2_000 },
-      projectionLimits: { threadSummaryCharacters: 2_000 },
-    }).projectionLimits.threadSummaryCharacters).toBe(2_000);
+      projectionLimits: {
+        threadSummaryCharacters: 2_000,
+        threadCompactionTurns: 4,
+        threadCompactionFieldCharacters: 500,
+      },
+    });
+    expect(config.projectionLimits).toMatchObject({
+      threadSummaryCharacters: 2_000,
+      threadCompactionTurns: 4,
+      threadCompactionFieldCharacters: 500,
+    });
     expect(() => createContextBudgetConfig({ sources: { thread_summary: 2_000 } })).toThrow("must not exceed");
   });
 });

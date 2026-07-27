@@ -40,6 +40,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(assistantRecordsLimits).toEqual({ records: 24, characters: 12_000, recordCharacters: 1_000 });
     expect(conversationContextLimits).toMatchObject({ responseTurns: 10, responseCharacters: 12_000, responseFieldCharacters: 6_000 });
     expect(runtimeProjectionLimits).toMatchObject({ threadTurns: 10, threadCharacters: 12_000, threadTurnTextCharacters: 6_000, threadSummaryCharacters: 4_000 });
+    expect(defaultContextBudget.projectionLimits).toMatchObject({ threadCompactionTurns: 10, threadCompactionFieldCharacters: 2_000 });
     expect(documentReadLimits).toEqual({
       listDefault: 20, listMaximum: 50, readDefaultCharacters: 4_000, readMaximumCharacters: 8_000,
       turnReadCharacters: 48_000, searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,
@@ -186,12 +187,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       ASSISTANT_CONTEXT_RESPONSE_RESERVE_CHARACTERS: "9000",
       ASSISTANT_CONTEXT_SOURCE_CONTEXT_CHARACTERS: "17000",
       ASSISTANT_CONTEXT_DOCUMENT_CHARACTERS: "5000",
+      ASSISTANT_CONTEXT_THREAD_COMPACTION_TURNS: "8",
+      ASSISTANT_CONTEXT_THREAD_COMPACTION_FIELD_CHARACTERS: "1500",
       ASSISTANT_DOCUMENT_READ_MAXIMUM_CHARACTERS: "9000",
       ASSISTANT_DOCUMENT_TURN_READ_CHARACTERS: "49000",
     })).toMatchObject({
       total: 90_000,
       responseReserve: 9_000,
-      projectionLimits: { contextDocumentCharacters: 5_000 },
+      projectionLimits: { contextDocumentCharacters: 5_000, threadCompactionTurns: 8, threadCompactionFieldCharacters: 1_500 },
       documentTools: { readMaximumCharacters: 9_000, turnReadCharacters: 49_000 },
     });
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "-1" })).toThrow("non-negative integer");

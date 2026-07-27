@@ -59,7 +59,8 @@ export function createPostgresConversationStore(pool: Pool): ConversationStore {
         throw mapPostgresError(error);
       }
     },
-    async getTurnsBeforeRecent({ employeeId, threadId, recentLimit, afterMessageId }) {
+    async getTurnsBeforeRecent({ employeeId, threadId, recentLimit, limit, afterMessageId }) {
+      if (limit <= 0) return [];
       try {
         const result = await pool.query<Row>(
           `WITH ordered AS (
@@ -77,8 +78,9 @@ export function createPostgresConversationStore(pool: Pool): ConversationStore {
            WHERE ordered.recent_position > $3
              AND ($4::text IS NULL OR NOT EXISTS (SELECT 1 FROM watermark)
                OR (ordered.created_at, ordered.message_id) > (SELECT created_at, message_id FROM watermark))
-           ORDER BY ordered.created_at ASC, ordered.message_id ASC`,
-          [employeeId, threadId, Math.max(0, recentLimit), afterMessageId ?? null],
+           ORDER BY ordered.created_at ASC, ordered.message_id ASC
+           LIMIT $5`,
+          [employeeId, threadId, Math.max(0, recentLimit), afterMessageId ?? null, limit],
         );
         return result.rows.map(turn);
       } catch (error) {

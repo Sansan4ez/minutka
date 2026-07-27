@@ -15,11 +15,12 @@ export type ConversationStore = {
     threadId: string;
     limit: number;
   }): Promise<ConversationTurn[]>;
-  /** Returns the chronological turns outside the newest window, optionally after a summary watermark. */
+  /** Returns the oldest chronological batch outside the newest window, optionally after a summary watermark. */
   getTurnsBeforeRecent(input: {
     employeeId: string;
     threadId: string;
     recentLimit: number;
+    limit: number;
     afterMessageId?: string;
   }): Promise<ConversationTurn[]>;
   getTurnByMessageId(input: {

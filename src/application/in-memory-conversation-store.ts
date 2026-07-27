@@ -35,10 +35,12 @@ export function createInMemoryConversationStore(world: InMemoryWorld): Conversat
             message.threadId === input.threadId,
         )
         .map(toTurn);
+      const limit = Math.max(0, input.limit);
+      if (limit === 0) return [];
       const outsideRecent = turns.slice(0, Math.max(0, turns.length - Math.max(0, input.recentLimit)));
-      if (!input.afterMessageId) return outsideRecent;
+      if (!input.afterMessageId) return outsideRecent.slice(0, limit);
       const watermarkIndex = outsideRecent.findIndex((turn) => turn.messageId === input.afterMessageId);
-      return watermarkIndex < 0 ? outsideRecent : outsideRecent.slice(watermarkIndex + 1);
+      return (watermarkIndex < 0 ? outsideRecent : outsideRecent.slice(watermarkIndex + 1)).slice(0, limit);
     },
 
     async getTurnByMessageId(input) {
