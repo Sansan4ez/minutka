@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyContextBudget,
@@ -9,6 +10,7 @@ import {
   defaultContextBudget,
 } from "../../../src/application/context-budget.js";
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
+import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
 import { assistantRecordsLimits } from "../../../src/application/assistant-records-projection.js";
 import { buildAssistantSystemContext } from "../../../src/application/assistant-service.js";
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
@@ -160,6 +162,22 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       content: "🙂".repeat(3_001),
       label: "loaded assistant agent manual",
     })).toThrow("loaded assistant agent manual has 3001 Unicode characters and exceeds the 3000-character agent_manual ceiling");
+  });
+
+  it("keeps active deployment-example overrides compatible with the canonical budget", () => {
+    const exampleEnv: NodeJS.ProcessEnv = {};
+    for (const line of readFileSync(".env.example", "utf8").split(/\r?\n/)) {
+      const match = /^(ASSISTANT_(?:CONTEXT|DOCUMENT)_[A-Z0-9_]+)=(.*)$/.exec(line);
+      if (match) exampleEnv[match[1]!] = match[2]!;
+    }
+
+    const config = contextBudgetConfigFromEnv(exampleEnv);
+    expect(() => assertContextSourceContentFits({
+      config,
+      sourceId: "agent_manual",
+      content: loadAssistantAgentInstructions(),
+      label: "loaded assistant agent manual",
+    })).not.toThrow();
   });
 
   it("parses environment overrides and fails fast on invalid or contradictory values", () => {
