@@ -1,6 +1,14 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assertSafeVaultPath, assertUserId, contextDocumentHandle, legacyDocumentPath, type DocumentStore } from "./document-store.js";
+import {
+  assertSafeVaultPath,
+  assertUserId,
+  canonicalDocumentPath,
+  contextDocumentHandle,
+  legacyDocumentPath,
+  type DocumentStore,
+  type UserDocument,
+} from "./document-store.js";
 import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import {
   renderedAssistantContextDocumentCharacters,
@@ -154,7 +162,7 @@ export async function validatePilotKnowledgeBaseCoreDocuments(input: {
 export async function importPilotKnowledgeBase(input: {
   userId: string;
   files: PilotKnowledgeBaseFile[];
-  documentStore: Pick<DocumentStore, "getExact">;
+  documentStore: Pick<DocumentStore, "listExact">;
   ingestionService: Pick<IngestionService, "saveContextDocument">;
   contextBudget?: ContextBudgetConfig;
   contextPriorities?: ContextPriorityManifest;
@@ -166,15 +174,18 @@ export async function importPilotKnowledgeBase(input: {
     return { ...file, content };
   }));
 
-  validatePreparedCoreDocuments({
-    files: prepared,
+  const existingDocuments = await input.documentStore.listExact(userId, "context/");
+  validateFinalContextState({
+    existingDocuments,
+    plannedWrites: prepared,
     contextBudget: input.contextBudget ?? defaultContextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
   });
+  const exactDocuments = new Map(existingDocuments.map((document) => [document.path, document]));
 
   const result: PilotKnowledgeBaseImportResult = { files: [], imported: 0, updated: 0, skipped: 0, bytes: 0 };
   for (const file of prepared) {
-    const existing = await input.documentStore.getExact(userId, file.path);
+    const existing = exactDocuments.get(file.path);
     const status = existing?.content === file.content ? "skipped" : existing ? "updated" : "imported";
     if (status !== "skipped") {
       await input.ingestionService.saveContextDocument({ userId, path: file.path, content: file.content });
@@ -198,7 +209,9 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
   contextPriorities?: ContextPriorityManifest;
 }): Promise<PilotKnowledgeBaseMigrationResult> {
   const userId = assertUserId(input.userId);
-  const legacyDocuments = await input.documentStore.listExact(userId, "context/imported-knowledge-base/");
+  const existingDocuments = await input.documentStore.listExact(userId, "context/");
+  const legacyDocuments = existingDocuments.filter(({ path }) => path.startsWith("context/imported-knowledge-base/"));
+  const exactDocuments = new Map(existingDocuments.map((document) => [document.path, document]));
   const plan: Array<{ from: string; to: string; content: string; status: "migrated" | "skipped" }> = [];
 
   // Preflight the complete migration before the first canonical write. This
@@ -209,15 +222,16 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
     const legacyPath = legacyDocumentPath(canonicalPath);
     if (!legacyPath || legacyPath !== legacy.path) throw new Error(`invalid legacy knowledge-base path: ${legacy.path}`);
     if (!legacy.content.trim()) throw new Error(`knowledge-base file is empty: ${canonicalPath}`);
-    const canonical = await input.documentStore.getExact(userId, canonicalPath);
+    const canonical = exactDocuments.get(canonicalPath);
     if (canonical && canonical.content !== legacy.content) {
       throw new Error(`knowledge-base migration collision: ${canonicalPath}`);
     }
     plan.push({ from: legacyPath, to: canonicalPath, content: legacy.content, status: canonical ? "skipped" : "migrated" });
   }
 
-  validatePreparedCoreDocuments({
-    files: plan.map(({ to: path, content }) => ({ path, content })),
+  validateFinalContextState({
+    existingDocuments,
+    plannedWrites: plan.map(({ to: path, content }) => ({ path, content })),
     contextBudget: input.contextBudget ?? defaultContextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
   });
@@ -233,16 +247,32 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
   return result;
 }
 
-function validatePreparedCoreDocuments(input: {
-  files: Array<{ path: string; content: string }>;
+/** Validates the exact logical context tree that runtime will see after all planned writes. */
+export function validateFinalContextState(input: {
+  existingDocuments: UserDocument[];
+  plannedWrites: Array<{ path: string; content: string }>;
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
 }): void {
-  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
+  const finalDocuments = new Map<string, { path: string; content: string; canonicalSource: boolean }>();
+  for (const document of input.existingDocuments) {
+    const path = canonicalDocumentPath(document.path);
+    const canonicalSource = document.path === path;
+    const existing = finalDocuments.get(path);
+    if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
+    finalDocuments.set(path, { path, content: document.content, canonicalSource });
+  }
+  for (const write of input.plannedWrites) {
+    const path = canonicalDocumentPath(write.path);
+    finalDocuments.set(path, { path, content: write.content, canonicalSource: true });
+  }
+
+  const files = [...finalDocuments.values()];
+  const coreFiles = files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
   validateCoreDocumentContents({
     files: coreFiles,
     contextBudget: input.contextBudget,
-    reserveDegradationMarker: input.files.length > coreFiles.length,
+    reserveDegradationMarker: files.length > coreFiles.length,
   });
 }
 

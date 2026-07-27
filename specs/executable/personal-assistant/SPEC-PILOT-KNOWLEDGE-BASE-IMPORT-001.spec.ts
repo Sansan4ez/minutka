@@ -145,6 +145,51 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await expect(documentStore.getExact("pilot", invalidLegacyPath)).resolves.not.toBeNull();
   });
 
+  it("rejects aggregate core overflow across existing canonical and planned legacy documents before writing", async () => {
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const existingPath = "context/10_user_memory/01_Persona.md";
+    const legacyPath = "context/imported-knowledge-base/10_user_memory/02_Goals.md";
+    const migratedPath = "context/10_user_memory/02_Goals.md";
+    const existingContent = "<".repeat(30);
+    const migratedContent = ">".repeat(30);
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: existingPath, content: existingContent },
+      { userId: "pilot", path: legacyPath, content: migratedContent },
+    ]);
+    const saveContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+    }).saveContextDocument);
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [
+        { id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u },
+        { id: "goals", pattern: "^/proc/context/10_user_memory/02_Goals\\.md$", matcher: /^\/proc\/context\/10_user_memory\/02_Goals\.md$/u },
+      ],
+    };
+    const existingRendered = countUnicodeCharacters(renderAssistantContextSection({
+      documents: [{ path: "/proc/context/10_user_memory/01_Persona.md", content: existingContent, representation: "full" }],
+      truncated: false,
+    }));
+    const contextBudget = createContextBudgetConfig({
+      sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: existingRendered, context_index: 0 },
+      projectionLimits: { contextDocumentCharacters: existingRendered },
+    });
+
+    await expect(migrateLegacyPilotKnowledgeBase({
+      userId: "pilot",
+      documentStore,
+      ingestionService: { saveContextDocument },
+      contextBudget,
+      contextPriorities,
+    })).rejects.toThrow("rendered context ceiling");
+
+    expect(saveContextDocument).not.toHaveBeenCalled();
+    await expect(documentStore.getExact("pilot", migratedPath)).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", existingPath)).resolves.toMatchObject({ content: existingContent });
+    await expect(documentStore.getExact("pilot", legacyPath)).resolves.toMatchObject({ content: migratedContent });
+  });
+
   it("passes the CLI env budget and trusted manifest into legacy migration", async () => {
     const root = fixture();
     const clock = { now: () => "2026-07-16T00:00:00.000Z" };
@@ -273,6 +318,108 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const { documentStore, ingestionService } = setup();
     await expect(importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService, contextBudget, contextPriorities }))
       .rejects.toThrow("rendered per-file ceiling");
+  });
+
+  it("validates partial imports against untouched core documents and preserves the canonical tree on failure", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-partial-import-"));
+    roots.push(root);
+    mkdirSync(join(root, "10_user_memory"), { recursive: true });
+    const plannedContent = "&".repeat(30);
+    writeFileSync(join(root, "10_user_memory", "02_Goals.md"), plannedContent);
+    const existingPath = "context/10_user_memory/01_Persona.md";
+    const existingContent = "<".repeat(30);
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: existingPath, content: existingContent },
+    ]);
+    const saveContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+    }).saveContextDocument);
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [
+        { id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u },
+        { id: "goals", pattern: "^/proc/context/10_user_memory/02_Goals\\.md$", matcher: /^\/proc\/context\/10_user_memory\/02_Goals\.md$/u },
+      ],
+    };
+    const files = await discoverPilotKnowledgeBase(root, {
+      contextBudget: createContextBudgetConfig({
+        sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 1_000, context_index: 0 },
+        projectionLimits: { contextDocumentCharacters: 500 },
+      }),
+      contextPriorities,
+    });
+    const existingRendered = countUnicodeCharacters(renderAssistantContextSection({
+      documents: [{ path: "/proc/context/10_user_memory/01_Persona.md", content: existingContent, representation: "full" }],
+      truncated: false,
+    }));
+    const contextBudget = createContextBudgetConfig({
+      sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: existingRendered, context_index: 0 },
+      projectionLimits: { contextDocumentCharacters: existingRendered },
+    });
+
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService: { saveContextDocument },
+      contextBudget,
+      contextPriorities,
+    })).rejects.toThrow("rendered context ceiling");
+
+    expect(saveContextDocument).not.toHaveBeenCalled();
+    await expect(documentStore.getExact("pilot", "context/10_user_memory/02_Goals.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", existingPath)).resolves.toMatchObject({ content: existingContent });
+  });
+
+  it("gives canonical documents precedence over legacy aliases in final-state validation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-alias-precedence-"));
+    roots.push(root);
+    mkdirSync(join(root, "00_inbox"), { recursive: true });
+    writeFileSync(join(root, "00_inbox", "note.md"), "ordinary import");
+    const canonicalPath = "context/10_user_memory/01_Persona.md";
+    const legacyPath = "context/imported-knowledge-base/10_user_memory/01_Persona.md";
+    const canonicalContent = "canonical";
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: legacyPath, content: "<".repeat(200) },
+      { userId: "pilot", path: canonicalPath, content: canonicalContent },
+    ]);
+    const ingestionService = createIngestionService({ documentStore, blobStore: createInMemoryBlobStore(clock) });
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [{ id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u }],
+    };
+    const core = { path: "/proc/context/10_user_memory/01_Persona.md", content: canonicalContent, representation: "full" as const };
+    const contextBudget = createContextBudgetConfig({
+      sources: {
+        base_instructions: 0,
+        agent_manual: 0,
+        profile: 0,
+        context: countUnicodeCharacters(renderAssistantContextSection({ documents: [core], truncated: true })),
+        context_index: 0,
+      },
+      projectionLimits: { contextDocumentCharacters: renderedAssistantContextDocumentCharacters(core) },
+    });
+    const files = await discoverPilotKnowledgeBase(root, {
+      contextBudget: createContextBudgetConfig({
+        sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 1_000, context_index: 0 },
+        projectionLimits: { contextDocumentCharacters: 500 },
+      }),
+      contextPriorities,
+    });
+
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService,
+      contextBudget,
+      contextPriorities,
+    })).resolves.toMatchObject({ imported: 1 });
+    await expect(documentStore.getExact("pilot", canonicalPath)).resolves.toMatchObject({ content: canonicalContent });
+    await expect(documentStore.getExact("pilot", legacyPath)).resolves.toMatchObject({ content: "<".repeat(200) });
   });
 
   it("reserves the exact degradation marker for non-core files during discover and import preflight", async () => {
