@@ -7,6 +7,11 @@ import {
   overflowAfterDurableWriteUserMessage,
   overflowRecoveryUserMessage,
 } from "../../../src/application/assistant-overflow-recovery.js";
+import {
+  AssistantMutationOutcomeUnknownError,
+  mutationOutcomeUnknownUserMessage,
+  mutationOutcomeUserMessage,
+} from "../../../src/application/assistant-mutation-outcome.js";
 import { AssistantService, type AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import { createContextBudgetConfig, defaultContextBudget, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
@@ -15,10 +20,11 @@ import { createInMemoryConversationStore } from "../../../src/application/in-mem
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createIngestionService, type IngestionService } from "../../../src/application/ingestion-service.js";
 import { boundRecentHistory } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import type { ChatProcSnapshot } from "../../../src/application/runtime-projections/runtime-projection-types.js";
 import { MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
+import { mapError } from "../../../src/server/http/error-mapping.js";
 
 const now = "2026-07-26T22:00:00.000Z";
 const coreManifest = {
@@ -30,6 +36,7 @@ function setup(
   runner: ConstructorParameters<typeof AssistantService>[0],
   profileAndHistory = snapshot(),
   contextBudget = defaultContextBudget,
+  options: { captureIdea?: IngestionService["captureIdea"]; ideaId?: () => string } = {},
 ) {
   const world = createInMemoryWorld(() => now);
   const documents = createInMemoryDocumentStore({ now: world.now }, [
@@ -45,7 +52,7 @@ function setup(
   const service = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(world),
-    ingestionService: ingestion,
+    ingestionService: options.captureIdea === undefined ? ingestion : { ...ingestion, captureIdea: options.captureIdea },
     ideaStore: ideas,
     auditEventStore: createInMemoryAuditEventStore(world),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
@@ -55,7 +62,7 @@ function setup(
     clock: { now: world.now },
     idGenerator: {
       requestId: () => "req-overflow", messageId: () => "msg-overflow", insightId: () => "ins", feedbackId: () => "fb",
-      ideaId: () => "idea-overflow", auditEventId: () => `evt-${world.auditEvents.length + 1}`,
+      ideaId: options.ideaId ?? (() => "idea-overflow"), auditEventId: () => `evt-${world.auditEvents.length + 1}`,
     },
   });
   return { service, ideas, world, documents };
@@ -175,6 +182,104 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(world.messages).toEqual([]);
   });
 
+  it("does not retry or fallback when a capture commits and then loses its result", async () => {
+    let runnerCalls = 0;
+    let captureCalls = 0;
+    let nextIdea = 0;
+    let committedCapture: IngestionService["captureIdea"] | undefined;
+    const { service, ideas, world } = setup(async (_input, context) => {
+      runnerCalls += 1;
+      try {
+        await context.captureIdea({
+          project: "АССИСТЕНТ",
+          type: "development",
+          summary: "Commit happened before disconnect",
+          suggestedNextStep: "Проверить список.",
+          needsProjectClarification: false,
+        });
+      } catch {
+        throw overflowError();
+      }
+      return "unreachable";
+    }, snapshot(), defaultContextBudget, {
+      ideaId: () => `idea-uncertain-${++nextIdea}`,
+      captureIdea: async (input) => {
+        captureCalls += 1;
+        await committedCapture!(input);
+        throw new Error("connection lost after commit");
+      },
+    });
+    const baseIngestion = createIngestionService({
+      documentStore: createInMemoryDocumentStore({ now: world.now }),
+      blobStore: createInMemoryBlobStore({ now: world.now }),
+      ideaStore: ideas,
+    });
+    committedCapture = baseIngestion.captureIdea;
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Запиши без дубля" }))
+      .rejects.toMatchObject({
+        name: "AssistantMutationOutcomeUnknownError",
+        code: "mutation_outcome_unknown",
+        message: mutationOutcomeUnknownUserMessage,
+      });
+    expect(runnerCalls).toBe(1);
+    expect(captureCalls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-uncertain-1", summary: "Commit happened before disconnect" }]);
+    expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(0);
+    expect(world.auditEvents.filter(({ type }) => type === "idea_captured")).toHaveLength(0);
+  });
+
+  it("does not fallback after a mutating tool returns a pre-commit-looking error", async () => {
+    let runnerCalls = 0;
+    let captureCalls = 0;
+    const { service, ideas, world } = setup(async (_input, context) => {
+      runnerCalls += 1;
+      await context.captureIdea({
+        project: "АССИСТЕНТ",
+        type: "development",
+        summary: "Не повторять автоматически",
+        suggestedNextStep: "Проверить список.",
+        needsProjectClarification: false,
+      });
+      return "unreachable";
+    }, snapshot(), defaultContextBudget, {
+      captureIdea: async () => {
+        captureCalls += 1;
+        throw new Error("connection failed before response");
+      },
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Сохрани при сетевом сбое" }))
+      .rejects.toMatchObject({
+        name: "AssistantMutationOutcomeUnknownError",
+        code: "mutation_outcome_unknown",
+        message: mutationOutcomeUnknownUserMessage,
+      });
+    expect(runnerCalls).toBe(1);
+    expect(captureCalls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toEqual([]);
+    expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(0);
+  });
+
+  it("keeps safe overflow retry enabled after a read-only tool failure", async () => {
+    let calls = 0;
+    const { service, ideas, world } = setup(async (_input, context) => {
+      calls += 1;
+      if (calls === 1) {
+        try { await context.documents.readDocument({ path: "../invalid.md" }); } catch { throw overflowError(); }
+      }
+      return "Восстановлено после read-only ошибки.";
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Прочитай и продолжи" })).resolves.toMatchObject({
+      response: "Восстановлено после read-only ошибки.",
+      selectedProcessIds: ["core"],
+    });
+    expect(calls).toBe(2);
+    await expect(ideas.list("owner")).resolves.toEqual([]);
+    expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(1);
+  });
+
   it("does not fallback when the retry committed a durable idea before overflowing", async () => {
     let calls = 0;
     const { service, ideas, world } = setup(async (_input, context) => {
@@ -231,13 +336,21 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     await expect(ideas.list("owner")).resolves.toHaveLength(1);
   });
 
-  it("selects only allow-listed overflow messages for local and remote transport errors", () => {
+  it("selects only allow-listed overflow and uncertain-mutation messages for local and remote transports", () => {
     expect(contextOverflowUserMessage(new AssistantContextOverflowError("prompt_too_long"))).toBe(overflowRecoveryUserMessage);
     expect(contextOverflowUserMessage(new AssistantContextOverflowError("prompt_too_long", { durableEffectCommitted: true }))).toBe(overflowAfterDurableWriteUserMessage);
     expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, overflowRecoveryUserMessage))).toBe(overflowRecoveryUserMessage);
     expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, overflowAfterDurableWriteUserMessage))).toBe(overflowAfterDurableWriteUserMessage);
     expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, "provider secret"))).toBe(overflowRecoveryUserMessage);
     expect(contextOverflowUserMessage(new MinutkaApiError("internal_error", undefined, overflowAfterDurableWriteUserMessage))).toBeUndefined();
+    expect(mutationOutcomeUserMessage(new AssistantMutationOutcomeUnknownError())).toBe(mutationOutcomeUnknownUserMessage);
+    expect(mutationOutcomeUserMessage(new MinutkaApiError("mutation_outcome_unknown", undefined, "provider secret"))).toBe(mutationOutcomeUnknownUserMessage);
+    expect(mutationOutcomeUserMessage(new MinutkaApiError("internal_error", undefined, mutationOutcomeUnknownUserMessage))).toBeUndefined();
+    expect(mapError(new AssistantMutationOutcomeUnknownError())).toEqual({
+      status: 503,
+      code: "mutation_outcome_unknown",
+      message: mutationOutcomeUnknownUserMessage,
+    });
   });
 
   it("classifies nested Mastra surfaces, excludes throttling, and validates the reduced preset canonically", () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PersistenceError, type PersistenceErrorCode } from "../../application/persistence-error.js";
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
+import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import type { ApiErrorCode } from "../../contracts/minutka-api.js";
 
 export type HttpError = { status: number; code: ApiErrorCode; message: string };
@@ -16,6 +17,7 @@ export function mapError(error: unknown): HttpError {
   if (error instanceof RequestError) return error.http;
   if (error instanceof PersistenceError) return { status: persistenceStatuses[error.code], code: error.code, message: safeMessage(error.code) };
   if (error instanceof AssistantContextOverflowError) return { status: 413, code: error.code, message: error.message };
+  if (error instanceof AssistantMutationOutcomeUnknownError) return { status: 503, code: error.code, message: error.message };
   return { status: 500, code: "internal_error", message: "Internal server error." };
 }
 function safeMessage(code: ApiErrorCode): string {

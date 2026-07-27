@@ -1,6 +1,7 @@
 import type { ConversationStore } from "./conversation-store.js";
 import { applyContextBudget, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
 import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget } from "./assistant-overflow-recovery.js";
+import { AssistantMutationOutcomeUnknownError, type AssistantMutationEffectState } from "./assistant-mutation-outcome.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -145,11 +146,18 @@ export class AssistantService {
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
-    let durableEffectCommitted = false;
+    const mutationEffect: { state: AssistantMutationEffectState } = { state: "none" };
+    const currentMutationEffectState = (): AssistantMutationEffectState => mutationEffect.state;
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
-      const captured = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+      mutationEffect.state = "attempted";
+      let captured: CaptureIdeaResult;
+      try {
+        captured = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+      } catch (cause) {
+        throw new AssistantMutationOutcomeUnknownError({ cause });
+      }
       captureResult = captured;
-      durableEffectCommitted = true;
+      mutationEffect.state = "committed";
       if (this.deps.auditEventStore) {
         try {
           await this.deps.auditEventStore.append({
@@ -205,8 +213,10 @@ export class AssistantService {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
         agentError = error;
-      } else if (durableEffectCommitted) {
+      } else if (currentMutationEffectState() === "committed") {
         agentError = new AssistantContextOverflowError(overflowReason, { cause: error, durableEffectCommitted: true });
+      } else if (currentMutationEffectState() === "attempted") {
+        agentError = new AssistantMutationOutcomeUnknownError({ cause: error });
       } else {
         const [reducedPersonalContext, reducedRecords] = await Promise.all([
           this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
@@ -241,16 +251,29 @@ export class AssistantService {
             systemContext: reduced.text,
           });
         } catch (retryError) {
-          agentError = classifyProviderContextOverflow(retryError)
-            ? new AssistantContextOverflowError(overflowReason, { cause: retryError, durableEffectCommitted })
-            : retryError;
+          const retryEffectState = currentMutationEffectState();
+          if (!classifyProviderContextOverflow(retryError)) {
+            agentError = retryError;
+          } else if (retryEffectState === "committed") {
+            agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError, durableEffectCommitted: true });
+          } else if (retryEffectState === "attempted") {
+            agentError = new AssistantMutationOutcomeUnknownError({ cause: retryError });
+          } else {
+            agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError });
+          }
         }
       }
+    }
+    if (currentMutationEffectState() === "attempted") {
+      agentError = agentError instanceof AssistantMutationOutcomeUnknownError
+        ? agentError
+        : new AssistantMutationOutcomeUnknownError({ cause: agentError });
+      response = undefined;
     }
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (!durableEffectCommitted && !captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (currentMutationEffectState() === "none" && !captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",

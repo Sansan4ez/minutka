@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { AssistantService, type AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import { overflowAfterDurableWriteUserMessage, overflowRecoveryUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
+import { mutationOutcomeUnknownUserMessage } from "../../../src/application/assistant-mutation-outcome.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
@@ -133,7 +134,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     await expect(facade.listArtifacts("owner-b")).resolves.toEqual([]);
   });
 
-  it("preserves pre-write and post-write overflow messages for Telegram without repeating dispatch or capture", async () => {
+  it("preserves pre-write, post-write, and uncertain-write messages for Telegram without repeating dispatch or capture", async () => {
     const clock = { now: () => "2026-07-16T09:00:00.000Z" };
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     await prepareOwner(runtime.service, "owner-a", "invite-a", { chatId: "chat-a", userId: "telegram-a" });
@@ -144,7 +145,19 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     let dispatches = 0;
     const assistant = new AssistantService(async (input, context) => {
       dispatches += 1;
-      if (input.text !== "pre-write idea") {
+      if (input.text === "uncertain idea") {
+        try {
+          await context.captureIdea({
+            project: "ASSISTANT",
+            type: "development",
+            summary: "uncertain capture",
+            suggestedNextStep: "Check the list",
+            needsProjectClarification: false,
+          });
+        } catch {
+          throw new Error("maximum context length exceeded");
+        }
+      } else if (input.text !== "pre-write idea") {
         await context.captureIdea({
           project: "ASSISTANT",
           type: "development",
@@ -157,7 +170,14 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     }, {
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(runtime.world),
-      ingestionService: ingestion,
+      ingestionService: {
+        ...ingestion,
+        async captureIdea(input) {
+          if (input.summary !== "uncertain capture") return ingestion.captureIdea(input);
+          await ingestion.captureIdea(input);
+          throw new Error("connection lost after commit");
+        },
+      },
       ideaStore: ideas,
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
@@ -203,10 +223,16 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     await expect(ideas.list("owner-a")).resolves.toHaveLength(2);
 
     replies.length = 0;
-    await telegram.handleVoice("chat-a", { fileId: "voice-file", messageId: 42, durationSeconds: 1 }, "telegram-a");
-    expect(replies).toEqual(["Распознано:\nvoice idea", overflowAfterDurableWriteUserMessage]);
+    await telegram.handleText("chat-a", "uncertain idea", "telegram-a");
+    expect(replies).toEqual([mutationOutcomeUnknownUserMessage]);
     expect(dispatches).toBe(4);
     await expect(ideas.list("owner-a")).resolves.toHaveLength(3);
+
+    replies.length = 0;
+    await telegram.handleVoice("chat-a", { fileId: "voice-file", messageId: 42, durationSeconds: 1 }, "telegram-a");
+    expect(replies).toEqual(["Распознано:\nvoice idea", overflowAfterDurableWriteUserMessage]);
+    expect(dispatches).toBe(5);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(4);
     expect(runtime.world.messages).toEqual([]);
   });
 });

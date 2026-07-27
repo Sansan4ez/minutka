@@ -7,6 +7,7 @@ import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callba
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
+import { mutationOutcomeUserMessage } from "../application/assistant-mutation-outcome.js";
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../application/artifact-body-stager.js";
@@ -319,7 +320,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await removeActiveReplyMarkup(chatId);
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
-      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
@@ -394,7 +395,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (audio) destroyStream(audio);
           if (audio && audio !== file?.stream) destroyStream(file!.stream);
         }
-      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : contextOverflowUserMessage(error) ?? "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
       const actionKey = messageId === undefined ? undefined : `${chatId}:${messageId}`;

@@ -12,6 +12,7 @@ import { authenticateBearer, type ApiAuthConfig, type AuthenticatedPrincipal } f
 import { RequestError, httpError, mapError, requestId } from "./error-mapping.js";
 import { PersistenceError } from "../../application/persistence-error.js";
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
+import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 
 export const bodyLimitBytes = 64 * 1024;
@@ -88,7 +89,7 @@ function serializeError(error: unknown): ErrorLogEntry["error"] {
   }
   return { name: "UnknownError", message: "[redacted]" };
 }
-function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError; }
+function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError; }
 
 export function createHttpServer(options: HttpServerOptions): Server {
   const inviteLimiter = new TokenBucketRateLimiter(10, 10);
