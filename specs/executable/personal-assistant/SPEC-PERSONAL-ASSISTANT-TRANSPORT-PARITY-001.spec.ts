@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { AssistantService, type AssistantAgentContext } from "../../../src/application/assistant-service.js";
+import { overflowAfterDurableWriteUserMessage, overflowRecoveryUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
@@ -130,6 +131,83 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     expect(ownerArtifact).toMatchObject({ ownerId: "owner-a", originalFileName: "private.txt" });
     await expect(facade.getArtifact("owner-b", ownerArtifact!.artifactId)).resolves.toBeNull();
     await expect(facade.listArtifacts("owner-b")).resolves.toEqual([]);
+  });
+
+  it("preserves pre-write and post-write overflow messages for Telegram without repeating dispatch or capture", async () => {
+    const clock = { now: () => "2026-07-16T09:00:00.000Z" };
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    await prepareOwner(runtime.service, "owner-a", "invite-a", { chatId: "chat-a", userId: "telegram-a" });
+
+    const documents = createInMemoryDocumentStore(clock);
+    const ideas = createInMemoryIdeaStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
+    let dispatches = 0;
+    const assistant = new AssistantService(async (input, context) => {
+      dispatches += 1;
+      if (input.text !== "pre-write idea") {
+        await context.captureIdea({
+          project: "ASSISTANT",
+          type: "development",
+          summary: `captured:${input.text}`,
+          suggestedNextStep: "Continue later",
+          needsProjectClarification: false,
+        });
+      }
+      throw new Error("maximum context length exceeded");
+    }, {
+      documentStore: documents,
+      conversationStore: createInMemoryConversationStore(runtime.world),
+      ingestionService: ingestion,
+      ideaStore: ideas,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      clock,
+      idGenerator: createDeterministicIdGenerator(),
+    });
+    const artifactStore = createInMemoryArtifactStore({
+      contentStore: createInMemoryArtifactContentStore(clock),
+      clock,
+      limits: { maximumBytes: 1024, timeoutMs: 1_000 },
+    });
+    const server = await listenHttpServer({
+      application: new PersonalAssistantService(runtime.service, assistant, artifactStore),
+      port: 0,
+      logger: () => undefined,
+      auth: { serviceToken, employeeTokens: new Map([["owner-a", ownerToken]]) },
+    });
+    running.push(server);
+
+    const replies: string[] = [];
+    const telegram = createTelegramShell({
+      privacyExplanation: executableSpecPrivacyExplanation,
+      client: new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })),
+      sessionStore: runtime.telegramSessionStore,
+      voiceFileGateway: { async openVoiceFile() { return { stream: Readable.from("voice"), filetype: "ogg" }; } },
+      speechToText: { async transcribe() { return "voice idea"; } },
+      replyPort: {
+        async sendMessage(_chatId, text) { replies.push(text); return { messageId: replies.length }; },
+        async sendChatAction() {},
+        async editReplyMarkup() {},
+        async answerCallbackQuery() {},
+      },
+    });
+
+    await telegram.handleText("chat-a", "pre-write idea", "telegram-a");
+    expect(replies).toEqual([overflowRecoveryUserMessage]);
+    expect(dispatches).toBe(2);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(1);
+
+    replies.length = 0;
+    await telegram.handleText("chat-a", "text idea", "telegram-a");
+    expect(replies).toEqual([overflowAfterDurableWriteUserMessage]);
+    expect(dispatches).toBe(3);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(2);
+
+    replies.length = 0;
+    await telegram.handleVoice("chat-a", { fileId: "voice-file", messageId: 42, durationSeconds: 1 }, "telegram-a");
+    expect(replies).toEqual(["Распознано:\nvoice idea", overflowAfterDurableWriteUserMessage]);
+    expect(dispatches).toBe(4);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(3);
+    expect(runtime.world.messages).toEqual([]);
   });
 });
 

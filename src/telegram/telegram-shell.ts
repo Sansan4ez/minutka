@@ -6,7 +6,7 @@ import type { TelegramReplyPort } from "./telegram-types.js";
 import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
-import { AssistantContextOverflowError, overflowRecoveryUserMessage } from "../application/assistant-overflow-recovery.js";
+import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../application/artifact-body-stager.js";
@@ -67,9 +67,6 @@ const onboardingConfirmationAlreadySentMessage = "Анкета уже готов
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
-function isContextOverflowError(error: unknown): boolean {
-  return error instanceof AssistantContextOverflowError || (error instanceof MinutkaApiError && error.code === "context_overflow");
-}
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
   let bytes = 0;
   const limit = new Transform({
@@ -322,7 +319,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await removeActiveReplyMarkup(chatId);
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
-      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, isContextOverflowError(error) ? overflowRecoveryUserMessage : "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
@@ -397,7 +394,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (audio) destroyStream(audio);
           if (audio && audio !== file?.stream) destroyStream(file!.stream);
         }
-      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : isContextOverflowError(error) ? overflowRecoveryUserMessage : "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : contextOverflowUserMessage(error) ?? "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
       const actionKey = messageId === undefined ? undefined : `${chatId}:${messageId}`;

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   AssistantContextOverflowError,
   classifyProviderContextOverflow,
+  contextOverflowUserMessage,
   createOverflowRecoveryContextBudget,
+  overflowAfterDurableWriteUserMessage,
+  overflowRecoveryUserMessage,
 } from "../../../src/application/assistant-overflow-recovery.js";
 import { AssistantService, type AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import { createContextBudgetConfig, defaultContextBudget, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
@@ -14,6 +17,7 @@ import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import type { ChatProcSnapshot } from "../../../src/application/runtime-projections/runtime-projection-types.js";
+import { MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
 
 const now = "2026-07-26T22:00:00.000Z";
 const coreManifest = {
@@ -191,6 +195,15 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(calls).toBe(1);
     expect(world.auditEvents.some(({ type }) => type === "overflow_recovery")).toBe(false);
     await expect(ideas.list("owner")).resolves.toHaveLength(1);
+  });
+
+  it("selects only allow-listed overflow messages for local and remote transport errors", () => {
+    expect(contextOverflowUserMessage(new AssistantContextOverflowError("prompt_too_long"))).toBe(overflowRecoveryUserMessage);
+    expect(contextOverflowUserMessage(new AssistantContextOverflowError("prompt_too_long", { durableEffectCommitted: true }))).toBe(overflowAfterDurableWriteUserMessage);
+    expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, overflowRecoveryUserMessage))).toBe(overflowRecoveryUserMessage);
+    expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, overflowAfterDurableWriteUserMessage))).toBe(overflowAfterDurableWriteUserMessage);
+    expect(contextOverflowUserMessage(new MinutkaApiError("context_overflow", undefined, "provider secret"))).toBe(overflowRecoveryUserMessage);
+    expect(contextOverflowUserMessage(new MinutkaApiError("internal_error", undefined, overflowAfterDurableWriteUserMessage))).toBeUndefined();
   });
 
   it("classifies nested Mastra surfaces, excludes throttling, and validates the reduced preset canonically", () => {
