@@ -166,6 +166,76 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     expect(projection.data.documents[0]).toMatchObject({ content, representation: "full" });
   });
 
+  it("bounds body reads by the configured document limit on a wide adversarial tree", async () => {
+    const coreDocuments = [0, 1, 2].map((index) => ({ path: `0${index + 1}_core.md`, content: "C" }));
+    const nonCoreDocuments = Array.from({ length: 100 }, (_, index) => ({
+      path: `${"very-long-folder/".repeat(5)}file-${String(index).padStart(3, "0")}.md`,
+      content: "x",
+    }));
+    const contextPriorities = {
+      version: 1 as const,
+      rules: coreDocuments.map((document, index) => ({
+        id: `core-${index}`,
+        pattern: `^/proc/context/${document.path.replace(".", "\\.")}$`,
+        matcher: new RegExp(`^/proc/context/${document.path.replace(".", "\\.")}$`, "u"),
+      })),
+    };
+    const baseStore = createInMemoryDocumentStore(
+      { now: () => now },
+      [...coreDocuments, ...nonCoreDocuments].map((document) => ({ userId: "owner", path: `context/${document.path}`, content: document.content })),
+    );
+    let bodyReads = 0;
+    const documentStore = {
+      ...baseStore,
+      async get(userId: string, path: string) {
+        bodyReads += 1;
+        return baseStore.get(userId, path);
+      },
+    };
+    const config = budget({ context: 1_400, perFile: 700, documents: 5, index: 6_000 });
+    const projection = await createAssistantContextProjectionBuilder({
+      documentStore,
+      now: () => now,
+      contextBudget: config,
+      contextPriorities,
+    }).build({ userId: "owner", requestId: "request" });
+
+    expect(bodyReads).toBeLessThanOrEqual(config.projectionLimits.contextDocuments);
+    expect(projection.data.index.documentCount).toBe(103);
+    expect(projection.data.index.text).toContain("documents: 103");
+    expect(projection.data.index.text).toContain("100 files");
+    expect(projection.data.truncated).toBe(true);
+  });
+
+  it("skips body reads when neither the minimum full fragment nor metadata reference can fit", async () => {
+    const baseStore = createInMemoryDocumentStore({ now: () => now }, [
+      { userId: "owner", path: "context/01_core.md", content: "C".repeat(250) },
+      ...Array.from({ length: 100 }, (_, index) => ({
+        userId: "owner",
+        path: `context/${"long-path-segment/".repeat(8)}file-${String(index).padStart(3, "0")}.md`,
+        content: "x",
+      })),
+    ]);
+    let bodyReads = 0;
+    const documentStore = {
+      ...baseStore,
+      async get(userId: string, path: string) {
+        bodyReads += 1;
+        return baseStore.get(userId, path);
+      },
+    };
+    const projection = await createAssistantContextProjectionBuilder({
+      documentStore,
+      now: () => now,
+      contextBudget: budget({ context: 700, perFile: 600, documents: 5, index: 6_000 }),
+      contextPriorities: coreManifest,
+    }).build({ userId: "owner", requestId: "request" });
+
+    expect(bodyReads).toBe(1);
+    expect(projection.data.index.documentCount).toBe(101);
+    expect(projection.data.truncated).toBe(true);
+  });
+
   it("aggregates document-limit omissions without paths or document text while the index keeps every file visible", async () => {
     const { projection, audits } = await build({
       documents: Array.from({ length: 141 }, (_, index) => ({ path: `80_inbox/file-${String(index).padStart(3, "0")}.md`, content: `SECRET-${index}` })),

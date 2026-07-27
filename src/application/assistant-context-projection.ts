@@ -68,6 +68,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
       const index = renderContextTreeIndex({ documents: metadata, ceiling: limits.indexCharacters, depth: limits.indexDepth });
       const audits = new Map<string, ContextProjectionAudit>();
       const documents: AssistantContextProjection["data"]["documents"] = [];
+      let bodyReads = 0;
 
       for (const { metadata: candidate, core } of source) {
         const path = contextDocumentHandle(candidate.path);
@@ -77,6 +78,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           if (documents.length >= limits.documents) {
             throw new Error(`core context documents exceed the ${limits.documents}-document projection limit`);
           }
+          bodyReads += 1;
           const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
           const actualCharacters = countUnicodeCharacters(document.content);
           const projected = projectedDocument(document, document.content, "full", actualCharacters, null);
@@ -98,14 +100,26 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
         }
 
         const reference = projectedMetadata(candidate, renderIndexReference(path, estimatedCharacters, "UTF-8 bytes"), "index-reference", estimatedCharacters, 0);
-        const referenceCanFit = canFitContextDocument(documents, reference, limits.characters, true);
-        const remainingRenderedCharacters = limits.characters
-          - renderedAssistantContextSectionCharacters({ documents, truncated: audits.size > 0 });
-        if (!referenceCanFit && estimatedCharacters > remainingRenderedCharacters) {
-          aggregateDegradation(audits, degradation("context", "context_ceiling", limits.characters, estimatedCharacters, 0, source.length, 1));
+        const referenceCharacters = renderedAssistantContextDocumentCharacters(reference);
+        const referenceCanFit = referenceCharacters <= limits.documentCharacters
+          && canFitContextDocument(documents, reference, limits.characters, true);
+        const fullLowerBound = projectedMetadata(candidate, minimumRenderedContent(candidate.size), "full", estimatedCharacters, null);
+        const fullCanPossiblyFit = renderedAssistantContextDocumentCharacters(fullLowerBound) <= limits.documentCharacters
+          && canFitContextDocument(documents, fullLowerBound, limits.characters, true);
+
+        if (!fullCanPossiblyFit) {
+          if (referenceCanFit) documents.push(reference);
+          aggregateDegradation(audits, degradation("context", "context_ceiling", limits.characters, estimatedCharacters, referenceCanFit ? referenceCharacters : 0, source.length, 1));
           continue;
         }
 
+        if (bodyReads >= limits.documents) {
+          if (referenceCanFit) documents.push(reference);
+          aggregateDegradation(audits, degradation("context", "document_limit", limits.documents, estimatedCharacters, referenceCanFit ? referenceCharacters : 0, source.length, 1));
+          continue;
+        }
+
+        bodyReads += 1;
         const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
         const contentCharacters = [...document.content];
         const actualCharacters = contentCharacters.length;
@@ -129,7 +143,8 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
 
         const exactReference = projectedDocument(document, renderIndexReference(path, actualCharacters, "Unicode characters"), "index-reference", actualCharacters, 0);
         const exactReferenceCharacters = renderedAssistantContextDocumentCharacters(exactReference);
-        const includedCharacters = canFitContextDocument(documents, exactReference, limits.characters, true)
+        const includedCharacters = exactReferenceCharacters <= limits.documentCharacters
+          && canFitContextDocument(documents, exactReference, limits.characters, true)
           ? exactReferenceCharacters
           : 0;
         if (includedCharacters > 0) documents.push(exactReference);
@@ -255,6 +270,11 @@ function truncationMarker(path: string, originalCharacters: number, nextOffset: 
 
 function renderIndexReference(path: string, originalSize: number, unit: "Unicode characters" | "UTF-8 bytes"): string {
   return `[INDEX REFERENCE ${path}: original ${originalSize} ${unit}; read with readDocument(path="${path}").]`;
+}
+
+/** A valid UTF-8 scalar occupies at most four bytes; plain ASCII has minimum rendered cost. */
+function minimumRenderedContent(utf8Bytes: number): string {
+  return "x".repeat(Math.ceil(utf8Bytes / 4));
 }
 
 function degradation(sourceId: ContextProjectionAudit["sourceId"], reason: ContextProjectionDegradationReason, ceiling: number, actualCharacters: number, includedCharacters: number, documentCount: number, affectedCount: number): ContextProjectionAudit {
