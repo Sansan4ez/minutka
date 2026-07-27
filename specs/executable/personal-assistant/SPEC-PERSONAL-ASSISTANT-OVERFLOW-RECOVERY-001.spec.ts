@@ -96,6 +96,7 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(contexts[1]?.systemContext).toContain("CORE");
     expect(contexts[1]?.systemContext).toContain("## Machine index: /proc/context");
     expect(contexts[0]?.personalContext.scope).toEqual(contexts[1]?.personalContext.scope);
+    expect(contexts[1]?.documents).toBe(contexts[0]?.documents);
     expect(contexts[1]?.personalContext.data.index.text.length).toBeLessThanOrEqual(3_000);
     await expect(ideas.list("owner")).resolves.toEqual([]);
 
@@ -105,6 +106,62 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     });
     expect(JSON.stringify(recovery)).not.toContain("Продолжи работу");
     expect(JSON.stringify(recovery)).not.toContain("HISTORY");
+  });
+
+  it("does not retry or fallback after a tool step committed a durable idea", async () => {
+    let calls = 0;
+    const { service, ideas, world } = setup(async (_input, context) => {
+      calls += 1;
+      await context.captureIdea({
+        project: "АССИСТЕНТ",
+        type: "development",
+        summary: "Сохранить только один раз",
+        suggestedNextStep: "Продолжить после сокращения запроса.",
+        needsProjectClarification: false,
+      });
+      throw overflowError();
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Запиши идею и продолжи" }))
+      .rejects.toMatchObject({
+        name: "AssistantContextOverflowError",
+        code: "context_overflow",
+        reason: "context_length_exceeded",
+        durableEffectCommitted: true,
+        message: expect.stringContaining("Идея уже сохранена"),
+      });
+    expect(calls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-overflow", summary: "Сохранить только один раз" }]);
+    expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(0);
+    expect(world.auditEvents.filter(({ type }) => type === "idea_captured")).toHaveLength(1);
+    expect(world.messages).toEqual([]);
+  });
+
+  it("does not fallback when the retry committed a durable idea before overflowing", async () => {
+    let calls = 0;
+    const { service, ideas, world } = setup(async (_input, context) => {
+      calls += 1;
+      if (calls === 1) throw overflowError();
+      await context.captureIdea({
+        project: "АССИСТЕНТ",
+        type: "development",
+        summary: "Записано на повторной попытке",
+        suggestedNextStep: "Продолжить позже.",
+        needsProjectClarification: false,
+      });
+      throw overflowError();
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Запиши после сокращения контекста" }))
+      .rejects.toMatchObject({
+        name: "AssistantContextOverflowError",
+        durableEffectCommitted: true,
+        message: expect.stringContaining("Идея уже сохранена"),
+      });
+    expect(calls).toBe(2);
+    await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-overflow", summary: "Записано на повторной попытке" }]);
+    expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(1);
+    expect(world.auditEvents.filter(({ type }) => type === "idea_captured")).toHaveLength(1);
   });
 
   it("returns a typed error after the single retry while fallback capture preserves owner input", async () => {
@@ -156,6 +213,6 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     for (const id of ["base_instructions", "agent_manual", "profile", "context", "thread_summary"] as const) {
       expect(sourceCharacterCeiling(reduced, id)).toBe(sourceCharacterCeiling(defaultContextBudget, id));
     }
-    expect(new AssistantContextOverflowError("prompt_too_long")).toMatchObject({ code: "context_overflow", reason: "prompt_too_long" });
+    expect(new AssistantContextOverflowError("prompt_too_long")).toMatchObject({ code: "context_overflow", reason: "prompt_too_long", durableEffectCommitted: false });
   });
 });

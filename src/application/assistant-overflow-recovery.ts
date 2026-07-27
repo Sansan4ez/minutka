@@ -13,12 +13,18 @@ export type ProviderContextOverflowReason =
 export const overflowRecoveryUserMessage =
   "Не удалось сформировать ответ из-за ограничения контекста модели. Сообщение сохранено; сократите или разделите запрос и попробуйте ещё раз.";
 
+const overflowAfterDurableWriteUserMessage =
+  "Не удалось сформировать ответ из-за ограничения контекста модели. Идея уже сохранена; повторно отправлять запрос не нужно.";
+
 export class AssistantContextOverflowError extends Error {
   readonly code = "context_overflow" as const;
+  readonly durableEffectCommitted: boolean;
 
-  constructor(readonly reason: ProviderContextOverflowReason, options: { cause?: unknown } = {}) {
-    super(overflowRecoveryUserMessage, options);
+  constructor(readonly reason: ProviderContextOverflowReason, options: { cause?: unknown; durableEffectCommitted?: boolean } = {}) {
+    const durableEffectCommitted = options.durableEffectCommitted ?? false;
+    super(durableEffectCommitted ? overflowAfterDurableWriteUserMessage : overflowRecoveryUserMessage, options);
     this.name = "AssistantContextOverflowError";
+    this.durableEffectCommitted = durableEffectCommitted;
   }
 }
 

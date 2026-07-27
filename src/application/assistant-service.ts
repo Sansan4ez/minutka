@@ -145,9 +145,11 @@ export class AssistantService {
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
+    let durableEffectCommitted = false;
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
       const captured = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
       captureResult = captured;
+      durableEffectCommitted = true;
       if (this.deps.auditEventStore) {
         try {
           await this.deps.auditEventStore.append({
@@ -203,6 +205,8 @@ export class AssistantService {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
         agentError = error;
+      } else if (durableEffectCommitted) {
+        agentError = new AssistantContextOverflowError(overflowReason, { cause: error, durableEffectCommitted: true });
       } else {
         const [reducedPersonalContext, reducedRecords] = await Promise.all([
           this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
@@ -238,7 +242,7 @@ export class AssistantService {
           });
         } catch (retryError) {
           agentError = classifyProviderContextOverflow(retryError)
-            ? new AssistantContextOverflowError(overflowReason, { cause: retryError })
+            ? new AssistantContextOverflowError(overflowReason, { cause: retryError, durableEffectCommitted })
             : retryError;
         }
       }
@@ -246,7 +250,7 @@ export class AssistantService {
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (!captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (!durableEffectCommitted && !captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
