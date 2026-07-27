@@ -1,7 +1,11 @@
 import type { AuditEventStore } from "./audit-event-store.js";
 import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
 import { countUnicodeCharacters } from "./context-budget.js";
-import type { ThreadSummarizer } from "./thread-summarizer.js";
+import {
+  threadSummaryReductionMarker,
+  threadSummarySectionHeadings,
+  type ThreadSummarizer,
+} from "./thread-summarizer.js";
 import type { ThreadSummary, ThreadSummaryStore } from "./thread-summary-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 
@@ -52,10 +56,10 @@ export function createThreadCompactionService(deps: {
         ceiling: deps.summaryCeiling,
         fieldCharacters: deps.fieldCharacterLimit,
       });
+      const sections = parseStructuredSummary(generated.text);
       if (countUnicodeCharacters(generated.text) > deps.summaryCeiling) {
-        throw new Error("summary_ceiling_exceeded");
+        generated = { text: buildBoundedSummary(sections, deps.summaryCeiling) };
       }
-      assertStructuredSummary(generated.text);
     } catch (error) {
       await auditSafely(deps, input, pending.at(-1)?.messageId, "thread_summary_failed", {
         reason: errorReason(error),
@@ -104,10 +108,61 @@ export function createThreadCompactionService(deps: {
   };
 }
 
-function assertStructuredSummary(text: string): void {
-  for (const heading of ["Факты", "Решения", "Договорённости", "Открытые вопросы"]) {
-    if (!text.includes(`## ${heading}`)) throw new Error("summary_sections_missing");
+type ThreadSummarySections = Record<typeof threadSummarySectionHeadings[number], string>;
+
+function parseStructuredSummary(text: string): ThreadSummarySections {
+  const sections = {} as ThreadSummarySections;
+  let cursor = 0;
+  for (const [index, heading] of threadSummarySectionHeadings.entries()) {
+    const marker = `## ${heading}`;
+    const start = text.indexOf(marker, cursor);
+    if (start < cursor) throw new Error("summary_sections_missing");
+    const bodyStart = start + marker.length;
+    const nextHeading = threadSummarySectionHeadings[index + 1];
+    const bodyEnd = nextHeading === undefined ? text.length : text.indexOf(`## ${nextHeading}`, bodyStart);
+    if (bodyEnd < bodyStart) throw new Error("summary_sections_missing");
+    sections[heading] = text.slice(bodyStart, bodyEnd).trim();
+    cursor = bodyEnd;
   }
+  return sections;
+}
+
+function buildBoundedSummary(sections: ThreadSummarySections, ceiling: number): string {
+  const prefixes = threadSummarySectionHeadings.map((heading, index) => [
+    `## ${heading}`,
+    ...(index === 0 ? [threadSummaryReductionMarker] : []),
+  ].join("\n"));
+  const mandatoryCharacters = countUnicodeCharacters(prefixes.join("\n"));
+  if (ceiling < mandatoryCharacters) throw new Error("summary_ceiling_too_small");
+
+  const bodies = threadSummarySectionHeadings.map((heading) => Array.from(sections[heading]));
+  const allocations = allocateBodyCharacters(bodies.map((body) => body.length), ceiling - mandatoryCharacters);
+  return prefixes.map((prefix, index) => {
+    const body = bodies[index]!.slice(0, allocations[index]).join("");
+    return body.length === 0 ? prefix : `${prefix}\n${body}`;
+  }).join("\n");
+}
+
+function allocateBodyCharacters(lengths: readonly number[], budget: number): number[] {
+  const allocations = lengths.map(() => 0);
+  let remaining = budget;
+  for (const [index, length] of lengths.entries()) {
+    if (length === 0 || remaining < 2) continue;
+    allocations[index] = 1;
+    remaining -= 2; // One body character plus the newline that introduces the body.
+  }
+  while (remaining > 0) {
+    const active = lengths.map((length, index) => ({ length, index })).filter(({ length, index }) => allocations[index]! > 0 && allocations[index]! < length);
+    if (active.length === 0) break;
+    const share = Math.max(1, Math.floor(remaining / active.length));
+    for (const { length, index } of active) {
+      const added = Math.min(share, length - allocations[index]!, remaining);
+      allocations[index] = allocations[index]! + added;
+      remaining -= added;
+      if (remaining === 0) break;
+    }
+  }
+  return allocations;
 }
 
 async function auditSafely(
@@ -135,7 +190,7 @@ async function auditSafely(
 }
 
 function errorReason(error: unknown): string {
-  if (error instanceof Error && error.message === "summary_ceiling_exceeded") return error.message;
+  if (error instanceof Error && error.message === "summary_ceiling_too_small") return error.message;
   if (error instanceof Error && error.message === "summary_sections_missing") return error.message;
   return error instanceof Error ? error.name : "UnknownError";
 }

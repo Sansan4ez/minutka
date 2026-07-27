@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
-import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
+import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -14,7 +14,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { createThreadCompactionService } from "../../../src/application/thread-compaction-service.js";
-import type { ThreadSummarizer } from "../../../src/application/thread-summarizer.js";
+import { minimumThreadSummaryCharacters, threadSummaryReductionMarker, type ThreadSummarizer } from "../../../src/application/thread-summarizer.js";
 import { summarizeThreadWithAgent } from "../../../src/mastra/thread-summarizer.js";
 import { threadSummarizerAgent } from "../../../src/mastra/agents/thread-summarizer-agent.js";
 
@@ -27,6 +27,17 @@ const structured = (body: string) => [
   "- нет",
   "## Открытые вопросы",
   "- нет",
+].join("\n");
+
+const structuredSections = (body: string) => [
+  "## Факты",
+  `факт-${body}`,
+  "## Решения",
+  `решение-${body}`,
+  "## Договорённости",
+  `договорённость-${body}`,
+  "## Открытые вопросы",
+  `вопрос-${body}`,
 ].join("\n");
 
 async function appendTurns(
@@ -124,9 +135,11 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
       agentResponse: (index) => `agent-${index}-${"a".repeat(200)}`,
     });
     const generatedPrompts: string[] = [];
+    const generateOptions: unknown[] = [];
     const originalGenerate = threadSummarizerAgent.generate.bind(threadSummarizerAgent);
-    threadSummarizerAgent.generate = (async (prompt: string) => {
+    threadSummarizerAgent.generate = (async (prompt: string, options: unknown) => {
       generatedPrompts.push(prompt);
+      generateOptions.push(options);
       return { text: structured("bounded checkpoint") } as Awaited<ReturnType<typeof originalGenerate>>;
     }) as typeof threadSummarizerAgent.generate;
     try {
@@ -144,6 +157,7 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect(generatedPrompts[0]).toContain("<employee>user-1-uuuuu</employee>");
     expect(generatedPrompts[0]).not.toContain("user-8-");
     expect(generatedPrompts[0]).not.toContain("u".repeat(20));
+    expect(generateOptions).toEqual([{ toolChoice: "none", modelSettings: { maxOutputTokens: 2_000 } }]);
     expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-7");
   });
 
@@ -194,21 +208,50 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect(JSON.stringify(world.auditEvents)).not.toContain("network body");
   });
 
-  it("rejects an oversized summary after one provider call without advancing the checkpoint", async () => {
+  it("reduces an oversized structured summary after one provider call and advances to the next batch", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
-    await appendTurns(11, conversations);
-    let calls = 0;
-    const compaction = createCompaction(world, conversations, summaries, async () => {
-      calls += 1;
-      return { text: structured("x".repeat(500)) };
-    }, { summaryCeiling: 140 });
+    await appendTurns(13, conversations);
+    const callIds: string[][] = [];
+    const compaction = createCompaction(world, conversations, summaries, async ({ turns }) => {
+      callIds.push(turns.map((turn) => turn.messageId));
+      return { text: structuredSections(`🙂${"x".repeat(500)}`) };
+    }, { batchTurnLimit: 2, summaryCeiling: 140 });
+
+    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-1" });
+    const first = await summaries.get({ employeeId: "owner", threadId: "thread" });
+    expect(callIds).toEqual([["msg-1", "msg-2"]]);
+    expect(first?.watermark.throughMessageId).toBe("msg-2");
+    expect(countUnicodeCharacters(first?.text ?? "")).toBeLessThanOrEqual(140);
+    expect(first?.text).toContain(threadSummaryReductionMarker);
+    expect(first?.text).toContain("🙂");
+    for (const heading of ["Факты", "Решения", "Договорённости", "Открытые вопросы"]) {
+      expect(first?.text).toContain(`## ${heading}`);
+    }
+    for (const bodyPrefix of ["факт-", "решение-", "договор", "вопрос-"]) {
+      expect(first?.text).toContain(bodyPrefix);
+    }
+
+    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-2" });
+    expect(callIds).toEqual([["msg-1", "msg-2"], ["msg-3"]]);
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-3");
+  });
+
+  it("does not save an unstructured result or damage the previous checkpoint", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const conversations = createInMemoryConversationStore(world);
+    const summaries = createInMemoryThreadSummaryStore(world);
+    await appendTurns(12, conversations);
+    await summaries.save({ employeeId: "owner", threadId: "thread", text: structured("old"), watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" }, updatedAt: world.now() });
+    const compaction = createCompaction(world, conversations, summaries, async () => ({ text: "missing required headings" }));
 
     await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
 
-    expect(calls).toBe(1);
-    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toBeUndefined();
+    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toMatchObject({
+      text: structured("old"),
+      watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" },
+    });
   });
 
   it("projects the checkpoint before the ten recent verbatim turns and schedules compaction after chat", async () => {
@@ -256,5 +299,9 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
       threadCompactionFieldCharacters: 500,
     });
     expect(() => createContextBudgetConfig({ sources: { thread_summary: 2_000 } })).toThrow("must not exceed");
+    expect(() => createContextBudgetConfig({
+      sources: { thread_summary: minimumThreadSummaryCharacters - 1 },
+      projectionLimits: { threadSummaryCharacters: minimumThreadSummaryCharacters - 1 },
+    })).toThrow(`must be at least ${minimumThreadSummaryCharacters}`);
   });
 });

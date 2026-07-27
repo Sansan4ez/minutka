@@ -8,6 +8,14 @@ export const threadSummarySectionHeadings = [
   "Открытые вопросы",
 ] as const;
 
+export const threadSummaryReductionMarker = "- История сокращена для лимита.";
+
+export const minimumThreadSummaryCharacters = Array.from([
+  `## ${threadSummarySectionHeadings[0]}`,
+  threadSummaryReductionMarker,
+  ...threadSummarySectionHeadings.slice(1).map((heading) => `## ${heading}`),
+].join("\n")).length;
+
 export type ThreadSummaryInput = {
   previous?: ThreadSummary;
   turns: ConversationTurn[];

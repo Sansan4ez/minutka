@@ -17,6 +17,14 @@ export const summarizeThreadWithAgent: ThreadSummarizer = async (input) => {
       fieldCharacters: input.fieldCharacters,
     }),
   ].join("\n");
-  const result = await threadSummarizerAgent.generate(prompt, { toolChoice: "none" });
+  const result = await threadSummarizerAgent.generate(prompt, {
+    toolChoice: "none",
+    modelSettings: { maxOutputTokens: summaryOutputTokenLimit(input.ceiling) },
+  });
   return { text: result.text ?? "" };
 };
+
+/** Conservative sizing guidance; the application still enforces the character ceiling. */
+function summaryOutputTokenLimit(characterCeiling: number): number {
+  return Math.max(1, Math.ceil(characterCeiling / 2));
+}

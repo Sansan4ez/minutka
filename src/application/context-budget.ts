@@ -1,4 +1,5 @@
 import { countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
+import { minimumThreadSummaryCharacters } from "./thread-summarizer.js";
 
 export const contextSourceIds = [
   "base_instructions",
@@ -169,6 +170,9 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   if (projectionLimits.contextDocumentCharacters > sourceCeiling(sources, "context")) throw new Error("context document limit must not exceed the context source ceiling");
   if (projectionLimits.recordCharacters > sourceCeiling(sources, "records")) throw new Error("record limit must not exceed the records source ceiling");
   if (projectionLimits.historyTurnCharacters > sourceCeiling(sources, "history")) throw new Error("history turn limit must not exceed the history source ceiling");
+  if (projectionLimits.threadSummaryCharacters < minimumThreadSummaryCharacters) {
+    throw new Error(`thread summary limit must be at least ${minimumThreadSummaryCharacters} Unicode characters for the required headings and reduction marker`);
+  }
   if (projectionLimits.threadSummaryCharacters > sourceCeiling(sources, "thread_summary")) throw new Error("thread summary limit must not exceed the thread_summary source ceiling");
   const guaranteedCeiling = guaranteedContextCeiling(sources);
   if (guaranteedCeiling + maxChatInputCharacters + responseReserve + contextWrapperMarkupAllowance > total) {
