@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
-import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
+import { renderAssistantContextSection, renderedAssistantContextDocumentCharacters } from "../../../src/application/assistant-context-renderer.js";
+import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
 import { runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
 
@@ -272,6 +273,45 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const { documentStore, ingestionService } = setup();
     await expect(importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService, contextBudget, contextPriorities }))
       .rejects.toThrow("rendered per-file ceiling");
+  });
+
+  it("reserves the exact degradation marker for non-core files during discover and import preflight", async () => {
+    const root = fixture();
+    const coreContent = "<".repeat(80);
+    writeFileSync(join(root, "10_user_memory", "01_Persona.md"), coreContent);
+    const core = {
+      path: "/proc/context/10_user_memory/01_Persona.md",
+      content: coreContent,
+      representation: "full" as const,
+    };
+    const contextPriorities = {
+      version: 1 as const,
+      rules: [{ id: "persona", pattern: "^/proc/context/10_user_memory/01_Persona\\.md$", matcher: /^\/proc\/context\/10_user_memory\/01_Persona\.md$/u }],
+    };
+    const contextBudget = createContextBudgetConfig({
+      sources: {
+        base_instructions: 0,
+        agent_manual: 0,
+        profile: 0,
+        context: countUnicodeCharacters(renderAssistantContextSection({ documents: [core], truncated: false })),
+        context_index: 0,
+      },
+      projectionLimits: { contextDocumentCharacters: renderedAssistantContextDocumentCharacters(core) },
+    });
+
+    await expect(discoverPilotKnowledgeBase(root, { contextBudget, contextPriorities })).rejects.toThrow("rendered context ceiling");
+
+    const files = await discoverPilotKnowledgeBase(root, {
+      contextBudget: createContextBudgetConfig({
+        sources: { base_instructions: 0, agent_manual: 0, profile: 0, context: 2_000, context_index: 0 },
+        projectionLimits: { contextDocumentCharacters: 1_000 },
+      }),
+      contextPriorities,
+    });
+    const { documentStore, ingestionService } = setup();
+    await expect(importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService, contextBudget, contextPriorities }))
+      .rejects.toThrow("rendered context ceiling");
+    expect(await documentStore.list("pilot", "context/")).toEqual([]);
   });
 
   it("rejects unknown top-level entries", async () => {

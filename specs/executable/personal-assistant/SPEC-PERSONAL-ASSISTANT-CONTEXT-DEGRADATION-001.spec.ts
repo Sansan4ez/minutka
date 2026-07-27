@@ -4,6 +4,7 @@ import {
   renderAssistantContextProjection,
   type ContextProjectionAudit,
 } from "../../../src/application/assistant-context-projection.js";
+import { renderAssistantContextSection, renderedAssistantContextDocumentCharacters } from "../../../src/application/assistant-context-renderer.js";
 import { createContextBudgetConfig, countUnicodeCharacters, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
@@ -164,6 +165,47 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     });
 
     expect(projection.data.documents[0]).toMatchObject({ content, representation: "full" });
+  });
+
+  it("accepts a core-only tree at its exact rendered context boundary", async () => {
+    const core = { path: "/proc/context/01_core.md", content: "<".repeat(80), representation: "full" as const };
+    const context = countUnicodeCharacters(renderAssistantContextSection({ documents: [core], truncated: false }));
+    const { projection } = await build({
+      documents: [{ path: "01_core.md", content: core.content }],
+      config: budget({ context, perFile: renderedAssistantContextDocumentCharacters(core) }),
+    });
+
+    expect(projection.data).toMatchObject({ truncated: false, documents: [{ content: core.content, representation: "full" }] });
+    expect(countUnicodeCharacters(renderAssistantContextProjection(projection))).toBe(context);
+  });
+
+  it("keeps an omitted non-core document at the exact core-plus-marker boundary", async () => {
+    const core = { path: "/proc/context/01_core.md", content: "<".repeat(80), representation: "full" as const };
+    const context = countUnicodeCharacters(renderAssistantContextSection({ documents: [core], truncated: true }));
+    const { projection } = await build({
+      documents: [
+        { path: "01_core.md", content: core.content },
+        { path: "90_transcripts/omitted.md", content: "x" },
+      ],
+      config: budget({ context, perFile: renderedAssistantContextDocumentCharacters(core), documents: 1 }),
+    });
+
+    expect(projection.data).toMatchObject({ truncated: true, documents: [{ path: core.path, representation: "full" }] });
+    expect(countUnicodeCharacters(renderAssistantContextProjection(projection))).toBe(context);
+  });
+
+  it("rejects expansion-sensitive core context that leaves no room for the degradation marker", async () => {
+    const core = { path: "/proc/context/01_core.md", content: "<".repeat(80), representation: "full" as const };
+    const context = countUnicodeCharacters(renderAssistantContextSection({ documents: [core], truncated: false }));
+    const perFile = renderedAssistantContextDocumentCharacters(core);
+
+    await expect(build({
+      documents: [
+        { path: "01_core.md", content: core.content },
+        { path: "90_transcripts/omitted.md", content: "x" },
+      ],
+      config: budget({ context, perFile }),
+    })).rejects.toThrow("rendered context ceiling");
   });
 
   it("bounds body reads by the configured document limit on a wide adversarial tree", async () => {

@@ -143,7 +143,11 @@ export async function validatePilotKnowledgeBaseCoreDocuments(input: {
   const coreFiles = await Promise.all(input.files
     .filter(({ path }) => matchesContextPriority(path, input.contextPriorities))
     .map(async (file) => ({ ...file, content: await readFile(file.sourcePath, "utf8") })));
-  validateCoreDocumentContents({ files: coreFiles, contextBudget: input.contextBudget });
+  validateCoreDocumentContents({
+    files: coreFiles,
+    contextBudget: input.contextBudget,
+    reserveDegradationMarker: input.files.length > coreFiles.length,
+  });
 }
 
 /** Writes only through IngestionService and skips byte-identical documents. */
@@ -234,15 +238,18 @@ function validatePreparedCoreDocuments(input: {
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
 }): void {
+  const coreFiles = input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
   validateCoreDocumentContents({
-    files: input.files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities)),
+    files: coreFiles,
     contextBudget: input.contextBudget,
+    reserveDegradationMarker: input.files.length > coreFiles.length,
   });
 }
 
 function validateCoreDocumentContents(input: {
   files: Array<{ path: string; content: string }>;
   contextBudget: ContextBudgetConfig;
+  reserveDegradationMarker: boolean;
 }): void {
   const documentCeiling = input.contextBudget.projectionLimits.contextDocumentCharacters;
   const totalCeiling = sourceCharacterCeiling(input.contextBudget, "context");
@@ -262,7 +269,10 @@ function validateCoreDocumentContents(input: {
     }
     renderedDocuments.push(document);
   }
-  const renderedCharacters = renderedAssistantContextSectionCharacters({ documents: renderedDocuments, truncated: false });
+  const renderedCharacters = renderedAssistantContextSectionCharacters({
+    documents: renderedDocuments,
+    truncated: input.reserveDegradationMarker,
+  });
   if (renderedCharacters > totalCeiling) {
     throw new Error(`knowledge-base core documents render to ${renderedCharacters} Unicode characters and exceed the ${totalCeiling}-character rendered context ceiling`);
   }

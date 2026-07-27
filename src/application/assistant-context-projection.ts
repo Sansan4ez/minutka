@@ -65,6 +65,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
     async build(input: { userId: string; requestId: string; audit?: (event: ContextProjectionAudit) => void | Promise<void> }): Promise<AssistantContextProjection> {
       const metadata = await deps.documentStore.listMetadata(input.userId, "context/");
       const source = prioritizeContextMetadataWithPolicy(metadata, contextPriorities);
+      const reserveDegradationMarker = source.some(({ core }) => !core);
       const index = renderContextTreeIndex({ documents: metadata, ceiling: limits.indexCharacters, depth: limits.indexDepth });
       const audits = new Map<string, ContextProjectionAudit>();
       const documents: AssistantContextProjection["data"]["documents"] = [];
@@ -86,7 +87,10 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           if (renderedDocumentCharacters > limits.documentCharacters) {
             throw new Error(`core context document ${path} renders to ${renderedDocumentCharacters} Unicode characters and exceeds the ${limits.documentCharacters}-character rendered per-file ceiling`);
           }
-          const renderedContextCharacters = renderedAssistantContextSectionCharacters({ documents: [...documents, projected], truncated: false });
+          const renderedContextCharacters = renderedAssistantContextSectionCharacters({
+            documents: [...documents, projected],
+            truncated: reserveDegradationMarker,
+          });
           if (renderedContextCharacters > limits.characters) {
             throw new Error(`core context documents render to ${renderedContextCharacters} Unicode characters and exceed the ${limits.characters}-character rendered context ceiling`);
           }
