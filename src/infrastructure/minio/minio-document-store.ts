@@ -19,15 +19,32 @@ export type MinioDocumentStoreOptions = {
 /** MinIO adapter. Object keys are always derived from trusted `(userId, path)`. */
 export function createMinioDocumentStore(options: MinioDocumentStoreOptions): DocumentStore {
   const now = options.now ?? (() => new Date().toISOString());
-  const getExact = async (userId: string, path: string): Promise<UserDocument | null> => {
+  const getExact = async (userId: string, path: string, expectedMetadata?: UserDocumentMetadata): Promise<UserDocument | null> => {
     const safeUserId = assertUserId(userId);
     const safePath = assertSafeVaultPath(path);
     try {
       const key = objectKey(safeUserId, safePath);
-      const stat = await options.client.statObject(options.bucket, key);
-      const stream = await options.client.getObject(options.bucket, key);
+      const stat = expectedMetadata === undefined ? await options.client.statObject(options.bucket, key) : null;
+      const stream = await options.client.getObject(options.bucket, key, expectedMetadata ? { versionId: expectedMetadata.version } : stat?.versionId ? { versionId: stat.versionId } : undefined);
       const content = await readUtf8(stream);
-      return { userId: safeUserId, path: safePath, content, version: versionOf(stat), updatedAt: stat.lastModified.toISOString() };
+      return {
+        userId: safeUserId,
+        path: safePath,
+        content,
+        version: expectedMetadata?.version ?? versionOf(stat!),
+        updatedAt: expectedMetadata?.updatedAt ?? stat!.lastModified.toISOString(),
+      };
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  };
+  const headExact = async (userId: string, path: string): Promise<UserDocumentMetadata | null> => {
+    const safeUserId = assertUserId(userId);
+    const safePath = assertSafeVaultPath(path);
+    try {
+      const stat = await options.client.statObject(options.bucket, objectKey(safeUserId, safePath));
+      return { userId: safeUserId, path: safePath, version: versionOf(stat), updatedAt: stat.lastModified.toISOString(), size: stat.size };
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;
@@ -103,13 +120,23 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     }));
   };
   return {
-    async get(userId, path) {
+    async get(userId, path, metadata) {
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
-      const canonical = await getExact(safeUserId, canonicalPath);
+      const expectedMetadata = metadata?.path === canonicalPath ? metadata : undefined;
+      const canonical = await getExact(safeUserId, canonicalPath, expectedMetadata);
       if (canonical) return canonical;
       const legacyPath = legacyDocumentPath(canonicalPath);
-      const legacy = legacyPath ? await getExact(safeUserId, legacyPath) : null;
+      const legacy = legacyPath ? await getExact(safeUserId, legacyPath, expectedMetadata ? { ...expectedMetadata, path: legacyPath } : undefined) : null;
+      return legacy ? { ...legacy, path: canonicalPath } : null;
+    },
+    async head(userId, path) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const canonical = await headExact(safeUserId, canonicalPath);
+      if (canonical) return canonical;
+      const legacyPath = legacyDocumentPath(canonicalPath);
+      const legacy = legacyPath ? await headExact(safeUserId, legacyPath) : null;
       return legacy ? { ...legacy, path: canonicalPath } : null;
     },
     getExact,

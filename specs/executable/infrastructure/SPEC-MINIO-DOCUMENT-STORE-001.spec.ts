@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as Minio from "minio";
 import { prepareMinioBucket } from "../../../src/infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../../../src/infrastructure/minio/minio-document-store.js";
+import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
+import { createOwnerDocumentReader } from "../../../src/application/document-reader.js";
 
 const bucket = "personal-assistant";
 
@@ -33,6 +35,19 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(client.removeAttempts()).toBe(2);
     expect(warn).toHaveBeenCalledWith("MinIO conditional-create probe cleanup failed (TypeError).");
     expect(warn.mock.calls.flat().join(" ")).not.toContain(".runtime-probes/");
+  });
+
+  it("heads one canonical logical document without reading its body", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/imported-knowledge-base/legacy.md", Buffer.from("legacy🙂"));
+
+    const metadata = await documents.head("owner", "context/legacy.md");
+
+    expect(metadata).toMatchObject({ path: "context/legacy.md", size: Buffer.byteLength("legacy🙂", "utf8") });
+    expect(client.getObjectCalls()).toBe(0);
+    expect(client.statCallsFor("owner/context/legacy.md")).toBe(1);
+    expect(client.statCallsFor("owner/context/imported-knowledge-base/legacy.md")).toBe(1);
   });
 
   it("lists canonical metadata without reading bodies or statting a legacy alias twice", async () => {
@@ -81,6 +96,31 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(client.getObjectCallsFor("owner/context/tail.md")).toBe(0);
   });
 
+  it("enforces output and physical scan gates before MinIO getObject", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/01.md", Buffer.from("12345"));
+    await client.putObject(bucket, "owner/context/02.md", Buffer.from("67890"));
+    const reader = createOwnerDocumentReader({
+      userId: "owner",
+      documentStore: documents,
+      contextBudget: createContextBudgetConfig({ documentTools: { turnReadCharacters: 3, maximumDocumentBytes: 5, turnScanBytes: 5 } }),
+    });
+
+    await reader.readDocument({ path: "/proc/context/01.md", maxCharacters: 3 });
+    const outputBlocked = await reader.readDocument({ path: "/proc/context/01.md", offset: 3, maxCharacters: 3 });
+    const scanBlocked = await createOwnerDocumentReader({
+      userId: "owner",
+      documentStore: documents,
+      contextBudget: createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5, turnScanBytes: 5 } }),
+    }).searchDocuments({ query: "missing" });
+
+    expect(outputBlocked).toMatchObject({ readBudgetExhausted: true });
+    expect(scanBlocked).toMatchObject({ scanBudgetExhausted: true });
+    expect(client.getObjectCalls()).toBe(2);
+    expect(client.getObjectBytes()).toBe(10);
+  });
+
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket, now: () => "2026-01-01T00:00:00.000Z" });
@@ -113,6 +153,7 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
   let cleanupFailures = input.cleanupFailures ?? 0;
   let removeCount = 0;
   let getObjectCount = 0;
+  let getObjectByteCount = 0;
   const getObjectCounts = new Map<string, number>();
   const statCounts = new Map<string, number>();
   let removeOptions: Minio.RemoveOptions | undefined;
@@ -149,11 +190,12 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
         versionId: stored.versionId,
       };
     },
-    async getObject(_bucket: string, objectName: string) {
+    async getObject(_bucket: string, objectName: string, _options?: { versionId?: string }) {
       getObjectCount += 1;
       getObjectCounts.set(objectName, (getObjectCounts.get(objectName) ?? 0) + 1);
       const stored = objects.get(objectName);
       if (!stored) throw objectStoreError("NotFound");
+      getObjectByteCount += stored.body.byteLength;
       return Readable.from(stored.body);
     },
     listObjectsV2(_bucket: string, prefix: string) {
@@ -178,6 +220,9 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
     },
     getObjectCalls() {
       return getObjectCount;
+    },
+    getObjectBytes() {
+      return getObjectByteCount;
     },
     getObjectCallsFor(objectName: string) {
       return getObjectCounts.get(objectName) ?? 0;

@@ -36,7 +36,11 @@ export async function runPilotKnowledgeBaseImport(input: {
   const documentStore = input.dependencies?.prepareDocumentStore
     ? await input.dependencies.prepareDocumentStore(env)
     : await prepareProductionDocumentStore(env);
-  const ingestionService = createIngestionService({ documentStore, blobStore: unusedBlobStore });
+  const ingestionService = createIngestionService({
+    documentStore,
+    blobStore: unusedBlobStore,
+    maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
+  });
   if (input.migrateLegacy ?? false) {
     const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService, contextBudget, contextPriorities });
     printJson({ dryRun: false, migration: true, ...result });

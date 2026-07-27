@@ -83,6 +83,10 @@ export async function discoverPilotKnowledgeBase(
     if (!allowedExtensions.has(extname(path).toLowerCase())) throw new Error(`knowledge-base file type is not allow-listed: ${relativePath(sourceRoot, path)}`);
 
     const sourceRelativePath = relativePath(sourceRoot, path).normalize("NFC");
+    const maximumDocumentBytes = (options.contextBudget ?? defaultContextBudget).documentTools.maximumDocumentBytes;
+    if (stat.size > maximumDocumentBytes) {
+      throw new Error(`knowledge-base file ${sourceRelativePath} has ${stat.size} bytes and exceeds the ${maximumDocumentBytes}-byte context document maximum`);
+    }
     files.push({
       sourcePath: path,
       path: assertSafeVaultPath(`${destinationPrefix}/${sourceRelativePath}`, "context/"),
@@ -168,7 +172,11 @@ export async function importPilotKnowledgeBase(input: {
   contextPriorities?: ContextPriorityManifest;
 }): Promise<PilotKnowledgeBaseImportResult> {
   const userId = assertUserId(input.userId);
+  const contextBudget = input.contextBudget ?? defaultContextBudget;
   const prepared = await Promise.all(input.files.map(async (file) => {
+    if (file.size > contextBudget.documentTools.maximumDocumentBytes) {
+      throw new Error(`knowledge-base file ${file.path} has ${file.size} bytes and exceeds the ${contextBudget.documentTools.maximumDocumentBytes}-byte context document maximum`);
+    }
     const content = await readFile(file.sourcePath, "utf8");
     if (!content.trim()) throw new Error(`knowledge-base file is empty: ${file.path}`);
     return { ...file, content };
@@ -178,7 +186,7 @@ export async function importPilotKnowledgeBase(input: {
   validateFinalContextState({
     existingDocuments,
     plannedWrites: prepared,
-    contextBudget: input.contextBudget ?? defaultContextBudget,
+    contextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
   });
   const exactDocuments = new Map(existingDocuments.map((document) => [document.path, document]));

@@ -13,6 +13,7 @@ export type ContextProjectionDegradationReason =
   | "per_file_limit"
   | "context_ceiling"
   | "document_limit"
+  | "document_too_large"
   | ContextTreeIndexDegradationReason;
 
 export type ContextProjectionAudit = {
@@ -60,6 +61,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
     documentCharacters: deps.contextBudget?.projectionLimits.contextDocumentCharacters ?? assistantContextLimits.documentCharacters,
     indexCharacters: sourceCharacterCeiling(deps.contextBudget ?? defaultContextBudget, "context_index"),
     indexDepth: deps.contextBudget?.projectionLimits.contextIndexDepth ?? assistantContextLimits.indexDepth,
+    maximumDocumentBytes: deps.contextBudget?.documentTools.maximumDocumentBytes ?? defaultContextBudget.documentTools.maximumDocumentBytes,
   };
   return {
     async build(input: { userId: string; requestId: string; audit?: (event: ContextProjectionAudit) => void | Promise<void> }): Promise<AssistantContextProjection> {
@@ -74,6 +76,16 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
       for (const { metadata: candidate, core } of source) {
         const path = contextDocumentHandle(candidate.path);
         const estimatedCharacters = candidate.size;
+
+        if (candidate.size > limits.maximumDocumentBytes) {
+          const reference = projectedMetadata(candidate, renderIndexReference(path, estimatedCharacters, "UTF-8 bytes"), "index-reference", estimatedCharacters, 0);
+          const referenceCharacters = renderedAssistantContextDocumentCharacters(reference);
+          const referenceCanFit = referenceCharacters <= limits.documentCharacters
+            && canFitContextDocument(documents, reference, limits.characters, true);
+          if (referenceCanFit) documents.push(reference);
+          aggregateDegradation(audits, degradation("context", "document_too_large", limits.maximumDocumentBytes, estimatedCharacters, referenceCanFit ? referenceCharacters : 0, source.length, 1));
+          continue;
+        }
 
         if (core) {
           if (documents.length >= limits.documents) {

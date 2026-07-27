@@ -21,8 +21,10 @@ export const legacyImportedKnowledgeBasePrefix = "context/imported-knowledge-bas
  * a path or permit it to be embedded in one.
  */
 export type DocumentStore = {
-  /** Compatibility read: canonical paths fall back to their legacy alias. */
-  get(userId: string, path: string): Promise<UserDocument | null>;
+  /** Compatibility read: canonical paths fall back to their legacy alias. Metadata pins the already-gated object version when supplied. */
+  get(userId: string, path: string, metadata?: UserDocumentMetadata): Promise<UserDocument | null>;
+  /** Exact logical metadata lookup with canonical-over-legacy precedence and no body read. */
+  head(userId: string, path: string): Promise<UserDocumentMetadata | null>;
   /** Exact storage read reserved for migrations and collision detection. */
   getExact(userId: string, path: string): Promise<UserDocument | null>;
   /** Exact storage list reserved for migrations; it does not canonicalize aliases. */

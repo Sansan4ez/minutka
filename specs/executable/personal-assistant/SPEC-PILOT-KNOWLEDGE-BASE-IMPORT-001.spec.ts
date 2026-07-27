@@ -35,6 +35,14 @@ function setup() {
 }
 
 describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", () => {
+  it("rejects an oversized context file during discovery before storage opens", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "10_user_memory", "large.md"), "x".repeat(6));
+    const contextBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5 } });
+
+    await expect(discoverPilotKnowledgeBase(root, { contextBudget })).rejects.toThrow("exceeds the 5-byte context document maximum");
+  });
+
   it("fails closed without an explicit pilot owner", () => {
     expect(() => pilotUserIdFromEnv({})).toThrow("PILOT_USER_ID is required");
     expect(() => pilotUserIdFromEnv({ PILOT_USER_ID: "owner/other" })).toThrow("invalid userId");

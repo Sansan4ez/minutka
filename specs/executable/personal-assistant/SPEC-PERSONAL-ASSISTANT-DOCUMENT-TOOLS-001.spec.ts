@@ -195,6 +195,103 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(events).toContainEqual(expect.objectContaining({ operation: "read", path: "/proc/context/big.md", returnedCharacters: 2, reason: "budget_exhausted" }));
   });
 
+  it("does not read a body after the output budget is exhausted", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/big.md", "needle".repeat(20));
+    let bodyReads = 0;
+    const instrumented: DocumentStore = {
+      ...store,
+      async get(userId, path) {
+        bodyReads += 1;
+        return store.get(userId, path);
+      },
+    };
+    const contextBudget = createContextBudgetConfig({ documentTools: { turnReadCharacters: 3 } });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: instrumented, contextBudget });
+
+    await reader.readDocument({ path: "/proc/context/big.md", maxCharacters: 3 });
+    const exhausted = await reader.readDocument({ path: "/proc/context/big.md", offset: 3, maxCharacters: 3 });
+
+    expect(bodyReads).toBe(1);
+    expect(exhausted).toMatchObject({ found: true, content: "", readBudgetExhausted: true, scanBudgetExhausted: false });
+  });
+
+  it("reserves physical bytes before reads and reports scan exhaustion without reading a body", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/01.md", "12345");
+    await store.put("owner", "context/02.md", "67890");
+    let bodyReads = 0;
+    let readBytes = 0;
+    const instrumented: DocumentStore = {
+      ...store,
+      async get(userId, path) {
+        bodyReads += 1;
+        const document = await store.get(userId, path);
+        readBytes += document === null ? 0 : Buffer.byteLength(document.content, "utf8");
+        return document;
+      },
+    };
+    const contextBudget = createContextBudgetConfig({ documentTools: { turnScanBytes: 5, maximumDocumentBytes: 5 } });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: instrumented, contextBudget });
+
+    await reader.readDocument({ path: "/proc/context/01.md" });
+    const blocked = await reader.readDocument({ path: "/proc/context/02.md" });
+
+    expect(bodyReads).toBe(1);
+    expect(readBytes).toBe(5);
+    expect(blocked).toMatchObject({ found: true, content: "", scanBudgetExhausted: true, documentTooLarge: false });
+  });
+
+  it("keeps legacy oversized documents visible but never materializes their bodies", async () => {
+    const store = createInMemoryDocumentStore(clock, [
+      { userId: "owner", path: "context/legacy-large.md", content: "x".repeat(6) },
+    ]);
+    let bodyReads = 0;
+    const instrumented: DocumentStore = {
+      ...store,
+      async get(userId, path) {
+        bodyReads += 1;
+        return store.get(userId, path);
+      },
+    };
+    const contextBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5, turnScanBytes: 10 } });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: instrumented, contextBudget });
+
+    const listed = await reader.listDocuments();
+    const read = await reader.readDocument({ path: "/proc/context/legacy-large.md" });
+    const search = await reader.searchDocuments({ query: "xx" });
+
+    expect(listed.documents).toEqual([expect.objectContaining({ path: "/proc/context/legacy-large.md", size: 6 })]);
+    expect(bodyReads).toBe(0);
+    expect(read).toMatchObject({ found: true, content: "", documentTooLarge: true });
+    expect(search).toMatchObject({ matches: [], truncated: true, documentTooLarge: true });
+  });
+
+  it("stops search before exceeding the physical scan budget", async () => {
+    const store = createInMemoryDocumentStore(clock);
+    await store.put("owner", "context/01.md", "no hit");
+    await store.put("owner", "context/02.md", "needle");
+    let bodyReads = 0;
+    let readBytes = 0;
+    const instrumented: DocumentStore = {
+      ...store,
+      async get(userId, path) {
+        bodyReads += 1;
+        const document = await store.get(userId, path);
+        readBytes += document === null ? 0 : Buffer.byteLength(document.content, "utf8");
+        return document;
+      },
+    };
+    const contextBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 10, turnScanBytes: 6 } });
+    const reader = createOwnerDocumentReader({ userId: "owner", documentStore: instrumented, contextBudget });
+
+    const search = await reader.searchDocuments({ query: "needle" });
+
+    expect(bodyReads).toBe(1);
+    expect(readBytes).toBe(6);
+    expect(search).toMatchObject({ matches: [], truncated: true, scanBudgetExhausted: true });
+  });
+
   it("counts search snippets in the shared budget while metadata listing remains free", async () => {
     const store = createInMemoryDocumentStore(clock);
     await store.put("owner", "context/01.md", "needle-abcdef");
@@ -226,7 +323,7 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     expect(JSON.stringify(result)).not.toContain("чужой секрет");
   });
 
-  it("stops lazy search after the extra match needed for truncation", async () => {
+  it("stops lazy search before reading beyond the requested result limit", async () => {
     const store = createInMemoryDocumentStore(clock);
     await store.put("owner", "context/01-first.md", "needle один");
     await store.put("owner", "context/02-second.md", "needle два");
@@ -234,11 +331,9 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
     let bodyReads = 0;
     const lazyStore: DocumentStore = {
       ...store,
-      async *iterate(userId, prefix) {
-        for await (const document of store.iterate(userId, prefix)) {
-          bodyReads += 1;
-          yield document;
-        }
+      async get(userId, path) {
+        bodyReads += 1;
+        return store.get(userId, path);
       },
     };
     const reader = createOwnerDocumentReader({ userId: "owner", documentStore: lazyStore });
@@ -249,9 +344,11 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
       matches: [expect.objectContaining({ path: "/proc/context/01-first.md" })],
       truncated: true,
       readBudgetExhausted: false,
+      scanBudgetExhausted: false,
+      documentTooLarge: false,
       hint: null,
     });
-    expect(bodyReads).toBe(2);
+    expect(bodyReads).toBe(1);
   });
 
   it("matches Unicode literal substrings in paths without requiring content matches", async () => {

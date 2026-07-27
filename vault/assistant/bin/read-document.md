@@ -20,7 +20,7 @@ No.
 - logical path and safe version metadata
 - `found` and `sectionFound`
 - bounded content, current offset, next offset, and `totalCharacters` for the document or selected section
-- explicit `truncated`, request-scoped `readBudgetExhausted`, and a narrowing hint when the turn budget is exhausted
+- explicit `truncated`, `readBudgetExhausted`, `scanBudgetExhausted`, `documentTooLarge`, and a narrowing hint
 
 ## Rules
 
@@ -28,3 +28,4 @@ No.
 - Missing documents return `found: false` without leaking another owner's existence.
 - Physical storage identifiers and credentials are never returned.
 - Returned content shares the request-scoped 48k Unicode-character turn budget with search snippets; boundary reads are clamped instead of failing.
+- Before reading a body, the application checks exact metadata, the 256 KiB per-document limit, and the shared 2 MiB physical scan budget. Exhaustion or legacy oversized objects return typed markers without body I/O.

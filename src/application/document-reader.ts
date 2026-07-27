@@ -25,10 +25,12 @@ export type ReadDocumentResult = Pick<UserDocument, "version" | "updatedAt"> & {
   sectionFound: boolean;
   content: string;
   offset: number;
-  totalCharacters: number;
+  totalCharacters: number | null;
   nextOffset: number | null;
   truncated: boolean;
   readBudgetExhausted: boolean;
+  scanBudgetExhausted: boolean;
+  documentTooLarge: boolean;
   hint: string | null;
 };
 
@@ -39,6 +41,8 @@ export type SearchDocumentsResult = {
   }>;
   truncated: boolean;
   readBudgetExhausted: boolean;
+  scanBudgetExhausted: boolean;
+  documentTooLarge: boolean;
   hint: string | null;
 };
 
@@ -51,7 +55,7 @@ export type DocumentToolAudit = (event: {
   totalCharacters?: number;
   returnedCharacters?: number;
   nextOffset?: number;
-  reason?: "ok" | "truncated" | "budget_exhausted";
+  reason?: "ok" | "truncated" | "budget_exhausted" | "scan_budget_exhausted" | "document_too_large";
 }) => Promise<void>;
 
 /**
@@ -67,8 +71,16 @@ export function createOwnerDocumentReader(input: {
   const limits = input.contextBudget?.documentTools ?? documentReadLimits;
   const audit = async (event: Parameters<DocumentToolAudit>[0]) => input.audit?.(event);
   let returnedContentCharacters = 0;
+  let reservedScanBytes = 0;
+  const knownTotalCharacters = new Map<string, number>();
   const remainingReadCharacters = () => Math.max(0, limits.turnReadCharacters - returnedContentCharacters);
   const consumeReadCharacters = (characters: number) => { returnedContentCharacters += characters; };
+  const remainingScanBytes = () => Math.max(0, limits.turnScanBytes - reservedScanBytes);
+  const reserveScanBytes = (bytes: number) => {
+    if (bytes > remainingScanBytes()) return false;
+    reservedScanBytes += bytes;
+    return true;
+  };
 
   return {
     limits,
@@ -99,7 +111,28 @@ export function createOwnerDocumentReader(input: {
       const logicalPath = contextDocumentHandle(path);
       const offset = boundedInteger(options.offset, 0, 0, Number.MAX_SAFE_INTEGER, "offset");
       const requestedMaximum = boundedInteger(options.maxCharacters, limits.readDefaultCharacters, 1, limits.readMaximumCharacters, "maxCharacters");
-      const document = await input.documentStore.get(input.userId, path);
+      const metadata = await input.documentStore.head(input.userId, path);
+      if (!metadata) {
+        const result = missingReadResult(logicalPath, offset);
+        await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found", path: logicalPath, totalCharacters: 0, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
+        return result;
+      }
+      if (remainingReadCharacters() === 0) {
+        const result = blockedReadResult(logicalPath, offset, metadata, "readBudgetExhausted", knownTotalCharacters.get(readSelectionKey(path, options.section)));
+        await audit({ operation: "read", resultCount: 0, truncated: true, outcome: "ok", path: logicalPath, returnedCharacters: 0, nextOffset: offset, reason: "budget_exhausted" });
+        return result;
+      }
+      if (metadata.size > limits.maximumDocumentBytes) {
+        const result = blockedReadResult(logicalPath, offset, metadata, "documentTooLarge");
+        await audit({ operation: "read", resultCount: 0, truncated: true, outcome: "ok", path: logicalPath, returnedCharacters: 0, nextOffset: offset, reason: "document_too_large" });
+        return result;
+      }
+      if (!reserveScanBytes(metadata.size)) {
+        const result = blockedReadResult(logicalPath, offset, metadata, "scanBudgetExhausted");
+        await audit({ operation: "read", resultCount: 0, truncated: true, outcome: "ok", path: logicalPath, returnedCharacters: 0, nextOffset: offset, reason: "scan_budget_exhausted" });
+        return result;
+      }
+      const document = await input.documentStore.get(input.userId, path, metadata);
       if (!document) {
         const result = missingReadResult(logicalPath, offset);
         await audit({ operation: "read", resultCount: 0, truncated: false, outcome: "not_found", path: logicalPath, totalCharacters: 0, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
@@ -112,31 +145,18 @@ export function createOwnerDocumentReader(input: {
         return result;
       }
       const characters = Array.from(selectedContent);
+      knownTotalCharacters.set(readSelectionKey(path, options.section), characters.length);
       if (offset >= characters.length) {
         const result: ReadDocumentResult = {
-          path: logicalPath,
-          found: true,
-          sectionFound: true,
-          content: "",
-          offset,
-          totalCharacters: characters.length,
-          nextOffset: null,
-          truncated: false,
-          readBudgetExhausted: false,
-          hint: null,
-          version: document.version,
-          updatedAt: document.updatedAt,
+          path: logicalPath, found: true, sectionFound: true, content: "", offset,
+          totalCharacters: characters.length, nextOffset: null, truncated: false,
+          readBudgetExhausted: false, scanBudgetExhausted: false, documentTooLarge: false,
+          hint: null, version: document.version, updatedAt: document.updatedAt,
         };
         await audit({ operation: "read", resultCount: 1, truncated: false, outcome: "ok", path: logicalPath, totalCharacters: characters.length, returnedCharacters: 0, nextOffset: offset, reason: "ok" });
         return result;
       }
-      const remaining = remainingReadCharacters();
-      if (remaining === 0) {
-        const result = exhaustedReadResult(logicalPath, offset, characters.length, document);
-        await audit({ operation: "read", resultCount: 0, truncated: true, outcome: "ok", path: logicalPath, totalCharacters: characters.length, returnedCharacters: 0, nextOffset: offset, reason: "budget_exhausted" });
-        return result;
-      }
-      const maximum = Math.min(requestedMaximum, remaining);
+      const maximum = Math.min(requestedMaximum, remainingReadCharacters());
       const content = characters.slice(offset, offset + maximum).join("");
       const returnedCharacters = Array.from(content).length;
       consumeReadCharacters(returnedCharacters);
@@ -144,27 +164,15 @@ export function createOwnerDocumentReader(input: {
       const truncated = nextOffset < characters.length;
       const readBudgetExhausted = truncated && remainingReadCharacters() === 0;
       const result: ReadDocumentResult = {
-        path: logicalPath,
-        found: true,
-        sectionFound: true,
-        content,
-        offset,
-        totalCharacters: characters.length,
-        nextOffset: truncated ? nextOffset : null,
-        truncated,
-        readBudgetExhausted,
+        path: logicalPath, found: true, sectionFound: true, content, offset,
+        totalCharacters: characters.length, nextOffset: truncated ? nextOffset : null, truncated,
+        readBudgetExhausted, scanBudgetExhausted: false, documentTooLarge: false,
         hint: readBudgetExhausted ? readBudgetHint : null,
-        version: document.version,
-        updatedAt: document.updatedAt,
+        version: document.version, updatedAt: document.updatedAt,
       };
       await audit({
-        operation: "read",
-        resultCount: 1,
-        truncated,
-        outcome: "ok",
-        path: logicalPath,
-        totalCharacters: characters.length,
-        returnedCharacters,
+        operation: "read", resultCount: 1, truncated, outcome: "ok", path: logicalPath,
+        totalCharacters: characters.length, returnedCharacters,
         nextOffset: result.nextOffset ?? characters.length,
         reason: readBudgetExhausted ? "budget_exhausted" : truncated ? "truncated" : "ok",
       });
@@ -180,15 +188,30 @@ export function createOwnerDocumentReader(input: {
       const matchAudits: Array<{ path: `/proc/context/${string}`; totalCharacters: number; returnedCharacters: number; nextOffset: number; truncated: boolean }> = [];
       let truncated = false;
       let readBudgetExhausted = remainingReadCharacters() === 0;
+      let scanBudgetExhausted = false;
+      let documentTooLarge = false;
       if (!readBudgetExhausted) {
-        for await (const document of input.documentStore.iterate(input.userId, prefix)) {
-          const path = contextDocumentHandle(document.path);
-          const contentIndex = caseInsensitiveIndex(document.content, query);
-          if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
+        const metadata = (await input.documentStore.listMetadata(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
+        for (const item of metadata) {
           if (matches.length === limit) {
             truncated = true;
             break;
           }
+          if (item.size > limits.maximumDocumentBytes) {
+            documentTooLarge = true;
+            truncated = true;
+            continue;
+          }
+          if (!reserveScanBytes(item.size)) {
+            scanBudgetExhausted = true;
+            truncated = true;
+            break;
+          }
+          const document = await input.documentStore.get(input.userId, item.path, item);
+          if (!document) continue;
+          const path = contextDocumentHandle(document.path);
+          const contentIndex = caseInsensitiveIndex(document.content, query);
+          if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
           const snippet = boundedSnippetDetails(document.content, contentIndex, limits.searchSnippetCharacters, remainingReadCharacters());
           consumeReadCharacters(snippet.returnedCharacters);
           matches.push({ path, snippet: snippet.text, version: document.version, updatedAt: document.updatedAt });
@@ -202,34 +225,25 @@ export function createOwnerDocumentReader(input: {
       } else {
         truncated = true;
       }
-      const result: SearchDocumentsResult = { matches, truncated, readBudgetExhausted, hint: readBudgetExhausted ? readBudgetHint : null };
+      const hint = readBudgetExhausted ? readBudgetHint : scanBudgetExhausted ? scanBudgetHint : documentTooLarge ? documentTooLargeHint : null;
+      const result: SearchDocumentsResult = { matches, truncated, readBudgetExhausted, scanBudgetExhausted, documentTooLarge, hint };
       if (matchAudits.length === 0) {
         await audit({
-          operation: "search",
-          resultCount: 0,
-          truncated,
-          outcome: "ok",
-          path: logicalSearchPath(prefix),
-          totalCharacters: 0,
-          returnedCharacters: 0,
-          nextOffset: 0,
-          reason: readBudgetExhausted ? "budget_exhausted" : truncated ? "truncated" : "ok",
+          operation: "search", resultCount: 0, truncated, outcome: "ok", path: logicalSearchPath(prefix),
+          totalCharacters: 0, returnedCharacters: 0, nextOffset: 0,
+          reason: readBudgetExhausted ? "budget_exhausted" : scanBudgetExhausted ? "scan_budget_exhausted" : documentTooLarge ? "document_too_large" : truncated ? "truncated" : "ok",
         });
       } else {
         for (const [index, match] of matchAudits.entries()) {
           const finalMatch = index === matchAudits.length - 1;
-          const budgetExhausted = readBudgetExhausted && finalMatch;
           const resultTruncated = truncated && finalMatch;
           await audit({
-            operation: "search",
-            resultCount: 1,
-            truncated: match.truncated || resultTruncated,
-            outcome: "ok",
-            path: match.path,
-            totalCharacters: match.totalCharacters,
-            returnedCharacters: match.returnedCharacters,
-            nextOffset: match.nextOffset,
-            reason: budgetExhausted ? "budget_exhausted" : match.truncated || resultTruncated ? "truncated" : "ok",
+            operation: "search", resultCount: 1, truncated: match.truncated || resultTruncated, outcome: "ok",
+            path: match.path, totalCharacters: match.totalCharacters, returnedCharacters: match.returnedCharacters, nextOffset: match.nextOffset,
+            reason: finalMatch && readBudgetExhausted ? "budget_exhausted"
+              : finalMatch && scanBudgetExhausted ? "scan_budget_exhausted"
+                : finalMatch && documentTooLarge ? "document_too_large"
+                  : match.truncated || resultTruncated ? "truncated" : "ok",
           });
         }
       }
@@ -257,7 +271,9 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return selected;
 }
 
-const readBudgetHint = "Read budget exhausted; narrow the request with section or search.";
+const readBudgetHint = "Read output budget exhausted; narrow the request with section or search.";
+const scanBudgetHint = "Physical scan budget exhausted; narrow the path or search prefix.";
+const documentTooLargeHint = "Document exceeds the configured physical byte limit and was not read.";
 
 function missingReadResult(path: `/proc/context/${string}`, offset: number): ReadDocumentResult {
   return {
@@ -270,32 +286,41 @@ function missingReadResult(path: `/proc/context/${string}`, offset: number): Rea
     nextOffset: null,
     truncated: false,
     readBudgetExhausted: false,
+    scanBudgetExhausted: false,
+    documentTooLarge: false,
     hint: null,
     version: "",
     updatedAt: "",
   };
 }
 
-function exhaustedReadResult(
+function blockedReadResult(
   path: `/proc/context/${string}`,
   offset: number,
-  totalCharacters: number,
-  document: Pick<UserDocument, "version" | "updatedAt">,
+  metadata: Pick<UserDocumentMetadata, "version" | "updatedAt">,
+  reason: "readBudgetExhausted" | "scanBudgetExhausted" | "documentTooLarge",
+  totalCharacters: number | null = null,
 ): ReadDocumentResult {
   return {
     path,
     found: true,
-    sectionFound: true,
+    sectionFound: false,
     content: "",
     offset,
     totalCharacters,
     nextOffset: offset,
     truncated: true,
-    readBudgetExhausted: true,
-    hint: readBudgetHint,
-    version: document.version,
-    updatedAt: document.updatedAt,
+    readBudgetExhausted: reason === "readBudgetExhausted",
+    scanBudgetExhausted: reason === "scanBudgetExhausted",
+    documentTooLarge: reason === "documentTooLarge",
+    hint: reason === "readBudgetExhausted" ? readBudgetHint : reason === "scanBudgetExhausted" ? scanBudgetHint : documentTooLargeHint,
+    version: metadata.version,
+    updatedAt: metadata.updatedAt,
   };
+}
+
+function readSelectionKey(path: string, section?: string): string {
+  return `${path}\u0000${section?.trim().toLowerCase() ?? ""}`;
 }
 
 function markdownSection(content: string, requestedSection: string): string | null {

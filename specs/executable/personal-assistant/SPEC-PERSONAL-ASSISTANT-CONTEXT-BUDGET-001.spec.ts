@@ -49,7 +49,8 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(defaultContextBudget.projectionLimits).toMatchObject({ threadCompactionTurns: 10, threadCompactionFieldCharacters: 2_000 });
     expect(documentReadLimits).toEqual({
       listDefault: 20, listMaximum: 50, readDefaultCharacters: 4_000, readMaximumCharacters: 8_000,
-      turnReadCharacters: 48_000, searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,
+      turnReadCharacters: 48_000, maximumDocumentBytes: 256 * 1024, turnScanBytes: 2 * 1024 * 1024,
+      searchDefault: 10, searchMaximum: 20, searchSnippetCharacters: 500,
     });
   });
 
@@ -236,11 +237,13 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       ASSISTANT_CONTEXT_THREAD_COMPACTION_FIELD_CHARACTERS: "1500",
       ASSISTANT_DOCUMENT_READ_MAXIMUM_CHARACTERS: "9000",
       ASSISTANT_DOCUMENT_TURN_READ_CHARACTERS: "49000",
+      ASSISTANT_DOCUMENT_MAXIMUM_BYTES: "300000",
+      ASSISTANT_DOCUMENT_TURN_SCAN_BYTES: "3000000",
     })).toMatchObject({
       total: 90_000,
       responseReserve: 9_000,
       projectionLimits: { contextDocumentCharacters: 5_000, threadCompactionTurns: 8, threadCompactionFieldCharacters: 1_500 },
-      documentTools: { readMaximumCharacters: 9_000, turnReadCharacters: 49_000 },
+      documentTools: { readMaximumCharacters: 9_000, turnReadCharacters: 49_000, maximumDocumentBytes: 300_000, turnScanBytes: 3_000_000 },
     });
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "-1" })).toThrow("non-negative integer");
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "1000" })).toThrow("must not exceed total budget");

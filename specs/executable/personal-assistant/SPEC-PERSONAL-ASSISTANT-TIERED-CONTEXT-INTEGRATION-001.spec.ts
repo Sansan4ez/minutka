@@ -120,6 +120,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
       matches: [expect.objectContaining({ path: "/proc/context/40_projects/plan.md", snippet: "need…" })],
       truncated: false,
       readBudgetExhausted: false,
+      scanBudgetExhausted: false,
+      documentTooLarge: false,
       hint: null,
     });
     expect(read).toMatchObject({
@@ -129,6 +131,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
       nextOffset: 2,
       truncated: true,
       readBudgetExhausted: true,
+      scanBudgetExhausted: false,
+      documentTooLarge: false,
       hint: expect.stringMatching(/section or search/),
     });
 

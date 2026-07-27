@@ -80,7 +80,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       feedbackStore: createPostgresFeedbackStore(pool),
       auditEventStore: createPostgresAuditEventStore(pool),
     };
-    const ingestion = createIngestionService({ documentStore, blobStore, ideaStore });
+    const ingestion = createIngestionService({
+      documentStore,
+      blobStore,
+      ideaStore,
+      maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
+    });
     // MinutkaService remains a temporary identity/onboarding compatibility
     // component. Product chat never calls its legacy chat path, and onboarding
     // welcome text is deterministic, so production needs no legacy chat agent.

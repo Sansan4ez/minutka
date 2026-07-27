@@ -54,6 +54,8 @@ export type ContextBudgetConfig = {
     readDefaultCharacters: number;
     readMaximumCharacters: number;
     turnReadCharacters: number;
+    maximumDocumentBytes: number;
+    turnScanBytes: number;
     searchDefault: number;
     searchMaximum: number;
     searchSnippetCharacters: number;
@@ -135,6 +137,8 @@ export const defaultContextBudget: ContextBudgetConfig = {
     readDefaultCharacters: 4_000,
     readMaximumCharacters: 8_000,
     turnReadCharacters: 48_000,
+    maximumDocumentBytes: 256 * 1024,
+    turnScanBytes: 2 * 1024 * 1024,
     searchDefault: 10,
     searchMaximum: 20,
     searchSnippetCharacters: 500,
@@ -223,6 +227,8 @@ const documentToolEnv = {
   readDefaultCharacters: "ASSISTANT_DOCUMENT_READ_DEFAULT_CHARACTERS",
   readMaximumCharacters: "ASSISTANT_DOCUMENT_READ_MAXIMUM_CHARACTERS",
   turnReadCharacters: "ASSISTANT_DOCUMENT_TURN_READ_CHARACTERS",
+  maximumDocumentBytes: "ASSISTANT_DOCUMENT_MAXIMUM_BYTES",
+  turnScanBytes: "ASSISTANT_DOCUMENT_TURN_SCAN_BYTES",
   searchDefault: "ASSISTANT_DOCUMENT_SEARCH_DEFAULT",
   searchMaximum: "ASSISTANT_DOCUMENT_SEARCH_MAXIMUM",
   searchSnippetCharacters: "ASSISTANT_DOCUMENT_SEARCH_SNIPPET_CHARACTERS",

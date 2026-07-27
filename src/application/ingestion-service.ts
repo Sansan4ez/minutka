@@ -5,6 +5,7 @@ import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertSafeVaultPath, assertUserId } from "./document-store.js";
 import { NO_PROJECT, type RecordType } from "../domain/classification.js";
 import type { Idea, IdeaSource, IdeaStore } from "./idea-store.js";
+import { defaultContextBudget } from "./context-budget.js";
 
 /**
  * The only application write boundary for personal-vault content. Classification
@@ -36,7 +37,19 @@ export type IngestionService = {
   captureInboxFile(input: { userId: string; fileName: string; body: Buffer; contentType: string }): Promise<StoredBlob>;
 };
 
-export function createIngestionService(deps: { documentStore: DocumentStore; blobStore: BlobStore; ideaStore?: IdeaStore }): IngestionService {
+export function createIngestionService(deps: {
+  documentStore: DocumentStore;
+  blobStore: BlobStore;
+  ideaStore?: IdeaStore;
+  maximumContextDocumentBytes?: number;
+}): IngestionService {
+  const maximumContextDocumentBytes = deps.maximumContextDocumentBytes ?? defaultContextBudget.documentTools.maximumDocumentBytes;
+  const assertContextDocumentSize = (content: string) => {
+    const bytes = Buffer.byteLength(content, "utf8");
+    if (bytes > maximumContextDocumentBytes) {
+      throw new Error(`context document has ${bytes} UTF-8 bytes and exceeds the ${maximumContextDocumentBytes}-byte maximum`);
+    }
+  };
   const uploadInboxBlob: IngestionService["uploadInboxBlob"] = async (input) => {
     const userId = assertUserId(input.userId);
     const key = assertSafeBlobKey(input.key);
@@ -48,12 +61,14 @@ export function createIngestionService(deps: { documentStore: DocumentStore; blo
       const userId = assertUserId(input.userId);
       const path = assertSafeVaultPath(input.path, "context/");
       if (!input.content.trim()) throw new Error("context document content is required");
+      assertContextDocumentSize(input.content);
       return deps.documentStore.put(userId, path, input.content);
     },
     async ensureContextDocument(input) {
       const userId = assertUserId(input.userId);
       const path = assertSafeVaultPath(input.path, "context/");
       if (!input.content.trim()) throw new Error("context document content is required");
+      assertContextDocumentSize(input.content);
       return deps.documentStore.putIfAbsent(userId, path, input.content);
     },
     uploadInboxBlob,

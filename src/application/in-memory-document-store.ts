@@ -63,6 +63,21 @@ export function createInMemoryDocumentStore(
       })();
       return document ? { ...document, path: canonicalPath } : null;
     },
+    async head(userId, path) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const document = readExact(safeUserId, canonicalPath) ?? (() => {
+        const legacyPath = legacyDocumentPath(canonicalPath);
+        return legacyPath ? readExact(safeUserId, legacyPath) : null;
+      })();
+      return document ? {
+        userId: safeUserId,
+        path: canonicalPath,
+        version: document.version,
+        updatedAt: document.updatedAt,
+        size: Buffer.byteLength(document.content, "utf8"),
+      } : null;
+    },
     async getExact(userId, path) {
       return readExact(userId, path);
     },
