@@ -17,11 +17,23 @@ export function renderUntrustedCurrentText(text: string, maxCharacters: number):
   return `<untrusted-current-employee-text>${escapePromptData(text, maxCharacters)}</untrusted-current-employee-text>`;
 }
 
+/** Preserves checkpoint line structure while preventing it from creating prompt structure. */
+export function renderUntrustedPreviousThreadSummary(text: string, maxCharacters: number): string {
+  const escaped = sliceUnicode(text, maxCharacters)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replace(/^([ \t]*)(#+)(?=[ \t]|$)/gm, "$1> $2");
+  return `<untrusted-previous-checkpoint>\n${escaped}\n</untrusted-previous-checkpoint>`;
+}
+
 function escapePromptData(text: string, maxCharacters: number): string {
-  return [...text.replace(/\s+/g, " ").trim()]
-    .slice(0, maxCharacters)
-    .join("")
+  return sliceUnicode(text.replace(/\s+/g, " ").trim(), maxCharacters)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function sliceUnicode(text: string, maxCharacters: number): string {
+  return [...text].slice(0, maxCharacters).join("");
 }
