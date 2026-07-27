@@ -106,6 +106,66 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect(world.messages).toHaveLength(18);
   });
 
+  it("allows only one of two independent compactions to save the same first checkpoint", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const conversations = createInMemoryConversationStore(world);
+    const summaries = createInMemoryThreadSummaryStore(world);
+    const audit = createInMemoryAuditEventStore(world);
+    await appendTurns(12, conversations);
+    let releaseSummaries!: () => void;
+    const summariesMayFinish = new Promise<void>((resolve) => { releaseSummaries = resolve; });
+    let started = 0;
+    let bothStarted!: () => void;
+    const bothSummariesStarted = new Promise<void>((resolve) => { bothStarted = resolve; });
+    const calls: string[][] = [];
+    const summarizer: ThreadSummarizer = async ({ turns }) => {
+      calls.push(turns.map((turn) => turn.messageId));
+      started += 1;
+      if (started === 2) bothStarted();
+      await summariesMayFinish;
+      return { text: structured(`candidate-${started}`) };
+    };
+    const createIndependentCompaction = () => createThreadCompactionService({
+      conversationStore: conversations,
+      summaryStore: summaries,
+      summarizer,
+      auditEventStore: audit,
+      recentTurnLimit: 10,
+      batchTurnLimit: 2,
+      fieldCharacterLimit: 2_000,
+      summaryCeiling: 4_000,
+      clock: { now: world.now },
+      idGenerator: createDeterministicIdGenerator(),
+    });
+    const first = createIndependentCompaction().compact({ employeeId: "owner", threadId: "thread", requestId: "req-1" });
+    const second = createIndependentCompaction().compact({ employeeId: "owner", threadId: "thread", requestId: "req-2" });
+
+    await bothSummariesStarted;
+    releaseSummaries();
+    await Promise.all([first, second]);
+
+    expect(calls).toEqual([["msg-1", "msg-2"], ["msg-1", "msg-2"]]);
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-2");
+    expect(world.messages).toHaveLength(12);
+    expect(world.auditEvents.filter((event) => event.type === "thread_summary_updated")).toHaveLength(1);
+    expect(world.auditEvents.filter((event) => event.type === "thread_summary_failed")).toMatchObject([
+      { metadata: { reason: "thread_summary_conflict", turnCount: 2, previousCharacters: 0 } },
+    ]);
+  });
+
+  it("rejects a stale checkpoint update without replacing the newer watermark", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const summaries = createInMemoryThreadSummaryStore(world);
+    const base = { employeeId: "owner", threadId: "thread", watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" }, updatedAt: world.now() };
+    await expect(summaries.save({ ...base, text: structured("first") })).resolves.toBe("saved");
+    await expect(summaries.save({ ...base, text: structured("newer"), watermark: { ...base.watermark, throughMessageId: "msg-2" } }, "msg-1")).resolves.toBe("saved");
+    await expect(summaries.save({ ...base, text: structured("stale"), watermark: { ...base.watermark, throughMessageId: "msg-3" } }, "msg-1")).resolves.toBe("conflict");
+    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toMatchObject({
+      text: structured("newer"),
+      watermark: { fromMessageId: "msg-1", throughMessageId: "msg-2" },
+    });
+  });
+
   it("does not expose insight extraction or insight writes for expired turns", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);

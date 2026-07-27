@@ -80,7 +80,15 @@ export function createThreadCompactionService(deps: {
       updatedAt: deps.clock.now(),
     };
     try {
-      await deps.summaryStore.save(summary);
+      const result = await deps.summaryStore.save(summary, previous?.watermark.throughMessageId);
+      if (result === "conflict") {
+        await auditSafely(deps, input, summary.watermark.throughMessageId, "thread_summary_failed", {
+          reason: "thread_summary_conflict",
+          turnCount: pending.length,
+          previousCharacters: previous ? countUnicodeCharacters(previous.text) : 0,
+        });
+        return;
+      }
     } catch (error) {
       await auditSafely(deps, input, summary.watermark.throughMessageId, "thread_summary_failed", {
         reason: errorReason(error),

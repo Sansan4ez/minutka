@@ -27,9 +27,9 @@ export function createPostgresThreadSummaryStore(pool: Pool): ThreadSummaryStore
         throw mapPostgresError(error);
       }
     },
-    async save(summary) {
+    async save(summary, expectedThroughMessageId) {
       try {
-        await pool.query(
+        const result = await pool.query<{ saved: boolean }>(
           `INSERT INTO minutka_private.thread_summaries
              (employee_id, thread_id, summary_text, watermark_from_message_id,
               watermark_through_message_id, updated_at)
@@ -38,7 +38,10 @@ export function createPostgresThreadSummaryStore(pool: Pool): ThreadSummaryStore
              summary_text=EXCLUDED.summary_text,
              watermark_from_message_id=EXCLUDED.watermark_from_message_id,
              watermark_through_message_id=EXCLUDED.watermark_through_message_id,
-             updated_at=EXCLUDED.updated_at`,
+             updated_at=EXCLUDED.updated_at
+           WHERE $7::text IS NOT NULL
+             AND minutka_private.thread_summaries.watermark_through_message_id = $7
+           RETURNING true AS saved`,
           [
             summary.employeeId,
             summary.threadId,
@@ -46,8 +49,10 @@ export function createPostgresThreadSummaryStore(pool: Pool): ThreadSummaryStore
             summary.watermark.fromMessageId,
             summary.watermark.throughMessageId,
             summary.updatedAt,
+            expectedThroughMessageId ?? null,
           ],
         );
+        return result.rows[0] ? "saved" : "conflict";
       } catch (error) {
         throw mapPostgresError(error);
       }

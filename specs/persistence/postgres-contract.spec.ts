@@ -108,16 +108,38 @@ describe("PostgreSQL storage contracts", () => {
     ]);
 
     const summaries = createPostgresThreadSummaryStore(pool);
-    await summaries.save({
+    const firstCheckpoint = {
       employeeId: "emp_compaction",
       threadId: "thread_compaction",
       text: "## Факты\ncheckpoint\n## Решения\n- нет\n## Договорённости\n- нет\n## Открытые вопросы\n- нет",
       watermark: { fromMessageId: first[0]!.messageId, throughMessageId: first.at(-1)!.messageId },
       updatedAt: now,
-    });
+    };
+    const firstSaveResults = await Promise.all([
+      summaries.save(firstCheckpoint),
+      summaries.save({ ...firstCheckpoint, text: `${firstCheckpoint.text}\ncompeting` }),
+    ]);
+    expect(firstSaveResults.sort()).toEqual(["conflict", "saved"]);
     expect((await summaries.get({ employeeId: "emp_compaction", threadId: "thread_compaction" }))?.watermark).toEqual({
       fromMessageId: "msg_compaction_01",
       throughMessageId: "msg_compaction_03",
+    });
+
+    await expect(summaries.save({
+      ...firstCheckpoint,
+      text: `${firstCheckpoint.text}\nadvanced`,
+      watermark: { fromMessageId: "msg_compaction_01", throughMessageId: "msg_compaction_04" },
+      updatedAt: "2026-07-12T00:01:00.000Z",
+    }, "msg_compaction_03")).resolves.toBe("saved");
+    await expect(summaries.save({
+      ...firstCheckpoint,
+      text: `${firstCheckpoint.text}\nstale`,
+      watermark: { fromMessageId: "msg_compaction_01", throughMessageId: "msg_compaction_05" },
+      updatedAt: "2026-07-12T00:02:00.000Z",
+    }, "msg_compaction_03")).resolves.toBe("conflict");
+    expect(await summaries.get({ employeeId: "emp_compaction", threadId: "thread_compaction" })).toMatchObject({
+      text: `${firstCheckpoint.text}\nadvanced`,
+      watermark: { fromMessageId: "msg_compaction_01", throughMessageId: "msg_compaction_04" },
     });
     expect((await conversations.getTurnsBeforeRecent({
       employeeId: "emp_compaction",

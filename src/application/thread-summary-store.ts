@@ -7,7 +7,10 @@ export type ThreadSummary = {
   updatedAt: string;
 };
 
+export type ThreadSummarySaveResult = "saved" | "conflict";
+
 export type ThreadSummaryStore = {
   get(input: { employeeId: string; threadId: string }): Promise<ThreadSummary | undefined>;
-  save(summary: ThreadSummary): Promise<void>;
+  /** Compare-and-swap; undefined expects that no checkpoint exists yet. */
+  save(summary: ThreadSummary, expectedThroughMessageId?: string): Promise<ThreadSummarySaveResult>;
 };
