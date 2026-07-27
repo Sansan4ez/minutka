@@ -109,7 +109,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
 
     expect(result.personalContextDocuments).toEqual(["/proc/context/10_user_memory/01_личная_конституция.md"]);
     expect(systemContext).toContain("Machine index: /proc/context");
-    expect(systemContext).toContain("40_projects/");
+    expect(systemContext).toContain('"40_projects"/');
     expect(systemContext).toContain("INDEX.md");
     expect(systemContext).toContain("plan.md");
     expect(systemContext).toContain("Some context documents use explicit degradation markers");

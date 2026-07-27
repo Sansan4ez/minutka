@@ -11,7 +11,7 @@ Default text budget is 88,000 Unicode characters with an 8,000-character respons
 | trusted assistant manual | registered `/AGENTS.md`, `/docs/*`, process index/files | source ceiling 33,000 chars | included |
 | `/proc/profile` | `ProfileStore` | field allow-list; ≤4,000 chars | included after onboarding when present |
 | `/proc/context` | `DocumentStore`, current owner `context/*` | 12 docs; 8,000/doc; 24,000 total | included |
-| `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner `context/*` paths | 6,000 chars; depth 4; file tree → folder → top-level rollup | included after context documents |
+| `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner `context/*` paths | 6,000 chars; depth 4; file tree → folder → top-level → fixed-size global rollup; path segments prompt-escaped | included after context documents |
 | `/proc/records` | owner-scoped record stores | 24 records; 1,000/record; 12,000 total | included |
 | `/proc/inbox` | `ArtifactStore` / `BlobStore` | 12 relevant items; ≤8,000 chars | not included |
 | `thread_summary` in `/proc/thread` | regenerable `ThreadSummaryStore` checkpoint over turns outside the recent window | 4,000 chars; inclusive message-id watermark | included before recent history when present |

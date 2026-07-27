@@ -1,14 +1,15 @@
 import { countUnicodeCharacters } from "./context-budget.js";
 import { contextDocumentHandle, type UserDocumentMetadata } from "./document-store.js";
 
-export type ContextTreeIndexLevel = "files" | "folders" | "top-level";
+export type ContextTreeIndexLevel = "files" | "folders" | "top-level" | "global";
+export type ContextTreeIndexDegradationReason = "folder_rollup" | "top_level_rollup" | "global_rollup";
 
 export type ContextTreeIndex = {
   level: ContextTreeIndexLevel;
   documentCount: number;
   text: string;
   degradation?: {
-    reason: "folder_rollup" | "top_level_rollup";
+    reason: ContextTreeIndexDegradationReason;
     ceiling: number;
     actualCharacters: number;
   };
@@ -38,14 +39,16 @@ export function renderContextTreeIndex(input: {
 
   const documents = [...input.documents].sort((left, right) => comparePath(left.path, right.path));
   const root = buildTree(documents);
-  const candidates: Array<{ level: ContextTreeIndexLevel; lines: string[] }> = [
+  const candidates: Array<{ level: ContextTreeIndexLevel; lines: string[]; reason?: ContextTreeIndexDegradationReason }> = [
     { level: "files", lines: renderFileTree(root, input.depth) },
-    { level: "folders", lines: renderFolderRollup(root, input.depth) },
-    { level: "top-level", lines: renderTopLevelRollup(root) },
+    { level: "folders", lines: renderFolderRollup(root, input.depth), reason: "folder_rollup" },
+    { level: "top-level", lines: renderTopLevelRollup(root), reason: "top_level_rollup" },
+    { level: "global", lines: renderGlobalRollup(root, documents), reason: "global_rollup" },
   ];
   const renderedCandidates = candidates.map((candidate) => ({
     level: candidate.level,
     text: renderIndex(candidate.level, documents.length, candidate.lines),
+    reason: candidate.reason,
   }));
   const fullCharacters = countUnicodeCharacters(renderedCandidates[0]!.text);
   for (const candidate of renderedCandidates) {
@@ -54,16 +57,16 @@ export function renderContextTreeIndex(input: {
       level: candidate.level,
       documentCount: documents.length,
       text: candidate.text,
-      ...(candidate.level === "files" ? {} : {
+      ...(candidate.reason === undefined ? {} : {
         degradation: {
-          reason: candidate.level === "folders" ? "folder_rollup" as const : "top_level_rollup" as const,
+          reason: candidate.reason,
           ceiling: input.ceiling,
           actualCharacters: fullCharacters,
         },
       }),
     };
   }
-  throw new Error(`top-level context index exceeds its ${input.ceiling}-character ceiling`);
+  throw new Error(`global context index exceeds its ${input.ceiling}-character ceiling`);
 }
 
 function renderIndex(level: ContextTreeIndexLevel, documentCount: number, lines: string[]): string {
@@ -119,10 +122,7 @@ function appendFileTree(node: TreeNode, level: number, depth: number, lines: str
 }
 
 function renderFolderRollup(root: TreeNode, depth: number): string[] {
-  const lines = ["/proc/context/"];
-  for (const file of root.files.sort((left, right) => comparePath(left.path, right.path))) {
-    lines.push(`  ${displaySegment(file.path.split("/").at(-1) ?? file.path)} (1 file, ${file.size} B, ${displayDate(file.updatedAt)})`);
-  }
+  const lines = ["/proc/context/", ...renderRootFiles(root.files)];
   appendFolderRollup(root, 1, depth, lines);
   return lines;
 }
@@ -136,15 +136,27 @@ function appendFolderRollup(node: TreeNode, level: number, depth: number, lines:
 }
 
 function renderTopLevelRollup(root: TreeNode): string[] {
-  const lines = ["/proc/context/"];
-  for (const file of root.files.sort((left, right) => comparePath(left.path, right.path))) {
-    lines.push(`  ${displaySegment(file.path.split("/").at(-1) ?? file.path)} (1 file, ${file.size} B, ${displayDate(file.updatedAt)})`);
-  }
+  const lines = ["/proc/context/", ...renderRootFiles(root.files)];
   for (const child of sortedChildren(root)) {
     const summary = summarize(child);
     lines.push(`  ${displaySegment(child.name)}/ (${summary.files} files, ${summary.size} B, ${displayDate(summary.updatedAt)})`);
   }
   return lines;
+}
+
+function renderGlobalRollup(root: TreeNode, documents: readonly UserDocumentMetadata[]): string[] {
+  const totalBytes = documents.reduce((total, document) => total + document.size, 0);
+  return [`Total: ${documents.length} documents, ${totalBytes} B; root files: ${root.files.length}; top-level folders: ${root.children.size}.`];
+}
+
+function renderRootFiles(files: readonly UserDocumentMetadata[]): string[] {
+  if (files.length === 0) return [];
+  const sorted = [...files].sort((left, right) => comparePath(left.path, right.path));
+  const individual = sorted.map((file) => `  ${displaySegment(file.path.split("/").at(-1) ?? file.path)} (1 file, ${file.size} B, ${displayDate(file.updatedAt)})`);
+  const totalBytes = sorted.reduce((total, file) => total + file.size, 0);
+  const updatedAt = sorted.reduce((latest, file) => latest > file.updatedAt ? latest : file.updatedAt, "");
+  const rollup = `  (root files: ${files.length} files, ${totalBytes} B, ${displayDate(updatedAt)}; names rolled up)`;
+  return countUnicodeCharacters(rollup) < countUnicodeCharacters(individual.join("\n")) ? [rollup] : individual;
 }
 
 function summarize(node: TreeNode): FolderSummary {
@@ -174,5 +186,9 @@ function displayDate(updatedAt: string): string {
 }
 
 function displaySegment(segment: string): string {
-  return segment.replace(/[\u0000-\u001f\u007f]/gu, (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
+  return JSON.stringify(segment)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("`", "\\u0060");
 }

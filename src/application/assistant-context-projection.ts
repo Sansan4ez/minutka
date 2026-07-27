@@ -1,14 +1,13 @@
 import { countUnicodeCharacters, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
 import { contextDocumentHandle, type DocumentStore, type UserDocument, type UserDocumentMetadata } from "./document-store.js";
 import { loadContextPriorityManifest, type ContextPriorityManifest } from "./context-priority-manifest.js";
-import { renderContextTreeIndex, type ContextTreeIndexLevel } from "./context-tree-index.js";
+import { renderContextTreeIndex, type ContextTreeIndexDegradationReason, type ContextTreeIndexLevel } from "./context-tree-index.js";
 
 export type ContextProjectionDegradationReason =
   | "per_file_limit"
   | "context_ceiling"
   | "document_limit"
-  | "folder_rollup"
-  | "top_level_rollup";
+  | ContextTreeIndexDegradationReason;
 
 export type ContextProjectionAudit = {
   sourceId: "context" | "context_index";

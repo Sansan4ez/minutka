@@ -212,4 +212,22 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
       "actualCharacters", "affectedCount", "ceiling", "documentCount", "includedCharacters", "reason", "sourceId",
     ]);
   });
+
+  it("audits a deterministic global rollup when top-level names cannot fit", async () => {
+    const { projection, audits } = await build({
+      documents: Array.from({ length: 2_000 }, (_, index) => ({ path: `${"very-long-folder-name-".repeat(4)}${String(index).padStart(4, "0")}/note.md`, content: "x" })),
+      config: budget({ documents: 1, index: 1_500 }),
+    });
+
+    expect(projection.data.index.level).toBe("global");
+    expect(countUnicodeCharacters(projection.data.index.text)).toBeLessThanOrEqual(1_500);
+    expect(projection.data.index.text).toContain("Total: 2000 documents, 2000 B; root files: 0; top-level folders: 2000.");
+    expect(audits.at(-1)).toMatchObject({
+      sourceId: "context_index",
+      reason: "global_rollup",
+      ceiling: 1_500,
+      documentCount: 2_000,
+      affectedCount: 2_000,
+    });
+  });
 });
