@@ -39,7 +39,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
     }),
     readDocument: createTool({
       id: "readDocument",
-      description: "Read a bounded range or exact Markdown section from one owner document under /proc/context.",
+      description: "Read a bounded range or exact Markdown section under /proc/context, subject to per-turn output-character, physical-scan-byte, and per-document-byte limits.",
       strict: true,
       inputSchema: z.strictObject({
         path: documentPathSchema,
@@ -68,7 +68,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
     }),
     searchDocuments: createTool({
       id: "searchDocuments",
-      description: "Search owner document paths and contents under /proc/context and return bounded snippets.",
+      description: "Search owner document paths and contents under /proc/context, returning bounded snippets until output-character or physical-scan-byte limits are exhausted.",
       strict: true,
       inputSchema: z.strictObject({
         query: z.string().min(2),
