@@ -3,6 +3,7 @@ import { assertContextSourceContentFits, contextBudgetConfigFromEnv } from "../a
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../application/assistant-manual-loader.js";
 import { loadContextPriorityManifest } from "../application/context-priority-manifest.js";
+import { assertGeneratedContextSourceMinimums } from "../application/generated-context-startup-validator.js";
 import { createIngestionService } from "../application/ingestion-service.js";
 import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
@@ -41,6 +42,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const contextPriorities = loadContextPriorityManifest();
   const config = postgresConfigFromEnv(input.env);
   const contextBudget = contextBudgetConfigFromEnv(input.env);
+  assertGeneratedContextSourceMinimums(contextBudget);
   assertContextSourceContentFits({
     config: contextBudget,
     sourceId: "agent_manual",

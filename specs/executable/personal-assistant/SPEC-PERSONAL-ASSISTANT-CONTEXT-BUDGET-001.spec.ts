@@ -10,7 +10,10 @@ import {
   defaultContextBudget,
 } from "../../../src/application/context-budget.js";
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
+import { renderEmptyAssistantContextSection } from "../../../src/application/assistant-context-renderer.js";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { renderEmptyContextTreeIndex } from "../../../src/application/context-tree-index.js";
+import { assertGeneratedContextSourceMinimums } from "../../../src/application/generated-context-startup-validator.js";
 import { assistantRecordsLimits } from "../../../src/application/assistant-records-projection.js";
 import { buildAssistantSystemContext } from "../../../src/application/assistant-service.js";
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
@@ -227,6 +230,25 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "-1" })).toThrow("non-negative integer");
     expect(() => contextBudgetConfigFromEnv({ ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "1000" })).toThrow("must not exceed total budget");
     expect(() => createContextBudgetConfig({ sources: { missing: 1 } as never })).toThrow("unknown context budget source");
+  });
+
+  it("validates minimum viable generated sections from the production renderers", () => {
+    const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
+    const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(defaultContextBudget.projectionLimits.contextIndexDepth));
+    const exact = createContextBudgetConfig({
+      sources: { context: contextMinimum, context_index: indexMinimum },
+      projectionLimits: { contextDocumentCharacters: contextMinimum },
+    });
+
+    expect(() => assertGeneratedContextSourceMinimums(exact)).not.toThrow();
+    expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
+      sources: { context: contextMinimum - 1 },
+      projectionLimits: { contextDocumentCharacters: contextMinimum - 1 },
+    }))).toThrow(`context source context requires a minimum rendered representation of ${contextMinimum} Unicode characters, but its configured ceiling is ${contextMinimum - 1}`);
+    expect(() => assertGeneratedContextSourceMinimums(createContextBudgetConfig({
+      sources: { context_index: indexMinimum - 1 },
+    }))).toThrow(`context source context_index requires a minimum rendered representation of ${indexMinimum} Unicode characters, but its configured ceiling is ${indexMinimum - 1}`);
+    expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget)).not.toThrow();
   });
 });
 
