@@ -93,7 +93,15 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     expect(projection.data.documents[1]).toMatchObject({ path: "/proc/context/20_work/note.md", representation: "index-reference", originalCharacters: 300 });
     expect(projection.data.documents).toHaveLength(2);
     expect(projection.data.index.text).toContain("meeting.md");
-    expect(audits.map(({ reason }) => reason)).toEqual(["context_ceiling", "context_ceiling"]);
+    expect(audits).toEqual([{
+      sourceId: "context",
+      reason: "context_ceiling",
+      ceiling: 570,
+      actualCharacters: 600,
+      includedCharacters: countUnicodeCharacters(projection.data.documents[1]!.content),
+      documentCount: 3,
+      affectedCount: 2,
+    }]);
     expect(renderAssistantContextProjection(projection)).toMatchSnapshot();
   });
 
@@ -106,20 +114,51 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
     })).rejects.toThrow("core context document /proc/context/01_core.md has 4001 Unicode characters and exceeds the 4000-character per-file ceiling");
   });
 
-  it("audits document-limit omission without paths or document text while the index keeps every file visible", async () => {
+  it("aggregates document-limit omissions without paths or document text while the index keeps every file visible", async () => {
     const { projection, audits } = await build({
-      documents: Array.from({ length: 20 }, (_, index) => ({ path: `80_inbox/file-${String(index).padStart(2, "0")}.md`, content: `SECRET-${index}` })),
-      config: budget({ documents: 3 }),
+      documents: Array.from({ length: 141 }, (_, index) => ({ path: `80_inbox/file-${String(index).padStart(3, "0")}.md`, content: `SECRET-${index}` })),
+      config: budget({ documents: 12 }),
     });
 
-    expect(projection.data.documents).toHaveLength(3);
-    expect(projection.data.index.documentCount).toBe(20);
-    expect(projection.data.index.text).toContain("file-19.md");
-    expect(audits).toHaveLength(17);
-    expect(audits.every(({ reason }) => reason === "document_limit")).toBe(true);
+    expect(projection.data.documents).toHaveLength(12);
+    expect(projection.data.index.documentCount).toBe(141);
+    expect(projection.data.index.text).toContain("file-140.md");
+    expect(audits).toEqual([{
+      sourceId: "context",
+      reason: "document_limit",
+      ceiling: 12,
+      actualCharacters: 1_202,
+      includedCharacters: 0,
+      documentCount: 141,
+      affectedCount: 129,
+    }]);
     const serialized = JSON.stringify(audits);
     expect(serialized).not.toContain("file-");
     expect(serialized).not.toContain("SECRET");
+  });
+
+  it("keeps degradation audit cardinality bounded for thousands of omitted documents", async () => {
+    const documents = Array.from({ length: 5_000 }, (_, index) => ({ path: `folder-${index % 10}/file-${String(index).padStart(4, "0")}.md`, content: "PRIVATE" }));
+    const { projection, audits } = await build({
+      documents,
+      config: budget({ documents: 1, index: 2_000 }),
+    });
+
+    expect(projection.data.truncated).toBe(true);
+    expect(audits).toHaveLength(2);
+    expect(audits[0]).toMatchObject({
+      sourceId: "context",
+      reason: "document_limit",
+      documentCount: 5_000,
+      affectedCount: 4_999,
+    });
+    expect(audits[1]).toMatchObject({
+      sourceId: "context_index",
+      documentCount: 5_000,
+      affectedCount: 5_000,
+    });
+    expect(JSON.stringify(audits)).not.toContain("PRIVATE");
+    expect(JSON.stringify(audits)).not.toContain("file-");
   });
 
   it("persists only allow-listed size/reason projection audit metadata", async () => {

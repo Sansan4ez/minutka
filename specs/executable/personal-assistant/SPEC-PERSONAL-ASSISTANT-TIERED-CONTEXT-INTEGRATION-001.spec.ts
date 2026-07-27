@@ -134,7 +134,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
 
     expect(world.auditEvents).toContainEqual(expect.objectContaining({
       type: "context_projection_degraded",
-      metadata: expect.objectContaining({ reason: "document_limit", affectedCount: 1 }),
+      metadata: expect.objectContaining({ reason: "document_limit", affectedCount: 2 }),
     }));
     expect(world.auditEvents).toContainEqual(expect.objectContaining({
       type: "document_tool_used",

@@ -61,7 +61,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
       const metadata = await deps.documentStore.listMetadata(input.userId, "context/");
       const source = prioritizeContextMetadataWithPolicy(metadata, contextPriorities);
       const index = renderContextTreeIndex({ documents: metadata, ceiling: limits.indexCharacters, depth: limits.indexDepth });
-      const audits: ContextProjectionAudit[] = [];
+      const audits = new Map<string, ContextProjectionAudit>();
       let characters = 0;
       const documents: AssistantContextProjection["data"]["documents"] = [];
 
@@ -87,13 +87,13 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
         }
 
         if (documents.length >= limits.documents) {
-          audits.push(degradation("context", "document_limit", limits.documents, estimatedCharacters, 0, source.length, 1));
+          aggregateDegradation(audits, degradation("context", "document_limit", limits.documents, estimatedCharacters, 0, source.length, 1));
           continue;
         }
 
         const remaining = limits.characters - characters;
         if (remaining <= 0) {
-          audits.push(degradation("context", "context_ceiling", limits.characters, estimatedCharacters, 0, source.length, 1));
+          aggregateDegradation(audits, degradation("context", "context_ceiling", limits.characters, estimatedCharacters, 0, source.length, 1));
           continue;
         }
 
@@ -104,7 +104,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
             documents.push(projectedMetadata(candidate, reference, "index-reference", estimatedCharacters, 0));
             characters += referenceCharacters;
           }
-          audits.push(degradation("context", "context_ceiling", limits.characters, estimatedCharacters, referenceCharacters <= remaining ? referenceCharacters : 0, source.length, 1));
+          aggregateDegradation(audits, degradation("context", "context_ceiling", limits.characters, estimatedCharacters, referenceCharacters <= remaining ? referenceCharacters : 0, source.length, 1));
           continue;
         }
 
@@ -122,7 +122,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           if (partial) {
             documents.push(projectedDocument(document, partial.content, "truncated", actualCharacters, partial.nextOffset));
             characters += partial.characters;
-            audits.push(degradation("context", "per_file_limit", limits.documentCharacters, actualCharacters, partial.characters, source.length, 1));
+            aggregateDegradation(audits, degradation("context", "per_file_limit", limits.documentCharacters, actualCharacters, partial.characters, source.length, 1));
             continue;
           }
         }
@@ -133,11 +133,11 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           documents.push(projectedDocument(document, exactReference, "index-reference", actualCharacters, 0));
           characters += exactReferenceCharacters;
         }
-        audits.push(degradation("context", "context_ceiling", limits.characters, actualCharacters, exactReferenceCharacters <= remaining ? exactReferenceCharacters : 0, source.length, 1));
+        aggregateDegradation(audits, degradation("context", "context_ceiling", limits.characters, actualCharacters, exactReferenceCharacters <= remaining ? exactReferenceCharacters : 0, source.length, 1));
       }
 
       if (index.degradation) {
-        audits.push(degradation(
+        aggregateDegradation(audits, degradation(
           "context_index",
           index.degradation.reason,
           index.degradation.ceiling,
@@ -147,14 +147,14 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
           index.documentCount,
         ));
       }
-      for (const event of audits) await input.audit?.(event);
+      for (const event of audits.values()) await input.audit?.(event);
 
       return {
         schemaVersion: 1,
         path: "/proc/context",
         generatedAt: deps.now(),
         scope: { userId: input.userId, requestId: input.requestId },
-        data: { documents, truncated: audits.length > 0, index },
+        data: { documents, truncated: audits.size > 0, index },
       };
     },
   };
@@ -241,6 +241,18 @@ function renderIndexReference(path: string, originalSize: number, unit: "Unicode
 
 function degradation(sourceId: ContextProjectionAudit["sourceId"], reason: ContextProjectionDegradationReason, ceiling: number, actualCharacters: number, includedCharacters: number, documentCount: number, affectedCount: number): ContextProjectionAudit {
   return { sourceId, reason, ceiling, actualCharacters, includedCharacters, documentCount, affectedCount };
+}
+
+function aggregateDegradation(audits: Map<string, ContextProjectionAudit>, event: ContextProjectionAudit): void {
+  const key = `${event.sourceId}:${event.reason}:${event.ceiling}`;
+  const existing = audits.get(key);
+  if (!existing) {
+    audits.set(key, event);
+    return;
+  }
+  existing.actualCharacters += event.actualCharacters;
+  existing.includedCharacters += event.includedCharacters;
+  existing.affectedCount += event.affectedCount;
 }
 
 function escapeUserData(value: string): string {
