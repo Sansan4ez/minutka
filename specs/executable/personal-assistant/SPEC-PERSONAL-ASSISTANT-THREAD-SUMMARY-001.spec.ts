@@ -91,7 +91,7 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     const calls: Array<{ previous?: string; ids: string[] }> = [];
     const summarizer: ThreadSummarizer = async ({ previous, turns }) => {
       calls.push({ previous: previous?.text, ids: turns.map((turn) => turn.messageId) });
-      return { text: structured([previous?.text, ...turns.map((turn) => turn.userText)].filter(Boolean).join(" | ")) };
+      return { text: structured(turns.map((turn) => turn.userText).join(" | ")) };
     };
     const compaction = createCompaction(world, conversations, summaries, summarizer, { batchTurnLimit: 3 });
 
@@ -379,20 +379,67 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.watermark.throughMessageId).toBe("msg-3");
   });
 
-  it("does not save an unstructured result or damage the previous checkpoint", async () => {
+  it("canonicalizes valid whitespace and Unicode section bodies before saving", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const conversations = createInMemoryConversationStore(world);
+    const summaries = createInMemoryThreadSummaryStore(world);
+    await appendTurns(11, conversations);
+    const providerText = [
+      "",
+      "  ",
+      "## Факты",
+      "",
+      "🙂 Привет & <данные>",
+      "",
+      "## Решения",
+      "  оставить пробелы как данные  ",
+      "## Договорённости",
+      "### Подробность",
+      "文字",
+      "## Открытые вопросы",
+      "- нет",
+      "",
+    ].join("\r\n");
+    const compaction = createCompaction(world, conversations, summaries, async () => ({ text: providerText }));
+
+    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
+
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.text).toBe([
+      "## Факты",
+      "🙂 Привет & <данные>",
+      "## Решения",
+      "  оставить пробелы как данные  ",
+      "## Договорённости",
+      "### Подробность",
+      "文字",
+      "## Открытые вопросы",
+      "- нет",
+    ].join("\n"));
+  });
+
+  it("rejects non-canonical headings without damaging the previous checkpoint", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);
     const summaries = createInMemoryThreadSummaryStore(world);
     await appendTurns(12, conversations);
-    await summaries.save({ employeeId: "owner", threadId: "thread", text: structured("old"), watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" }, updatedAt: world.now() });
-    const compaction = createCompaction(world, conversations, summaries, async () => ({ text: "missing required headings" }));
+    const previous = { employeeId: "owner", threadId: "thread", text: structured("old"), watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" }, updatedAt: world.now() };
+    await summaries.save(previous);
+    const invalidResults = [
+      "missing required headings",
+      `UNVALIDATED PREAMBLE\n${structured("new")}`,
+      structured("new").replace("## Решения\n- нет", "## Решения\n- нет\n## Решения\n- duplicate"),
+      structured("new").replace("## Договорённости", "   ## Дополнительная секция"),
+      ["## Факты", "new", "## Договорённости", "- early", "## Решения", "- late", "## Открытые вопросы", "- нет"].join("\n"),
+      ["## Факты", "new", "## Решения", "- нет", "## Открытые вопросы", "- missing"].join("\n"),
+      `${structured("new")}\n## Дополнительная секция\n- trailer`,
+    ];
+    let nextResult = 0;
+    const compaction = createCompaction(world, conversations, summaries, async () => ({ text: invalidResults[nextResult++]! }));
 
-    await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req" });
-
-    expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toMatchObject({
-      text: structured("old"),
-      watermark: { fromMessageId: "msg-1", throughMessageId: "msg-1" },
-    });
+    for (let index = 0; index < invalidResults.length; index++) {
+      await compaction.compact({ employeeId: "owner", threadId: "thread", requestId: `req-${index}` });
+      expect(await summaries.get({ employeeId: "owner", threadId: "thread" })).toEqual(previous);
+    }
   });
 
   it("projects the checkpoint before the ten recent verbatim turns and schedules compaction after chat", async () => {

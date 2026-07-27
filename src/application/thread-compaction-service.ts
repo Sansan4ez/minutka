@@ -57,9 +57,12 @@ export function createThreadCompactionService(deps: {
         fieldCharacters: deps.fieldCharacterLimit,
       });
       const sections = parseStructuredSummary(generated.text);
-      if (countUnicodeCharacters(generated.text) > deps.summaryCeiling) {
-        generated = { text: buildBoundedSummary(sections, deps.summaryCeiling) };
-      }
+      const canonicalText = buildCanonicalSummary(sections);
+      generated = {
+        text: countUnicodeCharacters(canonicalText) > deps.summaryCeiling
+          ? buildBoundedSummary(sections, deps.summaryCeiling)
+          : canonicalText,
+      };
     } catch (error) {
       await auditSafely(deps, input, pending.at(-1)?.messageId, "thread_summary_failed", {
         reason: errorReason(error),
@@ -119,20 +122,44 @@ export function createThreadCompactionService(deps: {
 type ThreadSummarySections = Record<typeof threadSummarySectionHeadings[number], string>;
 
 function parseStructuredSummary(text: string): ThreadSummarySections {
-  const sections = {} as ThreadSummarySections;
-  let cursor = 0;
-  for (const [index, heading] of threadSummarySectionHeadings.entries()) {
-    const marker = `## ${heading}`;
-    const start = text.indexOf(marker, cursor);
-    if (start < cursor) throw new Error("summary_sections_missing");
-    const bodyStart = start + marker.length;
-    const nextHeading = threadSummarySectionHeadings[index + 1];
-    const bodyEnd = nextHeading === undefined ? text.length : text.indexOf(`## ${nextHeading}`, bodyStart);
-    if (bodyEnd < bodyStart) throw new Error("summary_sections_missing");
-    sections[heading] = text.slice(bodyStart, bodyEnd).trim();
-    cursor = bodyEnd;
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const firstNonEmptyLine = lines.findIndex((line) => line.trim().length > 0);
+  if (firstNonEmptyLine < 0 || lines[firstNonEmptyLine] !== `## ${threadSummarySectionHeadings[0]}`) {
+    throw new Error("summary_sections_missing");
   }
-  return sections;
+
+  const sectionLines = threadSummarySectionHeadings.map(() => [] as string[]);
+  let sectionIndex = -1;
+  for (const line of lines.slice(firstNonEmptyLine)) {
+    const expectedHeading = threadSummarySectionHeadings[sectionIndex + 1];
+    if (expectedHeading !== undefined && line === `## ${expectedHeading}`) {
+      sectionIndex += 1;
+      continue;
+    }
+    if (/^##(?:[ \t]|$)/u.test(line.trimStart())) throw new Error("summary_sections_missing");
+    sectionLines[sectionIndex]!.push(line);
+  }
+  if (sectionIndex !== threadSummarySectionHeadings.length - 1) throw new Error("summary_sections_missing");
+
+  return Object.fromEntries(threadSummarySectionHeadings.map((heading, index) => [
+    heading,
+    trimBlankBoundaryLines(sectionLines[index]!).join("\n"),
+  ])) as ThreadSummarySections;
+}
+
+function trimBlankBoundaryLines(lines: readonly string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start]!.trim().length === 0) start += 1;
+  while (end > start && lines[end - 1]!.trim().length === 0) end -= 1;
+  return lines.slice(start, end);
+}
+
+function buildCanonicalSummary(sections: ThreadSummarySections): string {
+  return threadSummarySectionHeadings.map((heading) => {
+    const marker = `## ${heading}`;
+    return sections[heading].length === 0 ? marker : `${marker}\n${sections[heading]}`;
+  }).join("\n");
 }
 
 function buildBoundedSummary(sections: ThreadSummarySections, ceiling: number): string {
