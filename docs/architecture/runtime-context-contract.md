@@ -1,6 +1,6 @@
 # Контракт сборки runtime context персонального ассистента
 
-> **Статус:** accepted baseline (2026-07-16). Канонизирует фактический runtime и целевую сборку по [RFC персонального ассистента](./rfc-personal-assistant-architecture.md) и [agent-led routing](./rfc-agent-led-routing.md).
+> **Статус:** implemented baseline C.0 (2026-07-28). Канонизирует фактический runtime и целевую сборку по [RFC персонального ассистента](./rfc-personal-assistant-architecture.md) и [agent-led routing](./rfc-agent-led-routing.md). Эпик `prs-jxy` закрыт; новые источники и capabilities добавляются следующими фазами без пересмотра базовых trust/budget инвариантов.
 
 ## Назначение
 
@@ -79,6 +79,8 @@ Per-source limits для ещё не реализованных `/proc/profile`,
 
 Исходная идея `prs-jxy.4` — LLM-суммаризация документов при ingestion — **отклонена**. Она добавляет сетевую зависимость и недетерминированный производный текст, ломает executable specs без LLM/сети и создаёт второй источник drift рядом с оригиналом. Её роль выполняет tiered index: metadata-only machine index гарантирует полную структурную карту, а owner/agent-authored `INDEX.md` хранит компактную устойчивую семантическую аннотацию.
 
-## Текущее несоответствие и следующие задачи
+## Состояние после C.0 и следующие задачи
 
-Product chat уже следует agent-led routing и owner isolation, включает `/proc/profile`, приоритетный core `/proc/context`, machine index, `/proc/records`, optional incremental `thread_summary` и bounded recent history. `/proc/inbox` и `/run/actions` пока отсутствуют. Единственный product chat-path сохраняется.
+Product chat следует agent-led routing и owner isolation, включает `/proc/profile`, приоритетный core `/proc/context`, machine index, `/proc/records`, optional incremental `thread_summary` и bounded recent history. `/proc/inbox` и `/run/actions` пока отсутствуют. Единственный product chat-path сохраняется.
+
+Следующий этап `prs-mcn` расширяет существующий `/proc/records` bounded-проекцией задач и добавляет только request-scoped typed task capabilities за explicit confirmation boundary. Новый ambient source, pre-flight router или обязательная календарная интеграция не вводятся. `readProcess(id)` (`prs-jxy.8`) остаётся deferred до 5+ активных процессов или приближения assistant manual к configured source ceiling.

@@ -1,5 +1,12 @@
 # TODO in Personal AI assistant project
 
+## Ручные release/pilot gates
+
+- [x] Перед merge/пилотным deploy C.0: `npm run specs:persistence` на настроенных test/migration PostgreSQL credentials — 17 passed (2026-07-28).
+- [x] Перед merge/пилотным deploy C.0: `MINIO_SMOKE=true npm run specs:minio` на versioned owner-scoped bucket — 6 passed (2026-07-28).
+- [ ] После deploy: реальный Telegram smoke A.3 — подтверждённые цели/проекты видны ассистенту после restart; чужой owner context не виден.
+- [ ] Для следующих процессов сначала выполнить `prs-jxy.7`: machine-readable категории active/draft/legacy и drift-spec.
+
 ## Дополнения
 
 1. Чем продукт лучше ChatGPT, OpenClaw, Hermes?
