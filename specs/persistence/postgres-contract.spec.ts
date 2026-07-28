@@ -16,6 +16,8 @@ import { createInMemoryArtifactContentStore } from "../../src/application/in-mem
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
+import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
+import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -365,6 +367,49 @@ describe("PostgreSQL storage contracts", () => {
     await expect(ideas.update("idea_owner", "idea_owner_raw", { source: undefined })).resolves.toMatchObject({ source: { kind: "text", text: "raw" } });
     const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
+  });
+
+  it("persists task confirmations and executes parallel callbacks exactly once", async () => {
+    await issueProfileReadyParticipant(pool, "emp_task_confirmation", "invite_task_confirmation");
+    let currentTime = "2026-07-28T10:00:00.000Z";
+    const confirmation = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => currentTime },
+      { ttlMilliseconds: 60_000, confirmationId: () => "task-confirmation-pg" },
+    );
+    const pending = await confirmation.propose("emp_task_confirmation", {
+      kind: "create",
+      input: { id: "task-confirmed-pg", title: "Confirmed task", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await expect(createPostgresTaskStore(pool).list("emp_task_confirmation")).resolves.toEqual([]);
+
+    const restarted = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => currentTime },
+    );
+    const results = await Promise.all([
+      restarted.confirm("emp_task_confirmation", pending.confirmationId, pending.proposal),
+      restarted.confirm("emp_task_confirmation", pending.confirmationId, pending.proposal),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual(["already_confirmed", "confirmed"]);
+    expect(results[0]).toMatchObject({ outcome: { outcome: "created", task: { id: "task-confirmed-pg", revision: 1 } } });
+    expect(results[1]).toMatchObject({ outcome: { outcome: "created", task: { id: "task-confirmed-pg", revision: 1 } } });
+    await expect(createPostgresTaskStore(pool).list("emp_task_confirmation")).resolves.toHaveLength(1);
+
+    currentTime = "2026-07-28T10:02:00.000Z";
+    const expired = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => "2026-07-28T10:00:00.000Z" },
+      { ttlMilliseconds: 60_000, confirmationId: () => "task-confirmation-expired-pg" },
+    );
+    const expiredPending = await expired.propose("emp_task_confirmation", {
+      kind: "cancel", taskId: "task-confirmed-pg", expectedRevision: 1,
+    });
+    const expiredAfterRestart = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => currentTime },
+    );
+    await expect(expiredAfterRestart.confirm("emp_task_confirmation", expiredPending.confirmationId, expiredPending.proposal)).resolves.toEqual({ status: "expired" });
   });
 
   it("persists owner-scoped tasks across restarts with filters, optimistic conflicts and idea idempotency", async () => {

@@ -65,6 +65,34 @@ export const classifiedSchema = z.strictObject({
   project: z.string().min(1),
   type: recordTypeSchema,
 });
+export const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
+export const taskPatchSchema = z.strictObject({
+  title: z.string().min(1).optional(),
+  project: z.string().min(1).optional(),
+  type: recordTypeSchema.optional(),
+  status: taskStatusSchema.optional(),
+  dueDate: z.iso.date().nullable().optional(),
+}).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
+export const taskMutationProposalSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("create"), input: classifiedSchema.extend({ id: z.string().min(1), title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional() }) }),
+  z.strictObject({ kind: z.literal("update"), taskId: z.string().min(1), expectedRevision: z.number().int().positive(), patch: taskPatchSchema }),
+  z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
+]);
+export const proposeTaskMutationRequestSchema = z.strictObject({ proposal: taskMutationProposalSchema });
+export const pendingTaskMutationSchema = z.strictObject({ confirmationId: z.string().min(1), ownerId: employeeIdSchema, proposal: taskMutationProposalSchema, payloadDigest: z.string().regex(/^[0-9a-f]{64}$/), createdAt: z.iso.datetime(), expiresAt: z.iso.datetime() });
+export const confirmTaskMutationRequestSchema = z.strictObject({ proposal: taskMutationProposalSchema });
+const taskSchema = classifiedSchema.extend({ id: z.string().min(1), userId: employeeIdSchema, title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: z.number().int().positive() });
+const taskMutationOutcomeSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({ outcome: z.enum(["created", "updated", "unchanged"]), task: taskSchema }),
+  z.strictObject({ outcome: z.literal("not_found") }),
+  z.strictObject({ outcome: z.literal("conflict"), current: taskSchema.optional() }),
+]);
+export const taskMutationConfirmationResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: taskMutationOutcomeSchema }),
+  z.strictObject({ status: z.enum(["not_found", "owner_mismatch", "expired", "payload_mismatch"]) }),
+]);
+export type TaskMutationProposalRequest = z.infer<typeof proposeTaskMutationRequestSchema>;
+export type ConfirmTaskMutationRequest = z.infer<typeof confirmTaskMutationRequestSchema>;
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
 export const structuredInsightSchema = z.discriminatedUnion("kind", [

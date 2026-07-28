@@ -1,12 +1,12 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema,
-  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, serviceChatRequestSchema,
+  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, confirmTaskMutationRequestSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
-  openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
-  structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, userProfileSchema,
+  openInviteResponseSchema, pendingTaskMutationSchema, proposeTaskMutationRequestSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
+  structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationConfirmationResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest,
+  type CompleteOnboardingRequest, type ConfirmTaskMutationRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationProposalRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
 
@@ -19,6 +19,8 @@ export type EmployeeMinutkaTransport = {
   getProfile(): Promise<unknown>;
   listInsights(input: ListInsightsRequest): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
+  proposeTaskMutation(input: TaskMutationProposalRequest): Promise<unknown>;
+  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest): Promise<unknown>;
 };
 export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown> };
 export type ServiceEmployeeMinutkaTransport = {
@@ -31,6 +33,8 @@ export type ServiceEmployeeMinutkaTransport = {
   resetOnboardingDraft(): Promise<unknown>;
   getProfile(): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
+  proposeTaskMutation(input: TaskMutationProposalRequest): Promise<unknown>;
+  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest): Promise<unknown>;
 };
 export type ServiceMinutkaTransport = {
   redeemTelegramInvite(input: RedeemTelegramInviteRequest): Promise<unknown>;
@@ -53,6 +57,8 @@ export class EmployeeMinutkaClient {
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
   async listInsights(input: unknown = {}) { return validate(z.array(structuredInsightSchema), await this.transport.listInsights(validate(listInsightsRequestSchema, input, "listInsights request")), "listInsights response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
+  async proposeTaskMutation(input: unknown) { return validate(pendingTaskMutationSchema, await this.transport.proposeTaskMutation(validate(proposeTaskMutationRequestSchema, input, "proposeTaskMutation request")), "proposeTaskMutation response"); }
+  async confirmTaskMutation(confirmationId: string, input: unknown) { return validate(taskMutationConfirmationResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(confirmTaskMutationRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
 }
 
 /** Operator-only SDK surface. */
@@ -73,6 +79,8 @@ export class ServiceEmployeeMinutkaClient {
   async resetOnboardingDraft() { return validate(onboardingProgressSchema, await this.transport.resetOnboardingDraft(), "reset onboarding response"); }
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
+  async proposeTaskMutation(input: unknown) { return validate(pendingTaskMutationSchema, await this.transport.proposeTaskMutation(validate(proposeTaskMutationRequestSchema, input, "proposeTaskMutation request")), "proposeTaskMutation response"); }
+  async confirmTaskMutation(confirmationId: string, input: unknown) { return validate(taskMutationConfirmationResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(confirmTaskMutationRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
 }
 
 /** Service-only SDK surface. It cannot be used as an employee client. */

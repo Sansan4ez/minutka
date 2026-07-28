@@ -10,7 +10,10 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
+import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { EmployeeMinutkaClient, ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { HttpEmployeeMinutkaTransport, HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
@@ -132,6 +135,37 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     expect(ownerArtifact).toMatchObject({ ownerId: "owner-a", originalFileName: "private.txt" });
     await expect(facade.getArtifact("owner-b", ownerArtifact!.artifactId)).resolves.toBeNull();
     await expect(facade.listArtifacts("owner-b")).resolves.toEqual([]);
+  });
+
+  it("uses the same owner-bound task confirmation use-case over employee HTTP and Telegram service HTTP", async () => {
+    const clock = { now: () => "2026-07-28T09:00:00.000Z" };
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    await prepareOwner(runtime.service, "owner-a", "invite-task-owner", { chatId: "chat-task-owner", userId: "telegram-task-owner" });
+    const documents = createInMemoryDocumentStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: createInMemoryIdeaStore(clock) });
+    const assistant = new AssistantService(async () => "ok", {
+      documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
+      requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
+    });
+    const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
+    const tasks = createInMemoryTaskStore(clock);
+    let confirmationId = 0;
+    const taskMutations = new TaskMutationConfirmationService(
+      createInMemoryTaskMutationConfirmationStore(tasks), clock,
+      { confirmationId: () => `transport-confirmation-${++confirmationId}` },
+    );
+    const facade = new PersonalAssistantService(runtime.service, assistant, artifacts, taskMutations);
+    const server = await listenHttpServer({ application: facade, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["owner-a", ownerToken]]) } });
+    running.push(server);
+    const employee = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
+    const telegram = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })).forEmployee("owner-a");
+
+    const employeePending = await employee.proposeTaskMutation({ proposal: { kind: "create", input: { id: "task-http", title: "HTTP task", project: "ASSISTANT", type: "operations", status: "open" } } });
+    await expect(tasks.list("owner-a")).resolves.toEqual([]);
+    await expect(telegram.confirmTaskMutation(employeePending.confirmationId, { proposal: employeePending.proposal })).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "created", task: { id: "task-http" } } });
+
+    const telegramPending = await telegram.proposeTaskMutation({ proposal: { kind: "cancel", taskId: "task-http", expectedRevision: 1 } });
+    await expect(employee.confirmTaskMutation(telegramPending.confirmationId, { proposal: telegramPending.proposal })).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "updated", task: { status: "cancelled" } } });
   });
 
   it("preserves pre-write, post-write, and uncertain-write messages for Telegram without repeating dispatch or capture", async () => {

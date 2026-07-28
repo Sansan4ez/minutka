@@ -22,6 +22,12 @@ import type {
   SubmitOnboardingAnswerInput,
 } from "./minutka-service.js";
 import type { OnboardingProgress } from "./onboarding-types.js";
+import type {
+  PendingTaskMutation,
+  TaskMutationConfirmationResult,
+  TaskMutationConfirmationService,
+  TaskMutationProposal,
+} from "./task-mutation-confirmation.js";
 import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
 
@@ -57,6 +63,7 @@ export class PersonalAssistantService {
     >,
     private readonly conversationService: Pick<AssistantService, "chat">,
     private readonly artifactStore: Pick<ArtifactStore, "save" | "get" | "list" | "delete">,
+    private readonly taskMutations?: Pick<TaskMutationConfirmationService, "propose" | "confirm">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
@@ -101,6 +108,16 @@ export class PersonalAssistantService {
 
   chat(input: AssistantChatInput): Promise<AssistantChatResult> {
     return this.conversationService.chat(input);
+  }
+
+  proposeTaskMutation(ownerId: string, proposal: TaskMutationProposal): Promise<PendingTaskMutation> {
+    if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
+    return this.taskMutations.propose(ownerId, proposal);
+  }
+
+  confirmTaskMutation(ownerId: string, confirmationId: string, proposal: TaskMutationProposal): Promise<TaskMutationConfirmationResult> {
+    if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
+    return this.taskMutations.confirm(ownerId, confirmationId, proposal);
   }
 
   listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> {

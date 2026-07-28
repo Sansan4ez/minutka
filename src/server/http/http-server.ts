@@ -4,8 +4,8 @@ import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
-  issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
-  recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
+  confirmTaskMutationRequestSchema, issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
+  proposeTaskMutationRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
 } from "../../contracts/minutka-api.js";
 import { authenticateBearer, type ApiAuthConfig, type AuthenticatedPrincipal } from "./auth.js";
@@ -36,6 +36,8 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "confirmOnboarding"
   | "resetOnboardingDraft"
   | "chat"
+  | "proposeTaskMutation"
+  | "confirmTaskMutation"
 >;
 export type HttpServerOptions = { application: HttpApplicationService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
@@ -118,6 +120,9 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && url.pathname === "/v1/me/consent") { template = "/v1/me/consent"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptEmployeeConsentRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
+      if (req.method === "POST" && url.pathname === "/v1/me/task-mutations") { template = "/v1/me/task-mutations"; const employee = requireKind(principal, "employee"); const input = parse(proposeTaskMutationRequestSchema, await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.proposeTaskMutation(employee.employeeId, input.proposal)), id); }
+      const meTaskConfirmation = url.pathname.match(/^\/v1\/me\/task-mutations\/([^/]+)\/confirm$/);
+      if (req.method === "POST" && meTaskConfirmation) { template = "/v1/me/task-mutations/:confirmationId/confirm"; const employee = requireKind(principal, "employee"); const input = parse(confirmTaskMutationRequestSchema, await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.confirmTaskMutation(employee.employeeId, decodeURIComponent(meTaskConfirmation[1]), input.proposal)), id); }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
       if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
@@ -138,6 +143,10 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && serviceOnboardingReset) { template = "/v1/service/employees/:employeeId/onboarding/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.resetOnboardingDraft({ employeeId: parse(employeeIdSchema, serviceOnboardingReset) })), id); }
       const serviceOnboarding = pathEmployee(url.pathname, "/onboarding");
       if (req.method === "POST" && serviceOnboarding) { template = "/v1/service/employees/:employeeId/onboarding"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboarding) })), id); }
+      const serviceTaskMutation = pathEmployee(url.pathname, "/task-mutations");
+      if (req.method === "POST" && serviceTaskMutation) { template = "/v1/service/employees/:employeeId/task-mutations"; requireKind(principal, "service"); const input = parse(proposeTaskMutationRequestSchema, await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.proposeTaskMutation(parse(employeeIdSchema, serviceTaskMutation), input.proposal)), id); }
+      const serviceTaskConfirmation = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/task-mutations\/([^/]+)\/confirm$/);
+      if (req.method === "POST" && serviceTaskConfirmation) { template = "/v1/service/employees/:employeeId/task-mutations/:confirmationId/confirm"; requireKind(principal, "service"); const input = parse(confirmTaskMutationRequestSchema, await body(req)); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.confirmTaskMutation(parse(employeeIdSchema, decodeURIComponent(serviceTaskConfirmation[1])), decodeURIComponent(serviceTaskConfirmation[2]), input.proposal)), id); }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
       if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(serviceChatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel }))), id); }
       const serviceFeedback = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/feedback$/);
