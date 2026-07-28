@@ -34,11 +34,15 @@ export type ReadDocumentResult = Pick<UserDocument, "version" | "updatedAt"> & {
   hint: string | null;
 };
 
+type SearchDocumentMatchMetadata = Pick<UserDocument, "version" | "updatedAt"> & {
+  path: `/proc/context/${string}`;
+};
+
 export type SearchDocumentsResult = {
-  matches: Array<Pick<UserDocument, "version" | "updatedAt"> & {
-    path: `/proc/context/${string}`;
-    snippet: string;
-  }>;
+  matches: Array<SearchDocumentMatchMetadata & (
+    | { matchedBy: "path"; snippet: null }
+    | { matchedBy: "content"; snippet: string }
+  )>;
   truncated: boolean;
   readBudgetExhausted: boolean;
   scanBudgetExhausted: boolean;
@@ -190,40 +194,44 @@ export function createOwnerDocumentReader(input: {
       let readBudgetExhausted = remainingReadCharacters() === 0;
       let scanBudgetExhausted = false;
       let documentTooLarge = false;
-      if (!readBudgetExhausted) {
-        const metadata = (await input.documentStore.listMetadata(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
-        for (const item of metadata) {
-          if (matches.length === limit) {
-            truncated = true;
-            break;
-          }
-          if (item.size > limits.maximumDocumentBytes) {
-            documentTooLarge = true;
-            truncated = true;
-            continue;
-          }
-          if (!reserveScanBytes(item.size)) {
-            scanBudgetExhausted = true;
-            truncated = true;
-            break;
-          }
-          const document = await input.documentStore.get(input.userId, item.path, item);
-          if (!document) continue;
-          const path = contextDocumentHandle(document.path);
-          const contentIndex = caseInsensitiveIndex(document.content, query);
-          if (contentIndex < 0 && caseInsensitiveIndex(path, query) < 0) continue;
-          const snippet = boundedSnippetDetails(document.content, contentIndex, limits.searchSnippetCharacters, remainingReadCharacters());
-          consumeReadCharacters(snippet.returnedCharacters);
-          matches.push({ path, snippet: snippet.text, version: document.version, updatedAt: document.updatedAt });
-          matchAudits.push({ path, ...snippet });
-          if (remainingReadCharacters() === 0) {
-            readBudgetExhausted = true;
-            truncated = true;
-            break;
-          }
+      const metadata = (await input.documentStore.listMetadata(input.userId, prefix)).sort((left, right) => compareCodeUnits(left.path, right.path));
+      for (const item of metadata) {
+        if (matches.length === limit) {
+          truncated = true;
+          break;
         }
-      } else {
-        truncated = true;
+        const path = contextDocumentHandle(item.path);
+        if (caseInsensitiveIndex(path, query) >= 0) {
+          matches.push({ path, matchedBy: "path", snippet: null, version: item.version, updatedAt: item.updatedAt });
+          matchAudits.push({ path, totalCharacters: 0, returnedCharacters: 0, nextOffset: 0, truncated: false });
+          continue;
+        }
+        if (readBudgetExhausted) {
+          truncated = true;
+          continue;
+        }
+        if (item.size > limits.maximumDocumentBytes) {
+          documentTooLarge = true;
+          truncated = true;
+          continue;
+        }
+        if (scanBudgetExhausted || !reserveScanBytes(item.size)) {
+          scanBudgetExhausted = true;
+          truncated = true;
+          continue;
+        }
+        const document = await input.documentStore.get(input.userId, item.path, item);
+        if (!document) continue;
+        const contentIndex = caseInsensitiveIndex(document.content, query);
+        if (contentIndex < 0) continue;
+        const snippet = boundedSnippetDetails(document.content, contentIndex, limits.searchSnippetCharacters, remainingReadCharacters());
+        consumeReadCharacters(snippet.returnedCharacters);
+        matches.push({ path, matchedBy: "content", snippet: snippet.text, version: document.version, updatedAt: document.updatedAt });
+        matchAudits.push({ path, ...snippet });
+        if (remainingReadCharacters() === 0) {
+          readBudgetExhausted = true;
+          truncated = true;
+        }
       }
       const hint = readBudgetExhausted ? readBudgetHint : scanBudgetExhausted ? scanBudgetHint : documentTooLarge ? documentTooLargeHint : null;
       const result: SearchDocumentsResult = { matches, truncated, readBudgetExhausted, scanBudgetExhausted, documentTooLarge, hint };

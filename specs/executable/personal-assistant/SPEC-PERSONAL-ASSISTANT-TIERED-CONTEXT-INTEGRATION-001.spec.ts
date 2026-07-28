@@ -130,7 +130,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
     expect(systemContext).not.toContain("OTHER-OWNER-SECRET");
 
     expect(search).toEqual({
-      matches: [expect.objectContaining({ path: "/proc/context/40_projects/plan.md", snippet: "need…" })],
+      matches: [expect.objectContaining({ path: "/proc/context/40_projects/plan.md", matchedBy: "content", snippet: "need…" })],
       truncated: false,
       readBudgetExhausted: false,
       scanBudgetExhausted: false,

@@ -68,7 +68,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
     }),
     searchDocuments: createTool({
       id: "searchDocuments",
-      description: "Search owner document paths and contents under /proc/context, returning bounded snippets until output-character or physical-scan-byte limits are exhausted.",
+      description: "Search owner document paths metadata-first and contents under /proc/context; path matches require no body read, while content matches return bounded snippets subject to output-character and physical-scan-byte limits.",
       strict: true,
       inputSchema: z.strictObject({
         query: z.string().min(2),
@@ -76,12 +76,22 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
         limit: z.number().int().min(1).max(reader.limits.searchMaximum).optional(),
       }),
       outputSchema: z.strictObject({
-        matches: z.array(z.strictObject({
-          path: documentPathSchema,
-          snippet: searchSnippetSchema,
-          version: z.string(),
-          updatedAt: z.string(),
-        })),
+        matches: z.array(z.discriminatedUnion("matchedBy", [
+          z.strictObject({
+            path: documentPathSchema,
+            matchedBy: z.literal("path"),
+            snippet: z.null(),
+            version: z.string(),
+            updatedAt: z.string(),
+          }),
+          z.strictObject({
+            path: documentPathSchema,
+            matchedBy: z.literal("content"),
+            snippet: searchSnippetSchema,
+            version: z.string(),
+            updatedAt: z.string(),
+          }),
+        ])),
         truncated: z.boolean(),
         readBudgetExhausted: z.boolean(),
         scanBudgetExhausted: z.boolean(),

@@ -16,7 +16,8 @@ No.
 
 ## Output
 
-- logical paths and bounded snippets of at most 500 characters plus ellipses
+- logical paths with explicit `matchedBy: path | content`
+- `snippet: null` for path matches; bounded snippets of at most 500 characters plus ellipses for content matches
 - safe version metadata
 - explicit `truncated`, `readBudgetExhausted`, `scanBudgetExhausted`, `documentTooLarge`, and a narrowing hint
 
@@ -24,7 +25,9 @@ No.
 
 - Search is limited to the authenticated owner's personal context namespace.
 - Matching is case-insensitive literal substring search over paths and contents, not a regular expression.
+- Sorted logical path metadata is checked first. A path match is returned once without reading the body, even when the same document content would also match.
 - Results never include physical object keys, bucket names, credentials, or signed URLs.
-- Returned snippets share the request-scoped 48k Unicode-character turn budget with document reads; metadata listing does not consume it.
-- Search reserves each candidate's exact metadata size before reading its body, never reads an object over 256 KiB, and stops with typed markers before exceeding the shared 2 MiB physical scan budget.
+- Path matches consume neither the request-scoped 48k Unicode-character output budget nor the 2 MiB physical scan budget. Content snippets share the output budget with document reads.
+- Only documents without a path match proceed to content scanning. Search reserves each such candidate's exact metadata size before reading its body and never reads an object over 256 KiB.
+- `documentTooLarge`, `scanBudgetExhausted`, or `readBudgetExhausted` together with `truncated=true` means content search was incomplete; later metadata path matches may still be returned without body reads.
 - Tool audit stores logical paths, sizes, offsets, truncation reasons, and outcome; never query or document text.
