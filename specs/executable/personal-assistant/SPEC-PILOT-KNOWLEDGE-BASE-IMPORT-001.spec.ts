@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import { renderAssistantContextSection, renderedAssistantContextDocumentCharacte
 import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
 import { runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
+import { createSyntheticPilotKnowledgeBase } from "../support/pilot-knowledge-base-fixture.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -268,17 +269,18 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("not allow-listed");
   });
 
-  it("accepts the repository pilot tree with the INDEX.md convention", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-repo-copy-"));
-    roots.push(root);
-    cpSync("vault/user/knowledge_base", root, { recursive: true });
-    const files = await discoverPilotKnowledgeBase(root);
+  it("accepts a synthetic deep and wide tree with the INDEX.md convention", async () => {
+    const fixture = createSyntheticPilotKnowledgeBase();
+    roots.push(fixture.root);
+    const files = await discoverPilotKnowledgeBase(fixture.root);
+    expect(files).toHaveLength(fixture.documentCount);
     expect(files).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "context/INDEX.md" }),
       expect.objectContaining({ path: "context/10_user_memory/INDEX.md" }),
+      expect.objectContaining({ path: "context/40_projects/alpha/planning/design/INDEX.md" }),
+      expect.objectContaining({ path: fixture.deepDocumentPath }),
+      expect.objectContaining({ path: fixture.wideDocumentPath }),
       expect.objectContaining({ path: "context/90_agent_memory/INDEX.md" }),
-      expect.objectContaining({ path: "context/99_system/schemas/INDEX.md" }),
-      expect.objectContaining({ path: "context/99_system/workflows/INDEX.md" }),
     ]));
     expect(files.some(({ path }) => path.endsWith("/AGENTS.MD"))).toBe(false);
   });

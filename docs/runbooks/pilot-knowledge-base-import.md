@@ -1,12 +1,13 @@
 # Импорт pilot knowledge base
 
-Команда переносит локальный `vault/user/knowledge_base` в owner-scoped `DocumentStore` (MinIO) под канонические storage keys `context/*`. В runtime они отображаются как короткие `/proc/context/*`: технический prefix `imported-knowledge-base` агенту не виден. Команда требует явный `PILOT_USER_ID`, не угадывает владельца и пишет только через `IngestionService`.
+Команда переносит локальный owner vault из `vault/user/knowledge_base` в owner-scoped `DocumentStore` (MinIO) под канонические storage keys `context/*`. Этот путь — только локальный bridge к внешнему workspace: его target, сам symlink/каталог и любые `INDEX.md` под ним не являются application source и не отслеживаются Git этого репозитория. В runtime документы отображаются как короткие `/proc/context/*`: технический prefix `imported-knowledge-base` агенту не виден. Команда требует явный `PILOT_USER_ID`, не угадывает владельца и пишет только через `IngestionService`.
 
 ## Подготовка
 
-1. Сделать резервную копию локального каталога вне репозитория.
-2. Поднять подготовленный MinIO bucket с включённым versioning по [runbook локального MinIO](minio-local.md).
-3. Экспортировать конфигурацию; реальный owner ID не добавлять в `.env.example` или git:
+1. Сделать резервную копию owner workspace вне application repository.
+2. Убедиться, что `git ls-files -- vault/user/knowledge_base` не выводит файлов. Не использовать `git add -f` для target, symlink или навигационных файлов.
+3. Поднять подготовленный MinIO bucket с включённым versioning по [runbook локального MinIO](minio-local.md).
+4. Экспортировать конфигурацию; реальный owner ID не добавлять в `.env.example` или git:
 
 ```bash
 set -a; . ./.env; set +a
@@ -73,4 +74,4 @@ Bucket versioning обязателен. Импорт и migration не удал�
 3. Скачать нужную предыдущую версию, проверить её локально и восстановить содержимое поддерживаемым `DocumentStore`/import путём. Не изменять raw object key и не переносить версию между owner prefixes.
 4. Если импорт выполнен под ошибочным owner, сначала подтвердить правильный импорт под верным owner. Удаление ошибочного owner scope выполнять отдельно через одобренную data-deletion процедуру; не использовать массовое удаление bucket.
 
-Локальный `vault/user/knowledge_base/` игнорируется git и сохраняется на рабочей машине. Для полной очистки git history требуется отдельная согласованная операция с ротацией репозитория; обычный импорт её не выполняет.
+Локальный `vault/user/knowledge_base/` целиком игнорируется application Git и сохраняется в owner workspace. Допустим локальный bridge к внешнему каталогу, но ни его target, ни symlink, ни `INDEX.md`/другие navigation files не отслеживаются этим репозиторием. Обычный `npm run specs` содержит repository-boundary guard и падает, если любой path под каталогом был добавлен в индекс, включая `git add -f`. Для полной очистки уже опубликованной Git history требуется отдельная согласованная операция с ротацией репозитория; обычный импорт её не выполняет.

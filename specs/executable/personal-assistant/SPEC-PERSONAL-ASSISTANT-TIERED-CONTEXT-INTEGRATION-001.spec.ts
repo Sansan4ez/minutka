@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import type { ReadDocumentResult, SearchDocumentsResult } from "../../../src/application/document-reader.js";
@@ -9,15 +10,22 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase } from "../../../src/application/pilot-knowledge-base-import.js";
+import { createSyntheticPilotKnowledgeBase } from "../support/pilot-knowledge-base-fixture.js";
 
 const now = "2026-07-18T12:00:00.000Z";
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-shaped tiered context gate", () => {
-  it("imports the real pilot tree and builds a complete owner-chat context with bounded body reads", async () => {
+  it("imports a synthetic deep and wide tree and builds complete owner-chat context with bounded body reads", async () => {
+    const fixture = createSyntheticPilotKnowledgeBase();
+    roots.push(fixture.root);
     const world = createInMemoryWorld(() => now);
     const baseStore = createInMemoryDocumentStore({ now: world.now });
     const ingestionService = createIngestionService({ documentStore: baseStore, blobStore: createInMemoryBlobStore({ now: world.now }) });
-    const files = await discoverPilotKnowledgeBase("vault/user/knowledge_base");
+    const files = await discoverPilotKnowledgeBase(fixture.root);
     await importPilotKnowledgeBase({ userId: "owner", files, documentStore: baseStore, ingestionService });
 
     let bodyReads = 0;
@@ -45,16 +53,21 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
 
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "Собери краткий обзор моего контекста" });
 
-    expect(files.length).toBeGreaterThan(140);
-    expect(bodyReads).toBeLessThanOrEqual(13);
-    expect(result.personalContextDocuments).toEqual(expect.arrayContaining([
-      "/proc/context/10_user_memory/01_Persona.md",
-      "/proc/context/10_user_memory/02_Goals_and_priorities.md",
-      "/proc/context/10_user_memory/06_Tags_and_Classifications.md",
-      "/proc/context/90_agent_memory/soul.md",
+    expect(files).toHaveLength(fixture.documentCount);
+    expect(files.map(({ path }) => path)).toEqual(expect.arrayContaining([
+      ...fixture.corePaths,
+      fixture.deepDocumentPath,
+      fixture.wideDocumentPath,
+      "context/INDEX.md",
+      "context/40_projects/alpha/planning/design/INDEX.md",
     ]));
+    expect(bodyReads).toBeLessThanOrEqual(13);
+    expect(result.personalContextDocuments).toEqual(expect.arrayContaining(fixture.corePaths.map((path) => `/proc/${path}`)));
     expect(systemContext).toContain("## Machine index: /proc/context");
-    expect(systemContext).toContain("documents: 166");
+    expect(systemContext).toContain(`documents: ${fixture.documentCount}`);
+    expect(systemContext).toContain("INDEX.md");
+    expect(systemContext).toContain("note-047.md");
+    expect(systemContext).toContain("depth rollup");
   });
 
   it("keeps every document on the map while projection and tool reads degrade explicitly within one turn", async () => {
