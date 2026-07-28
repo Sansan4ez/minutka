@@ -6,6 +6,7 @@ import { assertSafeVaultPath, assertUserId } from "./document-store.js";
 import { NO_PROJECT, type RecordType } from "../domain/classification.js";
 import type { Idea, IdeaSource, IdeaStore } from "./idea-store.js";
 import { defaultContextBudget } from "./context-budget.js";
+import { assertContextDocumentWithinMaximumBytes } from "./context-document-size.js";
 
 /**
  * The only application write boundary for personal-vault content. Classification
@@ -44,12 +45,11 @@ export function createIngestionService(deps: {
   maximumContextDocumentBytes?: number;
 }): IngestionService {
   const maximumContextDocumentBytes = deps.maximumContextDocumentBytes ?? defaultContextBudget.documentTools.maximumDocumentBytes;
-  const assertContextDocumentSize = (content: string) => {
-    const bytes = Buffer.byteLength(content, "utf8");
-    if (bytes > maximumContextDocumentBytes) {
-      throw new Error(`context document has ${bytes} UTF-8 bytes and exceeds the ${maximumContextDocumentBytes}-byte maximum`);
-    }
-  };
+  const assertContextDocumentSize = (content: string) => assertContextDocumentWithinMaximumBytes({
+    content,
+    maximumBytes: maximumContextDocumentBytes,
+    description: "context document",
+  });
   const uploadInboxBlob: IngestionService["uploadInboxBlob"] = async (input) => {
     const userId = assertUserId(input.userId);
     const key = assertSafeBlobKey(input.key);

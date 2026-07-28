@@ -77,6 +77,10 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
         const path = contextDocumentHandle(candidate.path);
         const estimatedCharacters = candidate.size;
 
+        if (core && candidate.size > limits.maximumDocumentBytes) {
+          throw new Error(`core context document ${path} has ${candidate.size} UTF-8 bytes and exceeds the ${limits.maximumDocumentBytes}-byte context document maximum`);
+        }
+
         if (candidate.size > limits.maximumDocumentBytes) {
           const reference = projectedMetadata(candidate, renderIndexReference(path, estimatedCharacters, "UTF-8 bytes"), "index-reference", estimatedCharacters, 0);
           const referenceCharacters = renderedAssistantContextDocumentCharacters(reference);

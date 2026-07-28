@@ -20,7 +20,7 @@ const coreManifest = {
   rules: [{ id: "constitution", pattern: "^/proc/context/01_core\\.md$", matcher: /^\/proc\/context\/01_core\.md$/u }],
 };
 
-function budget(input: { context?: number; perFile?: number; documents?: number; index?: number; total?: number } = {}) {
+function budget(input: { context?: number; perFile?: number; documents?: number; index?: number; total?: number; maximumDocumentBytes?: number } = {}) {
   const context = input.context ?? 16_000;
   const perFile = input.perFile ?? Math.min(4_000, context);
   return createContextBudgetConfig({
@@ -31,6 +31,7 @@ function budget(input: { context?: number; perFile?: number; documents?: number;
       contextDocumentCharacters: perFile,
       contextIndexDepth: 4,
     },
+    ...(input.maximumDocumentBytes === undefined ? {} : { documentTools: { maximumDocumentBytes: input.maximumDocumentBytes } }),
   });
 }
 
@@ -105,6 +106,46 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
       affectedCount: 2,
     }]);
     expect(renderAssistantContextProjection(projection)).toMatchSnapshot();
+  });
+
+  it("fails fast instead of degrading a physically oversized core document", async () => {
+    await expect(build({
+      documents: [
+        { path: "01_core.md", content: "🙂🙂" },
+        { path: "90_transcripts/meeting.md", content: "ok" },
+      ],
+      config: budget({ maximumDocumentBytes: 7 }),
+    })).rejects.toThrow("core context document /proc/context/01_core.md has 8 UTF-8 bytes and exceeds the 7-byte context document maximum");
+  });
+
+  it("keeps a physically oversized non-core document metadata-visible without reading its body", async () => {
+    const baseStore = createInMemoryDocumentStore({ now: () => now }, [
+      { userId: "owner", path: "context/90_transcripts/legacy.md", content: "🙂🙂" },
+    ]);
+    let bodyReads = 0;
+    const documentStore = {
+      ...baseStore,
+      async get(userId: string, path: string) {
+        bodyReads += 1;
+        return baseStore.get(userId, path);
+      },
+    };
+    const audits: ContextProjectionAudit[] = [];
+    const projection = await createAssistantContextProjectionBuilder({
+      documentStore,
+      now: () => now,
+      contextBudget: budget({ maximumDocumentBytes: 7 }),
+      contextPriorities: coreManifest,
+    }).build({ userId: "owner", requestId: "request", audit: (event) => { audits.push(event); } });
+
+    expect(bodyReads).toBe(0);
+    expect(projection.data.index.text).toContain("legacy.md");
+    expect(projection.data.documents).toEqual([expect.objectContaining({
+      path: "/proc/context/90_transcripts/legacy.md",
+      representation: "index-reference",
+      originalCharacters: 8,
+    })]);
+    expect(audits).toEqual([expect.objectContaining({ reason: "document_too_large", actualCharacters: 8 })]);
   });
 
   it("fails fast instead of truncating an oversized rendered core document", async () => {

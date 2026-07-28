@@ -37,12 +37,51 @@ function setup() {
 }
 
 describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", () => {
-  it("rejects an oversized context file during discovery before storage opens", async () => {
-    const root = fixture();
-    writeFileSync(join(root, "10_user_memory", "large.md"), "x".repeat(6));
-    const contextBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5 } });
+  it("uses one exact UTF-8 byte boundary for discovery, import, and ingestion", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-byte-boundary-"));
+    roots.push(root);
+    mkdirSync(join(root, "00_inbox"), { recursive: true });
+    const sourcePath = join(root, "00_inbox", "unicode.md");
+    writeFileSync(sourcePath, "🙂x");
+    const exactBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5 } });
+    const files = await discoverPilotKnowledgeBase(root, { contextBudget: exactBudget });
+    expect(files).toEqual([expect.objectContaining({ path: "context/00_inbox/unicode.md", size: 5 })]);
 
-    await expect(discoverPilotKnowledgeBase(root, { contextBudget })).rejects.toThrow("exceeds the 5-byte context document maximum");
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const documentStore = createInMemoryDocumentStore(clock);
+    const ingestionService = createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+      maximumContextDocumentBytes: 5,
+    });
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService,
+      contextBudget: exactBudget,
+    })).resolves.toMatchObject({ imported: 1, bytes: 5 });
+    await expect(ingestionService.saveContextDocument({
+      userId: "pilot",
+      path: "context/00_inbox/exact.md",
+      content: "🙂x",
+    })).resolves.toMatchObject({ content: "🙂x" });
+
+    writeFileSync(sourcePath, "🙂xx");
+    await expect(discoverPilotKnowledgeBase(root, { contextBudget: exactBudget }))
+      .rejects.toThrow("has 6 UTF-8 bytes and exceeds the 5-byte context document maximum");
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService,
+      contextBudget: exactBudget,
+    })).rejects.toThrow("has 6 UTF-8 bytes and exceeds the 5-byte context document maximum");
+    await expect(ingestionService.saveContextDocument({
+      userId: "pilot",
+      path: "context/00_inbox/oversized.md",
+      content: "🙂xx",
+    })).rejects.toThrow("has 6 UTF-8 bytes and exceeds the 5-byte context document maximum");
   });
 
   it("fails closed without an explicit pilot owner", () => {
@@ -181,6 +220,59 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await expect(documentStore.getExact("pilot", "context/10_user_memory/01_Persona.md")).resolves.toBeNull();
     await expect(documentStore.getExact("pilot", firstLegacyPath)).resolves.not.toBeNull();
     await expect(documentStore.getExact("pilot", invalidLegacyPath)).resolves.not.toBeNull();
+  });
+
+  it("rejects a late oversized legacy migration document before the first canonical write", async () => {
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const firstLegacyPath = "context/imported-knowledge-base/00_inbox/a.md";
+    const oversizedLegacyPath = "context/imported-knowledge-base/00_inbox/z.md";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: firstLegacyPath, content: "ok" },
+      { userId: "pilot", path: oversizedLegacyPath, content: "🙂xx" },
+    ]);
+    const saveContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+      maximumContextDocumentBytes: 5,
+    }).saveContextDocument);
+    const contextBudget = createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5 } });
+
+    await expect(migrateLegacyPilotKnowledgeBase({
+      userId: "pilot",
+      documentStore,
+      ingestionService: { saveContextDocument },
+      contextBudget,
+    })).rejects.toThrow("knowledge-base file context/00_inbox/z.md has 6 UTF-8 bytes and exceeds the 5-byte context document maximum");
+
+    expect(saveContextDocument).not.toHaveBeenCalled();
+    await expect(documentStore.getExact("pilot", "context/00_inbox/a.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", "context/00_inbox/z.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", firstLegacyPath)).resolves.not.toBeNull();
+    await expect(documentStore.getExact("pilot", oversizedLegacyPath)).resolves.not.toBeNull();
+  });
+
+  it("does not block migration on an oversized legacy alias when no canonical write is planned", async () => {
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const canonicalPath = "context/00_inbox/legacy.md";
+    const legacyPath = "context/imported-knowledge-base/00_inbox/legacy.md";
+    const content = "🙂xx";
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: canonicalPath, content },
+      { userId: "pilot", path: legacyPath, content },
+    ]);
+    const saveContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+      maximumContextDocumentBytes: 5,
+    }).saveContextDocument);
+
+    await expect(migrateLegacyPilotKnowledgeBase({
+      userId: "pilot",
+      documentStore,
+      ingestionService: { saveContextDocument },
+      contextBudget: createContextBudgetConfig({ documentTools: { maximumDocumentBytes: 5 } }),
+    })).resolves.toMatchObject({ migrated: 0, skipped: 1 });
+    expect(saveContextDocument).not.toHaveBeenCalled();
   });
 
   it("rejects aggregate core overflow across existing canonical and planned legacy documents before writing", async () => {

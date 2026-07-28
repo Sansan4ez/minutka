@@ -10,6 +10,7 @@ import {
   type UserDocument,
 } from "./document-store.js";
 import { defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig } from "./context-budget.js";
+import { assertContextDocumentWithinMaximumBytes } from "./context-document-size.js";
 import {
   renderedAssistantContextDocumentCharacters,
   renderedAssistantContextSectionCharacters,
@@ -104,14 +105,16 @@ export async function discoverPilotKnowledgeBase(
     if (!allowedExtensions.has(extname(path).toLowerCase())) throw new Error(`knowledge-base file type is not allow-listed: ${relativePath(discoveredRoot, path)}`);
 
     const sourceRelativePath = relativePath(discoveredRoot, path).normalize("NFC");
-    const maximumDocumentBytes = (options.contextBudget ?? defaultContextBudget).documentTools.maximumDocumentBytes;
-    if (stat.size > maximumDocumentBytes) {
-      throw new Error(`knowledge-base file ${sourceRelativePath} has ${stat.size} bytes and exceeds the ${maximumDocumentBytes}-byte context document maximum`);
-    }
+    const content = await readFile(path, "utf8");
+    const size = assertContextDocumentWithinMaximumBytes({
+      content,
+      maximumBytes: (options.contextBudget ?? defaultContextBudget).documentTools.maximumDocumentBytes,
+      description: `knowledge-base file ${sourceRelativePath}`,
+    });
     files.push({
       sourcePath: path,
       path: assertSafeVaultPath(`${destinationPrefix}/${sourceRelativePath}`, "context/"),
-      size: stat.size,
+      size,
     });
   }
 
@@ -195,12 +198,14 @@ export async function importPilotKnowledgeBase(input: {
   const userId = assertUserId(input.userId);
   const contextBudget = input.contextBudget ?? defaultContextBudget;
   const prepared = await Promise.all(input.files.map(async (file) => {
-    if (file.size > contextBudget.documentTools.maximumDocumentBytes) {
-      throw new Error(`knowledge-base file ${file.path} has ${file.size} bytes and exceeds the ${contextBudget.documentTools.maximumDocumentBytes}-byte context document maximum`);
-    }
     const content = await readFile(file.sourcePath, "utf8");
+    const size = assertContextDocumentWithinMaximumBytes({
+      content,
+      maximumBytes: contextBudget.documentTools.maximumDocumentBytes,
+      description: `knowledge-base file ${file.path}`,
+    });
     if (!content.trim()) throw new Error(`knowledge-base file is empty: ${file.path}`);
-    return { ...file, content };
+    return { ...file, content, size };
   }));
 
   const existingDocuments = await input.documentStore.listExact(userId, "context/");
@@ -258,10 +263,18 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
     plan.push({ from: legacyPath, to: canonicalPath, content: legacy.content, status: canonical ? "skipped" : "migrated" });
   }
 
+  const contextBudget = input.contextBudget ?? defaultContextBudget;
+  for (const file of plan.filter(({ status }) => status === "migrated")) {
+    assertContextDocumentWithinMaximumBytes({
+      content: file.content,
+      maximumBytes: contextBudget.documentTools.maximumDocumentBytes,
+      description: `knowledge-base file ${file.to}`,
+    });
+  }
   validateFinalContextState({
     existingDocuments,
     plannedWrites: plan.map(({ to: path, content }) => ({ path, content })),
-    contextBudget: input.contextBudget ?? defaultContextBudget,
+    contextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
   });
 
