@@ -23,7 +23,7 @@ describe("SPEC-USER-VAULT-GIT-BOUNDARY-001: private owner vault stays outside ap
     const root = mkdtempSync(join(tmpdir(), "user-vault-git-boundary-"));
     git(root, ["init", "--quiet"]);
     mkdirSync(join(root, userVaultPath), { recursive: true });
-    writeFileSync(join(root, ".gitignore"), `${userVaultPath}/\n`);
+    writeFileSync(join(root, ".gitignore"), `${userVaultPath}\n`);
     writeFileSync(join(root, userVaultPath, "INDEX.md"), "private navigation\n");
 
     expect(trackedUserVaultFiles(root)).toEqual([]);

@@ -15,7 +15,7 @@ belief_map.sexp
 belief_map_cache.json
 
 # Real pilot-owned data. Keep the local migration source, never git-track it.
-vault/user/knowledge_base/
+vault/user/knowledge_base
 
 # bv (beads viewer) local config and caches
 .bv/

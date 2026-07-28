@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { renderAssistantContextSection, renderedAssistantContextDocumentCharacters } from "../../../src/application/assistant-context-renderer.js";
 import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
-import { runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
+import { knowledgeBaseRootFromEnv, runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
 import { createSyntheticPilotKnowledgeBase } from "../support/pilot-knowledge-base-fixture.js";
 
 const roots: string[] = [];
@@ -64,6 +65,34 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     expect(rendered).toContain('"size": 21');
     expect(rendered).not.toContain("Ship safely");
     expect(rendered).not.toContain("pilot");
+  });
+
+  it("uses source argument before env override and env override before the compatibility path", async () => {
+    const sourceRoot = fixture();
+    const envRoot = fixture();
+    writeFileSync(join(sourceRoot, "10_user_memory", "source-only.md"), "source\n");
+    writeFileSync(join(envRoot, "10_user_memory", "env-only.md"), "env\n");
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+      output.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+
+    expect(knowledgeBaseRootFromEnv({ PILOT_KNOWLEDGE_BASE_ROOT: `  ${envRoot}  ` })).toBe(envRoot);
+    expect(knowledgeBaseRootFromEnv({ PILOT_KNOWLEDGE_BASE_ROOT: "  " })).toBeUndefined();
+
+    await runPilotKnowledgeBaseImport({
+      env: { PILOT_USER_ID: "pilot", PILOT_KNOWLEDGE_BASE_ROOT: envRoot },
+      sourceRoot,
+      dryRun: true,
+    });
+    expect(output.join("")).toContain("source-only.md");
+    expect(output.join("")).not.toContain("env-only.md");
+
+    output.length = 0;
+    await runPilotKnowledgeBaseImport({ env: { PILOT_USER_ID: "pilot", PILOT_KNOWLEDGE_BASE_ROOT: envRoot }, dryRun: true });
+    expect(output.join("")).toContain("env-only.md");
+    expect(output.join("")).not.toContain("source-only.md");
   });
 
   it("imports through the owner boundary and makes retries idempotent", async () => {
@@ -477,9 +506,33 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("not allow-listed");
   });
 
-  it("rejects symlinks inside the allow-listed tree", async () => {
+  it("allows root Git metadata and a root symlink to a directory", async () => {
+    const root = fixture();
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    await expect(discoverPilotKnowledgeBase(root)).resolves.toHaveLength(3);
+    const bridgeParent = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-bridge-"));
+    roots.push(bridgeParent);
+    const bridge = join(bridgeParent, "knowledge_base");
+    symlinkSync(root, bridge, "dir");
+
+    await expect(discoverPilotKnowledgeBase(bridge)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "context/10_user_memory/01_goals.md" }),
+    ]));
+  });
+
+  it("rejects nested, broken, and file-target source symlinks", async () => {
     const root = fixture();
     symlinkSync(join(root, "10_user_memory", "01_goals.md"), join(root, "10_user_memory", "linked.md"));
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("symlinks are not allowed");
+
+    const bridgeParent = mkdtempSync(join(tmpdir(), "pilot-knowledge-base-invalid-bridge-"));
+    roots.push(bridgeParent);
+    const brokenBridge = join(bridgeParent, "broken");
+    symlinkSync(join(bridgeParent, "missing"), brokenBridge);
+    await expect(discoverPilotKnowledgeBase(brokenBridge)).rejects.toThrow("source symlink is broken");
+
+    const fileBridge = join(bridgeParent, "file");
+    symlinkSync(join(root, "INDEX.md"), fileBridge);
+    await expect(discoverPilotKnowledgeBase(fileBridge)).rejects.toThrow("source symlink must target a directory");
   });
 });

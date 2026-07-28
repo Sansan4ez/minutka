@@ -22,7 +22,7 @@ export async function runPilotKnowledgeBaseImport(input: {
 } = {}): Promise<void> {
   const env = input.env ?? process.env;
   const userId = pilotUserIdFromEnv(env);
-  const sourceRoot = resolve(input.sourceRoot ?? "vault/user/knowledge_base");
+  const sourceRoot = resolve(input.sourceRoot ?? knowledgeBaseRootFromEnv(env) ?? "vault/user/knowledge_base");
   const contextBudget = contextBudgetConfigFromEnv(env);
   const contextPriorities = input.dependencies?.loadContextPriorities?.() ?? loadContextPriorityManifest();
   const files = await discoverPilotKnowledgeBase(sourceRoot, { contextBudget, contextPriorities });
@@ -63,6 +63,11 @@ const unusedBlobStore: BlobStore = {
   async presignGet() { throw new Error("blob storage is unavailable during knowledge-base import"); },
   async list() { throw new Error("blob storage is unavailable during knowledge-base import"); },
 };
+
+export function knowledgeBaseRootFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  const sourceRoot = env.PILOT_KNOWLEDGE_BASE_ROOT?.trim();
+  return sourceRoot || undefined;
+}
 
 function sumSizes(files: Array<{ size: number }>): number {
   return files.reduce((total, file) => total + file.size, 0);

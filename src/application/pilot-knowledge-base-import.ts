@@ -1,4 +1,4 @@
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   assertSafeVaultPath,
@@ -63,26 +63,47 @@ export async function discoverPilotKnowledgeBase(
   sourceRoot: string,
   options: { contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest } = {},
 ): Promise<PilotKnowledgeBaseFile[]> {
-  const rootStat = await lstat(sourceRoot);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error("knowledge-base source must be a real directory");
-  const rootEntries = await readdir(sourceRoot, { withFileTypes: true });
+  const requestedRootStat = await lstat(sourceRoot).catch(() => null);
+  if (!requestedRootStat) throw new Error("knowledge-base source does not exist");
+
+  let discoveredRoot = sourceRoot;
+  if (requestedRootStat.isSymbolicLink()) {
+    discoveredRoot = await realpath(sourceRoot).catch(() => {
+      throw new Error("knowledge-base source symlink is broken");
+    });
+    const targetStat = await lstat(discoveredRoot).catch(() => null);
+    if (!targetStat?.isDirectory()) throw new Error("knowledge-base source symlink must target a directory");
+  } else if (!requestedRootStat.isDirectory()) {
+    throw new Error("knowledge-base source must be a directory");
+  }
+
+  const rootEntries = await readdir(discoveredRoot, { withFileTypes: true });
+  const contentEntries: typeof rootEntries = [];
   for (const entry of rootEntries) {
+    if (entry.name === ".git") {
+      const gitMetadataStat = await lstat(join(discoveredRoot, entry.name));
+      if (gitMetadataStat.isSymbolicLink() || !gitMetadataStat.isDirectory()) {
+        throw new Error("knowledge-base .git metadata must be a real directory");
+      }
+      continue;
+    }
     if (!allowedTopLevelEntries.has(entry.name)) throw new Error(`knowledge-base entry is not allow-listed: ${entry.name}`);
+    contentEntries.push(entry);
   }
 
   const files: PilotKnowledgeBaseFile[] = [];
   async function visit(path: string): Promise<void> {
     const stat = await lstat(path);
-    if (stat.isSymbolicLink()) throw new Error(`knowledge-base symlinks are not allowed: ${relativePath(sourceRoot, path)}`);
+    if (stat.isSymbolicLink()) throw new Error(`knowledge-base symlinks are not allowed: ${relativePath(discoveredRoot, path)}`);
     if (stat.isDirectory()) {
       const entries = await readdir(path, { withFileTypes: true });
       for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) await visit(join(path, entry.name));
       return;
     }
-    if (!stat.isFile()) throw new Error(`unsupported knowledge-base entry: ${relativePath(sourceRoot, path)}`);
-    if (!allowedExtensions.has(extname(path).toLowerCase())) throw new Error(`knowledge-base file type is not allow-listed: ${relativePath(sourceRoot, path)}`);
+    if (!stat.isFile()) throw new Error(`unsupported knowledge-base entry: ${relativePath(discoveredRoot, path)}`);
+    if (!allowedExtensions.has(extname(path).toLowerCase())) throw new Error(`knowledge-base file type is not allow-listed: ${relativePath(discoveredRoot, path)}`);
 
-    const sourceRelativePath = relativePath(sourceRoot, path).normalize("NFC");
+    const sourceRelativePath = relativePath(discoveredRoot, path).normalize("NFC");
     const maximumDocumentBytes = (options.contextBudget ?? defaultContextBudget).documentTools.maximumDocumentBytes;
     if (stat.size > maximumDocumentBytes) {
       throw new Error(`knowledge-base file ${sourceRelativePath} has ${stat.size} bytes and exceeds the ${maximumDocumentBytes}-byte context document maximum`);
@@ -94,7 +115,7 @@ export async function discoverPilotKnowledgeBase(
     });
   }
 
-  for (const entry of rootEntries.sort((left, right) => left.name.localeCompare(right.name))) await visit(join(sourceRoot, entry.name));
+  for (const entry of contentEntries.sort((left, right) => left.name.localeCompare(right.name))) await visit(join(discoveredRoot, entry.name));
   const sorted = files.sort((left, right) => left.path.localeCompare(right.path));
   const paths = new Set<string>();
   for (const file of sorted) {
@@ -102,7 +123,7 @@ export async function discoverPilotKnowledgeBase(
     if (paths.has(collisionKey)) throw new Error(`knowledge-base paths collide after normalization: ${file.path}`);
     paths.add(collisionKey);
   }
-  await validatePilotKnowledgeBaseIndexes(sourceRoot, sorted);
+  await validatePilotKnowledgeBaseIndexes(discoveredRoot, sorted);
   await validatePilotKnowledgeBaseCoreDocuments({
     files: sorted,
     contextBudget: options.contextBudget ?? defaultContextBudget,
