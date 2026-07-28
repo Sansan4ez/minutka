@@ -121,11 +121,13 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       clock: systemClock,
       idGenerator: randomIdGenerator,
     });
+    const taskStore = createPostgresTaskStore(pool);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
       ideaStore,
+      taskStore,
       auditEventStore: stores.auditEventStore,
       participantStore: stores.profileStore,
       chatProjectionBuilder,
@@ -137,7 +139,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
       contextPriorities,
     });
-    const taskStore = createPostgresTaskStore(pool);
     const taskMutations = new TaskMutationConfirmationService(
       createPostgresTaskMutationConfirmationStore(pool),
       systemClock,

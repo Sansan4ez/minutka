@@ -24,6 +24,7 @@ import type { RequestIntegrityDenialReason } from "../domain/request-integrity.j
 import { createResponsePolicy, renderResponsePolicy, type ResponseChannel } from "../domain/response-policy.js";
 import type { ContextPriorityManifest } from "./context-priority-manifest.js";
 import type { ThreadCompactionService } from "./thread-compaction-service.js";
+import type { TaskReader } from "./task-store.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
@@ -74,7 +75,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -82,8 +83,9 @@ export class AssistantService {
     this.overflowRecoveryContextBudget = createOverflowRecoveryContextBudget(this.contextBudget);
     this.projectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: this.contextBudget, contextPriorities: deps.contextPriorities });
     this.overflowProjectionBuilder = createAssistantContextProjectionBuilder({ documentStore: deps.documentStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget, contextPriorities: deps.contextPriorities });
-    this.recordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: this.contextBudget });
-    this.overflowRecordsProjectionBuilder = deps.ideaStore === undefined ? undefined : createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget });
+    const hasRecordsStore = deps.ideaStore !== undefined || deps.taskStore !== undefined;
+    this.recordsProjectionBuilder = hasRecordsStore ? createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, taskStore: deps.taskStore, now: () => this.clock.now(), contextBudget: this.contextBudget }) : undefined;
+    this.overflowRecordsProjectionBuilder = hasRecordsStore ? createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, taskStore: deps.taskStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget }) : undefined;
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
   }
 
@@ -423,6 +425,6 @@ function emptyRecordsProjection(input: { userId: string; requestId: string; now:
     path: "/proc/records",
     generatedAt: input.now,
     scope: { userId: input.userId, requestId: input.requestId },
-    data: { records: [], truncated: false },
+    data: { records: [], tasks: [], truncated: false },
   };
 }
