@@ -99,6 +99,19 @@ export function createPostgresTaskStore(pool: Pool): TaskStore {
         throw mapPostgresError(error);
       }
     },
+    async getByOriginIdeaId(userId, originIdeaId) {
+      const safeUserId = assertUserId(userId);
+      const safeOriginIdeaId = assertRequiredText(originIdeaId, "originIdeaId");
+      try {
+        const result = await pool.query<Row>(
+          "SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND origin_idea_id=$2",
+          [safeUserId, safeOriginIdeaId],
+        );
+        return result.rows[0] ? restoreTask(result.rows[0]) : null;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async list(userId, filter, options) {
       const safeUserId = assertUserId(userId);
       validateTaskFilter(filter);

@@ -1,12 +1,12 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema,
-  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, confirmTaskMutationRequestSchema, serviceChatRequestSchema,
-  issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
-  openInviteResponseSchema, pendingTaskMutationSchema, proposeTaskMutationRequestSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
+  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, confirmIdeaToTaskRequestSchema, confirmTaskMutationRequestSchema, serviceChatRequestSchema,
+  ideaToTaskConfirmationResponseSchema, ideaToTaskProposalResponseSchema, issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
+  openInviteResponseSchema, pendingTaskMutationSchema, proposeIdeaToTaskRequestSchema, proposeTaskMutationRequestSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationConfirmationResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type ConfirmTaskMutationRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationProposalRequest,
+  type CompleteOnboardingRequest, type ConfirmIdeaToTaskRequest, type ConfirmTaskMutationRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type ProposeIdeaToTaskRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationProposalRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
 
@@ -21,6 +21,8 @@ export type EmployeeMinutkaTransport = {
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   proposeTaskMutation(input: TaskMutationProposalRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest): Promise<unknown>;
+  proposeIdeaToTask(input: ProposeIdeaToTaskRequest): Promise<unknown>;
+  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest): Promise<unknown>;
 };
 export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown> };
 export type ServiceEmployeeMinutkaTransport = {
@@ -35,6 +37,8 @@ export type ServiceEmployeeMinutkaTransport = {
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   proposeTaskMutation(input: TaskMutationProposalRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest): Promise<unknown>;
+  proposeIdeaToTask(input: ProposeIdeaToTaskRequest): Promise<unknown>;
+  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest): Promise<unknown>;
 };
 export type ServiceMinutkaTransport = {
   redeemTelegramInvite(input: RedeemTelegramInviteRequest): Promise<unknown>;
@@ -59,6 +63,8 @@ export class EmployeeMinutkaClient {
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async proposeTaskMutation(input: unknown) { return validate(pendingTaskMutationSchema, await this.transport.proposeTaskMutation(validate(proposeTaskMutationRequestSchema, input, "proposeTaskMutation request")), "proposeTaskMutation response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown) { return validate(taskMutationConfirmationResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(confirmTaskMutationRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
+  async proposeIdeaToTask(input: unknown) { return validate(ideaToTaskProposalResponseSchema, await this.transport.proposeIdeaToTask(validate(proposeIdeaToTaskRequestSchema, input, "proposeIdeaToTask request")), "proposeIdeaToTask response"); }
+  async confirmIdeaToTask(confirmationId: string, input: unknown) { return validate(ideaToTaskConfirmationResponseSchema, await this.transport.confirmIdeaToTask(confirmationId, validate(confirmIdeaToTaskRequestSchema, input, "confirmIdeaToTask request")), "confirmIdeaToTask response"); }
 }
 
 /** Operator-only SDK surface. */
@@ -81,6 +87,8 @@ export class ServiceEmployeeMinutkaClient {
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async proposeTaskMutation(input: unknown) { return validate(pendingTaskMutationSchema, await this.transport.proposeTaskMutation(validate(proposeTaskMutationRequestSchema, input, "proposeTaskMutation request")), "proposeTaskMutation response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown) { return validate(taskMutationConfirmationResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(confirmTaskMutationRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
+  async proposeIdeaToTask(input: unknown) { return validate(ideaToTaskProposalResponseSchema, await this.transport.proposeIdeaToTask(validate(proposeIdeaToTaskRequestSchema, input, "proposeIdeaToTask request")), "proposeIdeaToTask response"); }
+  async confirmIdeaToTask(confirmationId: string, input: unknown) { return validate(ideaToTaskConfirmationResponseSchema, await this.transport.confirmIdeaToTask(confirmationId, validate(confirmIdeaToTaskRequestSchema, input, "confirmIdeaToTask request")), "confirmIdeaToTask response"); }
 }
 
 /** Service-only SDK surface. It cannot be used as an employee client. */

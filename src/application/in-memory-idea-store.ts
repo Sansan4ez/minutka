@@ -22,6 +22,10 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       globalIds.add(idea.id);
       return { ...idea };
     },
+    async get(userId, id) {
+      const idea = ideas.get(key(userId, id));
+      return idea === undefined ? null : { ...idea };
+    },
     async list(userId, filter, options) {
       const safeUserId = assertUserId(userId);
       const limit = validateLimit(options?.limit);

@@ -9,6 +9,7 @@ import { createOnboardingContextMaterializer } from "../application/onboarding-c
 import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
 import { createThreadCompactionService } from "../application/thread-compaction-service.js";
 import { TaskMutationConfirmationService } from "../application/task-mutation-confirmation.js";
+import { IdeaToTaskService } from "../application/idea-to-task.js";
 import { MinutkaService } from "../application/minutka-service.js";
 import { randomIdGenerator, systemClock } from "../application/runtime-primitives.js";
 import { createPostgresAuditEventStore } from "../infrastructure/postgres/postgres-audit-event-store.js";
@@ -31,6 +32,7 @@ import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../in
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
+import { createPostgresTaskStore } from "../infrastructure/postgres/postgres-task-store.js";
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
@@ -135,11 +137,13 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
       contextPriorities,
     });
+    const taskStore = createPostgresTaskStore(pool);
     const taskMutations = new TaskMutationConfirmationService(
       createPostgresTaskMutationConfirmationStore(pool),
       systemClock,
     );
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
+    const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, ideaToTask);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
       void onboardingDraftStore.purgeExpired().catch((error: unknown) => {

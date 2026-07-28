@@ -64,6 +64,17 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
         throw mapPostgresError(error);
       }
     },
+    async get(userId, id) {
+      try {
+        const result = await pool.query<Row>(
+          "SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2",
+          [userId, id],
+        );
+        return result.rows[0] === undefined ? null : restoreIdea(result.rows[0]);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async list(userId, filter, options) {
       const clauses = ["user_id=$1"];
       const params: unknown[] = [userId];

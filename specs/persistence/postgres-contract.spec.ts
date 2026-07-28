@@ -15,6 +15,7 @@ import { Readable } from "node:stream";
 import { createInMemoryArtifactContentStore } from "../../src/application/in-memory-artifact-content-store.js";
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
+import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
@@ -410,6 +411,35 @@ describe("PostgreSQL storage contracts", () => {
       { now: () => currentTime },
     );
     await expect(expiredAfterRestart.confirm("emp_task_confirmation", expiredPending.confirmationId, expiredPending.proposal)).resolves.toEqual({ status: "expired" });
+  });
+
+  it("converts an idea through durable confirmation and recovers the stable result after restart", async () => {
+    await issueProfileReadyParticipant(pool, "idea_task_owner", "invite_idea_task_owner");
+    const ideas = createPostgresIdeaStore(pool);
+    await ideas.add({ id: "idea_task_origin", userId: "idea_task_owner", project: "АССИСТЕНТ", type: "development", summary: "Собрать план", status: "raw" });
+    const clock = { now: () => "2026-07-28T09:00:00.000Z" };
+    const confirmations = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool), clock,
+      { confirmationId: () => "idea-task-pg-confirmation" },
+    );
+    let useCase = new IdeaToTaskService(ideas, createPostgresTaskStore(pool), confirmations);
+    const proposed = await useCase.propose("idea_task_owner", "idea_task_origin");
+    expect(proposed).toMatchObject({ status: "needs_confirmation", originIdeaId: "idea_task_origin" });
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await expect(useCase.confirm("idea_task_owner", proposed.confirmation.confirmationId, proposed.confirmation)).resolves.toMatchObject({
+      status: "confirmed", outcome: "created", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
+    });
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    useCase = new IdeaToTaskService(createPostgresIdeaStore(pool), createPostgresTaskStore(pool), new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), clock));
+    await expect(useCase.confirm("idea_task_owner", proposed.confirmation.confirmationId, proposed.confirmation)).resolves.toMatchObject({
+      status: "already_confirmed", outcome: "created", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
+    });
+    await expect(useCase.propose("idea_task_owner", "idea_task_origin")).resolves.toEqual({
+      status: "already_converted", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
+    });
+    await expect(createPostgresIdeaStore(pool).get("idea_task_owner", "idea_task_origin")).resolves.toMatchObject({ status: "raw" });
   });
 
   it("persists owner-scoped tasks across restarts with filters, optimistic conflicts and idea idempotency", async () => {

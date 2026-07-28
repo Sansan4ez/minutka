@@ -14,6 +14,7 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { EmployeeMinutkaClient, ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { HttpEmployeeMinutkaTransport, HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
@@ -142,7 +143,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     await prepareOwner(runtime.service, "owner-a", "invite-task-owner", { chatId: "chat-task-owner", userId: "telegram-task-owner" });
     const documents = createInMemoryDocumentStore(clock);
-    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: createInMemoryIdeaStore(clock) });
+    const ideas = createInMemoryIdeaStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
     const assistant = new AssistantService(async () => "ok", {
       documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
       requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
@@ -154,7 +156,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       createInMemoryTaskMutationConfirmationStore(tasks), clock,
       { confirmationId: () => `transport-confirmation-${++confirmationId}` },
     );
-    const facade = new PersonalAssistantService(runtime.service, assistant, artifacts, taskMutations);
+    const ideaToTask = new IdeaToTaskService(ideas, tasks, taskMutations);
+    const facade = new PersonalAssistantService(runtime.service, assistant, artifacts, taskMutations, ideaToTask);
     const server = await listenHttpServer({ application: facade, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["owner-a", ownerToken]]) } });
     running.push(server);
     const employee = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
@@ -166,6 +169,14 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
 
     const telegramPending = await telegram.proposeTaskMutation({ proposal: { kind: "cancel", taskId: "task-http", expectedRevision: 1 } });
     await expect(employee.confirmTaskMutation(telegramPending.confirmationId, { proposal: telegramPending.proposal })).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "updated", task: { status: "cancelled" } } });
+
+    await ideas.add({ id: "idea-http", userId: "owner-a", project: "ASSISTANT", type: "development", summary: "Convert over transport", status: "raw" });
+    const conversion = await employee.proposeIdeaToTask({ ideaId: "idea-http" });
+    expect(conversion).toMatchObject({ status: "needs_confirmation", originIdeaId: "idea-http" });
+    if (conversion.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await expect(telegram.confirmIdeaToTask(conversion.confirmation.confirmationId, { confirmation: conversion.confirmation })).resolves.toMatchObject({
+      status: "confirmed", outcome: "created", taskId: conversion.taskId, originIdeaId: "idea-http",
+    });
   });
 
   it("preserves pre-write, post-write, and uncertain-write messages for Telegram without repeating dispatch or capture", async () => {

@@ -50,6 +50,13 @@ export function createInMemoryTaskStore(clock: Clock): TaskStore {
       const task = tasks.get(key(userId, id));
       return task === undefined ? null : copyTask(task);
     },
+    async getByOriginIdeaId(userId, originIdeaId) {
+      const safeUserId = assertUserId(userId);
+      const taskId = originIds.get(originKey(safeUserId, originIdeaId));
+      if (taskId === undefined) return null;
+      const task = tasks.get(key(safeUserId, taskId));
+      return task === undefined ? null : copyTask(task);
+    },
     async list(userId, filter, options) {
       const safeUserId = assertUserId(userId);
       const limit = validateLimit(options?.limit);

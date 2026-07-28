@@ -22,6 +22,7 @@ import type {
   SubmitOnboardingAnswerInput,
 } from "./minutka-service.js";
 import type { OnboardingProgress } from "./onboarding-types.js";
+import type { IdeaToTaskConfirmationResult, IdeaToTaskProposalResult, IdeaToTaskService } from "./idea-to-task.js";
 import type {
   PendingTaskMutation,
   TaskMutationConfirmationResult,
@@ -64,6 +65,7 @@ export class PersonalAssistantService {
     private readonly conversationService: Pick<AssistantService, "chat">,
     private readonly artifactStore: Pick<ArtifactStore, "save" | "get" | "list" | "delete">,
     private readonly taskMutations?: Pick<TaskMutationConfirmationService, "propose" | "confirm">,
+    private readonly ideaToTask?: Pick<IdeaToTaskService, "propose" | "confirm">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
@@ -118,6 +120,16 @@ export class PersonalAssistantService {
   confirmTaskMutation(ownerId: string, confirmationId: string, proposal: TaskMutationProposal): Promise<TaskMutationConfirmationResult> {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
     return this.taskMutations.confirm(ownerId, confirmationId, proposal);
+  }
+
+  proposeIdeaToTask(ownerId: string, ideaId: string): Promise<IdeaToTaskProposalResult> {
+    if (!this.ideaToTask) throw new Error("idea to task conversion is not configured");
+    return this.ideaToTask.propose(ownerId, ideaId);
+  }
+
+  confirmIdeaToTask(ownerId: string, confirmationId: string, confirmation: PendingTaskMutation): Promise<IdeaToTaskConfirmationResult> {
+    if (!this.ideaToTask) throw new Error("idea to task conversion is not configured");
+    return this.ideaToTask.confirm(ownerId, confirmationId, confirmation);
   }
 
   listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> {

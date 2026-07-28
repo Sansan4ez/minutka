@@ -91,8 +91,21 @@ export const taskMutationConfirmationResponseSchema = z.discriminatedUnion("stat
   z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: taskMutationOutcomeSchema }),
   z.strictObject({ status: z.enum(["not_found", "owner_mismatch", "expired", "payload_mismatch"]) }),
 ]);
+export const proposeIdeaToTaskRequestSchema = z.strictObject({ ideaId: z.string().min(1) });
+export const ideaToTaskProposalResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("not_found") }),
+  z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
+  z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskMutationSchema, taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
+]);
+export const confirmIdeaToTaskRequestSchema = z.strictObject({ confirmation: pendingTaskMutationSchema });
+export const ideaToTaskConfirmationResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: z.enum(["created", "unchanged"]), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
+  z.strictObject({ status: z.enum(["not_found", "owner_mismatch", "expired", "payload_mismatch", "conflict"]) }),
+]);
 export type TaskMutationProposalRequest = z.infer<typeof proposeTaskMutationRequestSchema>;
 export type ConfirmTaskMutationRequest = z.infer<typeof confirmTaskMutationRequestSchema>;
+export type ProposeIdeaToTaskRequest = z.infer<typeof proposeIdeaToTaskRequestSchema>;
+export type ConfirmIdeaToTaskRequest = z.infer<typeof confirmIdeaToTaskRequestSchema>;
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
 export const structuredInsightSchema = z.discriminatedUnion("kind", [

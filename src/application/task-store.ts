@@ -34,6 +34,7 @@ export type TaskMutationResult =
 /** Read-only owner-scoped task boundary. */
 export interface TaskReader {
   get(userId: string, id: string): Promise<Task | null>;
+  getByOriginIdeaId(userId: string, originIdeaId: string): Promise<Task | null>;
   list(userId: string, filter?: TaskFilter, options?: TaskListOptions): Promise<Task[]>;
 }
 
