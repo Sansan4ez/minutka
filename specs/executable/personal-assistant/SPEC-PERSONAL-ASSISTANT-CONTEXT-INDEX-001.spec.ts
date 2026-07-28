@@ -152,16 +152,19 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-INDEX-001: metadata-only context tree 
     ]);
     let metadataCalls = 0;
     let bodyGetCalls = 0;
+    let listedMetadata: UserDocumentMetadata[] = [];
     const projection = await createAssistantContextProjectionBuilder({
       documentStore: {
         ...store,
         async listMetadata(userId, prefix) {
           metadataCalls += 1;
-          return store.listMetadata(userId, prefix);
+          listedMetadata = await store.listMetadata(userId, prefix);
+          return listedMetadata;
         },
-        async get(userId, path) {
+        async get(userId, path, candidateMetadata) {
           bodyGetCalls += 1;
-          return store.get(userId, path);
+          expect(candidateMetadata).toBe(listedMetadata.find((candidate) => candidate.path === path));
+          return store.get(userId, path, candidateMetadata);
         },
         async list() {
           throw new Error("projection must not list document bodies");

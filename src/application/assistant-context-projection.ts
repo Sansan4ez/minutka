@@ -96,7 +96,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
             throw new Error(`core context documents exceed the ${limits.documents}-document projection limit`);
           }
           bodyReads += 1;
-          const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
+          const document = await getRequiredDocument(deps.documentStore, input.userId, candidate);
           const actualCharacters = countUnicodeCharacters(document.content);
           const projected = projectedDocument(document, document.content, "full", actualCharacters, null);
           const renderedDocumentCharacters = renderedAssistantContextDocumentCharacters(projected);
@@ -140,7 +140,7 @@ export function createAssistantContextProjectionBuilder(deps: { documentStore: D
         }
 
         bodyReads += 1;
-        const document = await getRequiredDocument(deps.documentStore, input.userId, candidate.path);
+        const document = await getRequiredDocument(deps.documentStore, input.userId, candidate);
         const contentCharacters = [...document.content];
         const actualCharacters = contentCharacters.length;
         const full = projectedDocument(document, document.content, "full", actualCharacters, null);
@@ -240,9 +240,9 @@ function projectedMetadata(document: UserDocumentMetadata, content: string, repr
   return { path: contextDocumentHandle(document.path), content, version: document.version, updatedAt: document.updatedAt, representation, originalCharacters, nextOffset };
 }
 
-async function getRequiredDocument(documentStore: DocumentStore, userId: string, path: string): Promise<UserDocument> {
-  const document = await documentStore.get(userId, path);
-  if (!document) throw new Error(`context document disappeared after metadata listing: ${contextDocumentHandle(path)}`);
+async function getRequiredDocument(documentStore: DocumentStore, userId: string, metadata: UserDocumentMetadata): Promise<UserDocument> {
+  const document = await documentStore.get(userId, metadata.path, metadata);
+  if (!document) throw new Error(`context document disappeared after metadata listing: ${contextDocumentHandle(metadata.path)}`);
   return document;
 }
 

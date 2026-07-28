@@ -12,6 +12,36 @@ export type UserDocumentMetadata = Pick<UserDocument, "userId" | "path" | "versi
   size: number;
 };
 
+type DocumentReadReference = {
+  userId: string;
+  logicalPath: string;
+  storagePath: string;
+  version: string;
+};
+
+const documentReadReferences = new WeakMap<UserDocumentMetadata, DocumentReadReference>();
+
+/** Attaches opaque storage provenance without making it enumerable or serializable. */
+export function attachDocumentReadReference(metadata: UserDocumentMetadata, storagePath: string): UserDocumentMetadata {
+  documentReadReferences.set(metadata, {
+    userId: metadata.userId,
+    logicalPath: metadata.path,
+    storagePath: assertSafeVaultPath(storagePath),
+    version: metadata.version,
+  });
+  return metadata;
+}
+
+/** Resolves storage provenance only for the unchanged metadata snapshot that produced it. */
+export function documentReadReference(metadata: UserDocumentMetadata): Readonly<DocumentReadReference> | null {
+  const reference = documentReadReferences.get(metadata);
+  if (!reference
+    || reference.userId !== metadata.userId
+    || reference.logicalPath !== metadata.path
+    || reference.version !== metadata.version) return null;
+  return reference;
+}
+
 /** Legacy import prefix retained only for compatibility with already stored objects. */
 export const legacyImportedKnowledgeBasePrefix = "context/imported-knowledge-base/";
 

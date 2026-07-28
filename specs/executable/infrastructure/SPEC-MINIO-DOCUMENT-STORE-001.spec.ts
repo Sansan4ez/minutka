@@ -37,15 +37,22 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(warn.mock.calls.flat().join(" ")).not.toContain(".runtime-probes/");
   });
 
-  it("heads one canonical logical document without reading its body", async () => {
+  it("heads and reads the exact legacy snapshot through its canonical logical path", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket });
     await client.putObject(bucket, "owner/context/imported-knowledge-base/legacy.md", Buffer.from("legacy🙂"));
 
     const metadata = await documents.head("owner", "context/legacy.md");
+    const document = await documents.get("owner", "context/legacy.md", metadata!);
 
     expect(metadata).toMatchObject({ path: "context/legacy.md", size: Buffer.byteLength("legacy🙂", "utf8") });
-    expect(client.getObjectCalls()).toBe(0);
+    expect(document).toMatchObject({ path: "context/legacy.md", content: "legacy🙂", version: metadata!.version });
+    expect(Object.keys(metadata!)).toEqual(["userId", "path", "version", "updatedAt", "size"]);
+    expect(JSON.stringify(metadata)).not.toContain("imported-knowledge-base");
+    expect(client.getObjectCalls()).toBe(1);
+    expect(client.getObjectCallsFor("owner/context/legacy.md")).toBe(0);
+    expect(client.getObjectCallsFor("owner/context/imported-knowledge-base/legacy.md")).toBe(1);
+    expect(client.getObjectOptionsFor("owner/context/imported-knowledge-base/legacy.md")).toEqual([{ versionId: metadata!.version }]);
     expect(client.statCallsFor("owner/context/legacy.md")).toBe(1);
     expect(client.statCallsFor("owner/context/imported-knowledge-base/legacy.md")).toBe(1);
   });
@@ -64,18 +71,39 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(client.statCallsFor("owner/context/imported-knowledge-base/legacy.md")).toBe(1);
   });
 
-  it("prefers canonical metadata before stat when a legacy alias also exists", async () => {
+  it("prefers and reads one pinned canonical snapshot when a legacy alias also exists", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket });
     await client.putObject(bucket, "owner/context/imported-knowledge-base/shared.md", Buffer.from("legacy"));
     await client.putObject(bucket, "owner/context/shared.md", Buffer.from("canonical🙂"));
 
     const metadata = await documents.listMetadata("owner", "context/");
+    const document = await documents.get("owner", "context/shared.md", metadata[0]);
 
     expect(metadata).toMatchObject([{ path: "context/shared.md", size: Buffer.byteLength("canonical🙂", "utf8") }]);
-    expect(client.getObjectCalls()).toBe(0);
+    expect(document).toMatchObject({ path: "context/shared.md", content: "canonical🙂" });
+    expect(client.getObjectCalls()).toBe(1);
+    expect(client.getObjectCallsFor("owner/context/shared.md")).toBe(1);
+    expect(client.getObjectCallsFor("owner/context/imported-knowledge-base/shared.md")).toBe(0);
+    expect(client.getObjectOptionsFor("owner/context/shared.md")).toEqual([{ versionId: metadata[0]!.version }]);
     expect(client.statCallsFor("owner/context/shared.md")).toBe(1);
     expect(client.statCallsFor("owner/context/imported-knowledge-base/shared.md")).toBe(0);
+  });
+
+  it("never reads an unverified replacement after the metadata gate", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket });
+    await client.putObject(bucket, "owner/context/racy.md", Buffer.from("small"));
+
+    const metadata = await documents.head("owner", "context/racy.md");
+    await client.putObject(bucket, "owner/context/racy.md", Buffer.from("replacement body is much larger"));
+    const document = await documents.get("owner", "context/racy.md", metadata!);
+
+    expect(document).toBeNull();
+    expect(client.getObjectCallsFor("owner/context/racy.md")).toBe(1);
+    expect(client.getObjectOptionsFor("owner/context/racy.md")).toEqual([{ versionId: metadata!.version }]);
+    expect(client.getObjectBytes()).toBe(0);
+    expect(client.statCallsFor("owner/context/racy.md")).toBe(1);
   });
 
   it("iterates canonical bodies lazily without reading a legacy alias twice", async () => {
@@ -155,6 +183,7 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
   let getObjectCount = 0;
   let getObjectByteCount = 0;
   const getObjectCounts = new Map<string, number>();
+  const getObjectOptions = new Map<string, Array<{ versionId?: string } | undefined>>();
   const statCounts = new Map<string, number>();
   let removeOptions: Minio.RemoveOptions | undefined;
   const client = {
@@ -190,11 +219,13 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
         versionId: stored.versionId,
       };
     },
-    async getObject(_bucket: string, objectName: string, _options?: { versionId?: string }) {
+    async getObject(_bucket: string, objectName: string, options?: { versionId?: string }) {
       getObjectCount += 1;
       getObjectCounts.set(objectName, (getObjectCounts.get(objectName) ?? 0) + 1);
+      getObjectOptions.set(objectName, [...(getObjectOptions.get(objectName) ?? []), options]);
       const stored = objects.get(objectName);
       if (!stored) throw objectStoreError("NotFound");
+      if (options?.versionId && options.versionId !== stored.versionId) throw objectStoreError("NoSuchVersion");
       getObjectByteCount += stored.body.byteLength;
       return Readable.from(stored.body);
     },
@@ -226,6 +257,9 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
     },
     getObjectCallsFor(objectName: string) {
       return getObjectCounts.get(objectName) ?? 0;
+    },
+    getObjectOptionsFor(objectName: string) {
+      return getObjectOptions.get(objectName) ?? [];
     },
     statCallsFor(objectName: string) {
       return statCounts.get(objectName) ?? 0;

@@ -1,7 +1,9 @@
 import {
   assertSafeVaultPath,
   assertUserId,
+  attachDocumentReadReference,
   canonicalDocumentPath,
+  documentReadReference,
   legacyDocumentPath,
   type DocumentStore,
   type UserDocument,
@@ -54,9 +56,15 @@ export function createInMemoryDocumentStore(
       .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   };
   return {
-    async get(userId, path) {
+    async get(userId, path, metadata) {
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
+      if (metadata) {
+        const reference = documentReadReference(metadata);
+        if (!reference || reference.userId !== safeUserId || reference.logicalPath !== canonicalPath) return null;
+        const pinned = readExact(safeUserId, reference.storagePath);
+        return pinned?.version === reference.version ? { ...pinned, path: canonicalPath } : null;
+      }
       const document = readExact(safeUserId, canonicalPath) ?? (() => {
         const legacyPath = legacyDocumentPath(canonicalPath);
         return legacyPath ? readExact(safeUserId, legacyPath) : null;
@@ -70,13 +78,13 @@ export function createInMemoryDocumentStore(
         const legacyPath = legacyDocumentPath(canonicalPath);
         return legacyPath ? readExact(safeUserId, legacyPath) : null;
       })();
-      return document ? {
+      return document ? attachDocumentReadReference({
         userId: safeUserId,
         path: canonicalPath,
         version: document.version,
         updatedAt: document.updatedAt,
         size: Buffer.byteLength(document.content, "utf8"),
-      } : null;
+      }, document.path) : null;
     },
     async getExact(userId, path) {
       return readExact(userId, path);
@@ -109,13 +117,27 @@ export function createInMemoryDocumentStore(
       return { ...document };
     },
     async listMetadata(userId, prefix) {
-      return logicalEntries(userId, prefix, [...documents.values()].map((document): UserDocumentMetadata => ({
-        userId: document.userId,
-        path: document.path,
-        version: document.version,
-        updatedAt: document.updatedAt,
-        size: Buffer.byteLength(document.content, "utf8"),
-      })));
+      const safeUserId = assertUserId(userId);
+      const safePrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;
+      const selected = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
+      for (const document of documents.values()) {
+        if (document.userId !== safeUserId) continue;
+        const canonicalPath = canonicalDocumentPath(document.path);
+        if (safePrefix && !canonicalPath.startsWith(safePrefix)) continue;
+        const canonicalSource = document.path === canonicalPath;
+        const existing = selected.get(canonicalPath);
+        if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
+        selected.set(canonicalPath, { document, canonicalSource });
+      }
+      return [...selected.entries()]
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+        .map(([path, { document }]): UserDocumentMetadata => attachDocumentReadReference({
+          userId: safeUserId,
+          path,
+          version: document.version,
+          updatedAt: document.updatedAt,
+          size: Buffer.byteLength(document.content, "utf8"),
+        }, document.path));
     },
     async *iterate(userId, prefix) {
       for (const document of logicalEntries(userId, prefix, documents.values())) yield { ...document };

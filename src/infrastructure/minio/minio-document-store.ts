@@ -2,7 +2,9 @@ import * as Minio from "minio";
 import {
   assertSafeVaultPath,
   assertUserId,
+  attachDocumentReadReference,
   canonicalDocumentPath,
+  documentReadReference,
   legacyDocumentPath,
   objectKey,
   type DocumentStore,
@@ -44,7 +46,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     const safePath = assertSafeVaultPath(path);
     try {
       const stat = await options.client.statObject(options.bucket, objectKey(safeUserId, safePath));
-      return { userId: safeUserId, path: safePath, version: versionOf(stat), updatedAt: stat.lastModified.toISOString(), size: stat.size };
+      return attachDocumentReadReference({ userId: safeUserId, path: safePath, version: versionOf(stat), updatedAt: stat.lastModified.toISOString(), size: stat.size }, safePath);
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;
@@ -110,24 +112,29 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     const safeUserId = assertUserId(userId);
     return Promise.all((await logicalObjects(safeUserId, prefix)).map(async (object): Promise<UserDocumentMetadata> => {
       const stat = await options.client.statObject(options.bucket, object.name);
-      return {
+      return attachDocumentReadReference({
         userId: safeUserId,
         path: object.path,
         version: versionOf(stat),
         updatedAt: stat.lastModified.toISOString(),
         size: stat.size,
-      };
+      }, object.name.slice(`${safeUserId}/`.length));
     }));
   };
   return {
     async get(userId, path, metadata) {
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
-      const expectedMetadata = metadata?.path === canonicalPath ? metadata : undefined;
-      const canonical = await getExact(safeUserId, canonicalPath, expectedMetadata);
+      if (metadata) {
+        const reference = documentReadReference(metadata);
+        if (!reference || reference.userId !== safeUserId || reference.logicalPath !== canonicalPath) return null;
+        const pinned = await getExact(safeUserId, reference.storagePath, metadata);
+        return pinned ? { ...pinned, path: canonicalPath } : null;
+      }
+      const canonical = await getExact(safeUserId, canonicalPath);
       if (canonical) return canonical;
       const legacyPath = legacyDocumentPath(canonicalPath);
-      const legacy = legacyPath ? await getExact(safeUserId, legacyPath, expectedMetadata ? { ...expectedMetadata, path: legacyPath } : undefined) : null;
+      const legacy = legacyPath ? await getExact(safeUserId, legacyPath) : null;
       return legacy ? { ...legacy, path: canonicalPath } : null;
     },
     async head(userId, path) {
@@ -137,7 +144,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       if (canonical) return canonical;
       const legacyPath = legacyDocumentPath(canonicalPath);
       const legacy = legacyPath ? await headExact(safeUserId, legacyPath) : null;
-      return legacy ? { ...legacy, path: canonicalPath } : null;
+      return legacy ? attachDocumentReadReference({ ...legacy, path: canonicalPath }, legacyPath!) : null;
     },
     getExact,
     listExact,
@@ -235,5 +242,5 @@ function isNotFound(error: unknown): boolean {
   // MinIO returns `NotFound` for a missing object on HEAD/statObject, while
   // S3-compatible providers may use the more specific NoSuch* codes.
   const code = errorCode(error);
-  return code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject";
+  return code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject" || code === "NoSuchVersion";
 }
