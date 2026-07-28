@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,11 @@ import { loadAssistantAgentInstructions } from "../../../src/application/assista
 import { assertContextSourceContentFits, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets } from "../../../src/mastra/agent-runner.js";
+
+function findUnclassifiedProcessFiles(processFiles: string[], ...classifications: Set<string>[]): string[] {
+  const classifiedPaths = new Set(classifications.flatMap((paths) => [...paths]));
+  return processFiles.filter((path) => !classifiedPaths.has(path));
+}
 
 describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () => {
   it("uses a dedicated product agent with no ambient tools or Minutka restrictions", async () => {
@@ -62,6 +67,49 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       expect(registeredIds).toContain(match[1]);
     }
     expect(readFileSync("vault/assistant/bin/README.md", "utf8")).toContain("feedback callbacks call `submitFeedback` directly");
+  });
+
+  it("classifies every process file as active, draft, or legacy", () => {
+    const activeRegistry = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8")) as {
+      index: { path: string };
+      processes: Array<{ path: string }>;
+    };
+    const legacyRegistry = JSON.parse(readFileSync("vault/assistant/processes/legacy-registry.json", "utf8")) as {
+      index: { path: string };
+      processes: Array<{ path: string }>;
+    };
+    const draftRegistry = JSON.parse(readFileSync("vault/assistant/processes/drafts-registry.json", "utf8")) as {
+      version: number;
+      drafts: Array<{ id: string; path: string; brEpicId: string }>;
+    };
+    const activePaths = new Set([activeRegistry.index.path, ...activeRegistry.processes.map(({ path }) => path)]);
+    const legacyPaths = new Set([legacyRegistry.index.path, ...legacyRegistry.processes.map(({ path }) => path)]);
+    const draftPaths = new Set(draftRegistry.drafts.map(({ path }) => path));
+    const processFiles = readdirSync("vault/assistant/processes", { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => `vault/assistant/processes/${entry.name}`)
+      .sort();
+
+    expect(draftRegistry.version).toBe(1);
+    expect(draftRegistry.drafts).toEqual([
+      { id: "council", path: "vault/assistant/processes/council.md", brEpicId: "prs-uhf" },
+      { id: "morning_digest", path: "vault/assistant/processes/moning_digest.md", brEpicId: "prs-jt0" },
+      { id: "morning_digest_pattern", path: "vault/assistant/processes/moning_digest_pattern.md", brEpicId: "prs-jt0" },
+      { id: "meetings_transcription", path: "vault/assistant/processes/meetings_transcription.md", brEpicId: "prs-t7c" },
+      { id: "meetings_template", path: "vault/assistant/processes/meetitings_template.md", brEpicId: "prs-t7c" },
+    ]);
+    expect(new Set(draftRegistry.drafts.map(({ id }) => id)).size).toBe(draftRegistry.drafts.length);
+    expect(draftPaths.size).toBe(draftRegistry.drafts.length);
+    expect([...draftPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
+    expect([...draftPaths].filter((path) => activePaths.has(path) || legacyPaths.has(path))).toEqual([]);
+    for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);
+    expect(findUnclassifiedProcessFiles(processFiles, activePaths, draftPaths, legacyPaths)).toEqual([]);
+    expect(findUnclassifiedProcessFiles(
+      [...processFiles, "vault/assistant/processes/untracked.md"],
+      activePaths,
+      draftPaths,
+      legacyPaths,
+    )).toEqual(["vault/assistant/processes/untracked.md"]);
   });
 
   it("loads only allow-listed trusted files and documents the authority boundary", () => {

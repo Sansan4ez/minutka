@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "drafts": [
+    {
+      "id": "council",
+      "path": "vault/assistant/processes/council.md",
+      "brEpicId": "prs-uhf"
+    },
+    {
+      "id": "morning_digest",
+      "path": "vault/assistant/processes/moning_digest.md",
+      "brEpicId": "prs-jt0"
+    },
+    {
+      "id": "morning_digest_pattern",
+      "path": "vault/assistant/processes/moning_digest_pattern.md",
+      "brEpicId": "prs-jt0"
+    },
+    {
+      "id": "meetings_transcription",
+      "path": "vault/assistant/processes/meetings_transcription.md",
+      "brEpicId": "prs-t7c"
+    },
+    {
+      "id": "meetings_template",
+      "path": "vault/assistant/processes/meetitings_template.md",
+      "brEpicId": "prs-t7c"
+    }
+  ]
+}
