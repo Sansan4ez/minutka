@@ -28,6 +28,18 @@
       "dependencies": [
         "docs/architecture/rfc-personal-assistant-architecture.md#6-классификатор-сквозной-тип"
       ]
+    },
+    {
+      "id": "day_focus",
+      "path": "vault/assistant/processes/day_focus.md",
+      "appliesTo": [
+        "chat"
+      ],
+      "dependencies": [
+        "docs/architecture/rfc-personal-assistant-architecture.md#8-реестр-навыков",
+        "docs/architecture/rfc-personal-assistant-architecture.md#13-фазовый-план",
+        "docs/architecture/rfc-agent-led-routing.md#2-решение"
+      ]
     }
   ]
 }

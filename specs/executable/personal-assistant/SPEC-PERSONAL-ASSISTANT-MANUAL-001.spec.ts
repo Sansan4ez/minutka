@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
-import { assertContextSourceContentFits, createContextBudgetConfig } from "../../../src/application/context-budget.js";
+import { assertContextSourceContentFits, createContextBudgetConfig, defaultContextBudget } from "../../../src/application/context-budget.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets } from "../../../src/mastra/agent-runner.js";
 
@@ -32,8 +32,13 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
+    expect(instructions).toContain("Process file: day_focus");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
+    expect(instructions).toContain("Select at most three priorities");
+    expect(instructions).toContain("exactly one concrete next action");
     expect(instructions).toContain("call `confirmTaskMutation` only after explicit owner confirmation");
+    expect(instructions).toContain("claim that a task changed only when that call returns a confirmed outcome");
+    expect(instructions).toContain("do not require calendar integration");
     expect(instructions).toContain("current single-owner prototype privacy boundary");
     expect(instructions).toContain("must never cross an owner boundary");
     expect(instructions).not.toContain("Active process:");
@@ -126,11 +131,18 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).not.toContain("Be pragmatic. This is one Obsidian-style personal workspace");
   });
 
-  it("rejects an oversized deployed manual before runtime resources open", () => {
+  it("keeps the deployed registry, index, and process manual within the configured source ceiling", () => {
     const instructions = loadAssistantAgentInstructions();
-    const config = createContextBudgetConfig({ sources: { agent_manual: 10_000 } });
     expect(() => assertContextSourceContentFits({
-      config,
+      config: defaultContextBudget,
+      sourceId: "agent_manual",
+      content: instructions,
+      label: "loaded assistant agent manual",
+    })).not.toThrow();
+
+    const tinyConfig = createContextBudgetConfig({ sources: { agent_manual: 10_000 } });
+    expect(() => assertContextSourceContentFits({
+      config: tinyConfig,
       sourceId: "agent_manual",
       content: instructions,
       label: "loaded assistant agent manual",
