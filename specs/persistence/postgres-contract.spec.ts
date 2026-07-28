@@ -15,6 +15,7 @@ import { Readable } from "node:stream";
 import { createInMemoryArtifactContentStore } from "../../src/application/in-memory-artifact-content-store.js";
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
+import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -366,6 +367,102 @@ describe("PostgreSQL storage contracts", () => {
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });
 
+  it("persists owner-scoped tasks across restarts with filters, optimistic conflicts and idea idempotency", async () => {
+    await issueProfileReadyParticipant(pool, "task_owner", "invite_task_owner");
+    await issueProfileReadyParticipant(pool, "task_other", "invite_task_other");
+    const ideas = createPostgresIdeaStore(pool);
+    await ideas.add({ id: "task_origin", userId: "task_owner", project: "АССИСТЕНТ", type: "operations", summary: "origin", status: "raw" });
+    await ideas.add({ id: "other_origin", userId: "task_other", project: "БНВ", type: "content", summary: "private", status: "raw" });
+
+    let tasks = createPostgresTaskStore(pool);
+    const base = { title: "Подготовить план", project: "АССИСТЕНТ", type: "operations" as const, status: "open" as const };
+    await expect(tasks.create("task_owner", { ...base, id: "task-open", dueDate: "2026-07-29", originIdeaId: "task_origin" })).resolves.toMatchObject({
+      outcome: "created",
+      task: { userId: "task_owner", originIdeaId: "task_origin", revision: 1, dueDate: "2026-07-29" },
+    });
+    await expect(tasks.create("task_owner", { ...base, id: "task-open", dueDate: "2026-07-29", originIdeaId: "task_origin" })).resolves.toMatchObject({
+      outcome: "unchanged",
+      task: { id: "task-open", revision: 1 },
+    });
+    await expect(tasks.create("task_owner", { ...base, id: "task-open", title: "Другой payload", dueDate: "2026-07-29", originIdeaId: "task_origin" })).resolves.toMatchObject({
+      outcome: "conflict",
+      current: { id: "task-open", title: "Подготовить план" },
+    });
+    await expect(tasks.create("task_owner", { ...base, id: "task-origin-retry", originIdeaId: "task_origin" })).resolves.toMatchObject({
+      outcome: "conflict",
+      current: { id: "task-open", originIdeaId: "task_origin" },
+    });
+    await expect(tasks.create("task_other", { ...base, id: "task-cross-origin", originIdeaId: "task_origin" })).rejects.toMatchObject({ code: "persistence_conflict" });
+    await expect(tasks.create("task_other", { ...base, id: "task-open" })).resolves.toEqual({ outcome: "conflict" });
+    await expect(tasks.create("task_other", { ...base, id: "task-other", project: "БНВ", type: "content", dueDate: "2026-07-28", originIdeaId: "other_origin" })).resolves.toMatchObject({ outcome: "created" });
+    await expect(tasks.create("task_owner", { ...base, id: "task-progress", status: "in_progress", dueDate: "2026-07-30" })).resolves.toMatchObject({ outcome: "created" });
+    await expect(tasks.create("task_owner", { ...base, id: "task-done", status: "done", project: "БНВ", type: "content" })).resolves.toMatchObject({ outcome: "created" });
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    tasks = createPostgresTaskStore(pool);
+    await expect(tasks.get("task_owner", "task-open")).resolves.toMatchObject({ id: "task-open", revision: 1 });
+    await expect(tasks.get("task_other", "task-open")).resolves.toBeNull();
+    await expect(tasks.list("task_owner", {
+      project: "АССИСТЕНТ",
+      type: "operations",
+      status: ["open", "in_progress"],
+      dueAfter: "2026-07-29",
+      dueBefore: "2026-07-30",
+    }, { order: "due_asc" })).resolves.toMatchObject([{ id: "task-open" }, { id: "task-progress" }]);
+    await expect(tasks.list("task_other", { status: "open" })).resolves.toMatchObject([{ id: "task-other", userId: "task_other" }]);
+
+    await expect(tasks.update("task_owner", "task-open", { expectedRevision: 1, patch: { status: "in_progress" } })).resolves.toMatchObject({
+      outcome: "updated",
+      task: { status: "in_progress", revision: 2 },
+    });
+    await expect(tasks.update("task_owner", "task-open", { expectedRevision: 1, patch: { status: "done" } })).resolves.toMatchObject({
+      outcome: "conflict",
+      current: { status: "in_progress", revision: 2 },
+    });
+    await expect(tasks.update("task_owner", "task-open", { expectedRevision: 2, patch: { status: "in_progress" } })).resolves.toMatchObject({
+      outcome: "unchanged",
+      task: { revision: 2 },
+    });
+    await expect(tasks.update("task_other", "task-open", { expectedRevision: 2, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
+    await expect(tasks.list("task_owner")).resolves.toHaveLength(3);
+  });
+
+  it("keeps task schema ownership with the migrator and grants runtime data access only", async () => {
+    const privileges = await pool.query<{
+      schema_owner: string;
+      table_owner: string;
+      runtime_can_create: boolean;
+      runtime_can_select: boolean;
+      runtime_can_insert: boolean;
+      runtime_can_update: boolean;
+      runtime_can_delete: boolean;
+    }>(
+      `SELECT
+         schema_owner.rolname AS schema_owner,
+         table_owner.rolname AS table_owner,
+         has_schema_privilege('minutka_runtime', 'minutka_private', 'CREATE') AS runtime_can_create,
+         has_table_privilege('minutka_runtime', 'minutka_private.tasks', 'SELECT') AS runtime_can_select,
+         has_table_privilege('minutka_runtime', 'minutka_private.tasks', 'INSERT') AS runtime_can_insert,
+         has_table_privilege('minutka_runtime', 'minutka_private.tasks', 'UPDATE') AS runtime_can_update,
+         has_table_privilege('minutka_runtime', 'minutka_private.tasks', 'DELETE') AS runtime_can_delete
+       FROM pg_namespace AS namespace
+       JOIN pg_roles AS schema_owner ON schema_owner.oid = namespace.nspowner
+       JOIN pg_class AS relation ON relation.relnamespace = namespace.oid AND relation.relname = 'tasks'
+       JOIN pg_roles AS table_owner ON table_owner.oid = relation.relowner
+       WHERE namespace.nspname = 'minutka_private'`,
+    );
+    expect(privileges.rows[0]).toEqual({
+      schema_owner: "minutka_migrator",
+      table_owner: "minutka_migrator",
+      runtime_can_create: false,
+      runtime_can_select: true,
+      runtime_can_insert: true,
+      runtime_can_update: true,
+      runtime_can_delete: true,
+    });
+  });
+
   it("persists owner-scoped artifact references with delivery and content dedup", async () => {
     await issueProfileReadyParticipant(pool, "artifact_owner", "invite_artifact_owner");
     await issueProfileReadyParticipant(pool, "artifact_other", "invite_artifact_other");
@@ -423,6 +520,7 @@ describe("PostgreSQL storage contracts", () => {
     });
     await telegramSessions.claimActionMessage({ identity: { chatId: "chat_delete", userId: "user_delete" }, employeeId: "emp_delete", messageId: 1, claimedAt: now, staleBefore: "2026-07-11T23:59:00.000Z" });
     await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
+    await createPostgresTaskStore(pool).create("emp_delete", { id: "task_delete", title: "private task", project: "АССИСТЕНТ", type: "knowledge", status: "open", originIdeaId: "idea_delete" });
     await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
       ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",
       source: { kind: "http_upload", deliveryKey: "delete-delivery" },
@@ -435,6 +533,7 @@ describe("PostgreSQL storage contracts", () => {
       expect(result.rowCount).toBe(0);
     }
     expect((await pool.query("SELECT 1 FROM minutka_private.ideas WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.tasks WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
