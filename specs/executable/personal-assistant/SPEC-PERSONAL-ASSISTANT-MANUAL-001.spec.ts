@@ -28,6 +28,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
+    expect(instructions).toContain("call `confirmTaskMutation` only after explicit owner confirmation");
     expect(instructions).toContain("current single-owner prototype privacy boundary");
     expect(instructions).toContain("must never cross an owner boundary");
     expect(instructions).not.toContain("Active process:");

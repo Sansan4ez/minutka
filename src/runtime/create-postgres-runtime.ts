@@ -122,12 +122,19 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
+    const taskMutations = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      systemClock,
+    );
+    const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
       ideaStore,
       taskStore,
+      taskMutations,
+      ideaToTask,
       auditEventStore: stores.auditEventStore,
       participantStore: stores.profileStore,
       chatProjectionBuilder,
@@ -139,11 +146,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
       contextPriorities,
     });
-    const taskMutations = new TaskMutationConfirmationService(
-      createPostgresTaskMutationConfirmationStore(pool),
-      systemClock,
-    );
-    const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, ideaToTask);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {

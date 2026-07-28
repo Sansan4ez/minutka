@@ -8,6 +8,7 @@ export type IdGenerator = {
   insightId(): string;
   feedbackId(): string;
   ideaId(): string;
+  taskId?(): string;
   auditEventId(): string;
 };
 
@@ -19,18 +20,20 @@ export const randomIdGenerator: IdGenerator = {
   insightId: () => `ins_${randomUUID()}`,
   feedbackId: () => `fb_${randomUUID()}`,
   ideaId: () => `idea_${randomUUID()}`,
+  taskId: () => `task_${randomUUID()}`,
   auditEventId: () => `evt_${randomUUID()}`,
 };
 
 /** Deterministic IDs are intentionally limited to executable specs. */
 export function createDeterministicIdGenerator(): IdGenerator {
-  const counters = { request: 0, message: 0, insight: 0, feedback: 0, idea: 0, audit: 0 };
+  const counters = { request: 0, message: 0, insight: 0, feedback: 0, idea: 0, task: 0, audit: 0 };
   return {
     requestId: () => `req_${++counters.request}`,
     messageId: () => `msg_${++counters.message}`,
     insightId: () => `ins_${++counters.insight}`,
     feedbackId: () => `fb_${++counters.feedback}`,
     ideaId: () => `idea_${++counters.idea}`,
+    taskId: () => `task_${++counters.task}`,
     auditEventId: () => `evt_${++counters.audit}`,
   };
 }

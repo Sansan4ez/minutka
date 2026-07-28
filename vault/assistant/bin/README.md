@@ -14,6 +14,10 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/list-documents.md` | `listDocuments` | No | No | Authenticated owner's `/proc/context` only | List bounded logical document metadata. |
 | `/bin/read-document.md` | `readDocument` | No | No | Authenticated owner's `/proc/context` only | Read a bounded document range or Markdown section. |
 | `/bin/search-documents.md` | `searchDocuments` | No | No | Authenticated owner's `/proc/context` only | Search owner document paths/content with bounded snippets. |
+| `/bin/list-tasks.md` | `listTasks` | No | No | Authenticated owner's tasks only | List bounded tasks and current revisions. |
+| `/bin/propose-task-mutation.md` | `proposeTaskMutation` | No durable mutation | Produces confirmation | Owner bound by `AssistantService`; task id is application-generated | Propose create/update/complete/cancel. |
+| `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable mutation | Produces confirmation | Owner and provenance bound by application use-case | Propose an idempotent idea-to-task conversion. |
+| `/bin/confirm-task-mutation.md` | `confirmTaskMutation` | Yes | Requires exact pending confirmation | Owner bound by `AssistantService` | Execute once or return the stable stored outcome. |
 
 Read, list, and search are tools because they are deterministic typed operations over an owner-scoped namespace. `inbox_capture` is a business process because the agent must interpret the inbound item, choose its project and record type, decide whether clarification is needed, and then invoke `captureIdea`.
 

@@ -1,15 +1,18 @@
 import type { AssistantAgentRunner } from "../application/assistant-service.js";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
+import { assistantTaskToolNames, createTaskTools } from "./tools/task-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
   documents: assistantDocumentToolNames,
+  tasks: assistantTaskToolNames,
 } as const;
 
 export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.inbox,
   ...assistantRuntimeToolsets.documents,
+  ...assistantRuntimeToolsets.tasks,
 ] as const;
 
 export type MastraAgentLike = {
@@ -28,6 +31,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAge
       toolsets: {
         inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
         documents: createDocumentTools(context.documents),
+        tasks: createTaskTools(context.tasks),
       },
       // `activeTools` is applied after all toolsets are resolved, so ambient
       // agent-level tools cannot be selected during the personal assistant run.

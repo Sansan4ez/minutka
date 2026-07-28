@@ -31,6 +31,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         const tool = options.toolsets?.inbox?.captureIdea as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
+        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "confirmTaskMutation"]);
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
           project: "ASSISTANT",
@@ -55,19 +56,35 @@ describe("A2.6: legacy Minutka agent removal", () => {
       profileAndHistory: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture" },
+      tasks: {
+        async list() { return []; },
+        async propose() { throw new Error("unused"); },
+        async proposeIdeaToTask() { return { status: "not_found" }; },
+        async confirm() { return { status: "not_found" }; },
+      },
       documents: {
         limits: {
           listDefault: 20,
           listMaximum: 50,
           readDefaultCharacters: 4_000,
           readMaximumCharacters: 8_000,
+          turnReadCharacters: 20_000,
+          maximumDocumentBytes: 100_000,
+          turnScanBytes: 200_000,
           searchDefault: 10,
           searchMaximum: 20,
           searchSnippetCharacters: 500,
         },
         listDocuments: async () => ({ documents: [], nextCursor: null, truncated: false }),
-        readDocument: async ({ path, offset = 0 }) => ({ path: path as `/proc/context/${string}`, found: false, sectionFound: false, content: "", offset, nextOffset: null, truncated: false, version: "", updatedAt: "" }),
-        searchDocuments: async () => ({ matches: [], truncated: false }),
+        readDocument: async ({ path, offset = 0 }) => ({
+          path: path as `/proc/context/${string}`, found: false, sectionFound: false, content: "", offset,
+          totalCharacters: null, nextOffset: null, truncated: false, readBudgetExhausted: false,
+          scanBudgetExhausted: false, documentTooLarge: false, hint: null, version: "", updatedAt: "",
+        }),
+        searchDocuments: async () => ({
+          matches: [], truncated: false, readBudgetExhausted: false, scanBudgetExhausted: false,
+          documentTooLarge: false, hint: null,
+        }),
       },
       async captureIdea(input) {
         captured.push(input);
@@ -99,5 +116,6 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(Object.keys(assistantRuntimeToolsets));
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);
     expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
+    expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
   });
 });

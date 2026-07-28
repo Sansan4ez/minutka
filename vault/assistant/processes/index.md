@@ -16,4 +16,5 @@ The index is guidance, not a separate authority or decision artifact. It does no
 - A process may describe when a tool is useful, but only the application-wired tool handler can authorize and perform a mutation.
 - Process ids are diagnostic labels reconstructed from actual typed-tool execution when needed. They are not an application-supplied authority source.
 - Deterministic transport gates may choose a runtime path, such as file ingestion, but they do not decide the semantic content of the assistant's answer.
-- Read/list/search remain tools because their inputs and effects are mechanical; `inbox_capture` is a process because the agent interprets the item before invoking `captureIdea`.
+- Read/list/search and task proposal/confirmation remain typed tools because their inputs and effects are mechanical; `inbox_capture` is a process because the agent interprets the item before invoking `captureIdea`.
+- For task requests, use `listTasks` as needed, prepare create/update/complete/cancel with `proposeTaskMutation` (or idea provenance with `proposeIdeaToTask`), and call `confirmTaskMutation` only after explicit owner confirmation of the exact pending proposal. Never claim mutation from a proposal alone.
