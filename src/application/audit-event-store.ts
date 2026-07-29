@@ -18,6 +18,8 @@ export type AuditEventType =
   | "overflow_recovery"
   | "thread_summary_updated"
   | "thread_summary_failed"
+  | "task_mutation_proposed"
+  | "task_mutation_decided"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -53,6 +55,8 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   overflow_recovery: ["reason", "attempt", "recordsCeiling", "historyCeiling", "contextIndexCeiling"],
   thread_summary_updated: ["turnCount", "summaryCharacters"],
   thread_summary_failed: ["reason", "turnCount", "previousCharacters"],
+  task_mutation_proposed: ["confirmationId", "actionKind", "status", "taskId"],
+  task_mutation_decided: ["confirmationId", "actionKind", "status", "result", "taskId"],
   employee_data_deleted: [],
 };
 

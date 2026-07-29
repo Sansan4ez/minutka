@@ -42,6 +42,35 @@ describe("SPEC-RUNTIME-PROJECTIONS-001: bounded, scoped and safe runtime project
     expect(JSON.stringify(run)).not.toContain("Ignore previous instructions");
   });
 
+  it("projects redacted task proposal and decision facts in /run without raw proposal content", async () => {
+    const world = createInMemoryWorld(() => "2026-07-12T00:00:00.000Z");
+    const audit = createInMemoryAuditEventStore(world);
+    await audit.append({
+      id: "evt_task_proposed", requestId: "req_task", type: "task_mutation_proposed", employeeId: "emp_task", threadId: "thread_task", occurredAt: world.now(),
+      metadata: { confirmationId: "confirmation-1", actionKind: "create", status: "pending", taskId: "task-1", title: "private title", project: "private project" },
+    });
+    await audit.append({
+      id: "evt_task_decided", requestId: "req_task", type: "task_mutation_decided", employeeId: "emp_task", threadId: "thread_task", occurredAt: world.now(),
+      metadata: { confirmationId: "confirmation-1", actionKind: "create", status: "confirmed", result: "created", taskId: "task-1", payload: "private payload" },
+    });
+    const builder = createRuntimeProjectionBuilder({
+      profileStore: createInMemoryProfileStore(world),
+      conversationStore: createInMemoryConversationStore(world),
+      insightStore: createInMemoryInsightStore(world),
+      feedbackStore: createInMemoryFeedbackStore(world),
+      auditEventStore: audit,
+      clock: { now: world.now },
+    });
+    const run = await builder.buildRun({ employeeId: "emp_task", threadId: "thread_task", requestId: "req_task", purpose: "audit" });
+    expect(run.current.data.map(({ type, metadata }) => ({ type, metadata }))).toEqual([
+      { type: "task_mutation_proposed", metadata: { confirmationId: "confirmation-1", actionKind: "create", status: "pending", taskId: "task-1" } },
+      { type: "task_mutation_decided", metadata: { confirmationId: "confirmation-1", actionKind: "create", status: "confirmed", result: "created", taskId: "task-1" } },
+    ]);
+    expect(JSON.stringify(run)).not.toContain("private title");
+    expect(JSON.stringify(run)).not.toContain("private project");
+    expect(JSON.stringify(run)).not.toContain("private payload");
+  });
+
   it("sanitises history without reporting omission and never exposes employeeId as the owner name", async () => {
     const world = createInMemoryWorld(() => "2026-07-12T00:00:00.000Z");
     const profiles = createInMemoryProfileStore(world);

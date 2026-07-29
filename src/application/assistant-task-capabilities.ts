@@ -1,6 +1,6 @@
 import type { Task } from "../domain/task.js";
 import type { IdeaToTaskProposalResult, IdeaToTaskService } from "./idea-to-task.js";
-import type { PendingTaskMutation, TaskMutationConfirmationService, TaskMutationProposal } from "./task-mutation-confirmation.js";
+import type { PendingTaskMutation, TaskMutationAuditContext, TaskMutationConfirmationService, TaskMutationProposal } from "./task-mutation-confirmation.js";
 import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 
 export const assistantTaskListDefaultLimit = 20;
@@ -29,6 +29,7 @@ export function createAssistantTaskCapabilities(input: {
   mutations?: Pick<TaskMutationConfirmationService, "propose">;
   ideaToTask?: Pick<IdeaToTaskService, "propose">;
   taskId: () => string;
+  audit?: TaskMutationAuditContext;
   onProposal: (pending: PendingTaskMutation) => PendingTaskMutation;
 }): AssistantTaskCapabilities {
   return {
@@ -45,13 +46,13 @@ export function createAssistantTaskCapabilities(input: {
       const pending = await input.mutations.propose(
         input.ownerId,
         normalizeAssistantTaskProposal(proposal, input.taskId),
-        { actionKind: proposal.kind },
+        { actionKind: proposal.kind, audit: input.audit },
       );
       return input.onProposal(pending);
     },
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
-      const result = await input.ideaToTask.propose(input.ownerId, ideaId);
+      const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit);
       if (result.status !== "needs_confirmation") return result;
       return { ...result, confirmation: input.onProposal(result.confirmation) };
     },

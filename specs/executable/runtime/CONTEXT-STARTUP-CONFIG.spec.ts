@@ -9,6 +9,7 @@ import { loadAssistantAgentInstructions } from "../../../src/application/assista
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "../../../src/application/assistant-static-context.js";
 import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import * as postgresPoolModule from "../../../src/infrastructure/postgres/postgres-pool.js";
+import { taskMutationCompletedReplayRetentionEnvName, taskMutationCompletedReplayRetentionFromEnv } from "../../../src/config/task-confirmation-retention.js";
 
 const noOpAgent: AssistantAgentRunner = async () => ({ text: "unused", executionTrace: [] });
 
@@ -27,6 +28,12 @@ function startupEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
+  it("requires the configurable completed replay window to exceed confirmation TTL", () => {
+    expect(taskMutationCompletedReplayRetentionFromEnv({})).toBe(7 * 24 * 60 * 60_000);
+    expect(() => taskMutationCompletedReplayRetentionFromEnv({ [taskMutationCompletedReplayRetentionEnvName]: String(15 * 60_000) })).toThrow("must exceed the task confirmation TTL");
+    expect(taskMutationCompletedReplayRetentionFromEnv({ [taskMutationCompletedReplayRetentionEnvName]: String(24 * 60 * 60_000) })).toBe(24 * 60 * 60_000);
+  });
+
   function expectNoPostgresPool(): ReturnType<typeof vi.spyOn> {
     return vi.spyOn(postgresPoolModule, "createPostgresPool");
   }

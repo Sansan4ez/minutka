@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Task } from "../domain/task.js";
-import type { Clock } from "./runtime-primitives.js";
+import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
+import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import type { CreateTaskInput, TaskMutationResult, TaskPatch, TaskWriter } from "./task-store.js";
+
+export const taskMutationConfirmationTtlMilliseconds = 15 * 60_000;
+export const taskMutationConfirmationPurgeBatchSize = 500;
 
 const recordTypeSchema = z.enum(["money", "development", "content", "people", "operations", "knowledge", "personal"]);
 const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
@@ -80,27 +84,35 @@ export interface TaskMutationConfirmationStore {
   decide(
     input: { confirmationId: string; ownerId: string; decision: "confirm" | "reject"; decidedAt: string },
     effect: (writer: TaskWriter, proposal: TaskMutationProposal) => Promise<TaskMutationResult>,
-  ): Promise<TaskMutationDecisionResult>;
+  ): Promise<{ result: TaskMutationDecisionResult; actionKind?: TaskPendingActionKind; taskId?: string }>;
+  purge(input: { pendingExpiredBefore: string; completedBefore: string; limit: number }): Promise<number>;
 }
+
+export type TaskMutationAuditContext = { requestId: string; threadId?: string; messageId?: string };
 
 export class TaskMutationConfirmationService {
   constructor(
     private readonly store: TaskMutationConfirmationStore,
     private readonly clock: Clock,
-    private readonly options: { ttlMilliseconds?: number; confirmationId?: () => string } = {},
+    private readonly options: {
+      ttlMilliseconds?: number;
+      confirmationId?: () => string;
+      auditEventStore?: AuditEventStore;
+      idGenerator?: Pick<IdGenerator, "auditEventId">;
+    } = {},
   ) {}
 
   async propose(
     ownerId: string,
     proposal: TaskMutationProposal,
-    options: { actionKind?: TaskPendingActionKind } = {},
+    options: { actionKind?: TaskPendingActionKind; audit?: TaskMutationAuditContext } = {},
   ): Promise<PendingTaskMutation> {
     const safeOwnerId = assertOwnerId(ownerId);
     const normalized = normalizeTaskMutationProposal(proposal);
     const actionKind = options.actionKind ?? inferTaskPendingActionKind(normalized);
     if (!taskActionKindMatchesProposal(actionKind, normalized)) throw new Error("task action kind does not match proposal");
     const createdAt = assertTimestamp(this.clock.now());
-    const ttl = this.options.ttlMilliseconds ?? 15 * 60_000;
+    const ttl = this.options.ttlMilliseconds ?? taskMutationConfirmationTtlMilliseconds;
     if (!Number.isSafeInteger(ttl) || ttl <= 0) throw new Error("confirmation ttl must be a positive safe integer");
     const record: PendingTaskMutation = {
       confirmationId: requiredText.parse((this.options.confirmationId ?? (() => `task-confirmation-${randomUUID()}`))()),
@@ -112,26 +124,91 @@ export class TaskMutationConfirmationService {
       expiresAt: new Date(Date.parse(createdAt) + ttl).toISOString(),
     };
     await this.store.save(record);
+    await this.auditSafely("task_mutation_proposed", safeOwnerId, record.confirmationId, actionKind, "pending", options.audit, undefined, taskMutationProposalTaskId(normalized));
     return copyPending(record);
   }
 
-  confirm(ownerId: string, confirmationId: string): Promise<TaskMutationDecisionResult> {
-    return this.decide(ownerId, confirmationId, "confirm");
+  confirm(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext): Promise<TaskMutationDecisionResult> {
+    return this.decide(ownerId, confirmationId, "confirm", audit);
   }
 
-  reject(ownerId: string, confirmationId: string): Promise<TaskMutationDecisionResult> {
-    return this.decide(ownerId, confirmationId, "reject");
+  reject(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext): Promise<TaskMutationDecisionResult> {
+    return this.decide(ownerId, confirmationId, "reject", audit);
   }
 
-  private decide(ownerId: string, confirmationId: string, decision: "confirm" | "reject"): Promise<TaskMutationDecisionResult> {
+  purge(input: { completedReplayRetentionMilliseconds: number; limit?: number; now?: string }): Promise<number> {
+    const retention = input.completedReplayRetentionMilliseconds;
+    if (!Number.isSafeInteger(retention) || retention <= 0) throw new Error("completed replay retention must be a positive safe integer");
+    const ttl = this.options.ttlMilliseconds ?? taskMutationConfirmationTtlMilliseconds;
+    if (retention <= ttl) throw new Error("completed replay retention must exceed the confirmation TTL");
+    const limit = input.limit ?? taskMutationConfirmationPurgeBatchSize;
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("confirmation purge limit must be a positive safe integer");
+    const now = assertTimestamp(input.now ?? this.clock.now());
+    return this.store.purge({
+      pendingExpiredBefore: now,
+      completedBefore: new Date(Date.parse(now) - retention).toISOString(),
+      limit,
+    });
+  }
+
+  private async decide(ownerId: string, confirmationId: string, decision: "confirm" | "reject", audit?: TaskMutationAuditContext): Promise<TaskMutationDecisionResult> {
     const safeOwnerId = assertOwnerId(ownerId);
     const safeConfirmationId = requiredText.parse(confirmationId);
-    return this.store.decide({
+    const decidedAt = assertTimestamp(this.clock.now());
+    const decided = await this.store.decide({
       confirmationId: safeConfirmationId,
       ownerId: safeOwnerId,
       decision,
-      decidedAt: assertTimestamp(this.clock.now()),
+      decidedAt,
     }, (writer, proposal) => executeTaskMutation(writer, safeOwnerId, proposal));
+    const result = decided.result;
+    if (terminalAuditStatus(result.status) && decided.actionKind) {
+      await this.auditSafely(
+        "task_mutation_decided",
+        safeOwnerId,
+        safeConfirmationId,
+        decided.actionKind,
+        result.status,
+        audit,
+        result.status === "confirmed" || result.status === "already_confirmed" ? result.outcome : undefined,
+        decided.taskId,
+      );
+    }
+    return result;
+  }
+
+  private async auditSafely(
+    type: "task_mutation_proposed" | "task_mutation_decided",
+    ownerId: string,
+    confirmationId: string,
+    actionKind: TaskPendingActionKind,
+    status: string,
+    context?: TaskMutationAuditContext,
+    outcome?: TaskMutationResult,
+    proposedTaskId?: string,
+  ): Promise<void> {
+    if (!this.options.auditEventStore || !this.options.idGenerator) return;
+    try {
+      const taskId = taskIdFromOutcome(outcome) ?? proposedTaskId;
+      await this.options.auditEventStore.append({
+        id: this.options.idGenerator.auditEventId(),
+        requestId: context?.requestId ?? `task-mutation:${confirmationId}`,
+        type,
+        employeeId: ownerId,
+        ...(context?.threadId ? { threadId: context.threadId } : {}),
+        ...(context?.messageId ? { messageId: context.messageId } : {}),
+        occurredAt: this.clock.now(),
+        metadata: safeAuditMetadata(type, {
+          confirmationId,
+          actionKind,
+          status,
+          ...(outcome ? { result: outcome.outcome } : {}),
+          ...(taskId ? { taskId } : {}),
+        }),
+      });
+    } catch {
+      // Audit is diagnostic and must not change task proposal/decision semantics.
+    }
   }
 }
 
@@ -173,10 +250,23 @@ export async function executeTaskMutation(writer: TaskWriter, ownerId: string, p
   }
 }
 
+export function taskMutationProposalTaskId(proposal: TaskMutationProposal): string {
+  return proposal.kind === "create" ? proposal.input.id : proposal.taskId;
+}
+
 export function copyTaskMutationResult(result: TaskMutationResult): TaskMutationResult {
   if (result.outcome === "not_found") return { outcome: "not_found" };
   if (result.outcome === "conflict") return result.current ? { outcome: "conflict", current: copyTask(result.current) } : { outcome: "conflict" };
   return { outcome: result.outcome, task: copyTask(result.task) };
+}
+
+function terminalAuditStatus(status: TaskMutationDecisionResult["status"]): boolean {
+  return status === "confirmed" || status === "already_confirmed" || status === "rejected" || status === "already_rejected";
+}
+
+function taskIdFromOutcome(outcome: TaskMutationResult | undefined): string | undefined {
+  if (!outcome || outcome.outcome === "not_found") return undefined;
+  return outcome.outcome === "conflict" ? outcome.current?.id : outcome.task.id;
 }
 
 function inferTaskPendingActionKind(proposal: TaskMutationProposal): TaskPendingActionKind {

@@ -5,6 +5,7 @@ import {
   normalizeTaskMutationProposal,
   taskActionKindMatchesProposal,
   taskMutationPayloadDigest,
+  taskMutationProposalTaskId,
   type TaskMutationConfirmationStore,
   type TaskMutationProposal,
   type TaskPendingActionKind,
@@ -48,14 +49,16 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
             [input.confirmationId],
           );
           const row = selected.rows[0];
-          if (!row) return { status: "not_found" };
-          if (row.user_id !== input.ownerId) return { status: "owner_mismatch" };
+          if (!row) return { result: { status: "not_found" } };
+          if (row.user_id !== input.ownerId) return { result: { status: "owner_mismatch" } };
+          const actionKind = row.action_kind as TaskPendingActionKind;
           const proposal = restoreCanonicalProposal(row);
-          if (!proposal) return { status: "invalid_payload" };
-          if (row.decision === "confirmed" && row.outcome !== null) return { status: "already_confirmed", outcome: restoreOutcome(row.outcome) };
-          if (row.decision === "rejected") return { status: "already_rejected" };
-          if (row.completed_at !== null || row.outcome !== null) return { status: "invalid_payload" };
-          if (row.expires_at.getTime() <= Date.parse(input.decidedAt)) return { status: "expired" };
+          if (!proposal) return { result: { status: "invalid_payload" }, actionKind };
+          const taskId = taskMutationProposalTaskId(proposal);
+          if (row.decision === "confirmed" && row.outcome !== null) return { result: { status: "already_confirmed", outcome: restoreOutcome(row.outcome) }, actionKind, taskId };
+          if (row.decision === "rejected") return { result: { status: "already_rejected" }, actionKind, taskId };
+          if (row.completed_at !== null || row.outcome !== null) return { result: { status: "invalid_payload" }, actionKind };
+          if (row.expires_at.getTime() <= Date.parse(input.decidedAt)) return { result: { status: "expired" }, actionKind };
 
           if (input.decision === "reject") {
             await client.query(
@@ -64,7 +67,7 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
                WHERE confirmation_id=$1`,
               [input.confirmationId, input.decidedAt],
             );
-            return { status: "rejected" };
+            return { result: { status: "rejected" }, actionKind, taskId };
           }
 
           const transactionalWriter: TaskWriter = {
@@ -78,8 +81,28 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
              WHERE confirmation_id=$1`,
             [input.confirmationId, input.decidedAt, JSON.stringify(outcome)],
           );
-          return { status: "confirmed", outcome: copyTaskMutationResult(outcome) };
+          return { result: { status: "confirmed", outcome: copyTaskMutationResult(outcome) }, actionKind, taskId };
         });
+      } catch (error) { throw mapPostgresError(error); }
+    },
+    async purge(input) {
+      try {
+        const result = await pool.query(
+          `WITH candidates AS (
+             SELECT confirmation_id
+             FROM minutka_private.task_mutation_confirmations
+             WHERE (completed_at IS NULL AND expires_at < $1)
+                OR (completed_at IS NOT NULL AND completed_at < $2)
+             ORDER BY COALESCE(completed_at, expires_at), confirmation_id
+             LIMIT $3
+             FOR UPDATE SKIP LOCKED
+           )
+           DELETE FROM minutka_private.task_mutation_confirmations confirmations
+           USING candidates
+           WHERE confirmations.confirmation_id = candidates.confirmation_id`,
+          [input.pendingExpiredBefore, input.completedBefore, input.limit],
+        );
+        return result.rowCount ?? 0;
       } catch (error) { throw mapPostgresError(error); }
     },
   };

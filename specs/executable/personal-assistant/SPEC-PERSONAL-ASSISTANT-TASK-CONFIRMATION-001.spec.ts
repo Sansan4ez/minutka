@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
+import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
 
 const createProposal: TaskMutationProposal = {
@@ -13,12 +16,13 @@ function harness(start = "2026-07-28T09:00:00.000Z") {
   let sequence = 0;
   const clock = { now: () => now };
   const tasks = createInMemoryTaskStore(clock);
+  const store = createInMemoryTaskMutationConfirmationStore(tasks);
   const service = new TaskMutationConfirmationService(
-    createInMemoryTaskMutationConfirmationStore(tasks),
+    store,
     clock,
     { ttlMilliseconds: 60_000, confirmationId: () => `confirmation-${++sequence}` },
   );
-  return { tasks, service, setNow(value: string) { now = value; } };
+  return { tasks, store, service, setNow(value: string) { now = value; } };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmation boundary", () => {
@@ -68,6 +72,52 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     expect(results[0]).toMatchObject({ outcome: { outcome: "created", task: { id: "task-1", revision: 1 } } });
     expect(results[1]).toMatchObject({ outcome: { outcome: "created", task: { id: "task-1", revision: 1 } } });
     await expect(tasks.list("owner")).resolves.toHaveLength(1);
+  });
+
+  it("purges expired pending and old terminal rows in bounded batches while keeping recent replay", async () => {
+    const { service, setNow } = harness();
+    const expired = await service.propose("owner", createProposal);
+    setNow("2026-07-28T09:02:00.000Z");
+    const rejected = await service.propose("owner", { ...createProposal, input: { ...createProposal.input, id: "task-2" } });
+    await service.reject("owner", rejected.confirmationId);
+    setNow("2026-07-28T09:03:00.000Z");
+    const recent = await service.propose("owner", { ...createProposal, input: { ...createProposal.input, id: "task-3" } });
+    await service.confirm("owner", recent.confirmationId);
+
+    setNow("2026-07-28T09:05:00.000Z");
+    await expect(service.purge({ completedReplayRetentionMilliseconds: 150_000, limit: 1 })).resolves.toBe(1);
+    await expect(service.confirm("owner", expired.confirmationId)).resolves.toEqual({ status: "not_found" });
+    await expect(service.purge({ completedReplayRetentionMilliseconds: 150_000, limit: 10 })).resolves.toBe(1);
+    await expect(service.confirm("owner", rejected.confirmationId)).resolves.toEqual({ status: "not_found" });
+    await expect(service.confirm("owner", recent.confirmationId)).resolves.toMatchObject({ status: "already_confirmed", outcome: { outcome: "created" } });
+  });
+
+  it("writes allow-listed proposal and terminal audit facts without task content", async () => {
+    let now = "2026-07-28T09:00:00.000Z";
+    const world = createInMemoryWorld(() => now);
+    const tasks = createInMemoryTaskStore({ now: () => now });
+    const service = new TaskMutationConfirmationService(
+      createInMemoryTaskMutationConfirmationStore(tasks),
+      { now: () => now },
+      {
+        confirmationId: () => "confirmation-audit",
+        auditEventStore: createInMemoryAuditEventStore(world),
+        idGenerator: createDeterministicIdGenerator(),
+      },
+    );
+    const pending = await service.propose("owner", createProposal, { audit: { requestId: "req-proposal", threadId: "thread", messageId: "message" } });
+    now = "2026-07-28T09:01:00.000Z";
+    await service.confirm("owner", pending.confirmationId, { requestId: "req-confirm", threadId: "thread" });
+
+    expect(world.auditEvents.map(({ type, requestId, metadata }) => ({ type, requestId, metadata }))).toEqual([
+      { type: "task_mutation_proposed", requestId: "req-proposal", metadata: { confirmationId: "confirmation-audit", actionKind: "create", status: "pending", taskId: "task-1" } },
+      { type: "task_mutation_decided", requestId: "req-confirm", metadata: { confirmationId: "confirmation-audit", actionKind: "create", status: "confirmed", result: "created", taskId: "task-1" } },
+    ]);
+    const serialized = JSON.stringify(world.auditEvents);
+    expect(serialized).not.toContain("Подготовить план");
+    expect(serialized).not.toContain("АССИСТЕНТ");
+    expect(serialized).not.toContain("payload");
+    expect(serialized).not.toContain("ownerId");
   });
 
   it("binds update and cancel to the canonical proposed revision", async () => {

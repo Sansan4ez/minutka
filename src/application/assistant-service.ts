@@ -222,6 +222,7 @@ export class AssistantService {
       mutations: this.deps.taskMutations,
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
+      audit: { requestId, threadId, messageId },
       onProposal: (pending) => {
         if (pendingTaskMutation) throw new Error("only one task proposal is allowed per assistant turn");
         pendingTaskMutation = pending;

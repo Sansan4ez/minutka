@@ -439,6 +439,52 @@ describe("PostgreSQL storage contracts", () => {
     await expect(createPostgresTaskStore(pool).get("emp_task_confirmation", "task-rejected-pg")).resolves.toBeNull();
   });
 
+  it("purges task confirmations by pending/completed retention, stays bounded, uses purge indexes and preserves owner cascade", async () => {
+    await issueProfileReadyParticipant(pool, "confirmation_retention_owner", "invite_confirmation_retention");
+    const store = createPostgresTaskMutationConfirmationStore(pool);
+    const service = new TaskMutationConfirmationService(store, { now: () => "2026-07-28T09:00:00.000Z" }, {
+      ttlMilliseconds: 60_000,
+      confirmationId: (() => {
+        let sequence = 0;
+        return () => `retention-confirmation-${++sequence}`;
+      })(),
+    });
+    const expired = await service.propose("confirmation_retention_owner", {
+      kind: "create", input: { id: "retention-expired", title: "Expired", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    const rejected = await service.propose("confirmation_retention_owner", {
+      kind: "create", input: { id: "retention-rejected", title: "Rejected", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    const oldCompleted = await service.propose("confirmation_retention_owner", {
+      kind: "create", input: { id: "retention-old", title: "Old", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    const recentCompleted = await service.propose("confirmation_retention_owner", {
+      kind: "create", input: { id: "retention-recent", title: "Recent", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await service.reject("confirmation_retention_owner", rejected.confirmationId);
+    await service.confirm("confirmation_retention_owner", oldCompleted.confirmationId);
+    await service.confirm("confirmation_retention_owner", recentCompleted.confirmationId);
+    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET completed_at='2026-07-20T00:00:00.000Z' WHERE confirmation_id IN ($1,$2)", [rejected.confirmationId, oldCompleted.confirmationId]);
+    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET completed_at='2026-07-27T12:00:00.000Z' WHERE confirmation_id=$1", [recentCompleted.confirmationId]);
+
+    await expect(store.purge({ pendingExpiredBefore: "2026-07-28T10:00:00.000Z", completedBefore: "2026-07-27T00:00:00.000Z", limit: 2 })).resolves.toBe(2);
+    await expect(store.purge({ pendingExpiredBefore: "2026-07-28T10:00:00.000Z", completedBefore: "2026-07-27T00:00:00.000Z", limit: 10 })).resolves.toBe(1);
+    expect((await pool.query("SELECT confirmation_id FROM minutka_private.task_mutation_confirmations WHERE confirmation_id = ANY($1::text[]) ORDER BY confirmation_id", [[expired.confirmationId, rejected.confirmationId, oldCompleted.confirmationId, recentCompleted.confirmationId]])).rows).toEqual([
+      { confirmation_id: recentCompleted.confirmationId },
+    ]);
+    const indexes = (await pool.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE schemaname='minutka_private' AND tablename='task_mutation_confirmations'")).rows.map(({ indexname }) => indexname);
+    expect(indexes).toEqual(expect.arrayContaining([
+      "task_mutation_confirmations_pending_expiry_idx",
+      "task_mutation_confirmations_completed_retention_idx",
+    ]));
+
+    const cascade = await service.propose("confirmation_retention_owner", {
+      kind: "create", input: { id: "retention-cascade", title: "Cascade", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await createPostgresProfileStore(pool, config.inviteCodePepper).deleteEmployeePersonalData("confirmation_retention_owner");
+    expect((await pool.query("SELECT 1 FROM minutka_private.task_mutation_confirmations WHERE confirmation_id=$1", [cascade.confirmationId])).rowCount).toBe(0);
+  });
+
   it("converts an idea through durable confirmation and recovers the stable result after restart", async () => {
     await issueProfileReadyParticipant(pool, "idea_task_owner", "invite_idea_task_owner");
     const ideas = createPostgresIdeaStore(pool);
@@ -623,6 +669,11 @@ describe("PostgreSQL storage contracts", () => {
     await telegramSessions.claimActionMessage({ identity: { chatId: "chat_delete", userId: "user_delete" }, employeeId: "emp_delete", messageId: 1, claimedAt: now, staleBefore: "2026-07-11T23:59:00.000Z" });
     await createPostgresIdeaStore(pool).add({ id: "idea_delete", userId: "emp_delete", project: "АССИСТЕНТ", type: "knowledge", summary: "private idea", status: "raw" });
     await createPostgresTaskStore(pool).create("emp_delete", { id: "task_delete", title: "private task", project: "АССИСТЕНТ", type: "knowledge", status: "open", originIdeaId: "idea_delete" });
+    await new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => now },
+      { confirmationId: () => "task_confirmation_delete" },
+    ).propose("emp_delete", { kind: "cancel", taskId: "task_delete", expectedRevision: 1 });
     await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
       ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",
       source: { kind: "http_upload", deliveryKey: "delete-delivery" },
@@ -636,6 +687,7 @@ describe("PostgreSQL storage contracts", () => {
     }
     expect((await pool.query("SELECT 1 FROM minutka_private.ideas WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.tasks WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.task_mutation_confirmations WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });

@@ -4,6 +4,7 @@ import {
   normalizeTaskMutationProposal,
   taskActionKindMatchesProposal,
   taskMutationPayloadDigest,
+  taskMutationProposalTaskId,
   type PendingTaskMutation,
   type TaskMutationConfirmationRecord,
   type TaskMutationConfirmationStore,
@@ -22,27 +23,42 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
     async decide(input, effect) {
       return withKeyLock(locks, input.confirmationId, async () => {
         const record = records.get(input.confirmationId);
-        if (!record) return { status: "not_found" };
-        if (record.ownerId !== input.ownerId) return { status: "owner_mismatch" };
-        if (!validCanonicalRecord(record)) return { status: "invalid_payload" };
+        if (!record) return { result: { status: "not_found" } };
+        if (record.ownerId !== input.ownerId) return { result: { status: "owner_mismatch" } };
+        if (!validCanonicalRecord(record)) return { result: { status: "invalid_payload" }, actionKind: record.actionKind };
+        const taskId = taskMutationProposalTaskId(record.proposal);
         if (record.decision === "confirmed" && record.outcome) {
-          return { status: "already_confirmed", outcome: copyTaskMutationResult(record.outcome) };
+          return { result: { status: "already_confirmed", outcome: copyTaskMutationResult(record.outcome) }, actionKind: record.actionKind, taskId };
         }
-        if (record.decision === "rejected") return { status: "already_rejected" };
-        if (Date.parse(record.expiresAt) <= Date.parse(input.decidedAt)) return { status: "expired" };
+        if (record.decision === "rejected") return { result: { status: "already_rejected" }, actionKind: record.actionKind, taskId };
+        if (Date.parse(record.expiresAt) <= Date.parse(input.decidedAt)) return { result: { status: "expired" }, actionKind: record.actionKind };
         if (input.decision === "reject") {
           record.decision = "rejected";
           record.completedAt = input.decidedAt;
           records.set(record.confirmationId, record);
-          return { status: "rejected" };
+          return { result: { status: "rejected" }, actionKind: record.actionKind, taskId };
         }
         const outcome = await effect(taskStore, normalizeTaskMutationProposal(record.proposal));
         record.decision = "confirmed";
         record.outcome = copyTaskMutationResult(outcome);
         record.completedAt = input.decidedAt;
         records.set(record.confirmationId, record);
-        return { status: "confirmed", outcome: copyTaskMutationResult(outcome) };
+        return { result: { status: "confirmed", outcome: copyTaskMutationResult(outcome) }, actionKind: record.actionKind, taskId };
       });
+    },
+    async purge(input) {
+      const candidates = [...records.values()]
+        .filter((record) => record.completedAt
+          ? Date.parse(record.completedAt) < Date.parse(input.completedBefore)
+          : Date.parse(record.expiresAt) < Date.parse(input.pendingExpiredBefore))
+        .sort((left, right) => {
+          const leftTime = Date.parse(left.completedAt ?? left.expiresAt);
+          const rightTime = Date.parse(right.completedAt ?? right.expiresAt);
+          return leftTime - rightTime || left.confirmationId.localeCompare(right.confirmationId);
+        })
+        .slice(0, input.limit);
+      for (const record of candidates) records.delete(record.confirmationId);
+      return candidates.length;
     },
   };
 }

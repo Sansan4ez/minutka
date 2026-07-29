@@ -22,7 +22,7 @@ import type {
   SubmitOnboardingAnswerInput,
 } from "./minutka-service.js";
 import type { OnboardingProgress } from "./onboarding-types.js";
-import type { TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
+import type { TaskMutationAuditContext, TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
 
@@ -73,14 +73,14 @@ export class PersonalAssistantService {
   getProfile(input: { employeeId: string }): Promise<UserProfile> { return this.identityService.getProfile(input); }
   chat(input: AssistantChatInput): Promise<AssistantChatResult> { return this.conversationService.chat(input); }
 
-  confirmTaskMutation(ownerId: string, confirmationId: string) {
+  confirmTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
-    return this.taskMutations.confirm(ownerId, confirmationId);
+    return this.taskMutations.confirm(ownerId, confirmationId, audit);
   }
 
-  rejectTaskMutation(ownerId: string, confirmationId: string) {
+  rejectTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
-    return this.taskMutations.reject(ownerId, confirmationId);
+    return this.taskMutations.reject(ownerId, confirmationId, audit);
   }
 
   listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.identityService.listInsights(input); }

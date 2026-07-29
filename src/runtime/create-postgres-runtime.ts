@@ -38,6 +38,8 @@ import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
 import { privacyConfigFromEnv } from "../config/privacy.js";
+import { taskMutationCompletedReplayRetentionFromEnv } from "../config/task-confirmation-retention.js";
+import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
   // The process manual is deployment configuration: validate it before opening
@@ -48,6 +50,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const contextBudget = contextBudgetConfigFromEnv(input.env);
   assertGeneratedContextSourceMinimums(contextBudget, agentInstructions);
   const privacy = privacyConfigFromEnv(input.env);
+  const taskMutationCompletedReplayRetentionMilliseconds = taskMutationCompletedReplayRetentionFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -55,14 +58,29 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
     const onboardingDraftStore = createPostgresOnboardingDraftStore(pool);
     const telegramSessionStore = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const auditEventStore = createPostgresAuditEventStore(pool);
+    const taskMutationConfirmationStore = createPostgresTaskMutationConfirmationStore(pool);
+    const taskMutations = new TaskMutationConfirmationService(taskMutationConfirmationStore, systemClock, {
+      auditEventStore,
+      idGenerator: randomIdGenerator,
+    });
     if (telegramActionMessageRetentionMilliseconds <= telegramActionMessageClaimLeaseMilliseconds) {
       throw new Error("Telegram action-message retention must exceed the claim lease.");
     }
     const purgeExpiredTelegramActions = () => telegramSessionStore.purgeActionMessages({
       claimedBefore: new Date(Date.now() - telegramActionMessageRetentionMilliseconds).toISOString(),
     });
-    // Startup cleanup bounds retention even for employees who never return.
-    await Promise.all([onboardingDraftStore.purgeExpired(), purgeExpiredTelegramActions()]);
+    const purgeTaskMutationConfirmations = () => taskMutations.purge({
+      completedReplayRetentionMilliseconds: taskMutationCompletedReplayRetentionMilliseconds,
+    });
+    const retentionCleanupJobs = [
+      { operation: "Minutka onboarding draft", run: () => onboardingDraftStore.purgeExpired() },
+      { operation: "Minutka Telegram action-message", run: purgeExpiredTelegramActions },
+      { operation: "Personal assistant task-confirmation", run: purgeTaskMutationConfirmations },
+    ] as const;
+    // Cleanup is best-effort: database connectivity and migrations have already
+    // failed fast, while retention housekeeping must not block startup.
+    await runRetentionCleanupJobs(retentionCleanupJobs);
     const minioConfig = minioConfigFromEnv(input.env);
     const minioClient = createMinioClient(minioConfig);
     await prepareMinioBucket(minioClient, minioConfig.bucket);
@@ -82,7 +100,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       threadSummaryStore: createPostgresThreadSummaryStore(pool),
       insightStore: createPostgresInsightStore(pool),
       feedbackStore: createPostgresFeedbackStore(pool),
-      auditEventStore: createPostgresAuditEventStore(pool),
+      auditEventStore,
     };
     const ingestion = createIngestionService({
       documentStore,
@@ -122,10 +140,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
-    const taskMutations = new TaskMutationConfirmationService(
-      createPostgresTaskMutationConfirmationStore(pool),
-      systemClock,
-    );
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
@@ -149,12 +163,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
-      void onboardingDraftStore.purgeExpired().catch((error: unknown) => {
-        console.warn(`Minutka onboarding draft cleanup failed (${error instanceof Error ? error.name : "UnknownError"}).`);
-      });
-      void purgeExpiredTelegramActions().catch((error: unknown) => {
-        console.warn(`Minutka Telegram action-message cleanup failed (${error instanceof Error ? error.name : "UnknownError"}).`);
-      });
+      void runRetentionCleanupJobs(retentionCleanupJobs);
     }, 60 * 60 * 1_000);
     retentionCleanup.unref();
     return {
