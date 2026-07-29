@@ -310,6 +310,11 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       async release(deliveryKey: string, claimedAt: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
     };
   }
+  async function sendTaskProposal(chatId: string, chat: ChatResult): Promise<void> {
+    const pendingAction = taskPendingAction(chat);
+    if (!pendingAction) return;
+    await rawReplyPort.sendMessage(chatId, [`Предложение: ${pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
+  }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;
     try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
@@ -319,7 +324,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const pendingAction = taskPendingAction(chat);
     const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
     for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
-    if (pendingAction) await replyPort.sendMessage(chatId, [`Предложение: ${pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
+    if (pendingAction) await sendTaskProposal(chatId, chat);
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {

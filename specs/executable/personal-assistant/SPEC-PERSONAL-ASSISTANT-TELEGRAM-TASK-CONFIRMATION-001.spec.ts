@@ -43,7 +43,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   });
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
   const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations);
-  const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade });
+  const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade }, { saveArtifact: (input) => facade.saveArtifact(input) });
   return { telegram, tasks, setNow(value: string) { now = value; } };
 }
 
@@ -79,6 +79,57 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-2" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    ["text" as const],
+    ["voice" as const],
+    ["file" as const],
+  ])("keeps a task proposal available across a later %s message until confirmation", async (nextModality) => {
+    let turn = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turn += 1;
+      if (turn === 1) await context.tasks.propose({ kind: "create", title: "Keep proposal", project: "ASSISTANT", type: "operations" });
+      return turn === 1 ? "Предложение подготовлено." : "Обычный ответ.";
+    });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+
+    if (nextModality === "text") {
+      await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "continue" });
+    } else if (nextModality === "voice") {
+      await telegram.sendVoice({ chatId: owner.chatId, userId: owner.userId, fileId: "voice-after-proposal", transcript: "continue", durationSeconds: 1 });
+    } else {
+      await telegram.sendFile({
+        chatId: owner.chatId,
+        userId: owner.userId,
+        attachment: { fileId: "file-after-proposal", messageId: 99, payloadKind: "document", fileName: "note.txt", fileSizeBytes: 4, forwarded: false },
+      });
+    }
+
+    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: `confirm-after-${nextModality}` });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Keep proposal" }]);
+  });
+
+  it("keeps multiple pending task proposals independently actionable", async () => {
+    let turn = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turn += 1;
+      await context.tasks.propose({ kind: "create", title: `Proposal ${turn}`, project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "first" });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "second" });
+    const proposals = telegram.sentMessages().filter((message) => message.text.includes("Предложение:"));
+    expect(proposals).toHaveLength(2);
+    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposals[0]!.messageId, replyMarkup: undefined });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-first" });
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[1]!, "✅ Подтвердить"), messageId: proposals[1]!.messageId, callbackQueryId: "confirm-second" });
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Proposal 1" }, { title: "Proposal 2" }]);
   });
 
   it("keeps a terminal rejection stable when Telegram markup cleanup fails", async () => {

@@ -1,7 +1,7 @@
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
-import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
+import { createTelegramShell, type TelegramArtifactIntake, type TelegramFileAttachment } from "../../../src/telegram/telegram-shell.js";
 import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
 import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
@@ -36,7 +36,7 @@ export class TelegramDriver {
   private readonly voiceDownloads: string[] = [];
   private readonly transcriptions: string[] = [];
 
-  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number, runtimeInput?: Omit<ReturnType<typeof createInMemoryRuntime>, "service"> & { service: ReturnType<typeof createInMemoryRuntime>["service"] | PersonalAssistantService }) {
+  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number, runtimeInput?: Omit<ReturnType<typeof createInMemoryRuntime>, "service"> & { service: ReturnType<typeof createInMemoryRuntime>["service"] | PersonalAssistantService }, artifactIntake?: TelegramArtifactIntake) {
     const runtime = runtimeInput ?? createInMemoryRuntime({ world, agentRunner, deps: createDefaultSpecDeps(deps) });
     const baseTransport = createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" });
     const transport = runtime.service instanceof PersonalAssistantService ? {
@@ -101,6 +101,10 @@ export class TelegramDriver {
       sessionStore: runtime.telegramSessionStore,
       replyPort,
       ...(voiceEnabled ? { speechToText, voiceFileGateway } : {}),
+      ...(artifactIntake ? {
+        artifactIntake,
+        fileGateway: { createFileBody: ({ fileId, fileSizeBytes }) => ({ ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from(Buffer.from(fileId)) }) },
+      } : {}),
       ...(voiceProcessingTimeoutMs === undefined ? {} : { voiceProcessingTimeoutMs }),
     });
   }
@@ -108,6 +112,7 @@ export class TelegramDriver {
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
+  async sendFile(input: { chatId: string; userId?: string; attachment: TelegramFileAttachment }): Promise<void> { await this.shell.handleFile(input.chatId, input.attachment, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendVoice(input: VoiceInput): Promise<void> {
     this.voiceFiles.set(input.fileId, Buffer.concat([Buffer.from(`${input.fileId}\0`), Buffer.alloc(input.audioBytes ?? 0)]));
     this.voiceTranscripts.set(input.fileId, input.transcript ?? "");
