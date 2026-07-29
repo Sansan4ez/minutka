@@ -90,7 +90,8 @@ export interface TaskMutationConfirmationStore {
 }
 
 export type TaskMutationAuditContext = { requestId: string; threadId?: string; messageId?: string };
-export type TaskMutationBeforePersist = () => void | Promise<void>;
+/** Private pre-save observation point for request-scoped reservation and recovery. */
+export type TaskMutationBeforePersist = (record: PendingTaskMutation) => void | Promise<void>;
 
 export class TaskMutationConfirmationService {
   constructor(
@@ -125,7 +126,7 @@ export class TaskMutationConfirmationService {
       createdAt,
       expiresAt: new Date(Date.parse(createdAt) + ttl).toISOString(),
     };
-    await options.beforePersist?.();
+    await options.beforePersist?.(copyPending(record));
     await this.store.save(record);
     await this.auditSafely("task_mutation_proposed", safeOwnerId, record.confirmationId, actionKind, "pending", options.audit, undefined, taskMutationProposalTaskId(normalized));
     return copyPending(record);

@@ -239,10 +239,11 @@ export class AssistantService {
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
     let pendingTaskMutation: PendingTaskMutation | undefined;
-    let taskProposalSlotReserved = false;
-    const reserveTaskProposalSlot = () => {
-      if (taskProposalSlotReserved) throw new Error("only one task proposal is allowed per assistant turn");
-      taskProposalSlotReserved = true;
+    const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
+    const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
+      if (taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
+      pendingTaskMutation = pending;
+      taskProposalState.persistence = "attempted";
     };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
@@ -252,8 +253,8 @@ export class AssistantService {
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
-      onProposal: (pending) => {
-        pendingTaskMutation = pending;
+      onProposal: () => {
+        taskProposalState.persistence = "persisted";
         chatEffect.pendingActionCreated = true;
       },
     });
@@ -342,11 +343,19 @@ export class AssistantService {
         }
       }
     }
+    if (taskProposalState.persistence === "attempted") {
+      response = uncertainTaskProposalResponse(chatEffect.businessWrite);
+      chatEffect.businessWrite = "outcome_unknown";
+      agentError = undefined;
+    } else if (taskProposalState.persistence === "persisted" && agentError !== undefined) {
+      agentError = undefined;
+      response = downstreamErrorAfterTaskProposal(chatEffect.businessWrite);
+    }
     if (chatEffect.businessWrite === "outcome_unknown") {
       if (chatEffect.pendingActionCreated) {
         agentError = undefined;
         response = mutationOutcomeUnknownWithPendingActionUserMessage;
-      } else {
+      } else if (taskProposalState.persistence === "none") {
         agentError = agentError instanceof AssistantMutationOutcomeUnknownError
           ? agentError
           : new AssistantMutationOutcomeUnknownError({ cause: agentError });
@@ -459,6 +468,26 @@ export function buildAssistantSystemContextBudget(
 }
 
 const requestIntegrityDenialResponse = "Не могу выполнить эту часть запроса. Могу помочь с безопасной формулировкой или с самой рабочей задачей без изменения правил и полномочий.";
+const uncertainTaskProposalUserMessage =
+  "Не удалось подтвердить, сохранено ли предложение задачи. Попробуйте подтвердить или отклонить его: если сохранение не состоялось, действие безопасно вернёт, что предложение не найдено. Не создавайте предложение повторно до проверки.";
+const uncertainTaskProposalAfterWriteUserMessage =
+  "Изменение сохранено, но не удалось подтвердить, сохранено ли предложение задачи. Попробуйте подтвердить или отклонить его: если сохранение предложения не состоялось, действие безопасно вернёт, что оно не найдено. Не создавайте предложение повторно до проверки.";
+const uncertainTaskProposalAndWriteUserMessage =
+  "Не удалось подтвердить результаты изменения и сохранения предложения задачи. Проверьте актуальное состояние, затем попробуйте подтвердить или отклонить предложение: если оно не сохранилось, действие безопасно вернёт, что предложение не найдено. Не повторяйте операции до проверки.";
+const downstreamTaskProposalUserMessage =
+  "Не удалось сформировать итоговый ответ, но предложение задачи сохранено и готово к подтверждению или отклонению.";
+const downstreamWriteAndTaskProposalUserMessage =
+  "Не удалось сформировать итоговый ответ. Изменение уже сохранено; предложение задачи готово к подтверждению или отклонению. Повторно отправлять запрос не нужно.";
+
+function uncertainTaskProposalResponse(businessWrite: "none" | "committed" | "outcome_unknown"): string {
+  if (businessWrite === "outcome_unknown") return uncertainTaskProposalAndWriteUserMessage;
+  return businessWrite === "committed" ? uncertainTaskProposalAfterWriteUserMessage : uncertainTaskProposalUserMessage;
+}
+
+function downstreamErrorAfterTaskProposal(businessWrite: "none" | "committed" | "outcome_unknown"): string {
+  if (businessWrite === "outcome_unknown") return mutationOutcomeUnknownWithPendingActionUserMessage;
+  return businessWrite === "committed" ? downstreamWriteAndTaskProposalUserMessage : downstreamTaskProposalUserMessage;
+}
 
 function logAssistantOperationalWarning(warning: AssistantOperationalWarning): void {
   console.warn("Assistant operational warning.", warning);

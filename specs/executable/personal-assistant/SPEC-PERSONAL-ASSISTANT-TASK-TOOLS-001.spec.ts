@@ -205,7 +205,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
     await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert me", status: "raw" });
 
-    await expect(service.chat({ userId: "owner", threadId: "thread", text: "two proposals" })).rejects.toThrow("only one task proposal is allowed per assistant turn");
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "two proposals" })).resolves.toMatchObject({
+      response: expect.stringMatching(/предложение задачи сохранено/i),
+      effect: "pending_action_created",
+      pendingAction: { confirmationId: "tool-confirmation-1" },
+    });
     expect(firstConfirmationId).toBe("tool-confirmation-1");
     expect(secondReceipt).toBeUndefined();
     expect(saveCount).toBe(1);
@@ -245,19 +249,65 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(1);
   });
 
-  it("keeps the slot reserved when a save may have committed before failing", async () => {
+  it.each([
+    ["committed before throw", true, false],
+    ["not committed and the tool error is swallowed", false, true],
+  ] as const)("returns an owner-visible uncertain proposal when save is %s", async (_label, commits, swallowToolError) => {
     let saveCount = 0;
-    let firstError: unknown;
-    const { service, confirmations, tasks, world } = setup(async (_input, context) => {
+    let calls = 0;
+    const { service, confirmations, tasks, ideas, world } = setup(async (_input, context) => {
+      calls += 1;
       try {
         await context.tasks.propose({ kind: "create", title: "Uncertain", project: "ASSISTANT", type: "operations" });
       } catch (error) {
-        firstError = error;
+        if (swallowToolError) return "tool error was swallowed";
+        throw error;
       }
-      await context.tasks.propose({ kind: "create", title: "Must not persist", project: "ASSISTANT", type: "operations" });
       return "unreachable";
     }, {
-      exposeIdeaStore: false,
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          saveCount += 1;
+          if (commits) await store.save(record);
+          throw new Error("save outcome unknown");
+        },
+      }),
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "create uncertain task" });
+
+    expect(result).toMatchObject({
+      response: expect.stringMatching(/не удалось подтвердить, сохранено ли предложение задачи/i),
+      effect: "outcome_unknown",
+      pendingAction: { confirmationId: "tool-confirmation-1", actionKind: "create", summary: "Создать задачу: Uncertain" },
+    });
+    expect(calls).toBe(1);
+    expect(saveCount).toBe(1);
+    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(0);
+    await expect(ideas.list("owner")).resolves.toEqual([]);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject(
+      commits ? { status: "confirmed" } : { status: "not_found" },
+    );
+    await expect(tasks.list("owner")).resolves.toHaveLength(commits ? 1 : 0);
+    expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"|task_1/);
+  });
+
+  it("keeps the slot reserved after an uncertain save without attempting a second proposal", async () => {
+    let saveCount = 0;
+    let secondError: unknown;
+    const { service, confirmations, tasks } = setup(async (_input, context) => {
+      try {
+        await context.tasks.propose({ kind: "create", title: "Uncertain", project: "ASSISTANT", type: "operations" });
+      } catch {
+        try {
+          await context.tasks.propose({ kind: "create", title: "Must not persist", project: "ASSISTANT", type: "operations" });
+        } catch (error) {
+          secondError = error;
+        }
+      }
+      return "tool error was swallowed";
+    }, {
       wrapConfirmationStore: (store) => ({
         ...store,
         async save(record) {
@@ -268,13 +318,112 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
       }),
     });
 
-    await expect(service.chat({ userId: "owner", threadId: "thread", text: "retry after uncertain save" })).rejects.toThrow("only one task proposal is allowed per assistant turn");
-    expect(firstError).toEqual(new Error("save outcome unknown"));
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "retry after uncertain save" });
+
+    expect(result).toMatchObject({ effect: "outcome_unknown", pendingAction: { confirmationId: "tool-confirmation-1" } });
+    expect(secondError).toEqual(new Error("only one task proposal is allowed per assistant turn"));
     expect(saveCount).toBe(1);
-    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(0);
     await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
-    await expect(confirmations.confirm("owner", "tool-confirmation-1")).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Uncertain" }]);
+  });
+
+  it.each([
+    ["without a business write", false],
+    ["with a committed business write", true],
+  ] as const)("recovers a persisted proposal after a downstream non-overflow error %s", async (_label, captureFirst) => {
+    let calls = 0;
+    const { service, confirmations, tasks, ideas } = setup(async (_input, context) => {
+      calls += 1;
+      if (captureFirst) {
+        await context.captureIdea({
+          project: "ASSISTANT",
+          type: "development",
+          summary: "Committed alongside proposal",
+          suggestedNextStep: "Confirm the task.",
+          needsProjectClarification: false,
+        });
+      }
+      await context.tasks.propose({ kind: "create", title: "Persisted before failure", project: "ASSISTANT", type: "operations" });
+      throw new Error("provider connection closed");
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "create then fail" });
+
+    expect(result).toMatchObject({
+      response: expect.stringMatching(captureFirst ? /изменение уже сохранено/i : /предложение задачи сохранено/i),
+      effect: captureFirst ? "business_write_committed" : "pending_action_created",
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Persisted before failure" },
+    });
+    expect(calls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toHaveLength(captureFirst ? 1 : 0);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Persisted before failure" }]);
+  });
+
+  it("keeps an uncertain business-write effect above a persisted proposal after a downstream error", async () => {
+    const { service, confirmations, tasks, ideas } = setup(async (_input, context) => {
+      try {
+        await context.captureIdea({
+          project: "ASSISTANT",
+          type: "development",
+          summary: "Unknown write with proposal",
+          suggestedNextStep: "Reconcile before retrying.",
+          needsProjectClarification: false,
+        });
+      } catch {
+        // Mastra may continue after a tool error.
+      }
+      await context.tasks.propose({ kind: "create", title: "Proposal after unknown write", project: "ASSISTANT", type: "operations" });
+      throw new Error("provider connection closed");
+    }, {
+      wrapCaptureIdea: (captureIdea) => async (input) => {
+        await captureIdea(input);
+        throw new Error("capture outcome unknown");
+      },
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "capture uncertainly and propose" });
+
+    expect(result).toMatchObject({
+      response: mutationOutcomeUnknownWithPendingActionUserMessage,
+      effect: "outcome_unknown",
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal after unknown write" },
+    });
+    await expect(ideas.list("owner")).resolves.toHaveLength(1);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Proposal after unknown write" }]);
+  });
+
+  it("recovers an uncertain idea-to-task proposal without exposing canonical fields or creating a fallback idea", async () => {
+    const { service, confirmations, tasks, ideas } = setup(async (_input, context) => {
+      try {
+        await context.tasks.proposeIdeaToTask("idea-owner");
+      } catch {
+        return "tool error was swallowed";
+      }
+      return "unreachable";
+    }, {
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          await store.save(record);
+          throw new Error("save outcome unknown");
+        },
+      }),
+    });
+    await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert uncertainly", status: "raw" });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "convert idea" });
+
+    expect(result).toMatchObject({
+      effect: "outcome_unknown",
+      pendingAction: { confirmationId: "tool-confirmation-1", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Convert uncertainly" },
+    });
+    await expect(ideas.list("owner")).resolves.toHaveLength(1);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.getByOriginIdeaId("owner", "idea-owner")).resolves.toMatchObject({ title: "Convert uncertainly" });
+    expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"|task_idea_/);
   });
 
   it("prevents an adversarial agent from confirming inside the same tool loop", async () => {
