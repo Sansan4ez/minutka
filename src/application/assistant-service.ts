@@ -216,6 +216,11 @@ export class AssistantService {
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
     let pendingTaskMutation: PendingTaskMutation | undefined;
+    let taskProposalSlotReserved = false;
+    const reserveTaskProposalSlot = () => {
+      if (taskProposalSlotReserved) throw new Error("only one task proposal is allowed per assistant turn");
+      taskProposalSlotReserved = true;
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
@@ -223,8 +228,8 @@ export class AssistantService {
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
       audit: { requestId, threadId, messageId },
+      beforePersist: reserveTaskProposalSlot,
       onProposal: (pending) => {
-        if (pendingTaskMutation) throw new Error("only one task proposal is allowed per assistant turn");
         pendingTaskMutation = pending;
         chatEffect.state = "pending_action_created";
       },

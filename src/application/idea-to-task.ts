@@ -5,6 +5,7 @@ import type { TaskReader } from "./task-store.js";
 import type {
   PendingTaskMutation,
   TaskMutationAuditContext,
+  TaskMutationBeforePersist,
   TaskMutationConfirmationService,
 } from "./task-mutation-confirmation.js";
 
@@ -21,7 +22,7 @@ export class IdeaToTaskService {
     private readonly confirmations: Pick<TaskMutationConfirmationService, "propose">,
   ) {}
 
-  async propose(ownerId: string, ideaId: string, audit?: TaskMutationAuditContext): Promise<IdeaToTaskProposalResult> {
+  async propose(ownerId: string, ideaId: string, audit?: TaskMutationAuditContext, beforePersist?: TaskMutationBeforePersist): Promise<IdeaToTaskProposalResult> {
     const safeOwnerId = requiredText(ownerId, "ownerId");
     const safeIdeaId = requiredText(ideaId, "ideaId");
     const idea = await this.ideas.get(safeOwnerId, safeIdeaId);
@@ -41,7 +42,7 @@ export class IdeaToTaskService {
         status: "open",
         originIdeaId: idea.id,
       },
-    }, { actionKind: "idea_to_task", audit });
+    }, { actionKind: "idea_to_task", audit, beforePersist });
     return { status: "needs_confirmation", confirmation, taskId, originIdeaId: idea.id };
   }
 }

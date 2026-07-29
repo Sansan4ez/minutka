@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
@@ -10,35 +11,46 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } from "../../../src/application/task-mutation-confirmation.js";
 import { overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
 
 const now = "2026-07-28T12:00:00.000Z";
 
-function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
+function setup(
+  runner: ConstructorParameters<typeof AssistantService>[0],
+  options: { wrapConfirmationStore?: (store: TaskMutationConfirmationStore) => TaskMutationConfirmationStore; exposeIdeaStore?: boolean } = {},
+) {
   const clock = { now: () => now };
   const world = createInMemoryWorld(clock.now);
   const documents = createInMemoryDocumentStore(clock);
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);
   const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
+  const baseConfirmationStore = createInMemoryTaskMutationConfirmationStore(tasks);
+  const confirmationStore = options.wrapConfirmationStore?.(baseConfirmationStore) ?? baseConfirmationStore;
+  const auditEventStore = createInMemoryAuditEventStore(world);
   const confirmations = new TaskMutationConfirmationService(
-    createInMemoryTaskMutationConfirmationStore(tasks), clock,
-    { confirmationId: (() => { let id = 0; return () => `tool-confirmation-${++id}`; })() },
+    confirmationStore, clock,
+    {
+      confirmationId: (() => { let id = 0; return () => `tool-confirmation-${++id}`; })(),
+      auditEventStore,
+      idGenerator: createDeterministicIdGenerator(),
+    },
   );
   const service = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(world),
     ingestionService: ingestion,
-    ideaStore: ideas,
+    ...(options.exposeIdeaStore === false ? {} : { ideaStore: ideas }),
     taskStore: tasks,
     taskMutations: confirmations,
     ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
+    auditEventStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: createDeterministicIdGenerator(),
   });
-  return { service, confirmations, tasks, ideas };
+  return { service, confirmations, tasks, ideas, world };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", () => {
@@ -82,15 +94,103 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     await expect(tasks.list("owner")).resolves.toEqual([]);
   });
 
-  it("rejects a second proposal in the same assistant turn deterministically", async () => {
-    const { service, tasks } = setup(async (_input, context) => {
-      await context.tasks.propose({ kind: "create", title: "First", project: "ASSISTANT", type: "operations" });
-      await context.tasks.propose({ kind: "create", title: "Second", project: "ASSISTANT", type: "operations" });
+  it.each([
+    ["task→task", "task", "task"],
+    ["task→idea-to-task", "task", "idea"],
+    ["idea-to-task→task", "idea", "task"],
+  ] as const)("reserves one durable proposal slot for %s", async (_label, firstKind, secondKind) => {
+    let saveCount = 0;
+    let firstConfirmationId: string | undefined;
+    let secondReceipt: unknown;
+    const { service, confirmations, tasks, ideas, world } = setup(async (_input, context) => {
+      const propose = async (kind: "task" | "idea", suffix: string) => kind === "task"
+        ? context.tasks.propose({ kind: "create", title: `Task ${suffix}`, project: "ASSISTANT", type: "operations" })
+        : context.tasks.proposeIdeaToTask("idea-owner");
+      const first = await propose(firstKind, "first");
+      firstConfirmationId = "confirmationId" in first ? first.confirmationId : first.status === "needs_confirmation" ? first.confirmation.confirmationId : undefined;
+      secondReceipt = await propose(secondKind, "second");
       return "unreachable";
+    }, {
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          saveCount += 1;
+          await store.save(record);
+        },
+      }),
+    });
+    await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert me", status: "raw" });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "two proposals" })).rejects.toThrow("only one task proposal is allowed per assistant turn");
+    expect(firstConfirmationId).toBe("tool-confirmation-1");
+    expect(secondReceipt).toBeUndefined();
+    expect(saveCount).toBe(1);
+    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(1);
+    await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
+    await expect(confirmations.confirm("owner", firstConfirmationId!)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toHaveLength(1);
+  });
+
+  it.each(["not_found", "already_converted"] as const)("does not reserve the proposal slot for idea-to-task %s", async (preflightStatus) => {
+    let saveCount = 0;
+    let preflightResult: unknown;
+    const { service, tasks, ideas, world } = setup(async (_input, context) => {
+      preflightResult = await context.tasks.proposeIdeaToTask(preflightStatus === "not_found" ? "missing" : "idea-owner");
+      await context.tasks.propose({ kind: "create", title: "Allowed after preflight", project: "ASSISTANT", type: "operations" });
+      return "ok";
+    }, {
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          saveCount += 1;
+          await store.save(record);
+        },
+      }),
+    });
+    if (preflightStatus === "already_converted") {
+      await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Converted", status: "raw" });
+      await tasks.create("owner", { id: "existing-task", title: "Converted", project: "ASSISTANT", type: "development", status: "open", originIdeaId: "idea-owner" });
+    }
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "preflight then proposal" })).resolves.toMatchObject({
+      response: "ok",
+      pendingAction: { confirmationId: "tool-confirmation-1" },
+    });
+    expect(preflightResult).toMatchObject({ status: preflightStatus });
+    expect(saveCount).toBe(1);
+    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(1);
+  });
+
+  it("keeps the slot reserved when a save may have committed before failing", async () => {
+    let saveCount = 0;
+    let firstError: unknown;
+    const { service, confirmations, tasks, world } = setup(async (_input, context) => {
+      try {
+        await context.tasks.propose({ kind: "create", title: "Uncertain", project: "ASSISTANT", type: "operations" });
+      } catch (error) {
+        firstError = error;
+      }
+      await context.tasks.propose({ kind: "create", title: "Must not persist", project: "ASSISTANT", type: "operations" });
+      return "unreachable";
+    }, {
+      exposeIdeaStore: false,
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          saveCount += 1;
+          await store.save(record);
+          throw new Error("save outcome unknown");
+        },
+      }),
     });
 
-    await expect(service.chat({ userId: "owner", threadId: "thread", text: "two tasks" })).rejects.toThrow("only one task proposal is allowed per assistant turn");
-    await expect(tasks.list("owner")).resolves.toEqual([]);
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "retry after uncertain save" })).rejects.toThrow("only one task proposal is allowed per assistant turn");
+    expect(firstError).toEqual(new Error("save outcome unknown"));
+    expect(saveCount).toBe(1);
+    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(0);
+    await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
+    await expect(confirmations.confirm("owner", "tool-confirmation-1")).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Uncertain" }]);
   });
 
   it("prevents an adversarial agent from confirming inside the same tool loop", async () => {

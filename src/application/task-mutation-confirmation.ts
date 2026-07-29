@@ -89,6 +89,7 @@ export interface TaskMutationConfirmationStore {
 }
 
 export type TaskMutationAuditContext = { requestId: string; threadId?: string; messageId?: string };
+export type TaskMutationBeforePersist = () => void | Promise<void>;
 
 export class TaskMutationConfirmationService {
   constructor(
@@ -105,7 +106,7 @@ export class TaskMutationConfirmationService {
   async propose(
     ownerId: string,
     proposal: TaskMutationProposal,
-    options: { actionKind?: TaskPendingActionKind; audit?: TaskMutationAuditContext } = {},
+    options: { actionKind?: TaskPendingActionKind; audit?: TaskMutationAuditContext; beforePersist?: TaskMutationBeforePersist } = {},
   ): Promise<PendingTaskMutation> {
     const safeOwnerId = assertOwnerId(ownerId);
     const normalized = normalizeTaskMutationProposal(proposal);
@@ -123,6 +124,7 @@ export class TaskMutationConfirmationService {
       createdAt,
       expiresAt: new Date(Date.parse(createdAt) + ttl).toISOString(),
     };
+    await options.beforePersist?.();
     await this.store.save(record);
     await this.auditSafely("task_mutation_proposed", safeOwnerId, record.confirmationId, actionKind, "pending", options.audit, undefined, taskMutationProposalTaskId(normalized));
     return copyPending(record);

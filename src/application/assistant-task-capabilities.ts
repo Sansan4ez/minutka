@@ -1,6 +1,6 @@
 import type { Task } from "../domain/task.js";
 import type { IdeaToTaskService } from "./idea-to-task.js";
-import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationAuditContext, type TaskMutationConfirmationService, type TaskMutationProposal } from "./task-mutation-confirmation.js";
+import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationAuditContext, type TaskMutationBeforePersist, type TaskMutationConfirmationService, type TaskMutationProposal } from "./task-mutation-confirmation.js";
 import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 
 export const assistantTaskListDefaultLimit = 20;
@@ -35,6 +35,7 @@ export function createAssistantTaskCapabilities(input: {
   ideaToTask?: Pick<IdeaToTaskService, "propose">;
   taskId: () => string;
   audit?: TaskMutationAuditContext;
+  beforePersist: TaskMutationBeforePersist;
   onProposal: (pending: PendingTaskMutation) => void;
 }): AssistantTaskCapabilities {
   return {
@@ -51,14 +52,14 @@ export function createAssistantTaskCapabilities(input: {
       const pending = await input.mutations.propose(
         input.ownerId,
         normalizeAssistantTaskProposal(proposal, input.taskId),
-        { actionKind: proposal.kind, audit: input.audit },
+        { actionKind: proposal.kind, audit: input.audit, beforePersist: input.beforePersist },
       );
       input.onProposal(pending);
       return pendingTaskAction(pending);
     },
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
-      const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit);
+      const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit, input.beforePersist);
       if (result.status !== "needs_confirmation") return result;
       input.onProposal(result.confirmation);
       return { status: "needs_confirmation", confirmation: pendingTaskAction(result.confirmation) };

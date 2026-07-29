@@ -370,6 +370,45 @@ describe("PostgreSQL storage contracts", () => {
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });
 
+  it("rejects a second request-scoped task proposal before PostgreSQL save and proposal audit", async () => {
+    await issueProfileReadyParticipant(pool, "emp_task_proposal_slot", "invite_task_proposal_slot");
+    let confirmationSequence = 0;
+    let proposalSlotReserved = false;
+    const reserveProposalSlot = () => {
+      if (proposalSlotReserved) throw new Error("only one task proposal is allowed per assistant turn");
+      proposalSlotReserved = true;
+    };
+    const confirmation = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => "2026-07-28T10:00:00.000Z" },
+      {
+        confirmationId: () => `task-proposal-slot-pg-${++confirmationSequence}`,
+        auditEventStore: createPostgresAuditEventStore(pool),
+        idGenerator: { auditEventId: () => `evt_task_proposal_slot_${confirmationSequence}` },
+      },
+    );
+    const audit = { requestId: "req_task_proposal_slot", threadId: "thread_task_proposal_slot", messageId: "msg_task_proposal_slot" };
+
+    const first = await confirmation.propose("emp_task_proposal_slot", {
+      kind: "create",
+      input: { id: "task-proposal-slot-first", title: "First", project: "ASSISTANT", type: "operations", status: "open" },
+    }, { audit, beforePersist: reserveProposalSlot });
+    await expect(confirmation.propose("emp_task_proposal_slot", {
+      kind: "create",
+      input: { id: "task-proposal-slot-second", title: "Second", project: "ASSISTANT", type: "operations", status: "open" },
+    }, { audit, beforePersist: reserveProposalSlot })).rejects.toThrow("only one task proposal is allowed per assistant turn");
+
+    await expect(pool.query(
+      "SELECT confirmation_id FROM minutka_private.task_mutation_confirmations WHERE user_id=$1 ORDER BY confirmation_id",
+      ["emp_task_proposal_slot"],
+    )).resolves.toMatchObject({ rows: [{ confirmation_id: first.confirmationId }] });
+    await expect(pool.query(
+      "SELECT type FROM minutka_audit.events WHERE request_id=$1 AND type='task_mutation_proposed'",
+      [audit.requestId],
+    )).resolves.toMatchObject({ rowCount: 1 });
+    await expect(confirmation.confirm("emp_task_proposal_slot", "task-proposal-slot-pg-2")).resolves.toEqual({ status: "not_found" });
+  });
+
   it("persists task confirmations and executes parallel callbacks exactly once", async () => {
     await issueProfileReadyParticipant(pool, "emp_task_confirmation", "invite_task_confirmation");
     let currentTime = "2026-07-28T10:00:00.000Z";
