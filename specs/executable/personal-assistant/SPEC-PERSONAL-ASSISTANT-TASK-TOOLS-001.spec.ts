@@ -25,6 +25,7 @@ function setup(
     wrapCaptureIdea?: (captureIdea: IngestionService["captureIdea"]) => IngestionService["captureIdea"];
     wrapConversationStore?: (store: ConversationStore) => ConversationStore;
     exposeIdeaStore?: boolean;
+    applicationTimeoutMs?: number;
   } = {},
 ) {
   const clock = { now: () => now };
@@ -59,6 +60,7 @@ function setup(
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: createDeterministicIdGenerator(),
+    ...(options.applicationTimeoutMs === undefined ? {} : { applicationTimeoutMs: options.applicationTimeoutMs }),
   });
   return { service, confirmations, tasks, ideas, world };
 }
@@ -307,6 +309,45 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     );
     await expect(tasks.list("owner")).resolves.toHaveLength(commits ? 1 : 0);
     expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"|task_1/);
+  });
+
+  it("recovers a persisted proposal when the application deadline aborts the agent loop", async () => {
+    let agentCalls = 0;
+    const { service, confirmations, tasks } = setup(async (_input, context, signal) => {
+      agentCalls += 1;
+      await context.tasks.propose({ kind: "create", title: "Deadline recovery", project: "ASSISTANT", type: "operations" });
+      return await new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    }, { applicationTimeoutMs: 10 });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "create before deadline" });
+
+    expect(result).toMatchObject({
+      effect: "pending_action_created",
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Deadline recovery" },
+      response: expect.stringMatching(/предложение задачи сохранено/i),
+    });
+    expect(agentCalls).toBe(1);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Deadline recovery" }]);
+  });
+
+  it("does not persist a proposal that starts after the application deadline", async () => {
+    let saveCount = 0;
+    const { service, confirmations } = setup(async (_input, context, signal) => {
+      await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+      await context.tasks.propose({ kind: "create", title: "Too late", project: "ASSISTANT", type: "operations" });
+      return "unreachable";
+    }, {
+      applicationTimeoutMs: 10,
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) { saveCount += 1; await store.save(record); },
+      }),
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "abort first" })).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(saveCount).toBe(0);
+    await expect(confirmations.confirm("owner", "tool-confirmation-1")).resolves.toEqual({ status: "not_found" });
   });
 
   it("keeps the slot reserved after an uncertain save without attempting a second proposal", async () => {

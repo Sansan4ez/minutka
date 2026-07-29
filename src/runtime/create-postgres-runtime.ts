@@ -40,6 +40,7 @@ import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
 import { privacyConfigFromEnv } from "../config/privacy.js";
 import { taskMutationCompletedReplayRetentionFromEnv } from "../config/task-confirmation-retention.js";
 import { runRetentionCleanupJobs } from "./retention-cleanup.js";
+import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
   // The process manual is deployment configuration: validate it before opening
@@ -159,6 +160,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       agentInstructions,
       contextBudget,
       contextPriorities,
+      applicationTimeoutMs: productionAssistantTimeoutBudgets.applicationMs,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.

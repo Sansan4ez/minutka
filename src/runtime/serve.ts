@@ -16,12 +16,13 @@ import { Telegraf } from "telegraf";
 import { loadDotEnv } from "../config/env.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
 import { createTelegramFileGateway } from "../telegram/telegram-file-gateway.js";
+import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
 async function main(): Promise<void> {
-  loadDotEnv(); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env });
+  loadDotEnv(); const timeoutBudgets = assertAssistantTimeoutBudgets(productionAssistantTimeoutBudgets); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
       port: apiPort(process.env.MINUTKA_API_PORT),
       allowNonLoopback: booleanEnv(process.env.MINUTKA_API_ALLOW_NON_LOOPBACK, "MINUTKA_API_ALLOW_NON_LOOPBACK"),
       trustProxy: booleanEnv(process.env.MINUTKA_API_TRUST_PROXY, "MINUTKA_API_TRUST_PROXY"),
+      timeoutBudgets,
     });
     const inviteSeeds = parseInviteSeeds(process.env.TELEGRAM_INVITES);
     if (inviteSeeds.length) {
@@ -61,7 +63,7 @@ async function main(): Promise<void> {
         async sendChatAction(chatId, action) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendChatAction(chatId, action); },
         async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },
       };
-      const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: listener.url, token: serviceToken }));
+      const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: listener.url, token: serviceToken, timeoutMs: timeoutBudgets.sdkTransportMs }));
       const voiceFileGateway: TelegramVoiceFileGateway | undefined = stt ? {
         async openVoiceFile(fileId, signal) {
           if (!activeBot) throw new Error("Bot not running");

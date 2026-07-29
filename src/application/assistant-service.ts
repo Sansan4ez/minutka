@@ -32,7 +32,7 @@ import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./a
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 
-export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
+export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; signal?: AbortSignal };
 export type AssistantAgentContext = {
   systemContext: string;
   personalContext: AssistantContextProjection;
@@ -54,8 +54,8 @@ export type AssistantExecutionTraceEvent =
   | { kind: "process"; processId: string };
 export type AssistantExecutionTrace = readonly AssistantExecutionTraceEvent[];
 export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace };
-export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<AssistantAgentRunResult>;
-type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<AssistantAgentRunResult | string>;
+export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult>;
+type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning = Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & {
   type: "context_budget_overflow";
 };
@@ -93,7 +93,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -119,6 +119,8 @@ export class AssistantService {
     const source = input.source ?? { kind: "text", text };
     if (!threadId) throw new Error("threadId is required");
     if (!text) throw new Error("text is required");
+    const applicationSignal = createAssistantApplicationSignal(this.deps.applicationTimeoutMs, input.signal);
+    throwAssistantAbortReason(applicationSignal);
     if (this.deps.participantStore && !await this.deps.participantStore.getParticipant(userId)) throw new PersistenceError("participant_not_found");
     const messageId = this.ids.messageId();
     const requestId = this.ids.requestId();
@@ -241,6 +243,7 @@ export class AssistantService {
     let pendingTaskMutation: PendingTaskMutation | undefined;
     const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
     const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
+      throwAssistantAbortReason(applicationSignal);
       if (taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
       pendingTaskMutation = pending;
       taskProposalState.persistence = "attempted";
@@ -282,7 +285,7 @@ export class AssistantService {
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
     try {
-      const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext));
+      const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext, applicationSignal));
       response = run.text;
       executionTrace = run.executionTrace;
     } catch (error) {
@@ -320,13 +323,14 @@ export class AssistantService {
         }, "overflow recovery audit");
         try {
           observedExecutionTrace.length = 0;
+          throwAssistantAbortReason(applicationSignal);
           const retryRun = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, {
             ...agentContext,
             personalContext: reducedPersonalContext,
             profileAndHistory: reducedProfileAndHistory,
             records: reducedRecords,
             systemContext: reduced.text,
-          }));
+          }, applicationSignal));
           response = retryRun.text;
           executionTrace = retryRun.executionTrace;
         } catch (retryError) {
@@ -361,6 +365,9 @@ export class AssistantService {
           : new AssistantMutationOutcomeUnknownError({ cause: agentError });
         response = undefined;
       }
+    }
+    if (applicationSignal.aborted && taskProposalState.persistence === "none" && currentChatEffectState() === "none") {
+      throwAssistantAbortReason(applicationSignal);
     }
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
@@ -533,6 +540,19 @@ function reduceProfileAndHistory(snapshot: ChatProcSnapshot, budget: ContextBudg
     profile: snapshot.profile,
     thread: { ...snapshot.thread, data: { ...snapshot.thread.data, ...bounded } },
   };
+}
+
+function createAssistantApplicationSignal(timeoutMs: number | undefined, parent?: AbortSignal): AbortSignal {
+  if (timeoutMs === undefined) return parent ?? new AbortController().signal;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("application timeout must be a positive safe integer");
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return parent ? AbortSignal.any([parent, deadline]) : deadline;
+}
+
+function throwAssistantAbortReason(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw new DOMException("The operation was aborted.", "AbortError");
 }
 
 function normalizeAssistantAgentRunResult(result: AssistantAgentRunResult | string): AssistantAgentRunResult {

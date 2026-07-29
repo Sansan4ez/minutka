@@ -14,10 +14,12 @@ import { PersistenceError } from "../../application/persistence-error.js";
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
+import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../config/assistant-timeout-budgets.js";
 
 export const bodyLimitBytes = 64 * 1024;
 /** Chat may consume the full LLM budget; all other application handlers fail fast. */
-export const chatHandlerTimeoutMs = 120_000;
+export const chatHandlerTimeoutMs = productionAssistantTimeoutBudgets.httpChatHandlerMs;
+export const serverRequestTimeoutMs = productionAssistantTimeoutBudgets.serverRequestMs;
 export const defaultHandlerTimeoutMs = 15_000;
 type Principal = AuthenticatedPrincipal;
 type AccessLogEntry = { method: string; path: string; status: number; durationMs: number; requestId: string; principal?: Principal["kind"] };
@@ -39,7 +41,7 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "confirmTaskMutation"
   | "rejectTaskMutation"
 >;
-export type HttpServerOptions = { application: HttpApplicationService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void };
+export type HttpServerOptions = { application: HttpApplicationService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void; timeoutBudgets?: AssistantTimeoutBudgets };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw httpError(400, "invalid_request", "Request validation failed."); return result.data; }
@@ -73,12 +75,19 @@ function clientIp(req: IncomingMessage, trustProxy: boolean): string {
   }
   return req.socket.remoteAddress ?? "unknown";
 }
-async function withHandlerTimeout<T>(timeoutMs: number, action: () => Promise<T>): Promise<T> {
+async function withHandlerTimeout<T>(timeoutMs: number, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      action(),
-      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(httpError(503, "internal_error", "Request timed out.")), timeoutMs); }),
+      action(controller.signal),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const timeout = httpError(503, "internal_error", "Request timed out.");
+          controller.abort(timeout);
+          reject(timeout);
+        }, timeoutMs);
+      }),
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
@@ -94,6 +103,7 @@ function serializeError(error: unknown): ErrorLogEntry["error"] {
 function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError; }
 
 export function createHttpServer(options: HttpServerOptions): Server {
+  const timeoutBudgets = assertAssistantTimeoutBudgets(options.timeoutBudgets ?? productionAssistantTimeoutBudgets);
   const inviteLimiter = new TokenBucketRateLimiter(10, 10);
   const mutationLimiter = new TokenBucketRateLimiter(60, 60);
   const log = options.logger ?? ((entry: AccessLogEntry) => {
@@ -133,7 +143,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
           : options.application.rejectTaskMutation(employee.employeeId, confirmationId)), id);
       }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality }))), id); }
+      if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(timeoutBudgets.httpChatHandlerMs, async (signal) => publicChatResponse(await options.application.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, signal }))), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && meFeedback) { template = "/v1/me/threads/:threadId/feedback"; const employee = requireKind(principal, "employee"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meFeedback[1])) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitFeedback({ ...input, employeeId: employee.employeeId })), id); }
 
@@ -166,7 +176,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
           : options.application.rejectTaskMutation(employeeId, confirmationId)), id);
       }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
-      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(serviceChatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(chatHandlerTimeoutMs, async () => publicChatResponse(await options.application.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel }))), id); }
+      if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(serviceChatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(timeoutBudgets.httpChatHandlerMs, async (signal) => publicChatResponse(await options.application.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel, signal }))), id); }
       const serviceFeedback = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/feedback$/);
       if (req.method === "POST" && serviceFeedback) { template = "/v1/service/employees/:employeeId/threads/:threadId/feedback"; requireKind(principal, "service"); const input = parse(submitFeedbackRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceFeedback[2]) }); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitFeedback({ ...input, employeeId: parse(employeeIdSchema, decodeURIComponent(serviceFeedback[1])) })), id); }
       throw httpError(404, "invalid_request", "Route not found.");
@@ -175,7 +185,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       const mapped = mapError(error); status = mapped.status; return send(res, status, { error: { code: mapped.code, message: mapped.message, requestId: id } }, id);
     } finally { log({ method: req.method ?? "UNKNOWN", path: template, status, durationMs: Date.now() - started, requestId: id, ...(principal ? { principal: principal.kind } : {}) }); }
   });
-  server.headersTimeout = 15_000; server.requestTimeout = 120_000;
+  server.headersTimeout = 15_000; server.requestTimeout = timeoutBudgets.serverRequestMs;
   return server;
 }
 export async function listenHttpServer(options: HttpServerOptions): Promise<RunningHttpServer> {

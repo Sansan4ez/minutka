@@ -79,6 +79,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       },
     });
 
+    const abortController = new AbortController();
     await expect(runner({ userId: "owner", threadId: "thread", text: "capture" }, {
       systemContext: "private context",
       personalContext: {} as never,
@@ -136,7 +137,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
           needsProjectClarification: input.needsProjectClarification,
         };
       },
-    })).resolves.toEqual({
+    }, abortController.signal)).resolves.toEqual({
       text: "done",
       executionTrace: [
         { kind: "tool", toolName: "markProcessUsed" },
@@ -156,6 +157,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       toolChoice: "auto",
       activeTools: [...assistantActiveToolNames],
       maxSteps: 4,
+      abortSignal: abortController.signal,
     });
     expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(Object.keys(assistantRuntimeToolsets));
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);

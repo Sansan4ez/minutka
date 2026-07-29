@@ -21,7 +21,7 @@ export const assistantActiveToolNames = [
 export type MastraAgentLike = {
   generate(
     text: string,
-    options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>>; activeTools?: string[] },
+    options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>>; activeTools?: string[]; abortSignal?: AbortSignal },
   ): Promise<{
     text?: string;
     toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
@@ -31,7 +31,7 @@ export type MastraAgentLike = {
 
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
 export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAgentRunner {
-  return async (input, context) => {
+  return async (input, context, signal) => {
     const result = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
@@ -45,6 +45,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAge
       // agent-level tools cannot be selected during the personal assistant run.
       activeTools: [...assistantActiveToolNames],
       maxSteps: 4,
+      ...(signal ? { abortSignal: signal } : {}),
     });
     return {
       text: result.text ?? "",

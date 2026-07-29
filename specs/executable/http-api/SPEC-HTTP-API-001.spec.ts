@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
-import { chatHandlerTimeoutMs, defaultHandlerTimeoutMs, listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
+import { chatHandlerTimeoutMs, defaultHandlerTimeoutMs, listenHttpServer, serverRequestTimeoutMs, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import { apiAuthConfigFromEnv } from "../../../src/server/http/auth.js";
 import { PersistenceError } from "../../../src/application/persistence-error.js";
 import { mapError } from "../../../src/server/http/error-mapping.js";
@@ -10,6 +10,7 @@ import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 import { chatResponseSchema } from "../../../src/contracts/minutka-api.js";
 import { createSpecHttpApplication } from "../support/assistant-chat-adapter.js";
+import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets } from "../../../src/config/assistant-timeout-budgets.js";
 
 const employeeToken = "a".repeat(64); const otherToken = "b".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64);
 const running: RunningHttpServer[] = [];
@@ -95,8 +96,8 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const employeeResponse = await request(server.url, "/v1/me/threads/me-thread/messages", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "private", inputModality: "text" }) });
     expect(employeeResponse.status).toBe(200);
     expect(calls).toEqual([
-      { userId: "emp_a", threadId: "thread", text: "hello", inputModality: "voice" },
-      { userId: "emp_a", threadId: "me-thread", text: "private", inputModality: "text" },
+      expect.objectContaining({ userId: "emp_a", threadId: "thread", text: "hello", inputModality: "voice", signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ userId: "emp_a", threadId: "me-thread", text: "private", inputModality: "text", signal: expect.any(AbortSignal) }),
     ]);
     expect(chatResponseSchema.safeParse(await (await request(server.url, "/v1/service/employees/emp_a/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) })).json()).success).toBe(true);
     expect(chatResponseSchema.safeParse({ messageId: "msg", response: "focus", selectedProcessIds: ["core", "day_focus"], effect: "none" }).success).toBe(true);
@@ -112,6 +113,41 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const response = await request(server.url, "/v1/service/employees/missing/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not be captured" }) });
     expect(response.status).toBe(404);
     expect((await response.json()).error).toMatchObject({ code: "participant_not_found" });
+  });
+
+  it("returns a recovered proposal through real HTTP before the SDK deadline", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    let agentCalls = 0;
+    let proposalSaves = 0;
+    let confirmationId: string | undefined;
+    const budgets = { applicationMs: 10, httpChatHandlerMs: 80, sdkTransportMs: 160, serverRequestMs: 240 };
+    const assistant = {
+      async chat(_input: { signal?: AbortSignal }) {
+        agentCalls += 1;
+        confirmationId = "http-deadline-confirmation";
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        proposalSaves += 1;
+        await new Promise<void>((resolve) => setTimeout(resolve, budgets.applicationMs));
+        return {
+          messageId: "msg_deadline", response: "Предложение сохранено после остановки agent loop.", selectedProcessIds: ["core"] as Array<"core" | "inbox_capture" | "day_focus">,
+          outcome: { status: "completed" } as const, effect: "pending_action_created" as const,
+          pendingAction: {
+            confirmationId, actionKind: "create" as const, summary: "Создать задачу: HTTP deadline", expiresAt: "2026-07-29T09:15:00.000Z",
+            preview: { kind: "create" as const, title: { value: "HTTP deadline", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "operations" as const, dueDate: null },
+          },
+        };
+      },
+    };
+    const server = await listenHttpServer({ application: createSpecHttpApplication(runtime.service, assistant), port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() }, timeoutBudgets: budgets });
+    running.push(server);
+    const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken, timeoutMs: budgets.sdkTransportMs }));
+
+    await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "create", responseChannel: "telegram" })).resolves.toMatchObject({
+      messageId: "msg_deadline", effect: "pending_action_created", pendingAction: { confirmationId: "http-deadline-confirmation" },
+    });
+    expect(agentCalls).toBe(1);
+    expect(proposalSaves).toBe(1);
+    expect(confirmationId).toBe("http-deadline-confirmation");
   });
 
   it("scopes conversational onboarding routes to the service employee", async () => {
@@ -144,8 +180,11 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect((await request(server.url, "/v1/onboarding/invites/open", undefined, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.2" }, body: JSON.stringify({ inviteCode: "missing" }) })).status).toBe(404);
   });
 
-  it("rejects credential collisions, logs redacted errors, and has named handler timeout budgets", async () => {
+  it("rejects credential collisions, logs redacted errors, and validates the strict timeout hierarchy", async () => {
     expect(chatHandlerTimeoutMs).toBeGreaterThanOrEqual(defaultHandlerTimeoutMs);
+    expect(productionAssistantTimeoutBudgets).toMatchObject({ httpChatHandlerMs: chatHandlerTimeoutMs, serverRequestMs: serverRequestTimeoutMs });
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 10, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).not.toThrow();
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 20, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).toThrow(/strict|satisfy/i);
     const duplicate = "x".repeat(64); expect(() => apiAuthConfigFromEnv({ MINUTKA_SERVICE_TOKEN: duplicate, MINUTKA_EMPLOYEE_TOKENS: `emp_a:${duplicate}` })).toThrow(/unique per principal/);
     const errors: unknown[] = []; const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
     const server = await listenHttpServer({ application: createSpecHttpApplication(runtime.service), port: 0, health: async () => { throw new Error("secret-request-payload"); }, logger: () => undefined, errorLogger: (entry) => errors.push(entry), auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);

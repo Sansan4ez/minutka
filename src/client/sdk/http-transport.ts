@@ -8,6 +8,7 @@ import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
   ServiceMinutkaTransport,
 } from "./minutka-client.js";
+import { productionAssistantTimeoutBudgets } from "../../config/assistant-timeout-budgets.js";
 
 export class MinutkaApiError extends Error {
   constructor(readonly code: string, readonly requestId?: string, message = "API request failed") { super(message); this.name = "MinutkaApiError"; }
@@ -18,7 +19,7 @@ class HttpTransportBase {
   protected readonly baseUrl: string;
   protected readonly timeoutMs: number;
   constructor(protected readonly options: HttpMinutkaTransportOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, ""); this.timeoutMs = options.timeoutMs ?? 110_000;
+    this.baseUrl = options.baseUrl.replace(/\/$/, ""); this.timeoutMs = options.timeoutMs ?? productionAssistantTimeoutBudgets.sdkTransportMs;
     if (!/^https?:\/\//.test(this.baseUrl)) throw new Error("MINUTKA_API_URL must be an http(s) URL");
     if (!options.token) throw new Error("MINUTKA_API_TOKEN is required");
   }
