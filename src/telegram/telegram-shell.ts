@@ -128,11 +128,15 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
 }
+function taskPendingAction(chat: ChatResult) {
+  return "pendingAction" in chat ? chat.pendingAction : undefined;
+}
 function pendingActionReplyMarkup(chat: ChatResult) {
-  if (!chat.pendingAction) return undefined;
+  const pendingAction = taskPendingAction(chat);
+  if (!pendingAction) return undefined;
   return { inlineKeyboard: [[
-    { text: "✅ Подтвердить", callbackData: encodeTaskMutationCallbackData("confirm", chat.pendingAction.confirmationId) },
-    { text: "❌ Отклонить", callbackData: encodeTaskMutationCallbackData("reject", chat.pendingAction.confirmationId) },
+    { text: "✅ Подтвердить", callbackData: encodeTaskMutationCallbackData("confirm", pendingAction.confirmationId) },
+    { text: "❌ Отклонить", callbackData: encodeTaskMutationCallbackData("reject", pendingAction.confirmationId) },
   ]] };
 }
 export function taskDecisionText(result: TaskMutationDecisionResult): string {
@@ -312,9 +316,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId));
     const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality, responseChannel: "telegram" }));
     const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+    const pendingAction = taskPendingAction(chat);
     const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
-    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !chat.pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
-    if (chat.pendingAction) await replyPort.sendMessage(chatId, [`Предложение: ${chat.pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
+    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
+    if (pendingAction) await replyPort.sendMessage(chatId, [`Предложение: ${pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {

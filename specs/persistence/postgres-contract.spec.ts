@@ -464,8 +464,8 @@ describe("PostgreSQL storage contracts", () => {
     await service.reject("confirmation_retention_owner", rejected.confirmationId);
     await service.confirm("confirmation_retention_owner", oldCompleted.confirmationId);
     await service.confirm("confirmation_retention_owner", recentCompleted.confirmationId);
-    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET completed_at='2026-07-20T00:00:00.000Z' WHERE confirmation_id IN ($1,$2)", [rejected.confirmationId, oldCompleted.confirmationId]);
-    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET completed_at='2026-07-27T12:00:00.000Z' WHERE confirmation_id=$1", [recentCompleted.confirmationId]);
+    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET created_at='2026-07-19T00:00:00.000Z', completed_at='2026-07-20T00:00:00.000Z' WHERE confirmation_id IN ($1,$2)", [rejected.confirmationId, oldCompleted.confirmationId]);
+    await pool.query("UPDATE minutka_private.task_mutation_confirmations SET created_at='2026-07-27T11:00:00.000Z', completed_at='2026-07-27T12:00:00.000Z' WHERE confirmation_id=$1", [recentCompleted.confirmationId]);
 
     await expect(store.purge({ pendingExpiredBefore: "2026-07-28T10:00:00.000Z", completedBefore: "2026-07-27T00:00:00.000Z", limit: 2 })).resolves.toBe(2);
     await expect(store.purge({ pendingExpiredBefore: "2026-07-28T10:00:00.000Z", completedBefore: "2026-07-27T00:00:00.000Z", limit: 10 })).resolves.toBe(1);
@@ -641,6 +641,7 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("deletes every employee-owned private record", async () => {
+    const deletionAuditCountBefore = Number((await pool.query<{ count: string }>("SELECT count(*) FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb")).rows[0]!.count);
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const drafts = createPostgresOnboardingDraftStore(pool);
     await profiles.issueInvite({ employeeId: "emp_delete", inviteCode: "invite_delete", issuedAt: now });
@@ -691,6 +692,7 @@ describe("PostgreSQL storage contracts", () => {
     expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
-    expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb"))).toMatchObject({ rowCount: 1 });
+    const deletionAuditCountAfter = Number((await pool.query<{ count: string }>("SELECT count(*) FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb")).rows[0]!.count);
+    expect(deletionAuditCountAfter).toBe(deletionAuditCountBefore + 1);
   });
 });

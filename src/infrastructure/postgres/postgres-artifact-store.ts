@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Pool } from "pg";
-import { createArtifactSaveDeadline, stageArtifactBody, type ArtifactSaveLimits } from "../../application/artifact-body-stager.js";
+import { createArtifactSaveDeadline, stageArtifactBody, throwArtifactSaveAbortReason, type ArtifactSaveLimits } from "../../application/artifact-body-stager.js";
 import type { ArtifactContentStore } from "../../application/artifact-content-store.js";
 import {
   assertArtifactId,
@@ -44,7 +44,14 @@ export function createPostgresArtifactStore(input: {
         staged = await stageArtifactBody(saveInput.body, input.limits, deadline.signal);
         const existingContent = await input.contentStore.stat(saveInput.ownerId, staged.contentDigest);
         if (existingContent && existingContent.size !== staged.size) throw new Error("artifact_content_collision");
-        if (!existingContent) await input.contentStore.put({ ownerId: saveInput.ownerId, contentDigest: staged.contentDigest, size: staged.size, openStream: staged.openStream, signal: deadline.signal });
+        if (!existingContent) {
+          try {
+            await input.contentStore.put({ ownerId: saveInput.ownerId, contentDigest: staged.contentDigest, size: staged.size, openStream: staged.openStream, signal: deadline.signal });
+          } catch (error) {
+            throwArtifactSaveAbortReason(deadline.signal);
+            throw error;
+          }
+        }
         return await persistReference(input.pool, saveInput, staged.contentDigest, staged.size, existingContent !== null);
       } finally {
         deadline.cleanup();

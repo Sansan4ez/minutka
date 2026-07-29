@@ -1,4 +1,4 @@
-import { createArtifactSaveDeadline, stageArtifactBody, type ArtifactSaveLimits } from "./artifact-body-stager.js";
+import { createArtifactSaveDeadline, stageArtifactBody, throwArtifactSaveAbortReason, type ArtifactSaveLimits } from "./artifact-body-stager.js";
 import type { ArtifactContentStore } from "./artifact-content-store.js";
 import {
   assertArtifactId,
@@ -31,13 +31,18 @@ export function createInMemoryArtifactStore(deps: { contentStore: ArtifactConten
           const existing = await deps.contentStore.stat(ownerId, staged.contentDigest);
           if (existing && existing.size !== staged.size) throw new Error("artifact_content_collision");
           if (!existing) {
-            await deps.contentStore.put({
-              ownerId,
-              contentDigest: staged.contentDigest,
-              size: staged.size,
-              openStream: staged.openStream,
-              signal: deadline.signal,
-            });
+            try {
+              await deps.contentStore.put({
+                ownerId,
+                contentDigest: staged.contentDigest,
+                size: staged.size,
+                openStream: staged.openStream,
+                signal: deadline.signal,
+              });
+            } catch (error) {
+              throwArtifactSaveAbortReason(deadline.signal);
+              throw error;
+            }
           }
           const artifact = referenceFromInput(input, staged.contentDigest, staged.size, deps.clock.now());
           references.set(referenceKey(ownerId, artifact.artifactId), artifact);

@@ -27,6 +27,10 @@ export type StagedArtifactBody = {
   cleanup(): Promise<void>;
 };
 
+export function throwArtifactSaveAbortReason(signal: AbortSignal): void {
+  if (signal.aborted) throw abortReason(signal);
+}
+
 export function createArtifactSaveDeadline(timeoutMs: number, signal?: AbortSignal): ArtifactSaveDeadline {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("timeoutMs must be a positive safe integer");
   const controller = new AbortController();
