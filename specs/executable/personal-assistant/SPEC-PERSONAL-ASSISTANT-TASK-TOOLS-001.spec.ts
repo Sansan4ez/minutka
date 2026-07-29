@@ -8,17 +8,22 @@ import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createIngestionService, type IngestionService } from "../../../src/application/ingestion-service.js";
 import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } from "../../../src/application/task-mutation-confirmation.js";
-import { overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
+import { overflowAfterDurableWriteAndPendingActionUserMessage, overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
+import { mutationOutcomeUnknownWithPendingActionUserMessage } from "../../../src/application/assistant-mutation-outcome.js";
 
 const now = "2026-07-28T12:00:00.000Z";
 
 function setup(
   runner: ConstructorParameters<typeof AssistantService>[0],
-  options: { wrapConfirmationStore?: (store: TaskMutationConfirmationStore) => TaskMutationConfirmationStore; exposeIdeaStore?: boolean } = {},
+  options: {
+    wrapConfirmationStore?: (store: TaskMutationConfirmationStore) => TaskMutationConfirmationStore;
+    wrapCaptureIdea?: (captureIdea: IngestionService["captureIdea"]) => IngestionService["captureIdea"];
+    exposeIdeaStore?: boolean;
+  } = {},
 ) {
   const clock = { now: () => now };
   const world = createInMemoryWorld(clock.now);
@@ -40,7 +45,9 @@ function setup(
   const service = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(world),
-    ingestionService: ingestion,
+    ingestionService: options.wrapCaptureIdea === undefined
+      ? ingestion
+      : { ...ingestion, captureIdea: options.wrapCaptureIdea(ingestion.captureIdea) },
     ...(options.exposeIdeaStore === false ? {} : { ideaStore: ideas }),
     taskStore: tasks,
     taskMutations: confirmations,
@@ -92,6 +99,83 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
     expect(calls).toBe(1);
     await expect(tasks.list("owner")).resolves.toEqual([]);
+  });
+
+  it.each([
+    ["capture→proposal", "capture-first"],
+    ["proposal→capture", "proposal-first"],
+  ] as const)("preserves committed write and pending action for %s overflow", async (_label, order) => {
+    let calls = 0;
+    const { service, tasks, ideas } = setup(async (_input, context) => {
+      calls += 1;
+      const capture = () => context.captureIdea({
+        project: "ASSISTANT",
+        type: "development",
+        summary: `Compound ${order}`,
+        suggestedNextStep: "Review both effects.",
+        needsProjectClarification: false,
+      });
+      const propose = () => context.tasks.propose({ kind: "create", title: `Proposal ${order}`, project: "ASSISTANT", type: "operations" });
+      if (order === "capture-first") {
+        await capture();
+        await propose();
+      } else {
+        await propose();
+        await capture();
+      }
+      throw new Error("maximum context length exceeded");
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "capture and propose" });
+
+    expect(result).toMatchObject({
+      response: overflowAfterDurableWriteAndPendingActionUserMessage,
+      effect: "business_write_committed",
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: `Создать задачу: Proposal ${order}` },
+    });
+    expect(calls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toMatchObject([{ summary: `Compound ${order}` }]);
+    await expect(tasks.list("owner")).resolves.toEqual([]);
+    expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"/);
+  });
+
+  it("preserves an uncertain write together with a confirmable pending action", async () => {
+    let calls = 0;
+    const { service, confirmations, tasks, ideas } = setup(async (_input, context) => {
+      calls += 1;
+      await context.tasks.propose({ kind: "create", title: "Proposal before uncertainty", project: "ASSISTANT", type: "operations" });
+      try {
+        await context.captureIdea({
+          project: "ASSISTANT",
+          type: "development",
+          summary: "Committed before result was lost",
+          suggestedNextStep: "Reconcile before retrying.",
+          needsProjectClarification: false,
+        });
+      } catch {
+        throw new Error("maximum context length exceeded");
+      }
+      return "unreachable";
+    }, {
+      wrapCaptureIdea: (captureIdea) => async (input) => {
+        await captureIdea(input);
+        throw new Error("connection lost after commit");
+      },
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "propose and capture uncertainly" });
+
+    expect(result).toMatchObject({
+      response: mutationOutcomeUnknownWithPendingActionUserMessage,
+      effect: "outcome_unknown",
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal before uncertainty" },
+    });
+    expect(calls).toBe(1);
+    await expect(ideas.list("owner")).resolves.toMatchObject([{ summary: "Committed before result was lost" }]);
+    await expect(tasks.list("owner")).resolves.toEqual([]);
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Proposal before uncertainty" }]);
+    expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"/);
   });
 
   it.each([

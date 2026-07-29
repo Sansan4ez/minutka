@@ -19,6 +19,9 @@ export const overflowAfterDurableWriteUserMessage =
 export const overflowAfterPendingActionUserMessage =
   "Не удалось сформировать ответ из-за ограничения контекста модели. Предложение готово к подтверждению.";
 
+export const overflowAfterDurableWriteAndPendingActionUserMessage =
+  "Не удалось сформировать ответ из-за ограничения контекста модели. Изменение уже сохранено; предложение готово к подтверждению. Повторно отправлять запрос не нужно.";
+
 export function contextOverflowUserMessage(error: unknown): string | undefined {
   if (error instanceof AssistantContextOverflowError) {
     return error.durableEffectCommitted ? overflowAfterDurableWriteUserMessage : overflowRecoveryUserMessage;

@@ -3,6 +3,9 @@ export type AssistantChatEffectState = "none" | "pending_action_created" | "busi
 export const mutationOutcomeUnknownUserMessage =
   "Не удалось подтвердить результат изменения. Проверьте актуальное состояние перед повторной отправкой, чтобы не создать дубль.";
 
+export const mutationOutcomeUnknownWithPendingActionUserMessage =
+  "Не удалось подтвердить результат изменения. Проверьте актуальное состояние перед повторной отправкой, чтобы не создать дубль. Предложение готово к подтверждению или отклонению.";
+
 export function mutationOutcomeUserMessage(error: unknown): string | undefined {
   if (error instanceof AssistantMutationOutcomeUnknownError) return mutationOutcomeUnknownUserMessage;
   return error instanceof Error && "code" in error && error.code === "mutation_outcome_unknown"

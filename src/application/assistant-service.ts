@@ -1,7 +1,7 @@
 import type { ConversationStore } from "./conversation-store.js";
 import { applyContextBudget, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
-import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget, overflowAfterPendingActionUserMessage } from "./assistant-overflow-recovery.js";
-import { AssistantMutationOutcomeUnknownError, type AssistantChatEffectState } from "./assistant-mutation-outcome.js";
+import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget, overflowAfterDurableWriteAndPendingActionUserMessage, overflowAfterPendingActionUserMessage } from "./assistant-overflow-recovery.js";
+import { AssistantMutationOutcomeUnknownError, mutationOutcomeUnknownWithPendingActionUserMessage, type AssistantChatEffectState } from "./assistant-mutation-outcome.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -174,18 +174,41 @@ export class AssistantService {
       if (!isAssistantDiagnosticProcessId(id)) throw new Error(`unknown assistant diagnostic process id: ${id}`);
       observedExecutionTrace.push({ kind: "process", processId: id });
     };
-    const chatEffect: { state: AssistantChatEffectState } = { state: "none" };
-    const currentChatEffectState = (): AssistantChatEffectState => chatEffect.state;
+    const chatEffect: { businessWrite: "none" | "committed" | "outcome_unknown"; pendingActionCreated: boolean } = {
+      businessWrite: "none",
+      pendingActionCreated: false,
+    };
+    const currentChatEffectState = (): AssistantChatEffectState => chatEffect.businessWrite === "outcome_unknown"
+      ? "outcome_unknown"
+      : chatEffect.businessWrite === "committed"
+        ? "business_write_committed"
+        : chatEffect.pendingActionCreated
+          ? "pending_action_created"
+          : "none";
+    const overflowAfterEffects = (reason: ConstructorParameters<typeof AssistantContextOverflowError>[0], cause: unknown): string | Error => {
+      if (chatEffect.businessWrite === "outcome_unknown") {
+        return chatEffect.pendingActionCreated
+          ? mutationOutcomeUnknownWithPendingActionUserMessage
+          : new AssistantMutationOutcomeUnknownError({ cause });
+      }
+      if (chatEffect.businessWrite === "committed") {
+        return chatEffect.pendingActionCreated
+          ? overflowAfterDurableWriteAndPendingActionUserMessage
+          : new AssistantContextOverflowError(reason, { cause, durableEffectCommitted: true });
+      }
+      if (chatEffect.pendingActionCreated) return overflowAfterPendingActionUserMessage;
+      return new AssistantContextOverflowError(reason, { cause });
+    };
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
       try {
         captureResult = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
       } catch (cause) {
-        chatEffect.state = "outcome_unknown";
+        chatEffect.businessWrite = "outcome_unknown";
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
       const captured = captureResult;
       observedExecutionTrace.push({ kind: "tool", toolName: "captureIdea" });
-      chatEffect.state = "business_write_committed";
+      if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
       if (this.deps.auditEventStore) {
         try {
           await this.deps.auditEventStore.append({
@@ -231,7 +254,7 @@ export class AssistantService {
       beforePersist: reserveTaskProposalSlot,
       onProposal: (pending) => {
         pendingTaskMutation = pending;
-        chatEffect.state = "pending_action_created";
+        chatEffect.pendingActionCreated = true;
       },
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget);
@@ -265,12 +288,10 @@ export class AssistantService {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
         agentError = error;
-      } else if (currentChatEffectState() === "business_write_committed") {
-        agentError = new AssistantContextOverflowError(overflowReason, { cause: error, durableEffectCommitted: true });
-      } else if (currentChatEffectState() === "outcome_unknown") {
-        agentError = new AssistantMutationOutcomeUnknownError({ cause: error });
-      } else if (currentChatEffectState() === "pending_action_created") {
-        response = overflowAfterPendingActionUserMessage;
+      } else if (currentChatEffectState() !== "none") {
+        const recovery = overflowAfterEffects(overflowReason, error);
+        if (typeof recovery === "string") response = recovery;
+        else agentError = recovery;
       } else {
         const [reducedPersonalContext, reducedRecords] = await Promise.all([
           this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
@@ -311,23 +332,26 @@ export class AssistantService {
           const retryEffectState = currentChatEffectState();
           if (!classifyProviderContextOverflow(retryError)) {
             agentError = retryError;
-          } else if (retryEffectState === "business_write_committed") {
-            agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError, durableEffectCommitted: true });
-          } else if (retryEffectState === "outcome_unknown") {
-            agentError = new AssistantMutationOutcomeUnknownError({ cause: retryError });
-          } else if (retryEffectState === "pending_action_created") {
-            response = overflowAfterPendingActionUserMessage;
+          } else if (retryEffectState !== "none") {
+            const recovery = overflowAfterEffects(overflowReason, retryError);
+            if (typeof recovery === "string") response = recovery;
+            else agentError = recovery;
           } else {
             agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError });
           }
         }
       }
     }
-    if (currentChatEffectState() === "outcome_unknown") {
-      agentError = agentError instanceof AssistantMutationOutcomeUnknownError
-        ? agentError
-        : new AssistantMutationOutcomeUnknownError({ cause: agentError });
-      response = undefined;
+    if (chatEffect.businessWrite === "outcome_unknown") {
+      if (chatEffect.pendingActionCreated) {
+        agentError = undefined;
+        response = mutationOutcomeUnknownWithPendingActionUserMessage;
+      } else {
+        agentError = agentError instanceof AssistantMutationOutcomeUnknownError
+          ? agentError
+          : new AssistantMutationOutcomeUnknownError({ cause: agentError });
+        response = undefined;
+      }
     }
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
