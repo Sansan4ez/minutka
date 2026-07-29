@@ -11,6 +11,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
 
 const now = "2026-07-28T12:00:00.000Z";
 
@@ -61,6 +62,23 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ id: "task_1", title: "Prepare launch", userId: "owner", status: "open" }]);
+  });
+
+  it("returns a persisted proposal without retrying when the provider overflows after proposal creation", async () => {
+    let calls = 0;
+    const { service, tasks } = setup(async (_input, context) => {
+      calls += 1;
+      await context.tasks.propose({ kind: "create", title: "Overflow proposal", project: "ASSISTANT", type: "operations" });
+      throw new Error("maximum context length exceeded");
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "create safely" })).resolves.toMatchObject({
+      response: overflowAfterPendingActionUserMessage,
+      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Overflow proposal" },
+      effect: "pending_action_created",
+    });
+    expect(calls).toBe(1);
+    await expect(tasks.list("owner")).resolves.toEqual([]);
   });
 
   it("rejects a second proposal in the same assistant turn deterministically", async () => {

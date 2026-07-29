@@ -1,7 +1,7 @@
-export type AssistantMutationEffectState = "none" | "attempted" | "committed";
+export type AssistantChatEffectState = "none" | "pending_action_created" | "business_write_committed" | "outcome_unknown";
 
 export const mutationOutcomeUnknownUserMessage =
-  "Не удалось подтвердить сохранение идеи. Проверьте список идей перед повторной отправкой, чтобы не создать дубль.";
+  "Не удалось подтвердить результат изменения. Проверьте актуальное состояние перед повторной отправкой, чтобы не создать дубль.";
 
 export function mutationOutcomeUserMessage(error: unknown): string | undefined {
   if (error instanceof AssistantMutationOutcomeUnknownError) return mutationOutcomeUnknownUserMessage;

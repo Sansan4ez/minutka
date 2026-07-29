@@ -44,6 +44,23 @@ export type DecodedFeedback = {
   targetMessageId: string;
 };
 
+export type TaskMutationCallbackAction = "confirm" | "reject";
+export type DecodedTaskMutation = { action: TaskMutationCallbackAction; confirmationId: string };
+
+export function encodeTaskMutationCallbackData(action: TaskMutationCallbackAction, confirmationId: string): string {
+  if (!/^[\x21-\x7E]+$/.test(confirmationId) || confirmationId.includes(":")) throw new Error("confirmationId must be ASCII non-whitespace without ':'");
+  const payload = `tm:${action === "confirm" ? "c" : "r"}:${confirmationId}`;
+  if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Callback payload exceeds 64 bytes");
+  return payload;
+}
+
+export function decodeTaskMutationCallbackData(data: string): DecodedTaskMutation | undefined {
+  if (Buffer.byteLength(data, "utf8") > 64) return undefined;
+  const match = /^tm:([cr]):([^:]+)$/.exec(data);
+  if (!match || !/^[\x21-\x7E]+$/.test(match[2]!)) return undefined;
+  return { action: match[1] === "c" ? "confirm" : "reject", confirmationId: match[2]! };
+}
+
 export function decodeFeedbackCallbackData(data: string): DecodedFeedback | undefined {
   if (Buffer.byteLength(data, "utf8") > 64) {
     return undefined;

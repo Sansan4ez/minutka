@@ -55,7 +55,7 @@ function requirePrincipal(principal: Principal | undefined): Principal { if (!pr
 function requireKind<K extends Principal["kind"]>(principal: Principal | undefined, kind: K): Extract<Principal, { kind: K }> { const authenticated = requirePrincipal(principal); if (authenticated.kind !== kind) throw httpError(403, "forbidden", "This operation is not permitted."); return authenticated as Extract<Principal, { kind: K }>; }
 function send(res: ServerResponse, status: number, value: unknown, id: string): void { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "x-request-id": id }); res.end(status === 204 ? undefined : JSON.stringify(value)); }
 function publicChatResponse(result: Awaited<ReturnType<HttpApplicationService["chat"]>>): ChatResponse {
-  return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}) };
+  return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
 }
 function pathEmployee(pathname: string, suffix: string): string | undefined { const match = pathname.match(new RegExp(`^/v1/service/employees/([^/]+)${suffix}$`)); return match?.[1] ? decodeURIComponent(match[1]) : undefined; }
 function mutationRateLimitKey(principal: Principal, pathname: string): string | undefined {

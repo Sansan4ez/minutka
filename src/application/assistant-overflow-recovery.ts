@@ -14,7 +14,10 @@ export const overflowRecoveryUserMessage =
   "Не удалось сформировать ответ из-за ограничения контекста модели. Сообщение сохранено; сократите или разделите запрос и попробуйте ещё раз.";
 
 export const overflowAfterDurableWriteUserMessage =
-  "Не удалось сформировать ответ из-за ограничения контекста модели. Идея уже сохранена; повторно отправлять запрос не нужно.";
+  "Не удалось сформировать ответ из-за ограничения контекста модели. Изменение уже сохранено; повторно отправлять запрос не нужно.";
+
+export const overflowAfterPendingActionUserMessage =
+  "Не удалось сформировать ответ из-за ограничения контекста модели. Предложение готово к подтверждению.";
 
 export function contextOverflowUserMessage(error: unknown): string | undefined {
   if (error instanceof AssistantContextOverflowError) {

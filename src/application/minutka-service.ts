@@ -34,7 +34,7 @@ import type { ChatInputModality, ResponseChannel } from "../contracts/minutka-ap
 import { createResponsePolicy, renderResponsePolicy } from "../domain/response-policy.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
-export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[] };
+export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; effect: "none" };
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
@@ -431,7 +431,7 @@ export class MinutkaService {
       logOperationalError("chat response audit", error);
     }
     if (decision.insightDecision.candidate) await this.extractInsights({ input: chatInput, messageId, response, profile, recentTurns, decision, requestId });
-    return { messageId, response, selectedProcessIds: built.selectedProcessIds };
+    return { messageId, response, selectedProcessIds: built.selectedProcessIds, effect: "none" };
   }
 
   async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.stores.insightStore.listInsights(input); }

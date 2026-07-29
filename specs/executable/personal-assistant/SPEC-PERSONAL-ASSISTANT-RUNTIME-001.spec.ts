@@ -61,7 +61,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
           get(target, property, receiver) {
             if (property === "chat") return async (input: Parameters<typeof scoped.chat>[0]) => {
               const result = await assistant.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
-              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds };
+              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
             };
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;

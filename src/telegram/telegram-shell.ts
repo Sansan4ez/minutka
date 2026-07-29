@@ -1,9 +1,10 @@
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
-import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
+import type { ChatResult, OnboardingProgressResult } from "../client/sdk/minutka-client.js";
+import type { TaskMutationDecisionResult } from "../application/task-mutation-confirmation.js";
 import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort } from "./telegram-types.js";
-import { decodeFeedbackCallbackData, encodeFeedbackCallbackData } from "./callback-data.js";
+import { decodeFeedbackCallbackData, decodeTaskMutationCallbackData, encodeFeedbackCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
@@ -126,6 +127,27 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
   const value = values[choice as keyof typeof values];
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
+}
+function pendingActionReplyMarkup(chat: ChatResult) {
+  if (!chat.pendingAction) return undefined;
+  return { inlineKeyboard: [[
+    { text: "✅ Подтвердить", callbackData: encodeTaskMutationCallbackData("confirm", chat.pendingAction.confirmationId) },
+    { text: "❌ Отклонить", callbackData: encodeTaskMutationCallbackData("reject", chat.pendingAction.confirmationId) },
+  ]] };
+}
+export function taskDecisionText(result: TaskMutationDecisionResult): string {
+  if (result.status === "confirmed" || result.status === "already_confirmed") {
+    if (result.outcome.outcome === "conflict") return "Задача изменилась после предложения. Обновите данные и создайте новое предложение.";
+    if (result.outcome.outcome === "not_found") return "Задача не найдена. Изменение не выполнено.";
+    return result.status === "already_confirmed" ? "Изменение уже сохранено." : "Изменение сохранено.";
+  }
+  if (result.status === "rejected") return "Предложение отклонено.";
+  if (result.status === "already_rejected") return "Предложение уже отклонено.";
+  if (result.status === "expired") return "Срок подтверждения истёк. Изменение не выполнено.";
+  if (result.status === "not_found") return "Предложение не найдено. Изменение не выполнено.";
+  if (result.status === "owner_mismatch") return "Предложение принадлежит другому владельцу. Изменение не выполнено.";
+  if (result.status === "invalid_payload") return "Предложение повреждено или устарело. Изменение не выполнено.";
+  return "Не удалось безопасно применить предложение. Изменение не выполнено.";
 }
 async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string, transcript: string, replyToMessageId: number): Promise<void> {
   // Telegram cannot render a bot-received voice message as a user text message.
@@ -290,8 +312,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId));
     const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality, responseChannel: "telegram" }));
     const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
-    const replyMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
-    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, index === chunks.length - 1 ? { replyMarkup } : undefined);
+    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !chat.pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
+    if (chat.pendingAction) await replyPort.sendMessage(chatId, [`Предложение: ${chat.pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
@@ -445,6 +468,25 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
+        if (data.startsWith("tm:")) {
+          const decoded = decodeTaskMutationCallbackData(data);
+          if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат действия.");
+          if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
+          if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+          const handled = await runCallbackAction({
+            chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
+            action: () => decoded.action === "confirm"
+              ? employeeClient(session.employeeId).confirmTaskMutation(decoded.confirmationId)
+              : employeeClient(session.employeeId).rejectTaskMutation(decoded.confirmationId),
+            repeatedText: "Уже обработано.",
+          });
+          if (handled.repeated) return;
+          const text = taskDecisionText(handled.result);
+          try { await replyPort.answerCallbackQuery(callbackQueryId, text); }
+          catch (error) { logShellError("task decision callback answer", error); }
+          if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+          return;
+        }
         if (!data.startsWith("fb:")) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие."); const decoded = decodeFeedbackCallbackData(data); if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат отзыва.");
         if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
         if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
@@ -453,7 +495,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
         if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
-        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
+        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       } finally {
         const remaining = leaveChat(chatId);
         if (remaining === 0 && actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);

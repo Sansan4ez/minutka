@@ -1,7 +1,7 @@
 import type { ConversationStore } from "./conversation-store.js";
 import { applyContextBudget, defaultContextBudget, sourceCharacterCeiling, type ContextBudgetConfig, type ContextBudgetResult } from "./context-budget.js";
-import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget } from "./assistant-overflow-recovery.js";
-import { AssistantMutationOutcomeUnknownError, type AssistantMutationEffectState } from "./assistant-mutation-outcome.js";
+import { AssistantContextOverflowError, classifyProviderContextOverflow, createOverflowRecoveryContextBudget, overflowAfterPendingActionUserMessage } from "./assistant-overflow-recovery.js";
+import { AssistantMutationOutcomeUnknownError, type AssistantChatEffectState } from "./assistant-mutation-outcome.js";
 import { createOwnerDocumentReader, type DocumentToolAudit } from "./document-reader.js";
 import type { DocumentStore, UserDocument } from "./document-store.js";
 import { assertUserId } from "./document-store.js";
@@ -61,6 +61,8 @@ export type AssistantChatResult = {
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
   pendingAction?: PendingTaskAction;
+  /** Explicit recovery state: a proposal is durable but is not a business mutation. */
+  effect: AssistantChatEffectState;
 };
 
 /**
@@ -144,6 +146,7 @@ export class AssistantService {
         response,
         selectedProcessIds: ["core"],
         outcome: { status: "denied", reason: integrityOutcome.reason },
+        effect: "none",
       };
     }
     const auditContextProjection = async (event: ContextProjectionAudit) => {
@@ -155,18 +158,17 @@ export class AssistantService {
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
-    const mutationEffect: { state: AssistantMutationEffectState } = { state: "none" };
-    const currentMutationEffectState = (): AssistantMutationEffectState => mutationEffect.state;
+    const chatEffect: { state: AssistantChatEffectState } = { state: "none" };
+    const currentChatEffectState = (): AssistantChatEffectState => chatEffect.state;
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
-      mutationEffect.state = "attempted";
-      let captured: CaptureIdeaResult;
       try {
-        captured = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+        captureResult = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
       } catch (cause) {
+        chatEffect.state = "outcome_unknown";
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
-      captureResult = captured;
-      mutationEffect.state = "committed";
+      const captured = captureResult;
+      chatEffect.state = "business_write_committed";
       if (this.deps.auditEventStore) {
         try {
           await this.deps.auditEventStore.append({
@@ -206,6 +208,7 @@ export class AssistantService {
       onProposal: (pending) => {
         if (pendingTaskMutation) throw new Error("only one task proposal is allowed per assistant turn");
         pendingTaskMutation = pending;
+        chatEffect.state = "pending_action_created";
         return pending;
       },
     });
@@ -236,10 +239,12 @@ export class AssistantService {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
         agentError = error;
-      } else if (currentMutationEffectState() === "committed") {
+      } else if (currentChatEffectState() === "business_write_committed") {
         agentError = new AssistantContextOverflowError(overflowReason, { cause: error, durableEffectCommitted: true });
-      } else if (currentMutationEffectState() === "attempted") {
+      } else if (currentChatEffectState() === "outcome_unknown") {
         agentError = new AssistantMutationOutcomeUnknownError({ cause: error });
+      } else if (currentChatEffectState() === "pending_action_created") {
+        response = overflowAfterPendingActionUserMessage;
       } else {
         const [reducedPersonalContext, reducedRecords] = await Promise.all([
           this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
@@ -274,20 +279,22 @@ export class AssistantService {
             systemContext: reduced.text,
           });
         } catch (retryError) {
-          const retryEffectState = currentMutationEffectState();
+          const retryEffectState = currentChatEffectState();
           if (!classifyProviderContextOverflow(retryError)) {
             agentError = retryError;
-          } else if (retryEffectState === "committed") {
+          } else if (retryEffectState === "business_write_committed") {
             agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError, durableEffectCommitted: true });
-          } else if (retryEffectState === "attempted") {
+          } else if (retryEffectState === "outcome_unknown") {
             agentError = new AssistantMutationOutcomeUnknownError({ cause: retryError });
+          } else if (retryEffectState === "pending_action_created") {
+            response = overflowAfterPendingActionUserMessage;
           } else {
             agentError = new AssistantContextOverflowError(overflowReason, { cause: retryError });
           }
         }
       }
     }
-    if (currentMutationEffectState() === "attempted") {
+    if (currentChatEffectState() === "outcome_unknown") {
       agentError = agentError instanceof AssistantMutationOutcomeUnknownError
         ? agentError
         : new AssistantMutationOutcomeUnknownError({ cause: agentError });
@@ -296,7 +303,7 @@ export class AssistantService {
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (currentMutationEffectState() === "none" && !captureResult && !pendingTaskMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (currentChatEffectState() === "none" && !captureResult && !pendingTaskMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -333,6 +340,7 @@ export class AssistantService {
       outcome: { status: "completed" },
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
       ...(pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
+      effect: currentChatEffectState(),
     };
   }
 

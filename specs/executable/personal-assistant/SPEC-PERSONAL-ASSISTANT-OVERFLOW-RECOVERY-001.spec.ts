@@ -174,7 +174,7 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
         code: "context_overflow",
         reason: "context_length_exceeded",
         durableEffectCommitted: true,
-        message: expect.stringContaining("Идея уже сохранена"),
+        message: expect.stringContaining("Изменение уже сохранено"),
       });
     expect(calls).toBe(1);
     await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-overflow", summary: "Сохранить только один раз" }]);
@@ -300,7 +300,7 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
       .rejects.toMatchObject({
         name: "AssistantContextOverflowError",
         durableEffectCommitted: true,
-        message: expect.stringContaining("Идея уже сохранена"),
+        message: expect.stringContaining("Изменение уже сохранено"),
       });
     expect(calls).toBe(2);
     await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-overflow", summary: "Записано на повторной попытке" }]);

@@ -32,7 +32,7 @@ async function setup(input: { saveError?: Error } = {}) {
         get(target, property, receiver) {
           if (property === "chat") return async (chat: Parameters<ServiceEmployeeMinutkaTransport["chat"]>[0]) => {
             calls.push({ userId: employeeId, threadId: chat.threadId, text: chat.text, inputModality: chat.inputModality });
-            return { messageId: `msg-${calls.length}`, response: "Ответ", selectedProcessIds: ["core"] };
+            return { messageId: `msg-${calls.length}`, response: "Ответ", selectedProcessIds: ["core"], effect: "none" };
           };
           const value = Reflect.get(target, property, receiver);
           return typeof value === "function" ? value.bind(target) : value;

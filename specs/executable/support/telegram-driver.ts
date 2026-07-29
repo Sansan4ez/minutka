@@ -5,6 +5,7 @@ import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
 import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
+import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createDefaultSpecDeps } from "./scripted-deps.js";
 import { encodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import type { FeedbackRating } from "../../../src/domain/feedback.js";
@@ -35,9 +36,26 @@ export class TelegramDriver {
   private readonly voiceDownloads: string[] = [];
   private readonly transcriptions: string[] = [];
 
-  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number, runtimeInput?: ReturnType<typeof createInMemoryRuntime>) {
+  constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number, runtimeInput?: Omit<ReturnType<typeof createInMemoryRuntime>, "service"> & { service: ReturnType<typeof createInMemoryRuntime>["service"] | PersonalAssistantService }) {
     const runtime = runtimeInput ?? createInMemoryRuntime({ world, agentRunner, deps: createDefaultSpecDeps(deps) });
-    const client = new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" }));
+    const baseTransport = createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" });
+    const transport = runtime.service instanceof PersonalAssistantService ? {
+      redeemTelegramInvite: (input: Parameters<typeof baseTransport.redeemTelegramInvite>[0]) => baseTransport.redeemTelegramInvite(input),
+      forEmployee(employeeId: string) {
+        const scoped = baseTransport.forEmployee(employeeId);
+        return new Proxy(scoped, {
+          get(target, property, receiver) {
+            if (property === "chat") return async (input: Parameters<typeof scoped.chat>[0]) => {
+              const result = await (runtime.service as PersonalAssistantService).chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
+              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
+            };
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    } : baseTransport;
+    const client = new ServiceMinutkaClient(transport);
     const self = this;
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
