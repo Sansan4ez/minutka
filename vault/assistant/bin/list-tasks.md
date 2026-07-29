@@ -10,7 +10,7 @@ Optional project/type/status/date filters, a bounded limit, and stable ordering.
 
 ## Output
 
-A bounded array of typed tasks, including each current revision.
+A bounded array of owner-free task views. Each item contains only `id`, `title`, `project`, `type`, `status`, optional `dueDate`, `createdAt`, `updatedAt`, and current `revision`. Owner identifiers and provenance such as `userId`, `ownerId`, and `originIdeaId` are never returned.
 
 ## Boundary
 

@@ -6,6 +6,8 @@ import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 export const assistantTaskListDefaultLimit = 20;
 export const assistantTaskListMaximumLimit = 50;
 
+export type AssistantTaskView = Pick<Task, "id" | "title" | "project" | "type" | "status" | "dueDate" | "createdAt" | "updatedAt" | "revision">;
+
 export type AssistantTaskMutationProposal =
   | { kind: "create"; title: string; project: string; type: Task["type"]; dueDate?: string }
   | { kind: "update"; taskId: string; expectedRevision: number; patch: Omit<TaskPatch, "status"> & { status?: "open" | "in_progress" } }
@@ -18,7 +20,7 @@ export type AssistantIdeaToTaskProposalResult =
   | { status: "needs_confirmation"; confirmation: PendingTaskReceipt };
 
 export type AssistantTaskCapabilities = {
-  list(input?: { filter?: TaskFilter; limit?: number; order?: "created_asc" | "due_asc" }): Promise<Task[]>;
+  list(input?: { filter?: TaskFilter; limit?: number; order?: "created_asc" | "due_asc" }): Promise<AssistantTaskView[]>;
   propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskReceipt>;
   proposeIdeaToTask(ideaId: string): Promise<AssistantIdeaToTaskProposalResult>;
 };
@@ -45,7 +47,8 @@ export function createAssistantTaskCapabilities(input: {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > assistantTaskListMaximumLimit) {
         throw new Error(`task list limit must be between 1 and ${assistantTaskListMaximumLimit}`);
       }
-      return input.tasks.list(input.ownerId, options.filter, { limit, order: options.order ?? "due_asc" });
+      const tasks = await input.tasks.list(input.ownerId, options.filter, { limit, order: options.order ?? "due_asc" });
+      return tasks.map(toAssistantTaskView);
     },
     async propose(proposal) {
       if (!input.mutations) throw new Error("task mutation confirmation is not configured");
@@ -64,6 +67,20 @@ export function createAssistantTaskCapabilities(input: {
       input.onProposal(result.confirmation);
       return { status: "needs_confirmation", confirmation: pendingTaskReceipt(result.confirmation) };
     },
+  };
+}
+
+export function toAssistantTaskView(task: Task): AssistantTaskView {
+  return {
+    id: task.id,
+    title: task.title,
+    project: task.project,
+    type: task.type,
+    status: task.status,
+    ...(task.dueDate === undefined ? {} : { dueDate: task.dueDate }),
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    revision: task.revision,
   };
 }
 

@@ -15,6 +15,7 @@ import { createDeterministicIdGenerator } from "../../../src/application/runtime
 import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } from "../../../src/application/task-mutation-confirmation.js";
 import { overflowAfterDurableWriteAndPendingActionUserMessage, overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
 import { mutationOutcomeUnknownWithPendingActionUserMessage } from "../../../src/application/assistant-mutation-outcome.js";
+import { createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 
 const now = "2026-07-28T12:00:00.000Z";
 
@@ -563,6 +564,55 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
     expect(exposedKeys).toEqual(["list", "propose", "proposeIdeaToTask"]);
     await expect(tasks.list("owner")).resolves.toEqual([]);
+  });
+
+  it("serializes an exact owner-free task view at the provider tool boundary", async () => {
+    let providerToolResult: unknown;
+    const agent: MastraAgentLike = {
+      async generate(_text, options) {
+        const listTasks = options.toolsets?.tasks?.listTasks as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        providerToolResult = await listTasks.execute?.({ order: "created_asc" }, {});
+        return { text: JSON.stringify(providerToolResult) };
+      },
+    };
+    const { service, tasks } = setup(createAssistantAgentRunner(agent));
+    await tasks.create("PRIVATE_OWNER_ID", {
+      id: "task-owner",
+      title: "Visible task",
+      project: "ASSISTANT",
+      type: "operations",
+      status: "in_progress",
+      dueDate: "2026-07-30",
+      originIdeaId: "PRIVATE_IDEA_PROVENANCE",
+    });
+    await tasks.create("other", {
+      id: "PRIVATE_OTHER_TASK",
+      title: "Private other-owner task",
+      project: "OTHER",
+      type: "personal",
+      status: "open",
+    });
+
+    const result = await service.chat({ userId: "PRIVATE_OWNER_ID", threadId: "thread", text: "list tasks" });
+
+    expect(providerToolResult).toEqual({
+      tasks: [{
+        id: "task-owner",
+        title: "Visible task",
+        project: "ASSISTANT",
+        type: "operations",
+        status: "in_progress",
+        dueDate: "2026-07-30",
+        createdAt: now,
+        updatedAt: now,
+        revision: 1,
+      }],
+    });
+    expect(JSON.parse(result.response)).toEqual(providerToolResult);
+    expect(Object.keys((providerToolResult as { tasks: Array<Record<string, unknown>> }).tasks[0]!)).toEqual([
+      "id", "title", "project", "type", "status", "dueDate", "createdAt", "updatedAt", "revision",
+    ]);
+    expect(JSON.stringify(providerToolResult)).not.toMatch(/userId|ownerId|originIdeaId|PRIVATE_OWNER_ID|PRIVATE_IDEA_PROVENANCE|PRIVATE_OTHER_TASK/);
   });
 
   it("binds task reads and idea provenance to the authenticated owner", async () => {

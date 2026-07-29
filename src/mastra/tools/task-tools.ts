@@ -4,15 +4,13 @@ import type { AssistantTaskCapabilities } from "../../application/assistant-task
 import { assistantTaskListMaximumLimit } from "../../application/assistant-task-capabilities.js";
 import { pendingTaskReceiptSchema, recordTypeSchema, taskStatusSchema } from "../../contracts/minutka-api.js";
 
-const taskSchema = z.strictObject({
+const assistantTaskViewSchema = z.strictObject({
   id: z.string().min(1),
-  userId: z.string().min(1),
   title: z.string().min(1),
   project: z.string().min(1),
   type: recordTypeSchema,
   status: taskStatusSchema,
   dueDate: z.iso.date().optional(),
-  originIdeaId: z.string().min(1).optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   revision: z.number().int().positive(),
@@ -65,7 +63,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
         limit: z.number().int().min(1).max(assistantTaskListMaximumLimit).optional(),
         order: z.enum(["created_asc", "due_asc"]).optional(),
       }),
-      outputSchema: z.strictObject({ tasks: z.array(taskSchema) }),
+      outputSchema: z.strictObject({ tasks: z.array(assistantTaskViewSchema) }),
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: async (input) => ({ tasks: await tasks.list(input) }),
     }),
