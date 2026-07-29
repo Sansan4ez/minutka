@@ -10,7 +10,7 @@ An existing idea id. There is no owner id, task id, confirmation payload, or pro
 
 ## Output
 
-`not_found`, `already_converted`, or a canonical pending task proposal captured by `AssistantService`; chat exposes only the safe pending-action DTO.
+`not_found`, `already_converted` with existing provenance ids, or `needs_confirmation` with only the safe pending-action receipt. For a new proposal, the model and serialized tool trace do not receive owner id, canonical proposal, generated task id, origin idea id, digest, or creation timestamp; `AssistantService` captures the canonical record privately.
 
 ## Boundary
 

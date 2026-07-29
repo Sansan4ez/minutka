@@ -227,7 +227,6 @@ export class AssistantService {
         if (pendingTaskMutation) throw new Error("only one task proposal is allowed per assistant turn");
         pendingTaskMutation = pending;
         chatEffect.state = "pending_action_created";
-        return pending;
       },
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget);

@@ -10,7 +10,7 @@ Task content or a current task id plus expected revision. The tool does not acce
 
 ## Output
 
-The canonical pending record is captured by `AssistantService`. Chat exposes only an opaque confirmation id, action kind, bounded human-readable summary, and expiry.
+The model and serialized tool trace receive only the safe pending-action receipt: opaque confirmation id, action kind, bounded human-readable summary, and expiry. The canonical pending record is captured privately by `AssistantService` and is not part of the tool output.
 
 ## Boundary
 

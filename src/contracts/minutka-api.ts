@@ -80,12 +80,6 @@ export const taskPatchSchema = z.strictObject({
   status: taskStatusSchema.optional(),
   dueDate: z.iso.date().nullable().optional(),
 }).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
-export const taskMutationProposalSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("create"), input: classifiedSchema.extend({ id: z.string().min(1), title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional() }) }),
-  z.strictObject({ kind: z.literal("update"), taskId: z.string().min(1), expectedRevision: z.number().int().positive(), patch: taskPatchSchema }),
-  z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
-]);
-export const pendingTaskMutationSchema = z.strictObject({ confirmationId: z.string().min(1), ownerId: employeeIdSchema, actionKind: pendingTaskActionKindSchema, proposal: taskMutationProposalSchema, payloadDigest: z.string().regex(/^[0-9a-f]{64}$/), createdAt: z.iso.datetime(), expiresAt: z.iso.datetime() });
 export const taskMutationDecisionRequestSchema = z.strictObject({});
 const taskSchema = classifiedSchema.extend({ id: z.string().min(1), userId: employeeIdSchema, title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: z.number().int().positive() });
 const taskMutationOutcomeSchema = z.discriminatedUnion("outcome", [

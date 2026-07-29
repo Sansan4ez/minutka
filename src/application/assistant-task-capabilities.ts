@@ -1,6 +1,6 @@
 import type { Task } from "../domain/task.js";
-import type { IdeaToTaskProposalResult, IdeaToTaskService } from "./idea-to-task.js";
-import type { PendingTaskMutation, TaskMutationAuditContext, TaskMutationConfirmationService, TaskMutationProposal } from "./task-mutation-confirmation.js";
+import type { IdeaToTaskService } from "./idea-to-task.js";
+import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationAuditContext, type TaskMutationConfirmationService, type TaskMutationProposal } from "./task-mutation-confirmation.js";
 import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 
 export const assistantTaskListDefaultLimit = 20;
@@ -12,10 +12,15 @@ export type AssistantTaskMutationProposal =
   | { kind: "complete"; taskId: string; expectedRevision: number }
   | { kind: "cancel"; taskId: string; expectedRevision: number };
 
+export type AssistantIdeaToTaskProposalResult =
+  | { status: "not_found" }
+  | { status: "already_converted"; taskId: string; originIdeaId: string }
+  | { status: "needs_confirmation"; confirmation: PendingTaskAction };
+
 export type AssistantTaskCapabilities = {
   list(input?: { filter?: TaskFilter; limit?: number; order?: "created_asc" | "due_asc" }): Promise<Task[]>;
-  propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskMutation>;
-  proposeIdeaToTask(ideaId: string): Promise<IdeaToTaskProposalResult>;
+  propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskAction>;
+  proposeIdeaToTask(ideaId: string): Promise<AssistantIdeaToTaskProposalResult>;
 };
 
 /**
@@ -30,7 +35,7 @@ export function createAssistantTaskCapabilities(input: {
   ideaToTask?: Pick<IdeaToTaskService, "propose">;
   taskId: () => string;
   audit?: TaskMutationAuditContext;
-  onProposal: (pending: PendingTaskMutation) => PendingTaskMutation;
+  onProposal: (pending: PendingTaskMutation) => void;
 }): AssistantTaskCapabilities {
   return {
     async list(options = {}) {
@@ -48,13 +53,15 @@ export function createAssistantTaskCapabilities(input: {
         normalizeAssistantTaskProposal(proposal, input.taskId),
         { actionKind: proposal.kind, audit: input.audit },
       );
-      return input.onProposal(pending);
+      input.onProposal(pending);
+      return pendingTaskAction(pending);
     },
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
       const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit);
       if (result.status !== "needs_confirmation") return result;
-      return { ...result, confirmation: input.onProposal(result.confirmation) };
+      input.onProposal(result.confirmation);
+      return { status: "needs_confirmation", confirmation: pendingTaskAction(result.confirmation) };
     },
   };
 }

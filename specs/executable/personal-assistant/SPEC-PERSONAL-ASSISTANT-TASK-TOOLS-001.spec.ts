@@ -58,7 +58,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result.pendingAction).not.toHaveProperty("proposal");
     expect(result.pendingAction).not.toHaveProperty("payloadDigest");
     await expect(tasks.list("owner")).resolves.toEqual([]);
-    expect(modelVisible).toMatchObject({ ownerId: "owner", proposal: { kind: "create", input: { id: "task_1", status: "open" } } });
+    expect(modelVisible).toEqual(result.pendingAction);
+    expect(JSON.stringify(modelVisible)).not.toMatch(/ownerId|proposal|payloadDigest|task_1|createdAt/);
 
     await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ id: "task_1", title: "Prepare launch", userId: "owner", status: "open" }]);
@@ -119,10 +120,16 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert me", status: "raw" });
 
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "list and convert" });
-    const parsed = JSON.parse(result.response) as { ids: string[]; conversion: { status: string } };
+    const parsed = JSON.parse(result.response) as { ids: string[]; conversion: { status: string; confirmation: unknown } };
     expect(parsed.ids).toEqual(["task-owner"]);
-    expect(parsed.conversion).toMatchObject({ status: "needs_confirmation" });
-    expect(result.pendingAction).toMatchObject({ actionKind: "idea_to_task", summary: "Создать задачу из идеи: Convert me" });
+    expect(parsed.conversion).toMatchObject({
+      status: "needs_confirmation",
+      confirmation: { actionKind: "idea_to_task", summary: "Создать задачу из идеи: Convert me" },
+    });
+    expect(parsed.conversion).not.toHaveProperty("taskId");
+    expect(parsed.conversion).not.toHaveProperty("originIdeaId");
+    expect(JSON.stringify(parsed.conversion)).not.toMatch(/ownerId|proposal|payloadDigest|task_idea_|createdAt/);
+    expect(result.pendingAction).toEqual(parsed.conversion.confirmation);
     await expect(tasks.getByOriginIdeaId("owner", "idea-owner")).resolves.toBeNull();
   });
 });
