@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import type { ConversationStore } from "../../../src/application/conversation-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -22,6 +23,7 @@ function setup(
   options: {
     wrapConfirmationStore?: (store: TaskMutationConfirmationStore) => TaskMutationConfirmationStore;
     wrapCaptureIdea?: (captureIdea: IngestionService["captureIdea"]) => IngestionService["captureIdea"];
+    wrapConversationStore?: (store: ConversationStore) => ConversationStore;
     exposeIdeaStore?: boolean;
   } = {},
 ) {
@@ -42,9 +44,10 @@ function setup(
       idGenerator: createDeterministicIdGenerator(),
     },
   );
+  const baseConversationStore = createInMemoryConversationStore(world);
   const service = new AssistantService(runner, {
     documentStore: documents,
-    conversationStore: createInMemoryConversationStore(world),
+    conversationStore: options.wrapConversationStore?.(baseConversationStore) ?? baseConversationStore,
     ingestionService: options.wrapCaptureIdea === undefined
       ? ingestion
       : { ...ingestion, captureIdea: options.wrapCaptureIdea(ingestion.captureIdea) },
@@ -372,6 +375,72 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     await expect(ideas.list("owner")).resolves.toHaveLength(captureFirst ? 1 : 0);
     await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Persisted before failure" }]);
+  });
+
+  it.each([
+    ["persisted", false, "pending_action_created"],
+    ["attempted with an uncertain save", true, "outcome_unknown"],
+  ] as const)("keeps a %s proposal owner-visible when conversation persistence fails", async (_label, uncertainSave, expectedEffect) => {
+    let agentCalls = 0;
+    let proposalSaves = 0;
+    let conversationAppends = 0;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { service, confirmations, tasks, ideas } = setup(async (_input, context) => {
+        agentCalls += 1;
+        await context.tasks.propose({ kind: "create", title: "PRIVATE_PROPOSAL_PAYLOAD", project: "ASSISTANT", type: "operations" });
+        return "Предложение готово к подтверждению.";
+      }, {
+        wrapConfirmationStore: (store) => ({
+          ...store,
+          async save(record) {
+            proposalSaves += 1;
+            await store.save(record);
+            if (uncertainSave) throw new Error("PRIVATE_SAVE_FAILURE");
+          },
+        }),
+        wrapConversationStore: (store) => ({
+          ...store,
+          async appendTurn() {
+            conversationAppends += 1;
+            throw new Error("PRIVATE_CONVERSATION_FAILURE owner-secret");
+          },
+        }),
+      });
+
+      const result = await service.chat({ userId: "PRIVATE_OWNER", threadId: "thread", text: "PRIVATE_USER_TEXT" });
+
+      expect(result).toMatchObject({
+        effect: expectedEffect,
+        pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: PRIVATE_PROPOSAL_PAYLOAD" },
+      });
+      expect(result.response).toMatch(uncertainSave ? /не удалось подтвердить, сохранено ли предложение задачи/i : /готово к подтверждению/i);
+      expect(agentCalls).toBe(1);
+      expect(proposalSaves).toBe(1);
+      expect(conversationAppends).toBe(1);
+      await expect(ideas.list("PRIVATE_OWNER")).resolves.toEqual([]);
+      await expect(confirmations.confirm("other-owner", result.pendingAction!.confirmationId)).resolves.toEqual({ status: "owner_mismatch" });
+      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
+      await expect(tasks.list("PRIVATE_OWNER")).resolves.toMatchObject([{ title: "PRIVATE_PROPOSAL_PAYLOAD" }]);
+      await expect(tasks.list("PRIVATE_OWNER")).resolves.toHaveLength(1);
+      expect(JSON.stringify(warning.mock.calls)).not.toMatch(/PRIVATE_USER_TEXT|PRIVATE_PROPOSAL_PAYLOAD|PRIVATE_OWNER|owner-secret/);
+      expect(warning).toHaveBeenCalledWith("Assistant conversation history persistence after task proposal failed (Error).");
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps conversation persistence fail-fast when no task proposal exists", async () => {
+    const conversationFailure = new Error("conversation unavailable");
+    const { service } = setup(async () => "ordinary response", {
+      wrapConversationStore: (store) => ({
+        ...store,
+        async appendTurn() { throw conversationFailure; },
+      }),
+    });
+
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "ordinary chat" })).rejects.toBe(conversationFailure);
   });
 
   it("keeps an uncertain business-write effect above a persisted proposal after a downstream error", async () => {

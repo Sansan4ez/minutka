@@ -184,6 +184,89 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     await expect(tasks.list("owner-a")).resolves.toHaveLength(1);
   });
 
+  it("keeps proposals actionable through HTTP and Telegram when conversation history persistence fails", async () => {
+    const clock = { now: () => "2026-07-29T09:00:00.000Z" };
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    await prepareOwner(runtime.service, "owner-a", "invite-history-failure", { chatId: "chat-a", userId: "telegram-a" });
+    const documents = createInMemoryDocumentStore(clock);
+    const ideas = createInMemoryIdeaStore(clock);
+    const tasks = createInMemoryTaskStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
+    let confirmationNumber = 0;
+    const taskMutations = new TaskMutationConfirmationService(
+      createInMemoryTaskMutationConfirmationStore(tasks), clock,
+      { confirmationId: () => `history-failure-confirmation-${++confirmationNumber}` },
+    );
+    let agentCalls = 0;
+    let conversationAppends = 0;
+    const assistant = new AssistantService(async (_input, context) => {
+      agentCalls += 1;
+      await context.tasks.propose({ kind: "create", title: `Visible proposal ${agentCalls}`, project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    }, {
+      documentStore: documents,
+      conversationStore: {
+        ...createInMemoryConversationStore(runtime.world),
+        async appendTurn() {
+          conversationAppends += 1;
+          throw new Error("conversation unavailable");
+        },
+      },
+      ingestionService: ingestion,
+      ideaStore: ideas,
+      taskStore: tasks,
+      taskMutations,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      clock,
+      idGenerator: createDeterministicIdGenerator(),
+    });
+    const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
+    const server = await listenHttpServer({
+      application: new PersonalAssistantService(runtime.service, assistant, artifacts, taskMutations),
+      port: 0,
+      logger: () => undefined,
+      auth: { serviceToken, employeeTokens: new Map([["owner-a", ownerToken]]) },
+    });
+    running.push(server);
+
+    const employee = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
+    const httpProposal = await employee.chat({ threadId: "http-history-failure", text: "create over HTTP" });
+    if (!("pendingAction" in httpProposal) || !httpProposal.pendingAction) throw new Error("expected HTTP pending action");
+    expect(httpProposal).toMatchObject({ response: "Предложение подготовлено.", effect: "pending_action_created" });
+    await expect(employee.confirmTaskMutation(httpProposal.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(employee.confirmTaskMutation(httpProposal.pendingAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
+
+    const sent: Array<{ messageId: number; text: string; replyMarkup?: { inlineKeyboard: Array<Array<{ text: string; callbackData: string }>> } }> = [];
+    const callbackAnswers: string[] = [];
+    const telegram = createTelegramShell({
+      privacyExplanation: executableSpecPrivacyExplanation,
+      client: new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })),
+      sessionStore: runtime.telegramSessionStore,
+      replyPort: {
+        async sendMessage(_chatId, text, options) {
+          const message = { messageId: sent.length + 1, text, ...(options?.replyMarkup ? { replyMarkup: options.replyMarkup } : {}) };
+          sent.push(message);
+          return { messageId: message.messageId };
+        },
+        async sendChatAction() {},
+        async editReplyMarkup() {},
+        async answerCallbackQuery(_callbackQueryId, text) { if (text) callbackAnswers.push(text); },
+      },
+    });
+    await telegram.handleText("chat-a", "create over Telegram", "telegram-a");
+    const telegramProposal = sent.find((message) => message.text.includes("Предложение:"));
+    const confirmCallback = telegramProposal?.replyMarkup?.inlineKeyboard.flat().find(({ text }) => text === "✅ Подтвердить")?.callbackData;
+    if (!telegramProposal || !confirmCallback) throw new Error("expected Telegram proposal buttons");
+    await telegram.handleCallback("chat-a", "confirm-history-failure", confirmCallback, "telegram-a", telegramProposal.messageId);
+
+    expect(callbackAnswers.at(-1)).toBe("Изменение сохранено.");
+    expect(agentCalls).toBe(2);
+    expect(conversationAppends).toBe(2);
+    await expect(ideas.list("owner-a")).resolves.toEqual([]);
+    await expect(tasks.list("owner-a")).resolves.toMatchObject([{ title: "Visible proposal 1" }, { title: "Visible proposal 2" }]);
+    await expect(tasks.list("owner-a")).resolves.toHaveLength(2);
+  });
+
   it("preserves pre-write, post-write, and uncertain-write messages for Telegram without repeating dispatch or capture", async () => {
     const clock = { now: () => "2026-07-16T09:00:00.000Z" };
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });

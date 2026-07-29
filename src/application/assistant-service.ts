@@ -379,16 +379,21 @@ export class AssistantService {
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
-    await this.deps.conversationStore.appendTurn({
-      messageId,
-      // The existing application history store uses employeeId as its neutral
-      // owner key. AssistantService maps its trusted userId only at this seam.
-      employeeId: userId,
-      threadId,
-      userText: text,
-      agentResponse: response,
-      timestamp: this.clock.now(),
-    });
+    try {
+      await this.deps.conversationStore.appendTurn({
+        messageId,
+        // The existing application history store uses employeeId as its neutral
+        // owner key. AssistantService maps its trusted userId only at this seam.
+        employeeId: userId,
+        threadId,
+        userText: text,
+        agentResponse: response,
+        timestamp: this.clock.now(),
+      });
+    } catch (error) {
+      if (taskProposalState.persistence === "none") throw error;
+      logAssistantOperationalError("conversation history persistence after task proposal", error);
+    }
     await this.auditSafely({
       id: this.ids.auditEventId(), requestId, type: "chat_response_generated", employeeId: userId, threadId, messageId,
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
