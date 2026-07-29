@@ -4,7 +4,10 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
+import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, pendingTaskReceipt, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
+import { EmployeeMinutkaClient, type EmployeeMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
+import { chatResponseSchema, pendingTaskReceiptSchema } from "../../../src/contracts/minutka-api.js";
+import { countUnicodeCodePoints, pendingTaskSummaryMaximumCodePoints } from "../../../src/shared/chat-limits.js";
 
 const createProposal: TaskMutationProposal = {
   kind: "create",
@@ -72,6 +75,28 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     const title = "🙂".repeat(pendingTaskPreviewValueMaximumCharacters + 1);
     const action = pendingTaskAction(await service.propose("owner", { ...createProposal, input: { ...createProposal.input, title } }));
     expect(action.preview).toMatchObject({ title: { value: "🙂".repeat(pendingTaskPreviewValueMaximumCharacters), truncated: true } });
+  });
+
+  it("uses one Unicode code-point limit from producer through tool, chat and SDK schemas", async () => {
+    const { service } = harness();
+    const pending = await service.propose("owner", {
+      ...createProposal,
+      input: { ...createProposal.input, title: "🙂".repeat(pendingTaskSummaryMaximumCodePoints + 1) },
+    });
+    const receipt = pendingTaskReceipt(pending);
+    const action = pendingTaskAction(pending);
+    const response = { messageId: "msg", response: "proposal", selectedProcessIds: ["core", "inbox_capture"] as const, pendingAction: action, effect: "pending_action_created" as const };
+
+    expect(countUnicodeCodePoints(receipt.summary)).toBe(pendingTaskSummaryMaximumCodePoints);
+    expect(pendingTaskReceiptSchema.safeParse(receipt).success).toBe(true);
+    expect(chatResponseSchema.safeParse(response).success).toBe(true);
+    expect(pendingTaskReceiptSchema.safeParse({ ...receipt, summary: "🙂".repeat(pendingTaskSummaryMaximumCodePoints) }).success).toBe(true);
+    expect(pendingTaskReceiptSchema.safeParse({ ...receipt, summary: "🙂".repeat(pendingTaskSummaryMaximumCodePoints + 1) }).success).toBe(false);
+    expect(pendingTaskReceiptSchema.safeParse({ ...receipt, summary: "a".repeat(pendingTaskSummaryMaximumCodePoints) }).success).toBe(true);
+    expect(pendingTaskReceiptSchema.safeParse({ ...receipt, summary: "a".repeat(pendingTaskSummaryMaximumCodePoints + 1) }).success).toBe(false);
+
+    const transport = { chat: async () => response } as unknown as EmployeeMinutkaTransport;
+    await expect(new EmployeeMinutkaClient(transport).chat({ threadId: "thread", text: "hello" })).resolves.toEqual(response);
   });
 
   it("fails closed for another owner and expiration without a client payload", async () => {

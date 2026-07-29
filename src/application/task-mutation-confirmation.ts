@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Task } from "../domain/task.js";
+import { pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { normalizeTaskPatch } from "./task-store.js";
@@ -234,7 +235,7 @@ export function pendingTaskReceipt(record: PendingTaskMutation): PendingTaskRece
   return {
     confirmationId: record.confirmationId,
     actionKind: record.actionKind,
-    summary: boundedSummary(taskActionSummary(record.actionKind, record.proposal), 280),
+    summary: boundedSummary(taskActionSummary(record.actionKind, record.proposal), pendingTaskSummaryMaximumCodePoints),
     expiresAt: record.expiresAt,
   };
 }

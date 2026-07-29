@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
-import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
+import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters, pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantProcessIds } from "../domain/assistant-process.js";
 
@@ -64,7 +64,11 @@ const pendingTaskActionPreviewSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("complete"), taskId: pendingTaskPreviewTextSchema }),
   z.strictObject({ kind: z.literal("cancel"), taskId: pendingTaskPreviewTextSchema }),
 ]);
-export const pendingTaskReceiptSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: z.string().min(1).max(280), expiresAt: z.iso.datetime() });
+const pendingTaskSummarySchema = z.string().min(1).refine(
+  (value) => countUnicodeCodePoints(value) <= pendingTaskSummaryMaximumCodePoints,
+  `Summary must have at most ${pendingTaskSummaryMaximumCodePoints} Unicode code points`,
+);
+export const pendingTaskReceiptSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime() });
 export const pendingTaskActionSchema = pendingTaskReceiptSchema.extend({ preview: pendingTaskActionPreviewSchema });
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
 const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
