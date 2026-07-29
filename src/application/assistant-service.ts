@@ -26,7 +26,7 @@ import type { ContextPriorityManifest } from "./context-priority-manifest.js";
 import type { ThreadCompactionService } from "./thread-compaction-service.js";
 import type { TaskReader } from "./task-store.js";
 import type { IdeaToTaskService } from "./idea-to-task.js";
-import type { TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
+import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from "./assistant-task-capabilities.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 
@@ -42,7 +42,7 @@ export type AssistantAgentContext = {
   captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId" | "source">): Promise<CaptureIdeaResult>;
   /** Read-only personal document capabilities bound to the authenticated owner. */
   documents: ReturnType<typeof createOwnerDocumentReader>;
-  /** Owner-bound task reads, proposals, and explicit confirmation execution. */
+  /** Owner-bound task reads and proposals. Execution is an authenticated application command. */
   tasks: AssistantTaskCapabilities;
 };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
@@ -60,6 +60,7 @@ export type AssistantChatResult = {
   /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
+  pendingAction?: PendingTaskAction;
 };
 
 /**
@@ -80,7 +81,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantAgentRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose" | "confirm">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -195,19 +196,17 @@ export class AssistantService {
       }, "document tool audit");
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
+    let pendingTaskMutation: PendingTaskMutation | undefined;
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
       mutations: this.deps.taskMutations,
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
-      confirm: async (operation) => {
-        mutationEffect.state = "attempted";
-        let outcome;
-        try { outcome = await operation(); }
-        catch (cause) { throw new AssistantMutationOutcomeUnknownError({ cause }); }
-        mutationEffect.state = "committed";
-        return outcome;
+      onProposal: (pending) => {
+        if (pendingTaskMutation) throw new Error("only one task proposal is allowed per assistant turn");
+        pendingTaskMutation = pending;
+        return pending;
       },
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget);
@@ -297,7 +296,7 @@ export class AssistantService {
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (currentMutationEffectState() === "none" && !captureResult && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (currentMutationEffectState() === "none" && !captureResult && !pendingTaskMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -333,6 +332,7 @@ export class AssistantService {
       selectedProcessIds,
       outcome: { status: "completed" },
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
+      ...(pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
     };
   }
 

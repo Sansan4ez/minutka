@@ -2,7 +2,12 @@ import type { Pool, PoolClient } from "pg";
 import { mapPostgresError } from "../../application/persistence-error.js";
 import {
   copyTaskMutationResult,
+  normalizeTaskMutationProposal,
+  taskActionKindMatchesProposal,
+  taskMutationPayloadDigest,
   type TaskMutationConfirmationStore,
+  type TaskMutationProposal,
+  type TaskPendingActionKind,
 } from "../../application/task-mutation-confirmation.js";
 import type { TaskMutationResult, TaskWriter } from "../../application/task-store.js";
 import type { Task } from "../../domain/task.js";
@@ -19,6 +24,7 @@ type Row = {
   created_at: Date;
   expires_at: Date;
   completed_at: Date | null;
+  decision: "confirmed" | "rejected" | null;
   outcome: unknown | null;
 };
 
@@ -30,11 +36,11 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
           `INSERT INTO minutka_private.task_mutation_confirmations
             (confirmation_id,user_id,action_kind,payload,payload_digest,created_at,expires_at)
            VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7)`,
-          [record.confirmationId, record.ownerId, record.proposal.kind, JSON.stringify(record.proposal), record.payloadDigest, record.createdAt, record.expiresAt],
+          [record.confirmationId, record.ownerId, record.actionKind, JSON.stringify(record.proposal), record.payloadDigest, record.createdAt, record.expiresAt],
         );
       } catch (error) { throw mapPostgresError(error); }
     },
-    async execute(input, effect) {
+    async decide(input, effect) {
       try {
         return await withTransaction(pool, async (client) => {
           const selected = await client.query<Row>(
@@ -44,26 +50,50 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
           const row = selected.rows[0];
           if (!row) return { status: "not_found" };
           if (row.user_id !== input.ownerId) return { status: "owner_mismatch" };
-          if (row.payload_digest !== input.payloadDigest) return { status: "payload_mismatch" };
-          if (row.outcome !== null) return { status: "already_confirmed", outcome: restoreOutcome(row.outcome) };
-          if (row.expires_at.getTime() <= Date.parse(input.confirmedAt)) return { status: "expired" };
+          const proposal = restoreCanonicalProposal(row);
+          if (!proposal) return { status: "invalid_payload" };
+          if (row.decision === "confirmed" && row.outcome !== null) return { status: "already_confirmed", outcome: restoreOutcome(row.outcome) };
+          if (row.decision === "rejected") return { status: "already_rejected" };
+          if (row.completed_at !== null || row.outcome !== null) return { status: "invalid_payload" };
+          if (row.expires_at.getTime() <= Date.parse(input.decidedAt)) return { status: "expired" };
+
+          if (input.decision === "reject") {
+            await client.query(
+              `UPDATE minutka_private.task_mutation_confirmations
+               SET completed_at=$2, decision='rejected'
+               WHERE confirmation_id=$1`,
+              [input.confirmationId, input.decidedAt],
+            );
+            return { status: "rejected" };
+          }
 
           const transactionalWriter: TaskWriter = {
             create: (ownerId, createInput) => taskStoreWithClient(client).create(ownerId, createInput),
             update: (ownerId, taskId, updateInput) => taskStoreWithClient(client).update(ownerId, taskId, updateInput),
           };
-          const outcome = await effect(transactionalWriter);
+          const outcome = await effect(transactionalWriter, proposal);
           await client.query(
             `UPDATE minutka_private.task_mutation_confirmations
-             SET completed_at=$2, outcome=$3::jsonb
+             SET completed_at=$2, decision='confirmed', outcome=$3::jsonb
              WHERE confirmation_id=$1`,
-            [input.confirmationId, input.confirmedAt, JSON.stringify(outcome)],
+            [input.confirmationId, input.decidedAt, JSON.stringify(outcome)],
           );
           return { status: "confirmed", outcome: copyTaskMutationResult(outcome) };
         });
       } catch (error) { throw mapPostgresError(error); }
     },
   };
+}
+
+function restoreCanonicalProposal(row: Row): TaskMutationProposal | null {
+  try {
+    const proposal = normalizeTaskMutationProposal(row.payload as TaskMutationProposal);
+    if (!taskActionKindMatchesProposal(row.action_kind as TaskPendingActionKind, proposal)) return null;
+    if (taskMutationPayloadDigest(proposal) !== row.payload_digest) return null;
+    return proposal;
+  } catch {
+    return null;
+  }
 }
 
 function taskStoreWithClient(client: Pick<PoolClient, "query">): TaskWriter {

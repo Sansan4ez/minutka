@@ -1,8 +1,8 @@
 import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type ConfirmIdeaToTaskRequest, type ConfirmTaskMutationRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type ProposeIdeaToTaskRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationProposalRequest,
+  type CompleteOnboardingRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -47,10 +47,8 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
   getProfile() { return this.request("GET", "/v1/me/profile"); }
   listInsights(input: ListInsightsRequest) { const query = new URLSearchParams(); if (input.threadId) query.set("threadId", input.threadId); if (input.kind) query.set("kind", input.kind); return this.request("GET", `/v1/me/insights${query.size ? `?${query}` : ""}`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `/v1/me/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
-  proposeTaskMutation(input: TaskMutationProposalRequest) { return this.request("POST", "/v1/me/task-mutations", input); }
-  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
-  proposeIdeaToTask(input: ProposeIdeaToTaskRequest) { return this.request("POST", "/v1/me/idea-task-conversions", input); }
-  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest) { return this.request("POST", `/v1/me/idea-task-conversions/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
 }
 
 export class HttpAdminMinutkaTransport extends HttpTransportBase implements AdminMinutkaTransport {
@@ -74,8 +72,6 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   resetOnboardingDraft() { return this.request("POST", `${this.prefix}/onboarding/reset`, {}); }
   getProfile() { return this.request("GET", `${this.prefix}/profile`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
-  proposeTaskMutation(input: TaskMutationProposalRequest) { return this.request("POST", `${this.prefix}/task-mutations`, input); }
-  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
-  proposeIdeaToTask(input: ProposeIdeaToTaskRequest) { return this.request("POST", `${this.prefix}/idea-task-conversions`, input); }
-  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest) { return this.request("POST", `${this.prefix}/idea-task-conversions/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
 }

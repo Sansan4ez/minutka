@@ -1,9 +1,9 @@
 import { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, ChatRequest, CompleteOnboardingRequest, ConfirmIdeaToTaskRequest, ConfirmTaskMutationRequest, ServiceChatRequest,
-  IssueInviteRequest, ListInsightsRequest, OnboardingAnswerRequest, OpenInviteRequest, ProposeIdeaToTaskRequest, RedeemTelegramInviteRequest,
-  SubmitFeedbackRequest, TaskMutationProposalRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, ChatRequest, CompleteOnboardingRequest, ServiceChatRequest,
+  IssueInviteRequest, ListInsightsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
+  SubmitFeedbackRequest, TaskMutationDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -43,10 +43,8 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
   getProfile() { return this.application.getProfile({ employeeId: employeeId(this.principal) }); }
   listInsights(input: ListInsightsRequest) { return this.application.listInsights({ ...input, employeeId: employeeId(this.principal) }); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: employeeId(this.principal) }); }
-  proposeTaskMutation(input: TaskMutationProposalRequest) { return personal(this.application).proposeTaskMutation(employeeId(this.principal), input.proposal); }
-  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest) { return personal(this.application).confirmTaskMutation(employeeId(this.principal), confirmationId, input.proposal); }
-  proposeIdeaToTask(input: ProposeIdeaToTaskRequest) { return personal(this.application).proposeIdeaToTask(employeeId(this.principal), input.ideaId); }
-  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest) { return personal(this.application).confirmIdeaToTask(employeeId(this.principal), confirmationId, input.confirmation); }
+  confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(employeeId(this.principal), confirmationId); }
+  rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(employeeId(this.principal), confirmationId); }
 }
 
 export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
@@ -73,10 +71,8 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   resetOnboardingDraft() { return this.application.resetOnboardingDraft({ employeeId: this.employeeId() }); }
   getProfile() { return this.application.getProfile({ employeeId: this.employeeId() }); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }
-  proposeTaskMutation(input: TaskMutationProposalRequest) { return personal(this.application).proposeTaskMutation(this.employeeId(), input.proposal); }
-  confirmTaskMutation(confirmationId: string, input: ConfirmTaskMutationRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId, input.proposal); }
-  proposeIdeaToTask(input: ProposeIdeaToTaskRequest) { return personal(this.application).proposeIdeaToTask(this.employeeId(), input.ideaId); }
-  confirmIdeaToTask(confirmationId: string, input: ConfirmIdeaToTaskRequest) { return personal(this.application).confirmIdeaToTask(this.employeeId(), confirmationId, input.confirmation); }
+  confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId); }
+  rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(this.employeeId(), confirmationId); }
   forEmployee(employeeId: string): ServiceEmployeeMinutkaTransport { service(this.principal); if (!employeeId) throw new Error("employeeId is required for service scope"); return new InProcessServiceMinutkaTransport(this.application, this.principal, employeeId); }
 }
 

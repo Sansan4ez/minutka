@@ -38,34 +38,49 @@ export type TaskMutationProposal =
   | { kind: "update"; taskId: string; expectedRevision: number; patch: TaskPatch }
   | { kind: "cancel"; taskId: string; expectedRevision: number };
 
+export type TaskPendingActionKind = "create" | "update" | "complete" | "cancel" | "idea_to_task";
+
+/** Canonical private record. It must never cross a transport or model boundary. */
 export type PendingTaskMutation = {
   confirmationId: string;
   ownerId: string;
+  actionKind: TaskPendingActionKind;
   proposal: TaskMutationProposal;
   payloadDigest: string;
   createdAt: string;
   expiresAt: string;
 };
 
-export type TaskMutationConfirmationResult =
+/** Privacy-safe projection returned by chat and confirmation UIs. */
+export type PendingTaskAction = {
+  confirmationId: string;
+  actionKind: TaskPendingActionKind;
+  summary: string;
+  expiresAt: string;
+};
+
+export type TaskMutationDecisionResult =
   | { status: "confirmed" | "already_confirmed"; outcome: TaskMutationResult }
-  | { status: "not_found" | "owner_mismatch" | "expired" | "payload_mismatch" };
+  | { status: "rejected" | "already_rejected" }
+  | { status: "not_found" | "owner_mismatch" | "expired" | "invalid_payload" };
 
 export type TaskMutationConfirmationRecord = PendingTaskMutation & {
+  decision?: "confirmed" | "rejected";
   outcome?: TaskMutationResult;
   completedAt?: string;
 };
 
 /**
- * Persistence boundary that serializes confirmation and executes the task write
- * in the same atomic scope. This is deliberately task-specific, not a workflow engine.
+ * Persistence boundary that row-locks one canonical proposal and applies its
+ * task write in the same atomic scope. The caller supplies only owner, opaque
+ * id, decision and time; payload authority stays server-side.
  */
 export interface TaskMutationConfirmationStore {
   save(record: PendingTaskMutation): Promise<void>;
-  execute(
-    input: { confirmationId: string; ownerId: string; proposal: TaskMutationProposal; payloadDigest: string; confirmedAt: string },
-    effect: (writer: TaskWriter) => Promise<TaskMutationResult>,
-  ): Promise<TaskMutationConfirmationResult>;
+  decide(
+    input: { confirmationId: string; ownerId: string; decision: "confirm" | "reject"; decidedAt: string },
+    effect: (writer: TaskWriter, proposal: TaskMutationProposal) => Promise<TaskMutationResult>,
+  ): Promise<TaskMutationDecisionResult>;
 }
 
 export class TaskMutationConfirmationService {
@@ -75,15 +90,22 @@ export class TaskMutationConfirmationService {
     private readonly options: { ttlMilliseconds?: number; confirmationId?: () => string } = {},
   ) {}
 
-  async propose(ownerId: string, proposal: TaskMutationProposal): Promise<PendingTaskMutation> {
+  async propose(
+    ownerId: string,
+    proposal: TaskMutationProposal,
+    options: { actionKind?: TaskPendingActionKind } = {},
+  ): Promise<PendingTaskMutation> {
     const safeOwnerId = assertOwnerId(ownerId);
     const normalized = normalizeTaskMutationProposal(proposal);
+    const actionKind = options.actionKind ?? inferTaskPendingActionKind(normalized);
+    if (!taskActionKindMatchesProposal(actionKind, normalized)) throw new Error("task action kind does not match proposal");
     const createdAt = assertTimestamp(this.clock.now());
     const ttl = this.options.ttlMilliseconds ?? 15 * 60_000;
     if (!Number.isSafeInteger(ttl) || ttl <= 0) throw new Error("confirmation ttl must be a positive safe integer");
     const record: PendingTaskMutation = {
-      confirmationId: (this.options.confirmationId ?? (() => `task-confirmation-${randomUUID()}`))(),
+      confirmationId: requiredText.parse((this.options.confirmationId ?? (() => `task-confirmation-${randomUUID()}`))()),
       ownerId: safeOwnerId,
+      actionKind,
       proposal: normalized,
       payloadDigest: taskMutationPayloadDigest(normalized),
       createdAt,
@@ -93,18 +115,33 @@ export class TaskMutationConfirmationService {
     return copyPending(record);
   }
 
-  confirm(ownerId: string, confirmationId: string, proposal: TaskMutationProposal): Promise<TaskMutationConfirmationResult> {
+  confirm(ownerId: string, confirmationId: string): Promise<TaskMutationDecisionResult> {
+    return this.decide(ownerId, confirmationId, "confirm");
+  }
+
+  reject(ownerId: string, confirmationId: string): Promise<TaskMutationDecisionResult> {
+    return this.decide(ownerId, confirmationId, "reject");
+  }
+
+  private decide(ownerId: string, confirmationId: string, decision: "confirm" | "reject"): Promise<TaskMutationDecisionResult> {
     const safeOwnerId = assertOwnerId(ownerId);
     const safeConfirmationId = requiredText.parse(confirmationId);
-    const normalized = normalizeTaskMutationProposal(proposal);
-    return this.store.execute({
+    return this.store.decide({
       confirmationId: safeConfirmationId,
       ownerId: safeOwnerId,
-      proposal: normalized,
-      payloadDigest: taskMutationPayloadDigest(normalized),
-      confirmedAt: assertTimestamp(this.clock.now()),
-    }, (writer) => executeTaskMutation(writer, safeOwnerId, normalized));
+      decision,
+      decidedAt: assertTimestamp(this.clock.now()),
+    }, (writer, proposal) => executeTaskMutation(writer, safeOwnerId, proposal));
   }
+}
+
+export function pendingTaskAction(record: PendingTaskMutation): PendingTaskAction {
+  return {
+    confirmationId: record.confirmationId,
+    actionKind: record.actionKind,
+    summary: boundedSummary(taskActionSummary(record.actionKind, record.proposal), 280),
+    expiresAt: record.expiresAt,
+  };
 }
 
 export function normalizeTaskMutationProposal(proposal: TaskMutationProposal): TaskMutationProposal {
@@ -116,6 +153,16 @@ export function normalizeTaskMutationProposal(proposal: TaskMutationProposal): T
 
 export function taskMutationPayloadDigest(proposal: TaskMutationProposal): string {
   return createHash("sha256").update(stableJson(normalizeTaskMutationProposal(proposal))).digest("hex");
+}
+
+export function taskActionKindMatchesProposal(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): boolean {
+  switch (actionKind) {
+    case "create": return proposal.kind === "create";
+    case "idea_to_task": return proposal.kind === "create" && proposal.input.originIdeaId !== undefined;
+    case "cancel": return proposal.kind === "cancel";
+    case "complete": return proposal.kind === "update" && Object.keys(proposal.patch).length === 1 && proposal.patch.status === "done";
+    case "update": return proposal.kind === "update";
+  }
 }
 
 export async function executeTaskMutation(writer: TaskWriter, ownerId: string, proposal: TaskMutationProposal): Promise<TaskMutationResult> {
@@ -130,6 +177,28 @@ export function copyTaskMutationResult(result: TaskMutationResult): TaskMutation
   if (result.outcome === "not_found") return { outcome: "not_found" };
   if (result.outcome === "conflict") return result.current ? { outcome: "conflict", current: copyTask(result.current) } : { outcome: "conflict" };
   return { outcome: result.outcome, task: copyTask(result.task) };
+}
+
+function inferTaskPendingActionKind(proposal: TaskMutationProposal): TaskPendingActionKind {
+  if (proposal.kind === "create") return proposal.input.originIdeaId === undefined ? "create" : "idea_to_task";
+  if (proposal.kind === "cancel") return "cancel";
+  return Object.keys(proposal.patch).length === 1 && proposal.patch.status === "done" ? "complete" : "update";
+}
+
+function taskActionSummary(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): string {
+  if (proposal.kind === "create") {
+    return actionKind === "idea_to_task"
+      ? `Создать задачу из идеи: ${proposal.input.title}`
+      : `Создать задачу: ${proposal.input.title}`;
+  }
+  if (actionKind === "complete") return `Завершить задачу ${proposal.taskId}`;
+  if (actionKind === "cancel") return `Отменить задачу ${proposal.taskId}`;
+  return `Изменить задачу ${proposal.taskId}`;
+}
+
+function boundedSummary(value: string, maximumCharacters: number): string {
+  const characters = [...value.trim().replace(/\s+/g, " ")];
+  return characters.length <= maximumCharacters ? characters.join("") : `${characters.slice(0, maximumCharacters - 1).join("")}…`;
 }
 
 function copyPending(record: PendingTaskMutation): PendingTaskMutation {

@@ -146,7 +146,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
       contextPriorities,
     });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, ideaToTask);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
       void onboardingDraftStore.purgeExpired().catch((error: unknown) => {

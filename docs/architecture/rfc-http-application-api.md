@@ -217,6 +217,8 @@ operations should cover the existing SDK surface:
 | chat | `POST /v1/me/threads/:threadId/messages` | current employee owns the thread |
 | list own insights | `GET /v1/me/insights` | current employee only, bounded filters |
 | submit feedback | `POST /v1/me/threads/:threadId/feedback` | current employee owns thread and target message |
+| confirm pending task action | `POST /v1/me/task-mutations/:confirmationId/confirm` | current employee only; empty strict body, canonical proposal loads server-side |
+| reject pending task action | `POST /v1/me/task-mutations/:confirmationId/reject` | current employee only; terminal rejection is durable |
 
 A future methodologist panel receives distinct `/v1/admin/*` or
 `/v1/operator/*` operations. It must return only approved operational status and
@@ -241,8 +243,7 @@ type AuthenticatedPrincipal =
 
 The HTTP authentication layer creates it from a session/token or trusted service
 credential. The route derives `employeeId` from the principal for `/me/*` calls.
-The body does not contain an employee identifier for those routes. Thread
-ownership, invite claim, and Telegram identity mapping are checked server-side.
+The body does not contain an employee identifier for those routes. Task confirm/reject bodies also contain no proposal, digest, or task payload: the opaque confirmation id selects the canonical row under owner check and row lock. Thread ownership, invite claim, and Telegram identity mapping are checked server-side.
 
 For local development, a loopback-only development credential may be provided.
 It must be visibly separate from pilot configuration and must not silently

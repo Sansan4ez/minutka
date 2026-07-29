@@ -384,13 +384,23 @@ describe("PostgreSQL storage contracts", () => {
     });
     await expect(createPostgresTaskStore(pool).list("emp_task_confirmation")).resolves.toEqual([]);
 
+    await pool.query(
+      "UPDATE minutka_private.task_mutation_confirmations SET payload=jsonb_set(payload, '{input,title}', to_jsonb('Tampered task'::text)) WHERE confirmation_id=$1",
+      [pending.confirmationId],
+    );
+    await expect(confirmation.confirm("emp_task_confirmation", pending.confirmationId)).resolves.toEqual({ status: "invalid_payload" });
+    await pool.query(
+      "UPDATE minutka_private.task_mutation_confirmations SET payload=$2::jsonb WHERE confirmation_id=$1",
+      [pending.confirmationId, JSON.stringify(pending.proposal)],
+    );
+
     const restarted = new TaskMutationConfirmationService(
       createPostgresTaskMutationConfirmationStore(pool),
       { now: () => currentTime },
     );
     const results = await Promise.all([
-      restarted.confirm("emp_task_confirmation", pending.confirmationId, pending.proposal),
-      restarted.confirm("emp_task_confirmation", pending.confirmationId, pending.proposal),
+      restarted.confirm("emp_task_confirmation", pending.confirmationId),
+      restarted.confirm("emp_task_confirmation", pending.confirmationId),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual(["already_confirmed", "confirmed"]);
     expect(results[0]).toMatchObject({ outcome: { outcome: "created", task: { id: "task-confirmed-pg", revision: 1 } } });
@@ -410,7 +420,23 @@ describe("PostgreSQL storage contracts", () => {
       createPostgresTaskMutationConfirmationStore(pool),
       { now: () => currentTime },
     );
-    await expect(expiredAfterRestart.confirm("emp_task_confirmation", expiredPending.confirmationId, expiredPending.proposal)).resolves.toEqual({ status: "expired" });
+    await expect(expiredAfterRestart.confirm("emp_task_confirmation", expiredPending.confirmationId)).resolves.toEqual({ status: "expired" });
+
+    const rejectedService = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => "2026-07-28T10:00:00.000Z" },
+      { confirmationId: () => "task-confirmation-rejected-pg" },
+    );
+    const rejected = await rejectedService.propose("emp_task_confirmation", {
+      kind: "create",
+      input: { id: "task-rejected-pg", title: "Rejected task", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await expect(restarted.reject("emp_task_confirmation", rejected.confirmationId)).resolves.toEqual({ status: "rejected" });
+    await pool.end();
+    pool = createPostgresPool(config);
+    const rejectedAfterRestart = new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), { now: () => currentTime });
+    await expect(rejectedAfterRestart.confirm("emp_task_confirmation", rejected.confirmationId)).resolves.toEqual({ status: "already_rejected" });
+    await expect(createPostgresTaskStore(pool).get("emp_task_confirmation", "task-rejected-pg")).resolves.toBeNull();
   });
 
   it("converts an idea through durable confirmation and recovers the stable result after restart", async () => {
@@ -426,15 +452,16 @@ describe("PostgreSQL storage contracts", () => {
     const proposed = await useCase.propose("idea_task_owner", "idea_task_origin");
     expect(proposed).toMatchObject({ status: "needs_confirmation", originIdeaId: "idea_task_origin" });
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
-    await expect(useCase.confirm("idea_task_owner", proposed.confirmation.confirmationId, proposed.confirmation)).resolves.toMatchObject({
-      status: "confirmed", outcome: "created", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
+    await expect(confirmations.confirm("idea_task_owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed", outcome: { outcome: "created", task: { id: proposed.taskId, originIdeaId: "idea_task_origin" } },
     });
 
     await pool.end();
     pool = createPostgresPool(config);
-    useCase = new IdeaToTaskService(createPostgresIdeaStore(pool), createPostgresTaskStore(pool), new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), clock));
-    await expect(useCase.confirm("idea_task_owner", proposed.confirmation.confirmationId, proposed.confirmation)).resolves.toMatchObject({
-      status: "already_confirmed", outcome: "created", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
+    const restartedConfirmations = new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), clock);
+    useCase = new IdeaToTaskService(createPostgresIdeaStore(pool), createPostgresTaskStore(pool), restartedConfirmations);
+    await expect(restartedConfirmations.confirm("idea_task_owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "already_confirmed", outcome: { outcome: "created", task: { id: proposed.taskId, originIdeaId: "idea_task_origin" } },
     });
     await expect(useCase.propose("idea_task_owner", "idea_task_origin")).resolves.toEqual({
       status: "already_converted", taskId: proposed.taskId, originIdeaId: "idea_task_origin",

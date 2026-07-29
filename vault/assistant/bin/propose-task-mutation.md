@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Prepare a typed proposal to create, update, complete, or cancel an owner task.
+Prepare one typed proposal per assistant turn to create, update, complete, or cancel an owner task.
 
 ## Inputs
 
@@ -10,8 +10,8 @@ Task content or a current task id plus expected revision. The tool does not acce
 
 ## Output
 
-An owner-bound pending confirmation containing the normalized proposal, confirmation id, digest, and expiry.
+The canonical pending record is captured by `AssistantService`. Chat exposes only an opaque confirmation id, action kind, bounded human-readable summary, and expiry.
 
 ## Boundary
 
-Proposal only: this tool never mutates `TaskStore`. The assistant must present the proposal and wait for explicit owner confirmation before calling `confirmTaskMutation` with the exact returned proposal.
+Proposal only: this tool never mutates `TaskStore`. A second task proposal in the same turn fails deterministically. Confirmation or rejection is an authenticated application command outside the agent tool loop; transports never submit owner id, digest, or authoritative proposal payload.

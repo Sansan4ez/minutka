@@ -1,6 +1,6 @@
 import type { Task } from "../domain/task.js";
 import type { IdeaToTaskProposalResult, IdeaToTaskService } from "./idea-to-task.js";
-import type { PendingTaskMutation, TaskMutationConfirmationResult, TaskMutationConfirmationService, TaskMutationProposal } from "./task-mutation-confirmation.js";
+import type { PendingTaskMutation, TaskMutationConfirmationService, TaskMutationProposal } from "./task-mutation-confirmation.js";
 import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 
 export const assistantTaskListDefaultLimit = 20;
@@ -16,21 +16,20 @@ export type AssistantTaskCapabilities = {
   list(input?: { filter?: TaskFilter; limit?: number; order?: "created_asc" | "due_asc" }): Promise<Task[]>;
   propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskMutation>;
   proposeIdeaToTask(ideaId: string): Promise<IdeaToTaskProposalResult>;
-  confirm(confirmationId: string, proposal: TaskMutationProposal): Promise<TaskMutationConfirmationResult>;
 };
 
 /**
- * Request-scoped task use-cases. The owner and generated task id are bound by
- * the application; neither can be supplied by model/tool input. Idea
- * provenance can only enter through the owner-scoped idea-to-task use-case.
+ * Request-scoped task reads and proposals. The owner and generated task id are
+ * bound by the application; execution is intentionally absent from the model
+ * capability surface and belongs to an authenticated owner command.
  */
 export function createAssistantTaskCapabilities(input: {
   ownerId: string;
   tasks?: TaskReader;
-  mutations?: Pick<TaskMutationConfirmationService, "propose" | "confirm">;
+  mutations?: Pick<TaskMutationConfirmationService, "propose">;
   ideaToTask?: Pick<IdeaToTaskService, "propose">;
   taskId: () => string;
-  confirm: (operation: () => Promise<TaskMutationConfirmationResult>) => Promise<TaskMutationConfirmationResult>;
+  onProposal: (pending: PendingTaskMutation) => PendingTaskMutation;
 }): AssistantTaskCapabilities {
   return {
     async list(options = {}) {
@@ -41,17 +40,20 @@ export function createAssistantTaskCapabilities(input: {
       }
       return input.tasks.list(input.ownerId, options.filter, { limit, order: options.order ?? "due_asc" });
     },
-    propose(proposal) {
+    async propose(proposal) {
       if (!input.mutations) throw new Error("task mutation confirmation is not configured");
-      return input.mutations.propose(input.ownerId, normalizeAssistantTaskProposal(proposal, input.taskId));
+      const pending = await input.mutations.propose(
+        input.ownerId,
+        normalizeAssistantTaskProposal(proposal, input.taskId),
+        { actionKind: proposal.kind },
+      );
+      return input.onProposal(pending);
     },
-    proposeIdeaToTask(ideaId) {
+    async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
-      return input.ideaToTask.propose(input.ownerId, ideaId);
-    },
-    confirm(confirmationId, proposal) {
-      if (!input.mutations) throw new Error("task mutation confirmation is not configured");
-      return input.confirm(() => input.mutations!.confirm(input.ownerId, confirmationId, proposal));
+      const result = await input.ideaToTask.propose(input.ownerId, ideaId);
+      if (result.status !== "needs_confirmation") return result;
+      return { ...result, confirmation: input.onProposal(result.confirmation) };
     },
   };
 }

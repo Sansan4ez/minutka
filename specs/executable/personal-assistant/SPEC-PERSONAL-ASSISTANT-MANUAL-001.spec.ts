@@ -36,8 +36,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
     expect(instructions).toContain("Select at most three priorities");
     expect(instructions).toContain("exactly one concrete next action");
-    expect(instructions).toContain("call `confirmTaskMutation` only after explicit owner confirmation");
-    expect(instructions).toContain("claim that a task changed only when that call returns a confirmed outcome");
+    expect(instructions).toContain("authenticated application confirmation command");
+    expect(instructions).toContain("never available inside the agent tool loop");
     expect(instructions).toContain("do not require calendar integration");
     expect(instructions).toContain("current single-owner prototype privacy boundary");
     expect(instructions).toContain("must never cross an owner boundary");

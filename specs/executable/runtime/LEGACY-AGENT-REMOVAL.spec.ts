@@ -31,7 +31,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         const tool = options.toolsets?.inbox?.captureIdea as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
-        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "confirmTaskMutation"]);
+        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
           project: "ASSISTANT",
@@ -60,7 +60,6 @@ describe("A2.6: legacy Minutka agent removal", () => {
         async list() { return []; },
         async propose() { throw new Error("unused"); },
         async proposeIdeaToTask() { return { status: "not_found" }; },
-        async confirm() { return { status: "not_found" }; },
       },
       documents: {
         limits: {

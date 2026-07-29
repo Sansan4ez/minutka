@@ -41,7 +41,9 @@ const chatInputTextSchema = z.string().min(1).refine(chatInputFitsCharacterLimit
 });
 export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: chatInputTextSchema, inputModality: chatInputModalitySchema.optional() });
 export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChannel: responseChannelSchema.optional() });
-export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema) });
+export const pendingTaskActionKindSchema = z.enum(["create", "update", "complete", "cancel", "idea_to_task"]);
+export const pendingTaskActionSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: z.string().min(1).max(280), expiresAt: z.iso.datetime() });
+export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), pendingAction: pendingTaskActionSchema.optional() });
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
 export const submitFeedbackRequestSchema = z.strictObject({ threadId: threadIdSchema, targetMessageId: z.string().min(1), rating: feedbackRatingSchema, source: feedbackSourceSchema });
@@ -78,34 +80,19 @@ export const taskMutationProposalSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("update"), taskId: z.string().min(1), expectedRevision: z.number().int().positive(), patch: taskPatchSchema }),
   z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
 ]);
-export const proposeTaskMutationRequestSchema = z.strictObject({ proposal: taskMutationProposalSchema });
-export const pendingTaskMutationSchema = z.strictObject({ confirmationId: z.string().min(1), ownerId: employeeIdSchema, proposal: taskMutationProposalSchema, payloadDigest: z.string().regex(/^[0-9a-f]{64}$/), createdAt: z.iso.datetime(), expiresAt: z.iso.datetime() });
-export const confirmTaskMutationRequestSchema = z.strictObject({ proposal: taskMutationProposalSchema });
+export const pendingTaskMutationSchema = z.strictObject({ confirmationId: z.string().min(1), ownerId: employeeIdSchema, actionKind: pendingTaskActionKindSchema, proposal: taskMutationProposalSchema, payloadDigest: z.string().regex(/^[0-9a-f]{64}$/), createdAt: z.iso.datetime(), expiresAt: z.iso.datetime() });
+export const taskMutationDecisionRequestSchema = z.strictObject({});
 const taskSchema = classifiedSchema.extend({ id: z.string().min(1), userId: employeeIdSchema, title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: z.number().int().positive() });
 const taskMutationOutcomeSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.enum(["created", "updated", "unchanged"]), task: taskSchema }),
   z.strictObject({ outcome: z.literal("not_found") }),
   z.strictObject({ outcome: z.literal("conflict"), current: taskSchema.optional() }),
 ]);
-export const taskMutationConfirmationResponseSchema = z.discriminatedUnion("status", [
+export const taskMutationDecisionResponseSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: taskMutationOutcomeSchema }),
-  z.strictObject({ status: z.enum(["not_found", "owner_mismatch", "expired", "payload_mismatch"]) }),
+  z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "owner_mismatch", "expired", "invalid_payload"]) }),
 ]);
-export const proposeIdeaToTaskRequestSchema = z.strictObject({ ideaId: z.string().min(1) });
-export const ideaToTaskProposalResponseSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.literal("not_found") }),
-  z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
-  z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskMutationSchema, taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
-]);
-export const confirmIdeaToTaskRequestSchema = z.strictObject({ confirmation: pendingTaskMutationSchema });
-export const ideaToTaskConfirmationResponseSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: z.enum(["created", "unchanged"]), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
-  z.strictObject({ status: z.enum(["not_found", "owner_mismatch", "expired", "payload_mismatch", "conflict"]) }),
-]);
-export type TaskMutationProposalRequest = z.infer<typeof proposeTaskMutationRequestSchema>;
-export type ConfirmTaskMutationRequest = z.infer<typeof confirmTaskMutationRequestSchema>;
-export type ProposeIdeaToTaskRequest = z.infer<typeof proposeIdeaToTaskRequestSchema>;
-export type ConfirmIdeaToTaskRequest = z.infer<typeof confirmIdeaToTaskRequestSchema>;
+export type TaskMutationDecisionRequest = z.infer<typeof taskMutationDecisionRequestSchema>;
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
 export const structuredInsightSchema = z.discriminatedUnion("kind", [

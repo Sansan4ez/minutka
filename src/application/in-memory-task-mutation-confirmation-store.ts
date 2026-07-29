@@ -2,6 +2,8 @@ import type { TaskStore } from "./task-store.js";
 import {
   copyTaskMutationResult,
   normalizeTaskMutationProposal,
+  taskActionKindMatchesProposal,
+  taskMutationPayloadDigest,
   type PendingTaskMutation,
   type TaskMutationConfirmationRecord,
   type TaskMutationConfirmationStore,
@@ -17,22 +19,42 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
       if (records.has(record.confirmationId)) throw new Error("confirmation id already exists");
       records.set(record.confirmationId, copyRecord(record));
     },
-    async execute(input, effect) {
+    async decide(input, effect) {
       return withKeyLock(locks, input.confirmationId, async () => {
         const record = records.get(input.confirmationId);
         if (!record) return { status: "not_found" };
         if (record.ownerId !== input.ownerId) return { status: "owner_mismatch" };
-        if (record.payloadDigest !== input.payloadDigest) return { status: "payload_mismatch" };
-        if (record.outcome) return { status: "already_confirmed", outcome: copyTaskMutationResult(record.outcome) };
-        if (Date.parse(record.expiresAt) <= Date.parse(input.confirmedAt)) return { status: "expired" };
-        const outcome = await effect(taskStore);
+        if (!validCanonicalRecord(record)) return { status: "invalid_payload" };
+        if (record.decision === "confirmed" && record.outcome) {
+          return { status: "already_confirmed", outcome: copyTaskMutationResult(record.outcome) };
+        }
+        if (record.decision === "rejected") return { status: "already_rejected" };
+        if (Date.parse(record.expiresAt) <= Date.parse(input.decidedAt)) return { status: "expired" };
+        if (input.decision === "reject") {
+          record.decision = "rejected";
+          record.completedAt = input.decidedAt;
+          records.set(record.confirmationId, record);
+          return { status: "rejected" };
+        }
+        const outcome = await effect(taskStore, normalizeTaskMutationProposal(record.proposal));
+        record.decision = "confirmed";
         record.outcome = copyTaskMutationResult(outcome);
-        record.completedAt = input.confirmedAt;
+        record.completedAt = input.decidedAt;
         records.set(record.confirmationId, record);
         return { status: "confirmed", outcome: copyTaskMutationResult(outcome) };
       });
     },
   };
+}
+
+function validCanonicalRecord(record: TaskMutationConfirmationRecord): boolean {
+  try {
+    const proposal = normalizeTaskMutationProposal(record.proposal);
+    return taskActionKindMatchesProposal(record.actionKind, proposal)
+      && taskMutationPayloadDigest(proposal) === record.payloadDigest;
+  } catch {
+    return false;
+  }
 }
 
 function copyRecord(record: PendingTaskMutation): TaskMutationConfirmationRecord {

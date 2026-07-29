@@ -7,7 +7,6 @@
     { "id": "searchDocuments", "manifest": "search-documents.md", "mutating": false },
     { "id": "listTasks", "manifest": "list-tasks.md", "mutating": false },
     { "id": "proposeTaskMutation", "manifest": "propose-task-mutation.md", "mutating": false },
-    { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "mutating": false },
-    { "id": "confirmTaskMutation", "manifest": "confirm-task-mutation.md", "mutating": true }
+    { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "mutating": false }
   ]
 }

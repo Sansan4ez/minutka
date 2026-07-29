@@ -2,7 +2,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { AssistantTaskCapabilities } from "../../application/assistant-task-capabilities.js";
 import { assistantTaskListMaximumLimit } from "../../application/assistant-task-capabilities.js";
-import { pendingTaskMutationSchema, recordTypeSchema, taskMutationConfirmationResponseSchema, taskMutationProposalSchema, taskStatusSchema } from "../../contracts/minutka-api.js";
+import { pendingTaskMutationSchema, recordTypeSchema, taskStatusSchema } from "../../contracts/minutka-api.js";
 
 const taskSchema = z.strictObject({
   id: z.string().min(1),
@@ -52,7 +52,7 @@ const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskMutationSchema, taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
 ]);
 
-export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "confirmTaskMutation"] as const;
+export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask"] as const;
 
 export function createTaskTools(tasks: AssistantTaskCapabilities) {
   return {
@@ -71,7 +71,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeTaskMutation: createTool({
       id: "proposeTaskMutation",
-      description: "Prepare an owner-bound create, update, complete, or cancel task proposal. This never mutates a task; return the confirmation details and wait for explicit owner confirmation.",
+      description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application returns a separate confirmation action to the owner.",
       strict: true,
       inputSchema: taskProposalInputSchema,
       outputSchema: pendingTaskMutationSchema,
@@ -80,21 +80,12 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Prepare an owner-bound conversion of an existing idea into a task while preserving originIdeaId. This never mutates a task; wait for explicit owner confirmation.",
+      description: "Prepare one owner-bound conversion of an existing idea into a task while preserving originIdeaId. This never mutates a task; the application returns a separate confirmation action to the owner.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: ({ ideaId }) => tasks.proposeIdeaToTask(ideaId),
-    }),
-    confirmTaskMutation: createTool({
-      id: "confirmTaskMutation",
-      description: "Execute a previously prepared task proposal only after the current owner explicitly confirmed that exact proposal. Replays return the stored stable outcome.",
-      strict: true,
-      inputSchema: z.strictObject({ confirmationId: z.string().min(1), proposal: taskMutationProposalSchema }),
-      outputSchema: taskMutationConfirmationResponseSchema,
-      mcp: { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } },
-      execute: ({ confirmationId, proposal }) => tasks.confirm(confirmationId, proposal),
     }),
   };
 }
