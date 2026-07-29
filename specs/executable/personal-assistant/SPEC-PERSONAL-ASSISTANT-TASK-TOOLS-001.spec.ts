@@ -71,14 +71,27 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     const result = await service.chat({ userId: "owner", threadId: "telegram:owner", text: "create task" });
     expect(result).toMatchObject({
       response: "Предложение готово",
-      pendingAction: { confirmationId: "tool-confirmation-1", actionKind: "create", summary: "Создать задачу: Prepare launch", expiresAt: expect.any(String) },
+      pendingAction: {
+        confirmationId: "tool-confirmation-1",
+        actionKind: "create",
+        summary: "Создать задачу: Prepare launch",
+        expiresAt: expect.any(String),
+        preview: {
+          kind: "create",
+          title: { value: "Prepare launch", truncated: false },
+          project: { value: "ASSISTANT", truncated: false },
+          type: "operations",
+          dueDate: "2026-07-30",
+        },
+      },
     });
     expect(result.pendingAction).not.toHaveProperty("ownerId");
     expect(result.pendingAction).not.toHaveProperty("proposal");
     expect(result.pendingAction).not.toHaveProperty("payloadDigest");
     await expect(tasks.list("owner")).resolves.toEqual([]);
-    expect(modelVisible).toEqual(result.pendingAction);
-    expect(JSON.stringify(modelVisible)).not.toMatch(/ownerId|proposal|payloadDigest|task_1|createdAt/);
+    expect(modelVisible).not.toHaveProperty("preview");
+    expect(modelVisible).toMatchObject({ confirmationId: result.pendingAction!.confirmationId, actionKind: "create", summary: "Создать задачу: Prepare launch" });
+    expect(JSON.stringify(modelVisible)).not.toMatch(/ownerId|proposal|payloadDigest|task_1|createdAt|preview|dueDate/);
 
     await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ id: "task_1", title: "Prepare launch", userId: "owner", status: "open" }]);
@@ -453,7 +466,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert me", status: "raw" });
 
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "list and convert" });
-    const parsed = JSON.parse(result.response) as { ids: string[]; conversion: { status: string; confirmation: unknown } };
+    const parsed = JSON.parse(result.response) as { ids: string[]; conversion: { status: string; confirmation: { confirmationId: string; actionKind: string; summary: string; expiresAt: string } } };
     expect(parsed.ids).toEqual(["task-owner"]);
     expect(parsed.conversion).toMatchObject({
       status: "needs_confirmation",
@@ -462,7 +475,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(parsed.conversion).not.toHaveProperty("taskId");
     expect(parsed.conversion).not.toHaveProperty("originIdeaId");
     expect(JSON.stringify(parsed.conversion)).not.toMatch(/ownerId|proposal|payloadDigest|task_idea_|createdAt/);
-    expect(result.pendingAction).toEqual(parsed.conversion.confirmation);
+    expect(parsed.conversion.confirmation).not.toHaveProperty("preview");
+    expect(result.pendingAction).toMatchObject({ ...parsed.conversion.confirmation, preview: { kind: "idea_to_task", title: { value: "Convert me", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "development", dueDate: null } });
     await expect(tasks.getByOriginIdeaId("owner", "idea-owner")).resolves.toBeNull();
   });
 });

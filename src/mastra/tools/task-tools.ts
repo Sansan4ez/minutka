@@ -2,7 +2,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { AssistantTaskCapabilities } from "../../application/assistant-task-capabilities.js";
 import { assistantTaskListMaximumLimit } from "../../application/assistant-task-capabilities.js";
-import { pendingTaskActionSchema, recordTypeSchema, taskStatusSchema } from "../../contracts/minutka-api.js";
+import { pendingTaskReceiptSchema, recordTypeSchema, taskStatusSchema } from "../../contracts/minutka-api.js";
 
 const taskSchema = z.strictObject({
   id: z.string().min(1),
@@ -49,7 +49,7 @@ const taskProposalInputSchema = z.discriminatedUnion("kind", [
 const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("not_found") }),
   z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
-  z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskActionSchema }),
+  z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskReceiptSchema }),
 ]);
 
 export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask"] as const;
@@ -74,7 +74,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
       description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application returns a separate confirmation action to the owner.",
       strict: true,
       inputSchema: taskProposalInputSchema,
-      outputSchema: pendingTaskActionSchema,
+      outputSchema: pendingTaskReceiptSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
       execute: (input) => tasks.propose(input),
     }),

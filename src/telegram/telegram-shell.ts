@@ -139,6 +139,36 @@ function pendingActionReplyMarkup(chat: ChatResult) {
     { text: "❌ Отклонить", callbackData: encodeTaskMutationCallbackData("reject", pendingAction.confirmationId) },
   ]] };
 }
+function previewText(value: { value: string; truncated: boolean }): string {
+  return `${value.value}${value.truncated ? "… [сокращено]" : ""}`;
+}
+function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPendingAction>>["preview"]): string[] {
+  if (preview.kind === "create" || preview.kind === "idea_to_task") {
+    return [
+      `Действие: ${preview.kind === "idea_to_task" ? "создать задачу из идеи" : "создать задачу"}`,
+      `Название: ${previewText(preview.title)}`,
+      `Проект: ${previewText(preview.project)}`,
+      `Тип: ${preview.type}`,
+      `Срок: ${preview.dueDate ?? "не указан"}`,
+    ];
+  }
+  if (preview.kind === "complete" || preview.kind === "cancel") {
+    return [`Действие: ${preview.kind === "complete" ? "завершить задачу" : "отменить задачу"}`, `Задача: ${previewText(preview.taskId)}`];
+  }
+  const labels = { title: "Название", project: "Проект", type: "Тип", status: "Статус", dueDate: "Срок" } as const;
+  return [
+    "Действие: изменить задачу",
+    `Задача: ${previewText(preview.taskId)}`,
+    ...preview.fields.map((field) => {
+      const value = field.field === "title" || field.field === "project"
+        ? previewText(field.value)
+        : field.field === "dueDate"
+          ? field.value ?? "снять срок"
+          : field.value;
+      return `${labels[field.field]}: ${value}`;
+    }),
+  ];
+}
 export function taskDecisionText(result: TaskMutationDecisionResult): string {
   if (result.status === "confirmed" || result.status === "already_confirmed") {
     if (result.outcome.outcome === "conflict") return "Задача изменилась после предложения. Обновите данные и создайте новое предложение.";
@@ -313,7 +343,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   async function sendTaskProposal(chatId: string, chat: ChatResult): Promise<void> {
     const pendingAction = taskPendingAction(chat);
     if (!pendingAction) return;
-    await rawReplyPort.sendMessage(chatId, [`Предложение: ${pendingAction.summary}`, "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
+    await rawReplyPort.sendMessage(chatId, ["Предложение:", ...renderTaskActionPreview(pendingAction.preview), "", "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
   }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;

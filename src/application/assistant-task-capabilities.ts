@@ -1,6 +1,6 @@
 import type { Task } from "../domain/task.js";
 import type { IdeaToTaskService } from "./idea-to-task.js";
-import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationAuditContext, type TaskMutationBeforePersist, type TaskMutationConfirmationService, type TaskMutationProposal } from "./task-mutation-confirmation.js";
+import { pendingTaskReceipt, type PendingTaskMutation, type PendingTaskReceipt, type TaskMutationAuditContext, type TaskMutationBeforePersist, type TaskMutationConfirmationService, type TaskMutationProposal } from "./task-mutation-confirmation.js";
 import type { TaskFilter, TaskPatch, TaskReader } from "./task-store.js";
 
 export const assistantTaskListDefaultLimit = 20;
@@ -15,11 +15,11 @@ export type AssistantTaskMutationProposal =
 export type AssistantIdeaToTaskProposalResult =
   | { status: "not_found" }
   | { status: "already_converted"; taskId: string; originIdeaId: string }
-  | { status: "needs_confirmation"; confirmation: PendingTaskAction };
+  | { status: "needs_confirmation"; confirmation: PendingTaskReceipt };
 
 export type AssistantTaskCapabilities = {
   list(input?: { filter?: TaskFilter; limit?: number; order?: "created_asc" | "due_asc" }): Promise<Task[]>;
-  propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskAction>;
+  propose(proposal: AssistantTaskMutationProposal): Promise<PendingTaskReceipt>;
   proposeIdeaToTask(ideaId: string): Promise<AssistantIdeaToTaskProposalResult>;
 };
 
@@ -55,14 +55,14 @@ export function createAssistantTaskCapabilities(input: {
         { actionKind: proposal.kind, audit: input.audit, beforePersist: input.beforePersist },
       );
       input.onProposal(pending);
-      return pendingTaskAction(pending);
+      return pendingTaskReceipt(pending);
     },
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
       const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit, input.beforePersist);
       if (result.status !== "needs_confirmation") return result;
       input.onProposal(result.confirmation);
-      return { status: "needs_confirmation", confirmation: pendingTaskAction(result.confirmation) };
+      return { status: "needs_confirmation", confirmation: pendingTaskReceipt(result.confirmation) };
     },
   };
 }

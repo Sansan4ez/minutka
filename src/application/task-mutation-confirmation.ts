@@ -44,6 +44,7 @@ export type TaskMutationProposal =
   | { kind: "cancel"; taskId: string; expectedRevision: number };
 
 export type TaskPendingActionKind = "create" | "update" | "complete" | "cancel" | "idea_to_task";
+export const pendingTaskPreviewValueMaximumCharacters = 280;
 
 /** Canonical private record. It must never cross a transport or model boundary. */
 export type PendingTaskMutation = {
@@ -56,13 +57,26 @@ export type PendingTaskMutation = {
   expiresAt: string;
 };
 
-/** Privacy-safe projection returned by chat and confirmation UIs. */
-export type PendingTaskAction = {
+export type PendingTaskReceipt = {
   confirmationId: string;
   actionKind: TaskPendingActionKind;
   summary: string;
   expiresAt: string;
 };
+
+export type PendingTaskPreviewText = { value: string; truncated: boolean };
+export type PendingTaskUpdatePreviewField =
+  | { field: "title" | "project"; value: PendingTaskPreviewText }
+  | { field: "type"; value: Task["type"] }
+  | { field: "status"; value: Task["status"] }
+  | { field: "dueDate"; value: string | null };
+export type PendingTaskActionPreview =
+  | { kind: "create" | "idea_to_task"; title: PendingTaskPreviewText; project: PendingTaskPreviewText; type: Task["type"]; dueDate: string | null }
+  | { kind: "update"; taskId: PendingTaskPreviewText; fields: PendingTaskUpdatePreviewField[] }
+  | { kind: "complete" | "cancel"; taskId: PendingTaskPreviewText };
+
+/** Owner-visible transport projection. Canonical proposal authority remains private. */
+export type PendingTaskAction = PendingTaskReceipt & { preview: PendingTaskActionPreview };
 
 export type TaskMutationDecisionResult =
   | { status: "confirmed" | "already_confirmed"; outcome: TaskMutationResult }
@@ -216,13 +230,17 @@ export class TaskMutationConfirmationService {
   }
 }
 
-export function pendingTaskAction(record: PendingTaskMutation): PendingTaskAction {
+export function pendingTaskReceipt(record: PendingTaskMutation): PendingTaskReceipt {
   return {
     confirmationId: record.confirmationId,
     actionKind: record.actionKind,
     summary: boundedSummary(taskActionSummary(record.actionKind, record.proposal), 280),
     expiresAt: record.expiresAt,
   };
+}
+
+export function pendingTaskAction(record: PendingTaskMutation): PendingTaskAction {
+  return { ...pendingTaskReceipt(record), preview: pendingTaskActionPreview(record.actionKind, record.proposal) };
 }
 
 export function normalizeTaskMutationProposal(proposal: TaskMutationProposal): TaskMutationProposal {
@@ -277,6 +295,40 @@ function inferTaskPendingActionKind(proposal: TaskMutationProposal): TaskPending
   if (proposal.kind === "create") return proposal.input.originIdeaId === undefined ? "create" : "idea_to_task";
   if (proposal.kind === "cancel") return "cancel";
   return Object.keys(proposal.patch).length === 1 && proposal.patch.status === "done" ? "complete" : "update";
+}
+
+function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): PendingTaskActionPreview {
+  if (proposal.kind === "create") {
+    return {
+      kind: actionKind === "idea_to_task" ? "idea_to_task" : "create",
+      title: previewText(proposal.input.title),
+      project: previewText(proposal.input.project),
+      type: proposal.input.type,
+      dueDate: proposal.input.dueDate ?? null,
+    };
+  }
+  if (actionKind === "complete") return { kind: "complete", taskId: previewText(proposal.taskId) };
+  if (actionKind === "cancel") return { kind: "cancel", taskId: previewText(proposal.taskId) };
+  if (proposal.kind !== "update") throw new Error("task action kind does not match proposal");
+  const fields: PendingTaskUpdatePreviewField[] = [];
+  for (const field of ["title", "project", "type", "status", "dueDate"] as const) {
+    if (!Object.prototype.hasOwnProperty.call(proposal.patch, field)) continue;
+    const value = proposal.patch[field];
+    if (field === "title" || field === "project") fields.push({ field, value: previewText(value as string) });
+    else if (field === "dueDate") fields.push({ field, value: value as string | null });
+    else if (field === "type") fields.push({ field, value: value as Task["type"] });
+    else fields.push({ field, value: value as Task["status"] });
+  }
+  return { kind: "update", taskId: previewText(proposal.taskId), fields };
+}
+
+function previewText(value: string): PendingTaskPreviewText {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  const characters = [...normalized];
+  return {
+    value: characters.slice(0, pendingTaskPreviewValueMaximumCharacters).join(""),
+    truncated: characters.length > pendingTaskPreviewValueMaximumCharacters,
+  };
 }
 
 function taskActionSummary(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): string {

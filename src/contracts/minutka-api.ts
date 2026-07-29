@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
-import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
+import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantProcessIds } from "../domain/assistant-process.js";
 
@@ -43,8 +43,29 @@ const chatInputTextSchema = z.string().min(1).refine(chatInputFitsCharacterLimit
 });
 export const chatRequestSchema = z.strictObject({ threadId: threadIdSchema, text: chatInputTextSchema, inputModality: chatInputModalitySchema.optional() });
 export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChannel: responseChannelSchema.optional() });
+export const recordTypeSchema = z.enum(["money", "development", "content", "people", "operations", "knowledge", "personal"]);
+export const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
 export const pendingTaskActionKindSchema = z.enum(["create", "update", "complete", "cancel", "idea_to_task"]);
-export const pendingTaskActionSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: z.string().min(1).max(280), expiresAt: z.iso.datetime() });
+const pendingTaskPreviewTextSchema = z.strictObject({
+  value: z.string().refine((value) => countUnicodeCodePoints(value) <= 280, "Preview value must have at most 280 Unicode code points"),
+  truncated: z.boolean(),
+});
+const pendingTaskUpdatePreviewFieldSchema = z.discriminatedUnion("field", [
+  z.strictObject({ field: z.literal("title"), value: pendingTaskPreviewTextSchema }),
+  z.strictObject({ field: z.literal("project"), value: pendingTaskPreviewTextSchema }),
+  z.strictObject({ field: z.literal("type"), value: recordTypeSchema }),
+  z.strictObject({ field: z.literal("status"), value: taskStatusSchema }),
+  z.strictObject({ field: z.literal("dueDate"), value: z.iso.date().nullable() }),
+]);
+const pendingTaskActionPreviewSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("create"), title: pendingTaskPreviewTextSchema, project: pendingTaskPreviewTextSchema, type: recordTypeSchema, dueDate: z.iso.date().nullable() }),
+  z.strictObject({ kind: z.literal("idea_to_task"), title: pendingTaskPreviewTextSchema, project: pendingTaskPreviewTextSchema, type: recordTypeSchema, dueDate: z.iso.date().nullable() }),
+  z.strictObject({ kind: z.literal("update"), taskId: pendingTaskPreviewTextSchema, fields: z.array(pendingTaskUpdatePreviewFieldSchema).min(1).max(5) }),
+  z.strictObject({ kind: z.literal("complete"), taskId: pendingTaskPreviewTextSchema }),
+  z.strictObject({ kind: z.literal("cancel"), taskId: pendingTaskPreviewTextSchema }),
+]);
+export const pendingTaskReceiptSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: z.string().min(1).max(280), expiresAt: z.iso.datetime() });
+export const pendingTaskActionSchema = pendingTaskReceiptSchema.extend({ preview: pendingTaskActionPreviewSchema });
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
 const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
 const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingTaskActionSchema.optional(), effect: assistantChatEffectSchema });
@@ -59,20 +80,10 @@ export const insightKindSchema = z.enum(["task_category", "routine_pattern", "en
 // закрытый enum (LLM не выдумает тип); `project` — непустая строка (список
 // проектов — пользовательские данные vault, которые читает и интерпретирует
 // агент. Application-слой валидирует DTO, но не разбирает Markdown-классификатор.
-export const recordTypeSchema = z.enum([
-  "money",
-  "development",
-  "content",
-  "people",
-  "operations",
-  "knowledge",
-  "personal",
-]);
 export const classifiedSchema = z.strictObject({
   project: z.string().min(1),
   type: recordTypeSchema,
 });
-export const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
 export const taskPatchSchema = z.strictObject({
   title: z.string().min(1).optional(),
   project: z.string().min(1).optional(),

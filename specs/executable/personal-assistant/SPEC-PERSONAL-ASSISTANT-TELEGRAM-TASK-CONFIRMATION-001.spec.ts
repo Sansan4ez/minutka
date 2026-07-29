@@ -67,6 +67,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
 
     const proposals = telegram.sentMessages().filter((message) => message.text.includes("Предложение:"));
     expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.text).toContain(`Действие: создать задачу\nНазвание: Task from ${modality}\nПроект: ASSISTANT\nТип: operations\nСрок: не указан`);
     expect(proposals[0]!.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
     expect(taskButton(proposals[0]!, "✅ Подтвердить")).toBe("tm:c:telegram-confirmation-1");
     await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
@@ -79,6 +80,29 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-2" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
+  });
+
+  it("renders every effective update field and explicit due-date removal", async () => {
+    const { telegram } = await harness(async (_input, context) => {
+      await context.tasks.propose({
+        kind: "update",
+        taskId: "task-update",
+        expectedRevision: 3,
+        patch: { title: "Новый заголовок", project: "PLAN", type: "development", status: "in_progress", dueDate: null },
+      });
+      return "Предложение подготовлено.";
+    });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "update" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toContain([
+      "Действие: изменить задачу",
+      "Задача: task-update",
+      "Название: Новый заголовок",
+      "Проект: PLAN",
+      "Тип: development",
+      "Статус: in_progress",
+      "Срок: снять срок",
+    ].join("\n"));
   });
 
   it.each([

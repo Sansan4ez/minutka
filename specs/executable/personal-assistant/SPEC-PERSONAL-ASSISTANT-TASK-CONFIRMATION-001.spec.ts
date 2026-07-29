@@ -4,7 +4,7 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
+import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
 
 const createProposal: TaskMutationProposal = {
   kind: "create",
@@ -37,6 +37,41 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     await expect(tasks.get("owner", "task-1")).resolves.toMatchObject({ title: "Подготовить план", status: "open", revision: 1 });
     expect(update.proposal.kind).toBe("update");
     expect(cancel.proposal.kind).toBe("cancel");
+  });
+
+  it("builds bounded owner previews from every canonical proposal kind", async () => {
+    const { service } = harness();
+    const create = pendingTaskAction(await service.propose("owner", { ...createProposal, input: { ...createProposal.input, dueDate: "2026-08-01" } }));
+    expect(create.preview).toEqual({ kind: "create", title: { value: "Подготовить план", truncated: false }, project: { value: "АССИСТЕНТ", truncated: false }, type: "operations", dueDate: "2026-08-01" });
+    const ideaToTask = pendingTaskAction(await service.propose("owner", { ...createProposal, input: { ...createProposal.input, id: "idea-task", originIdeaId: "idea-1" } }, { actionKind: "idea_to_task" }));
+    expect(ideaToTask.preview).toMatchObject({ kind: "idea_to_task", title: { value: "Подготовить план", truncated: false }, project: { value: "АССИСТЕНТ", truncated: false }, type: "operations", dueDate: null });
+
+    const update = pendingTaskAction(await service.propose("owner", {
+      kind: "update",
+      taskId: "task-1",
+      expectedRevision: 1,
+      patch: { title: "Новый план", project: "ПРОЕКТ", type: "development", status: "in_progress", dueDate: null },
+    }));
+    expect(update.preview).toEqual({
+      kind: "update",
+      taskId: { value: "task-1", truncated: false },
+      fields: [
+        { field: "title", value: { value: "Новый план", truncated: false } },
+        { field: "project", value: { value: "ПРОЕКТ", truncated: false } },
+        { field: "type", value: "development" },
+        { field: "status", value: "in_progress" },
+        { field: "dueDate", value: null },
+      ],
+    });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: "task-1", expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" })).preview).toEqual({ kind: "complete", taskId: { value: "task-1", truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: "task-1", expectedRevision: 1 })).preview).toEqual({ kind: "cancel", taskId: { value: "task-1", truncated: false } });
+  });
+
+  it("clips owner preview text on Unicode boundaries and marks truncation", async () => {
+    const { service } = harness();
+    const title = "🙂".repeat(pendingTaskPreviewValueMaximumCharacters + 1);
+    const action = pendingTaskAction(await service.propose("owner", { ...createProposal, input: { ...createProposal.input, title } }));
+    expect(action.preview).toMatchObject({ title: { value: "🙂".repeat(pendingTaskPreviewValueMaximumCharacters), truncated: true } });
   });
 
   it("fails closed for another owner and expiration without a client payload", async () => {

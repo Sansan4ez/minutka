@@ -168,13 +168,19 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const taskTelegram = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: taskServer.url, token: serviceToken })).forEmployee("owner-a");
 
     const proposed = await taskEmployee.chat({ threadId: "http-task", text: "create" });
-    expect(proposed.pendingAction).toMatchObject({ actionKind: "create", summary: "Создать задачу: HTTP task" });
+    if (!("pendingAction" in proposed) || !proposed.pendingAction) throw new Error("expected pending action");
+    expect(proposed.pendingAction).toMatchObject({
+      actionKind: "create",
+      summary: "Создать задачу: HTTP task",
+      preview: { kind: "create", title: { value: "HTTP task", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "operations", dueDate: null },
+    });
     await expect(tasks.list("owner-a")).resolves.toEqual([]);
-    await expect(taskTelegram.confirmTaskMutation(proposed.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "created" } });
+    await expect(taskTelegram.confirmTaskMutation(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "created" } });
 
     const rejected = await taskEmployee.chat({ threadId: "http-task-2", text: "create another" });
-    await expect(taskEmployee.rejectTaskMutation(rejected.pendingAction!.confirmationId)).resolves.toEqual({ status: "rejected" });
-    await expect(taskTelegram.confirmTaskMutation(rejected.pendingAction!.confirmationId)).resolves.toEqual({ status: "already_rejected" });
+    if (!("pendingAction" in rejected) || !rejected.pendingAction) throw new Error("expected pending action");
+    await expect(taskEmployee.rejectTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "rejected" });
+    await expect(taskTelegram.confirmTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "already_rejected" });
     await expect(tasks.list("owner-a")).resolves.toHaveLength(1);
   });
 
