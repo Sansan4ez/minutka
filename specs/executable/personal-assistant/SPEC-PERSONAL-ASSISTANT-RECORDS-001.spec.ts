@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection } from "../../../src/application/assistant-records-projection.js";
+import { assistantRecordsIdeaReservationDivisor, createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection } from "../../../src/application/assistant-records-projection.js";
 import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
@@ -63,6 +63,76 @@ describe("SPEC-PERSONAL-ASSISTANT-RECORDS-001: bounded /proc/records", () => {
     expect(JSON.stringify(projection)).not.toContain("Other owner secret");
     expect(renderAssistantRecordsProjection(projection)).toContain("### Active tasks");
     expect(renderAssistantRecordsProjection(projection)).toContain("### Ideas");
+  });
+
+  it("reserves one third of capacity for newest ideas and reallocates unused slots symmetrically", async () => {
+    expect(assistantRecordsIdeaReservationDivisor).toBe(3);
+    let minute = 0;
+    const clock = { now: () => `2026-07-15T09:${String(minute++).padStart(2, "0")}:00.000Z` };
+    const ideas = createInMemoryIdeaStore(clock);
+    const tasks = createInMemoryTaskStore(clock);
+    for (let index = 0; index < 10; index++) {
+      await ideas.add({ id: `idea-${index}`, userId: "maxim", project: "IDEAS", type: "knowledge", summary: `Idea ${index}`, status: "raw" });
+      await tasks.create("maxim", { id: `task-${index}`, title: `Task ${index}`, project: "PLAN", type: "operations", status: "open" });
+    }
+    const balancedBudget = createContextBudgetConfig({ projectionLimits: { records: 6 } });
+    const balanced = await createAssistantRecordsProjectionBuilder({ ideaStore: ideas, taskStore: tasks, now: clock.now, contextBudget: balancedBudget }).build({ userId: "maxim", requestId: "req-balanced" });
+    expect(balanced.data.tasks.map(({ id }) => id)).toEqual(["task-0", "task-1", "task-2", "task-3"]);
+    expect(balanced.data.records.map(({ id }) => id)).toEqual(["idea-9", "idea-8"]);
+
+    const fewIdeas = createInMemoryIdeaStore(clock);
+    await fewIdeas.add({ id: "only-idea", userId: "maxim", project: "IDEAS", type: "knowledge", summary: "Only idea", status: "raw" });
+    const taskHeavy = await createAssistantRecordsProjectionBuilder({ ideaStore: fewIdeas, taskStore: tasks, now: clock.now, contextBudget: balancedBudget }).build({ userId: "maxim", requestId: "req-task-heavy" });
+    expect(taskHeavy.data.tasks.map(({ id }) => id)).toEqual(["task-0", "task-1", "task-2", "task-3", "task-4"]);
+    expect(taskHeavy.data.records.map(({ id }) => id)).toEqual(["only-idea"]);
+
+    const fewTasks = createInMemoryTaskStore(clock);
+    await fewTasks.create("maxim", { id: "only-task", title: "Only task", project: "PLAN", type: "operations", status: "open" });
+    const ideaHeavy = await createAssistantRecordsProjectionBuilder({ ideaStore: ideas, taskStore: fewTasks, now: clock.now, contextBudget: balancedBudget }).build({ userId: "maxim", requestId: "req-idea-heavy" });
+    expect(ideaHeavy.data.tasks.map(({ id }) => id)).toEqual(["only-task"]);
+    expect(ideaHeavy.data.records.map(({ id }) => id)).toEqual(["idea-9", "idea-8", "idea-7", "idea-6", "idea-5"]);
+  });
+
+  it("preserves both sources under character pressure whenever one item from each fits", async () => {
+    let minute = 0;
+    const clock = { now: () => `2026-07-15T09:${String(minute++).padStart(2, "0")}:00.000Z` };
+    const ideas = createInMemoryIdeaStore(clock);
+    const tasks = createInMemoryTaskStore(clock);
+    for (let index = 0; index < 8; index++) {
+      await ideas.add({ id: `idea-${index}`, userId: "maxim", project: "IDEAS", type: "knowledge", summary: `Idea ${index} ${"<&>😀".repeat(80)}`, status: "raw" });
+      await tasks.create("maxim", { id: `task-${index}`, title: `Task ${index} ${"<&>😀".repeat(80)}`, project: "PLAN", type: "operations", status: "open" });
+    }
+    const contextBudget = createContextBudgetConfig({
+      sources: { records: 3_000 },
+      projectionLimits: { records: 8, recordCharacters: 500 },
+    });
+
+    const projection = await createAssistantRecordsProjectionBuilder({ ideaStore: ideas, taskStore: tasks, now: clock.now, contextBudget }).build({ userId: "maxim", requestId: "req-pressure" });
+    const rendered = renderAssistantRecordsProjection(projection);
+    expect(projection.data.tasks.length).toBeGreaterThan(0);
+    expect(projection.data.records.length).toBeGreaterThan(0);
+    expect(projection.data.truncated).toBe(true);
+    expect(Array.from(rendered).length).toBeLessThanOrEqual(3_000);
+    expect(rendered).toContain("### Active tasks");
+    expect(rendered).toContain("### Ideas");
+  });
+
+  it("uses a deterministic single-source fallback when the ceiling cannot hold both", async () => {
+    const clock = { now: () => "2026-07-15T10:00:00.000Z" };
+    const ideas = createInMemoryIdeaStore(clock);
+    const tasks = createInMemoryTaskStore(clock);
+    await ideas.add({ id: "idea", userId: "maxim", project: "IDEAS", type: "knowledge", summary: "Idea", status: "raw" });
+    await tasks.create("maxim", { id: "task", title: "Task", project: "PLAN", type: "operations", status: "open" });
+    const contextBudget = createContextBudgetConfig({
+      sources: { records: 320 },
+      projectionLimits: { records: 2, recordCharacters: 10 },
+    });
+
+    const projection = await createAssistantRecordsProjectionBuilder({ ideaStore: ideas, taskStore: tasks, now: clock.now, contextBudget }).build({ userId: "maxim", requestId: "req-fallback" });
+    expect(projection.data.tasks.map(({ id }) => id)).toEqual(["task"]);
+    expect(projection.data.records).toEqual([]);
+    expect(projection.data.truncated).toBe(true);
+    expect(Array.from(renderAssistantRecordsProjection(projection)).length).toBeLessThanOrEqual(320);
   });
 
   it("keeps task reads and the combined exact renderer bounded under adversarial text", async () => {

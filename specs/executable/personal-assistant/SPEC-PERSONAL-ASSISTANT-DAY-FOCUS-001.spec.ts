@@ -128,6 +128,24 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
     expect(response.nextAction).toContain("Подать отчёт");
   });
 
+  it("keeps relevant ideas available in /proc/records alongside a full task backlog", async () => {
+    const tasks = Array.from({ length: 24 }, (_, index) => ({
+      id: `task-${index}`,
+      project: "PLAN",
+      title: `Backlog task ${index}`,
+      status: "open" as const,
+    }));
+    const { systemContext } = await runFocus({
+      projects: "PLAN\nIDEAS",
+      ideas: [{ id: "focus-idea", project: "IDEAS", summary: "Проверить идею для запуска" }],
+      tasks,
+    });
+
+    expect(systemContext).toContain("### Active tasks");
+    expect(systemContext).toContain("### Ideas");
+    expect(systemContext).toContain("Проверить идею для запуска");
+  });
+
   it("marks an unknown project instead of inventing ownership", async () => {
     const { response } = await runFocus({
       projects: "ASSISTANT",

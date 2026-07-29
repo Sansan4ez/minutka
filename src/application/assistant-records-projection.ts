@@ -23,6 +23,9 @@ export const assistantRecordsLimits = {
   recordCharacters: defaultContextBudget.projectionLimits.recordCharacters,
 } as const;
 
+/** When ideas and tasks both exist, one third of item capacity is reserved for newest ideas. */
+export const assistantRecordsIdeaReservationDivisor = 3;
+
 /** Builds a bounded, owner-scoped `/proc/records` read model for the agent. */
 export function createAssistantRecordsProjectionBuilder(deps: { ideaStore?: IdeaStore; taskStore?: TaskReader; now: () => string; contextBudget?: ContextBudgetConfig }) {
   const limits = {
@@ -45,9 +48,9 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore?: Idea
         .map((task) => projectTask(task, generatedAt.slice(0, 10), limits.recordCharacters))
         .sort(compareProjectedTasks);
       const ideaCandidates = ideaSource.map((idea) => projectIdea(idea, limits.recordCharacters));
-      const tasks = taskCandidates.slice(0, limits.records).map(({ textTruncated: _textTruncated, ...task }) => task);
-      const remaining = Math.max(0, limits.records - tasks.length);
-      const records = ideaCandidates.slice(0, remaining).map(({ textTruncated: _textTruncated, ...idea }) => idea);
+      const allocation = allocateRecordCapacity(taskCandidates.length, ideaCandidates.length, limits.records);
+      const tasks = taskCandidates.slice(0, allocation.tasks).map(({ textTruncated: _textTruncated, ...task }) => task);
+      const records = ideaCandidates.slice(0, allocation.ideas).map(({ textTruncated: _textTruncated, ...idea }) => idea);
       let truncated = inProgressSource.length > limits.records
         || openSource.length > limits.records
         || ideaSource.length > limits.records
@@ -64,12 +67,12 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore?: Idea
       };
       // The exact production renderer is the authority. If escaping, wrappers,
       // subsections, or the truncation marker overflow, drop the lowest-priority
-      // tail until the final rendered source fits its configured ceiling.
+      // tail while following the same idea reservation and preserving one item
+      // per non-empty source. If even the highest-ranked task plus newest idea
+      // cannot fit, the deterministic fallback keeps the task first.
       while (countUnicodeCharacters(renderAssistantRecordsProjection(projection)) > limits.characters) {
         projection.data.truncated = truncated = true;
-        if (projection.data.records.length > 0) projection.data.records.pop();
-        else if (projection.data.tasks.length > 0) projection.data.tasks.pop();
-        else {
+        if (!trimLowestPriorityTail(projection, limits.characters)) {
           // An exceptionally small configured ceiling cannot hold even the
           // marker-only wrapper. Omit the optional source rather than exceed it.
           projection.data.truncated = truncated = false;
@@ -98,6 +101,51 @@ export function renderAssistantRecordsProjection(projection: AssistantRecordsPro
     ]),
     ...(projection.data.truncated ? ["Some records were omitted or truncated by the projection limit."] : []),
   ].join("\n");
+}
+
+function allocateRecordCapacity(taskCount: number, ideaCount: number, limit: number): { tasks: number; ideas: number } {
+  if (taskCount === 0) return { tasks: 0, ideas: Math.min(ideaCount, limit) };
+  if (ideaCount === 0) return { tasks: Math.min(taskCount, limit), ideas: 0 };
+  const reservedIdeas = Math.max(1, Math.floor(limit / assistantRecordsIdeaReservationDivisor));
+  const ideas = Math.min(ideaCount, reservedIdeas);
+  const tasks = Math.min(taskCount, limit - ideas);
+  return { tasks, ideas: Math.min(ideaCount, limit - tasks) };
+}
+
+function trimLowestPriorityTail(projection: AssistantRecordsProjection, characterCeiling: number): boolean {
+  const { records, tasks } = projection.data;
+  if (records.length > 0 && tasks.length > 0) {
+    if (records.length === 1 && tasks.length === 1) {
+      // If both cannot fit, prefer the highest-ranked active task when it fits;
+      // otherwise retain the newest idea when that is the only viable item.
+      const taskOnly = { ...projection, data: { ...projection.data, records: [] } };
+      if (countUnicodeCharacters(renderAssistantRecordsProjection(taskOnly)) <= characterCeiling) records.pop();
+      else {
+        const ideaOnly = { ...projection, data: { ...projection.data, tasks: [] } };
+        if (countUnicodeCharacters(renderAssistantRecordsProjection(ideaOnly)) <= characterCeiling) tasks.pop();
+        else {
+          records.pop();
+          tasks.pop();
+        }
+      }
+      return true;
+    }
+    const nextTotal = records.length + tasks.length - 1;
+    const desiredIdeas = Math.max(1, Math.floor(nextTotal / assistantRecordsIdeaReservationDivisor));
+    if (records.length > 1 && records.length > desiredIdeas) records.pop();
+    else if (tasks.length > 1) tasks.pop();
+    else records.pop();
+    return true;
+  }
+  if (records.length > 0) {
+    records.pop();
+    return true;
+  }
+  if (tasks.length > 0) {
+    tasks.pop();
+    return true;
+  }
+  return false;
 }
 
 function projectIdea(idea: Idea, characterLimit: number) {
