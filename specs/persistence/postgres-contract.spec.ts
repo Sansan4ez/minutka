@@ -404,7 +404,7 @@ describe("PostgreSQL storage contracts", () => {
       ["emp_task_proposal_slot"],
     )).resolves.toMatchObject({ rows: [{ confirmation_id: first.confirmationId }] });
     await expect(pool.query(
-      "SELECT type FROM minutka_audit.events WHERE request_id=$1 AND type='task_mutation_proposed'",
+      "SELECT event_type FROM minutka_audit.events WHERE request_id=$1 AND event_type='task_mutation_proposed'",
       [audit.requestId],
     )).resolves.toMatchObject({ rowCount: 1 });
     await expect(confirmation.confirm("emp_task_proposal_slot", "task-proposal-slot-pg-2")).resolves.toEqual({ status: "not_found" });
