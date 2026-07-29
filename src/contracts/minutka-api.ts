@@ -2,6 +2,7 @@ import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
+import { assistantProcessIds } from "../domain/assistant-process.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -15,6 +16,7 @@ export const timezoneSchema = z.string().min(1).max(64).transform((value, contex
   return z.NEVER;
 });
 export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
+export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const employeeIdSchema = z.string().min(1).max(128);
 export const threadIdSchema = z.string().min(1).max(128);
 
@@ -44,7 +46,9 @@ export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChann
 export const pendingTaskActionKindSchema = z.enum(["create", "update", "complete", "cancel", "idea_to_task"]);
 export const pendingTaskActionSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: z.string().min(1).max(280), expiresAt: z.iso.datetime() });
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
-export const chatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), pendingAction: pendingTaskActionSchema.optional(), effect: assistantChatEffectSchema });
+const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
+const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingTaskActionSchema.optional(), effect: assistantChatEffectSchema });
+export const chatResponseSchema = z.union([legacyChatResponseSchema, assistantChatResponseSchema]);
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
 export const submitFeedbackRequestSchema = z.strictObject({ threadId: threadIdSchema, targetMessageId: z.string().min(1), rating: feedbackRatingSchema, source: feedbackSourceSchema });

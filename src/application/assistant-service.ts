@@ -30,6 +30,7 @@ import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, ty
 import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from "./assistant-task-capabilities.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
+import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
 export type AssistantAgentContext = {
@@ -45,8 +46,16 @@ export type AssistantAgentContext = {
   documents: ReturnType<typeof createOwnerDocumentReader>;
   /** Owner-bound task reads and proposals. Execution is an authenticated application command. */
   tasks: AssistantTaskCapabilities;
+  /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
+  markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
-export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<string>;
+export type AssistantExecutionTraceEvent =
+  | { kind: "tool"; toolName: string }
+  | { kind: "process"; processId: string };
+export type AssistantExecutionTrace = readonly AssistantExecutionTraceEvent[];
+export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace };
+export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<AssistantAgentRunResult>;
+type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning = Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & {
   type: "context_budget_overflow";
 };
@@ -57,7 +66,7 @@ export type AssistantChatOutcome =
 export type AssistantChatResult = {
   messageId: string;
   response: string;
-  selectedProcessIds: ["core"] | ["core", "inbox_capture"];
+  selectedProcessIds: AssistantProcessId[];
   /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
@@ -83,7 +92,7 @@ export class AssistantService {
   private readonly overflowRecoveryContextBudget: ContextBudgetConfig;
 
   constructor(
-    private readonly agentRunner: AssistantAgentRunner,
+    private readonly agentRunner: AssistantServiceRunner,
     private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger },
   ) {
     this.clock = deps.clock ?? systemClock;
@@ -160,6 +169,11 @@ export class AssistantService {
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
+    const observedExecutionTrace: AssistantExecutionTraceEvent[] = [];
+    const markProcessUsed = (id: AssistantDiagnosticProcessId) => {
+      if (!isAssistantDiagnosticProcessId(id)) throw new Error(`unknown assistant diagnostic process id: ${id}`);
+      observedExecutionTrace.push({ kind: "process", processId: id });
+    };
     const chatEffect: { state: AssistantChatEffectState } = { state: "none" };
     const currentChatEffectState = (): AssistantChatEffectState => chatEffect.state;
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
@@ -170,6 +184,7 @@ export class AssistantService {
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
       const captured = captureResult;
+      observedExecutionTrace.push({ kind: "tool", toolName: "captureIdea" });
       chatEffect.state = "business_write_committed";
       if (this.deps.auditEventStore) {
         try {
@@ -234,9 +249,13 @@ export class AssistantService {
       captureIdea,
       documents,
       tasks,
+      markProcessUsed,
     } satisfies AssistantAgentContext;
+    let executionTrace: AssistantExecutionTrace = [];
     try {
-      response = await this.agentRunner({ userId, threadId, text }, agentContext);
+      const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext));
+      response = run.text;
+      executionTrace = run.executionTrace;
     } catch (error) {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
@@ -273,13 +292,16 @@ export class AssistantService {
           }),
         }, "overflow recovery audit");
         try {
-          response = await this.agentRunner({ userId, threadId, text }, {
+          observedExecutionTrace.length = 0;
+          const retryRun = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, {
             ...agentContext,
             personalContext: reducedPersonalContext,
             profileAndHistory: reducedProfileAndHistory,
             records: reducedRecords,
             systemContext: reduced.text,
-          });
+          }));
+          response = retryRun.text;
+          executionTrace = retryRun.executionTrace;
         } catch (retryError) {
           const retryEffectState = currentChatEffectState();
           if (!classifyProviderContextOverflow(retryError)) {
@@ -334,7 +356,7 @@ export class AssistantService {
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
     }, "chat response audit");
     this.scheduleThreadCompaction({ employeeId: userId, threadId, requestId });
-    const selectedProcessIds: AssistantChatResult["selectedProcessIds"] = captureResult ? ["core", "inbox_capture"] : ["core"];
+    const selectedProcessIds = deriveSelectedProcessIds(mergeExecutionTrace(executionTrace, observedExecutionTrace));
     return {
       messageId,
       response,
@@ -448,6 +470,41 @@ function reduceProfileAndHistory(snapshot: ChatProcSnapshot, budget: ContextBudg
     profile: snapshot.profile,
     thread: { ...snapshot.thread, data: { ...snapshot.thread.data, ...bounded } },
   };
+}
+
+function normalizeAssistantAgentRunResult(result: AssistantAgentRunResult | string): AssistantAgentRunResult {
+  return typeof result === "string" ? { text: result, executionTrace: [] } : result;
+}
+
+function mergeExecutionTrace(runnerTrace: AssistantExecutionTrace, observedTrace: AssistantExecutionTrace): AssistantExecutionTraceEvent[] {
+  const merged: AssistantExecutionTraceEvent[] = [];
+  const remaining = [...observedTrace];
+  for (const event of runnerTrace) {
+    merged.push(event);
+    const duplicate = remaining.findIndex((candidate) => sameExecutionEvidence(candidate, event));
+    if (duplicate >= 0) remaining.splice(duplicate, 1);
+  }
+  return [...merged, ...remaining];
+}
+
+function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: AssistantExecutionTraceEvent): boolean {
+  return left.kind === right.kind && (left.kind === "tool" ? left.toolName === (right as typeof left).toolName : left.processId === (right as typeof left).processId);
+}
+
+const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>> = {
+  captureIdea: "inbox_capture",
+};
+
+export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {
+  const selected: AssistantProcessId[] = ["core"];
+  const add = (id: AssistantProcessId | undefined) => {
+    if (id && !selected.includes(id)) selected.push(id);
+  };
+  for (const event of executionTrace) {
+    if (event.kind === "tool") add(processByToolName[event.toolName]);
+    else if (isAssistantProcessId(event.processId) && isAssistantDiagnosticProcessId(event.processId)) add(event.processId);
+  }
+  return selected;
 }
 
 function emptyRecordsProjection(input: { userId: string; requestId: string; now: string }): AssistantRecordsProjection {

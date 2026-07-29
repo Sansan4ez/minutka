@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantAgentRunner } from "../../../src/application/assistant-service.js";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
@@ -20,7 +19,7 @@ import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 
 const owner = { employeeId: "task-owner", inviteCode: "task-invite", chatId: "task-chat", userId: "task-user" };
 
-async function harness(runner: AssistantAgentRunner) {
+async function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
   let now = "2026-07-29T09:00:00.000Z";
   const clock = { now: () => now };
   const legacy = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });

@@ -99,6 +99,9 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
       { userId: "emp_a", threadId: "me-thread", text: "private", inputModality: "text" },
     ]);
     expect(chatResponseSchema.safeParse(await (await request(server.url, "/v1/service/employees/emp_a/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) })).json()).success).toBe(true);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "focus", selectedProcessIds: ["core", "day_focus"], effect: "none" }).success).toBe(true);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "unsafe", selectedProcessIds: ["core", "unknown"], effect: "none" }).success).toBe(false);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "legacy", selectedProcessIds: ["core", "workday_guardrails"], effect: "none" }).success).toBe(true);
   });
 
   it("rejects assistant capture for an unknown service employee before invoking the agent", async () => {

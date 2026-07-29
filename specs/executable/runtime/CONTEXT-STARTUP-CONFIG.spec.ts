@@ -10,7 +10,7 @@ import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "../
 import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import * as postgresPoolModule from "../../../src/infrastructure/postgres/postgres-pool.js";
 
-const noOpAgent: AssistantAgentRunner = async () => "unused";
+const noOpAgent: AssistantAgentRunner = async () => ({ text: "unused", executionTrace: [] });
 
 afterEach(() => vi.restoreAllMocks());
 

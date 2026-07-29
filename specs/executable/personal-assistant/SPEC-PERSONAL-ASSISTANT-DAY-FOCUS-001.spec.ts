@@ -24,7 +24,7 @@ type Fixture = {
   tasks?: Array<Pick<Task, "id" | "project" | "title" | "status"> & Partial<Pick<Task, "dueDate">>>;
 };
 
-async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; systemContext: string }> {
+async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; systemContext: string; selectedProcessIds: string[] }> {
   const clock = { now: () => now };
   const world = createInMemoryWorld(clock.now);
   const documents = createInMemoryDocumentStore(clock);
@@ -56,6 +56,7 @@ async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; sy
   let systemContext = "";
   const service = new AssistantService(async (_input, context) => {
     systemContext = context.systemContext;
+    context.markProcessUsed("day_focus");
     const goalText = context.personalContext.data.documents
       .filter(({ path }) => path.includes("Goals_and_priorities"))
       .map(({ content }) => content)
@@ -98,18 +99,20 @@ async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; sy
   });
 
   const result = await service.chat({ userId: "owner", threadId: "thread", text: "На чём мне сфокусироваться сегодня?" });
-  return { response: JSON.parse(result.response) as FocusResponse, systemContext };
+  return { response: JSON.parse(result.response) as FocusResponse, systemContext, selectedProcessIds: result.selectedProcessIds };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () => {
   it("returns an honest empty-state answer with one concrete next action", async () => {
-    const { response, systemContext } = await runFocus({});
+    const { response, systemContext, selectedProcessIds } = await runFocus({});
 
     expect(response.priorities).toEqual([]);
     expect(response.nextAction).toBe("Назвать одну цель или текущую задачу.");
     expect(response.caveats).toContain("Недостаточно данных о целях, идеях и задачах.");
     expect(systemContext).toContain("Process file: day_focus");
     expect(systemContext).toContain("Select at most three priorities");
+    expect(systemContext).toContain('markProcessUsed({ id: "day_focus" })');
+    expect(selectedProcessIds).toEqual(["core", "day_focus"]);
   });
 
   it("puts an overdue task into a bounded focus response", async () => {

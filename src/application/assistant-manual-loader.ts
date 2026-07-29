@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { findRepoRoot } from "./agent-manual-loader.js";
 import { renderRuntimeProcessContent } from "./agent-manual-types.js";
+import { assistantProcessIds } from "../domain/assistant-process.js";
 
 const registrySchema = z.strictObject({
   version: z.literal(1),
@@ -24,6 +25,10 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
   const registry = registrySchema.parse(JSON.parse(readFileSync(registryPath, "utf8")));
   const duplicate = registry.processes.find((process, index) => registry.processes.findIndex(({ id }) => id === process.id) !== index);
   if (duplicate) throw new Error(`duplicate assistant process id: ${duplicate.id}`);
+  const catalogIds = [registry.core.id, ...registry.processes.map(({ id }) => id)];
+  if (catalogIds.join("\n") !== assistantProcessIds.join("\n")) {
+    throw new Error(`assistant process catalog drift: expected ${assistantProcessIds.join(", ")}; received ${catalogIds.join(", ")}`);
+  }
   const duplicateRuntimeDoc = registry.runtimeDocs.find((document, index) => registry.runtimeDocs.findIndex(({ id }) => id === document.id) !== index);
   if (duplicateRuntimeDoc) throw new Error(`duplicate assistant runtime document id: ${duplicateRuntimeDoc.id}`);
   const registeredPaths = [

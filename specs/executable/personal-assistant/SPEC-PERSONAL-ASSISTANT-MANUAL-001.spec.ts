@@ -156,6 +156,17 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(() => loadAssistantAgentInstructions({ repoRoot: root })).toThrow();
   });
 
+  it("rejects product process catalog drift before assembling the prompt", () => {
+    const source = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8"));
+    const root = mkdtempSync(join(tmpdir(), "assistant-manual-catalog-drift-"));
+    mkdirSync(join(root, "vault/assistant/processes"), { recursive: true });
+    writeFileSync(join(root, "vault/assistant/processes/registry.json"), JSON.stringify({
+      ...source,
+      processes: source.processes.filter(({ id }: { id: string }) => id !== "day_focus"),
+    }));
+    expect(() => loadAssistantAgentInstructions({ repoRoot: root })).toThrow("assistant process catalog drift");
+  });
+
   it("rejects duplicate registered paths before assembling the prompt", () => {
     const source = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8"));
     const root = mkdtempSync(join(tmpdir(), "assistant-manual-duplicate-path-"));

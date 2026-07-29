@@ -32,6 +32,10 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
         expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
+        const diagnostic = options.toolsets?.diagnostics?.markProcessUsed as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        expect(diagnostic.execute).toBeTypeOf("function");
+        await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toEqual({ recorded: true, id: "day_focus" });
+        await expect(diagnostic.execute?.({ id: "unknown" }, {})).resolves.toMatchObject({ error: true });
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
           project: "ASSISTANT",
@@ -46,7 +50,17 @@ describe("A2.6: legacy Minutka agent removal", () => {
           response: "saved",
           needsProjectClarification: false,
         });
-        return { text: "done" };
+        return {
+          text: "done",
+          toolCalls: [
+            { payload: { toolCallId: "call-1", toolName: "markProcessUsed" } },
+            { payload: { toolCallId: "call-2", toolName: "captureIdea" } },
+          ],
+          toolResults: [
+            { payload: { toolCallId: "call-1", toolName: "markProcessUsed", isError: false } },
+            { payload: { toolCallId: "call-2", toolName: "captureIdea", isError: false } },
+          ],
+        };
       },
     });
 
@@ -85,6 +99,9 @@ describe("A2.6: legacy Minutka agent removal", () => {
           documentTooLarge: false, hint: null,
         }),
       },
+      markProcessUsed(id) {
+        expect(id).toBe("day_focus");
+      },
       async captureIdea(input) {
         captured.push(input);
         return {
@@ -97,7 +114,13 @@ describe("A2.6: legacy Minutka agent removal", () => {
           needsProjectClarification: input.needsProjectClarification,
         };
       },
-    })).resolves.toBe("done");
+    })).resolves.toEqual({
+      text: "done",
+      executionTrace: [
+        { kind: "tool", toolName: "markProcessUsed" },
+        { kind: "tool", toolName: "captureIdea" },
+      ],
+    });
 
     expect(captured).toEqual([{
       project: "ASSISTANT",
@@ -116,5 +139,6 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);
     expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
+    expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
 });
