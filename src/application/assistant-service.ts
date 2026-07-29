@@ -29,6 +29,7 @@ import type { IdeaToTaskService } from "./idea-to-task.js";
 import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from "./assistant-task-capabilities.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
+import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel };
 export type AssistantAgentContext = {
@@ -115,6 +116,7 @@ export class AssistantService {
     const inputModality = input.inputModality ?? "text";
     const chatProc = await this.chatProjectionBuilder?.buildChatProc({ employeeId: userId, threadId, requestId, purpose: "chat" });
     const profile = chatProc?.profile ?? (this.deps.participantStore?.getProfile ? await this.deps.participantStore.getProfile(userId) : undefined);
+    const ownerToday = calendarDateInIanaTimezone(this.clock.now(), profile?.timezone ?? chatProc?.snapshot.profile.data?.timezone ?? "Etc/UTC");
     const profileAndHistory = chatProc?.snapshot ?? emptyChatProcSnapshot({ userId, threadId, requestId, now: this.clock.now(), profile });
     const responsePolicy = createResponsePolicy({ channel: input.responseChannel, preferredLength: profile?.responseLength });
     await this.auditSafely({
@@ -156,7 +158,7 @@ export class AssistantService {
       }, "context projection audit");
     };
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
-    const records = await this.recordsProjectionBuilder?.build({ userId, requestId }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
+    const records = await this.recordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
     let captureResult: CaptureIdeaResult | undefined;
     const chatEffect: { state: AssistantChatEffectState } = { state: "none" };
     const currentChatEffectState = (): AssistantChatEffectState => chatEffect.state;
@@ -248,7 +250,7 @@ export class AssistantService {
       } else {
         const [reducedPersonalContext, reducedRecords] = await Promise.all([
           this.overflowProjectionBuilder.build({ userId, requestId, audit: auditContextProjection }),
-          this.overflowRecordsProjectionBuilder?.build({ userId, requestId }) ?? Promise.resolve(emptyRecordsProjection({ userId, requestId, now: this.clock.now() })),
+          this.overflowRecordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? Promise.resolve(emptyRecordsProjection({ userId, requestId, now: this.clock.now() })),
         ]);
         const reducedProfileAndHistory = reduceProfileAndHistory(profileAndHistory, this.overflowRecoveryContextBudget);
         const reduced = buildAssistantSystemContextBudget(

@@ -34,8 +34,9 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore?: Idea
     recordCharacters: deps.contextBudget?.projectionLimits.recordCharacters ?? assistantRecordsLimits.recordCharacters,
   };
   return {
-    async build(input: { userId: string; requestId: string }): Promise<AssistantRecordsProjection> {
+    async build(input: { userId: string; requestId: string; today?: string }): Promise<AssistantRecordsProjection> {
       const generatedAt = deps.now();
+      const today = input.today ?? generatedAt.slice(0, 10);
       // Every store read is bounded. Separate active-status reads keep in-progress
       // tasks from being starved by a large open backlog before relevance ranking.
       const [ideaSource, inProgressSource, openSource] = await Promise.all([
@@ -45,7 +46,7 @@ export function createAssistantRecordsProjectionBuilder(deps: { ideaStore?: Idea
       ]);
 
       const taskCandidates = [...inProgressSource, ...openSource]
-        .map((task) => projectTask(task, generatedAt.slice(0, 10), limits.recordCharacters))
+        .map((task) => projectTask(task, today, limits.recordCharacters))
         .sort(compareProjectedTasks);
       const ideaCandidates = ideaSource.map((idea) => projectIdea(idea, limits.recordCharacters));
       const allocation = allocateRecordCapacity(taskCandidates.length, ideaCandidates.length, limits.records);

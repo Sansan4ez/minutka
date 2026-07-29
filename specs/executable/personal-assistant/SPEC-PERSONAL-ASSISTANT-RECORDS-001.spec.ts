@@ -3,8 +3,17 @@ import { assistantRecordsIdeaReservationDivisor, createAssistantRecordsProjectio
 import { createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
+import { timezoneSchema } from "../../../src/contracts/minutka-api.js";
+import { calendarDateInIanaTimezone } from "../../../src/shared/iana-timezone.js";
 
 describe("SPEC-PERSONAL-ASSISTANT-RECORDS-001: bounded /proc/records", () => {
+  it("derives ISO calendar days from validated owner timezones across rollovers and DST", () => {
+    expect(calendarDateInIanaTimezone("2026-07-28T23:30:00.000Z", "Asia/Moscow")).toBe("2026-07-29");
+    expect(calendarDateInIanaTimezone("2026-07-28T00:30:00.000Z", "America/Los_Angeles")).toBe("2026-07-27");
+    expect(calendarDateInIanaTimezone("2026-03-29T22:30:00.000Z", "Europe/Berlin")).toBe("2026-03-30");
+    expect(timezoneSchema.safeParse("Moscow").success).toBe(false);
+  });
+
   it("returns only the authenticated owner's records", async () => {
     const store = createInMemoryIdeaStore({ now: () => "2026-07-15T09:00:00.000Z" });
     await store.add({ id: "mine", userId: "maxim", project: "АССИСТЕНТ", type: "development", summary: "Моя идея", status: "raw" });
@@ -29,6 +38,25 @@ describe("SPEC-PERSONAL-ASSISTANT-RECORDS-001: bounded /proc/records", () => {
     expect(projection.data.records[0]).toMatchObject({ id: "idea-24", summary: expect.stringMatching(/^x{1000}$/) });
     expect(projection.data.records.map((record) => record.id)).not.toContain("idea-0");
     expect(Array.from(renderAssistantRecordsProjection(projection)).length).toBeLessThanOrEqual(12_000);
+  });
+
+  it("uses the supplied owner-local day for overdue and seven-calendar-day relevance", async () => {
+    const clock = { now: () => "2026-07-28T23:30:00.000Z" };
+    const tasks = createInMemoryTaskStore(clock);
+    await tasks.create("maxim", { id: "local-yesterday", title: "Local yesterday", project: "PLAN", type: "operations", status: "open", dueDate: "2026-07-28" });
+    await tasks.create("maxim", { id: "seventh-day", title: "Seventh day", project: "PLAN", type: "operations", status: "open", dueDate: "2026-08-05" });
+    await tasks.create("maxim", { id: "eighth-day", title: "Eighth day", project: "PLAN", type: "operations", status: "open", dueDate: "2026-08-06" });
+    const builder = createAssistantRecordsProjectionBuilder({ taskStore: tasks, now: clock.now });
+
+    const moscow = await builder.build({ userId: "maxim", requestId: "req-moscow", today: "2026-07-29" });
+    expect(moscow.data.tasks.map(({ id, relevance }) => [id, relevance])).toEqual([
+      ["local-yesterday", "overdue"],
+      ["seventh-day", "due_soon"],
+      ["eighth-day", "open"],
+    ]);
+
+    const utc = await builder.build({ userId: "maxim", requestId: "req-utc", today: "2026-07-28" });
+    expect(utc.data.tasks.find(({ id }) => id === "local-yesterday")?.relevance).toBe("due_soon");
   });
 
   it("merges active tasks in stable relevance order without reading completed work", async () => {

@@ -19,6 +19,7 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService, type IngestionService } from "../../../src/application/ingestion-service.js";
 import { boundRecentHistory } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
@@ -37,7 +38,7 @@ function setup(
   runner: ConstructorParameters<typeof AssistantService>[0],
   profileAndHistory = snapshot(),
   contextBudget = defaultContextBudget,
-  options: { captureIdea?: IngestionService["captureIdea"]; ideaId?: () => string } = {},
+  options: { captureIdea?: IngestionService["captureIdea"]; ideaId?: () => string; taskStore?: ReturnType<typeof createInMemoryTaskStore> } = {},
 ) {
   const world = createInMemoryWorld(() => now);
   const documents = createInMemoryDocumentStore({ now: world.now }, [
@@ -55,6 +56,7 @@ function setup(
     conversationStore: createInMemoryConversationStore(world),
     ingestionService: options.captureIdea === undefined ? ingestion : { ...ingestion, captureIdea: options.captureIdea },
     ideaStore: ideas,
+    taskStore: options.taskStore,
     auditEventStore: createInMemoryAuditEventStore(world),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     chatProjectionBuilder: { async buildChatProc() { return { snapshot: profileAndHistory }; } },
@@ -126,6 +128,24 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     });
     expect(JSON.stringify(recovery)).not.toContain("Продолжи работу");
     expect(JSON.stringify(recovery)).not.toContain("HISTORY");
+  });
+
+  it("uses the same owner-local day for the first attempt and overflow recovery", async () => {
+    const worldClock = { now: () => now };
+    const tasks = createInMemoryTaskStore(worldClock);
+    await tasks.create("owner", { id: "local-yesterday", title: "Local yesterday", project: "PLAN", type: "operations", status: "open", dueDate: "2026-07-26" });
+    const ownerSnapshot = snapshot();
+    ownerSnapshot.profile.data!.timezone = "Asia/Tokyo";
+    const relevance: string[] = [];
+    const { service } = setup(async (_input, context) => {
+      relevance.push(context.records.data.tasks[0]?.relevance ?? "missing");
+      if (relevance.length === 1) throw overflowError();
+      return "Восстановлено.";
+    }, ownerSnapshot, defaultContextBudget, { taskStore: tasks });
+
+    await service.chat({ userId: "owner", threadId: "thread", text: "Продолжи" });
+
+    expect(relevance).toEqual(["overdue", "overdue"]);
   });
 
   it("rebuilds adversarial escaped history within the reduced 3000-character ceiling", async () => {

@@ -73,6 +73,57 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     expect(world.messages).toHaveLength(1);
   });
 
+  it("ranks due dates by the loaded owner profile timezone", async () => {
+    const world = createInMemoryWorld(() => "2026-07-28T23:30:00.000Z");
+    const profiles = createInMemoryProfileStore(world);
+    const conversations = createInMemoryConversationStore(world);
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const tasks = createInMemoryTaskStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await profiles.completeProfile({ completedAt: world.now(), profile: {
+      employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
+      persona: "efficiency", responseLength: "short", timezone: "Asia/Moscow", createdAt: world.now(), updatedAt: world.now(),
+    } });
+    await tasks.create("maxim", { id: "task-local", project: "PLAN", type: "operations", title: "Закрыть вчерашнюю задачу", status: "open", dueDate: "2026-07-28" });
+    const chatProjectionBuilder = createRuntimeProjectionBuilder({
+      profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
+      feedbackStore: createInMemoryFeedbackStore(world), auditEventStore: createInMemoryAuditEventStore(world), clock: { now: world.now },
+    });
+    let receivedRelevance = "";
+    const service = new AssistantService(async (_input, context) => {
+      receivedRelevance = context.records.data.tasks[0]?.relevance ?? "";
+      return "ok";
+    }, {
+      documentStore: documents, conversationStore: conversations, ingestionService: ingestion, taskStore: tasks,
+      participantStore: profiles, chatProjectionBuilder, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    await service.chat({ userId: "maxim", threadId: "thread", text: "Что просрочено?" });
+
+    expect(receivedRelevance).toBe("overdue");
+  });
+
+  it("falls back to UTC when no profile exists", async () => {
+    const world = createInMemoryWorld(() => "2026-07-28T23:30:00.000Z");
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const tasks = createInMemoryTaskStore({ now: world.now });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
+    await tasks.create("maxim", { id: "task-utc", project: "PLAN", type: "operations", title: "Сегодня по UTC", status: "open", dueDate: "2026-07-28" });
+    let receivedRelevance = "";
+    const service = new AssistantService(async (_input, context) => {
+      receivedRelevance = context.records.data.tasks[0]?.relevance ?? "";
+      return "ok";
+    }, {
+      documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, taskStore: tasks,
+      requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+    });
+
+    await service.chat({ userId: "maxim", threadId: "thread", text: "Что на сегодня?" });
+
+    expect(receivedRelevance).toBe("due_soon");
+  });
+
   it("includes allow-listed profile fields and bounded owner/thread history after onboarding", async () => {
     const world = createInMemoryWorld(() => "2026-07-15T09:00:00.000Z");
     const profiles = createInMemoryProfileStore(world);
