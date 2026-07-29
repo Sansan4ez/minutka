@@ -25,6 +25,18 @@ export type UpdateTaskInput = {
   expectedRevision: number;
 };
 
+/** Removes ignored undefined fields and rejects patches with no effective mutation. */
+export function normalizeTaskPatch(patch: TaskPatch): TaskPatch {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as TaskPatch;
+  if (Object.keys(defined).length === 0) throw new Error("Task patch must not be empty");
+  return {
+    ...defined,
+    ...(defined.title === undefined ? {} : { title: assertRequiredText(defined.title, "title") }),
+    ...(defined.project === undefined ? {} : { project: assertRequiredText(defined.project, "project") }),
+    ...(defined.dueDate === undefined || defined.dueDate === null ? {} : { dueDate: assertDueDate(defined.dueDate) }),
+  };
+}
+
 export type TaskMutationResult =
   | { outcome: "created" | "updated"; task: Task }
   | { outcome: "unchanged"; task: Task }
@@ -45,3 +57,15 @@ export interface TaskWriter {
 }
 
 export type TaskStore = TaskReader & TaskWriter;
+
+function assertRequiredText(value: string, field: string): string {
+  if (!value.trim()) throw new Error(`${field} is required`);
+  return value;
+}
+
+function assertDueDate(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) !== value) {
+    throw new Error("dueDate must be an ISO calendar date");
+  }
+  return value;
+}

@@ -1,6 +1,7 @@
 import type { Task } from "../domain/task.js";
 import { assertUserId } from "./document-store.js";
 import type { Clock } from "./runtime-primitives.js";
+import { normalizeTaskPatch } from "./task-store.js";
 import type {
   CreateTaskInput,
   TaskFilter,
@@ -69,11 +70,11 @@ export function createInMemoryTaskStore(clock: Clock): TaskStore {
     },
     async update(userId, id, input) {
       if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) throw new Error("expectedRevision must be a positive safe integer");
+      const patch = normalizeTaskPatch(input.patch);
       const taskKey = key(userId, id);
       const existing = tasks.get(taskKey);
       if (existing === undefined) return { outcome: "not_found" };
       if (existing.revision !== input.expectedRevision) return { outcome: "conflict", current: copyTask(existing) };
-      const patch = normalizeTaskPatch(input.patch);
       if (samePatch(existing, patch)) return unchanged(existing);
       const { dueDate, ...fields } = patch;
       const updated: Task = {
@@ -98,16 +99,6 @@ function normalizeCreateInput(input: CreateTaskInput): CreateTaskInput {
     project: assertRequiredText(input.project, "project"),
     ...(input.dueDate === undefined ? {} : { dueDate: assertDueDate(input.dueDate) }),
     ...(input.originIdeaId === undefined ? {} : { originIdeaId: assertOriginIdeaId(input.originIdeaId) }),
-  };
-}
-
-function normalizeTaskPatch(patch: TaskPatch): TaskPatch {
-  const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as TaskPatch;
-  return {
-    ...defined,
-    ...(defined.title === undefined ? {} : { title: assertRequiredText(defined.title, "title") }),
-    ...(defined.project === undefined ? {} : { project: assertRequiredText(defined.project, "project") }),
-    ...(defined.dueDate === undefined || defined.dueDate === null ? {} : { dueDate: assertDueDate(defined.dueDate) }),
   };
 }
 

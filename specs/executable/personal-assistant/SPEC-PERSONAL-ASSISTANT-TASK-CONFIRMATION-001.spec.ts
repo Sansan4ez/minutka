@@ -120,6 +120,18 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     expect(serialized).not.toContain("ownerId");
   });
 
+  it("rejects update proposals whose patch has no defined fields before persistence", async () => {
+    const { service, store } = harness();
+
+    await expect(service.propose("owner", {
+      kind: "update",
+      taskId: "task-1",
+      expectedRevision: 1,
+      patch: { status: undefined },
+    })).rejects.toThrow("Task patch must not be empty");
+    await expect(store.purge({ pendingExpiredBefore: "9999-12-31T23:59:59.999Z", completedBefore: "9999-12-31T23:59:59.999Z", limit: 10 })).resolves.toBe(0);
+  });
+
   it("binds update and cancel to the canonical proposed revision", async () => {
     const { service, tasks } = harness();
     const create = await service.propose("owner", createProposal);

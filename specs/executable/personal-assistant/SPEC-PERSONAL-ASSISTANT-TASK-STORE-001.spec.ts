@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import type { CreateTaskInput } from "../../../src/application/task-store.js";
+import { expectInvalidEmptyTaskPatchContract } from "../support/task-store-contract.js";
 
 const baseTask: CreateTaskInput = {
   id: "task-1",
@@ -86,6 +87,20 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-STORE-001: owner-scoped task records", ()
     });
     await expect(store.get("maxim", "task-1")).resolves.not.toHaveProperty("dueDate");
     await expect(store.update("other", "task-1", { expectedRevision: 4, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("rejects empty effective patches before mutation while preserving explicit due date clear", async () => {
+    let now = "2026-07-28T09:00:00.000Z";
+    const store = createInMemoryTaskStore({ now: () => now });
+    await store.create("maxim", { ...baseTask, dueDate: "2026-07-30" });
+    now = "2026-07-28T10:00:00.000Z";
+
+    await expectInvalidEmptyTaskPatchContract(store, { ownerId: "maxim", taskId: "task-1", expectedRevision: 1 });
+    await expect(store.update("maxim", "task-1", { expectedRevision: 1, patch: { dueDate: null } })).resolves.toMatchObject({
+      outcome: "updated",
+      task: { revision: 2, updatedAt: now },
+    });
+    await expect(store.get("maxim", "task-1")).resolves.not.toHaveProperty("dueDate");
   });
 
   it("does not leak another owner's task when a globally stable id conflicts", async () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Task } from "../domain/task.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
+import { normalizeTaskPatch } from "./task-store.js";
 import type { CreateTaskInput, TaskMutationResult, TaskPatch, TaskWriter } from "./task-store.js";
 
 export const taskMutationConfirmationTtlMilliseconds = 15 * 60_000;
@@ -19,7 +20,7 @@ const taskPatchSchema = z.strictObject({
   type: recordTypeSchema.optional(),
   status: taskStatusSchema.optional(),
   dueDate: dueDateSchema.nullable().optional(),
-}).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
+});
 const proposalSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("create"),
@@ -227,7 +228,7 @@ export function normalizeTaskMutationProposal(proposal: TaskMutationProposal): T
   const parsed = proposalSchema.parse(proposal);
   if (parsed.kind === "create") return { kind: "create", input: { ...parsed.input } };
   if (parsed.kind === "cancel") return { kind: "cancel", taskId: parsed.taskId, expectedRevision: parsed.expectedRevision };
-  return { kind: "update", taskId: parsed.taskId, expectedRevision: parsed.expectedRevision, patch: { ...parsed.patch } };
+  return { kind: "update", taskId: parsed.taskId, expectedRevision: parsed.expectedRevision, patch: normalizeTaskPatch(parsed.patch) };
 }
 
 export function taskMutationPayloadDigest(proposal: TaskMutationProposal): string {

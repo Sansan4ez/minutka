@@ -19,6 +19,7 @@ import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
+import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -611,7 +612,13 @@ describe("PostgreSQL storage contracts", () => {
       outcome: "unchanged",
       task: { revision: 2 },
     });
-    await expect(tasks.update("task_other", "task-open", { expectedRevision: 2, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
+    await expectInvalidEmptyTaskPatchContract(tasks, { ownerId: "task_owner", taskId: "task-open", expectedRevision: 2 });
+    await expect(tasks.update("task_owner", "task-open", { expectedRevision: 2, patch: { dueDate: null } })).resolves.toMatchObject({
+      outcome: "updated",
+      task: { revision: 3 },
+    });
+    await expect(tasks.get("task_owner", "task-open")).resolves.not.toHaveProperty("dueDate");
+    await expect(tasks.update("task_other", "task-open", { expectedRevision: 3, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
     await expect(tasks.list("task_owner")).resolves.toHaveLength(3);
   });
 

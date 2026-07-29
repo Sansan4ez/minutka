@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
 import { assertUserId } from "../../application/document-store.js";
 import { mapPostgresError } from "../../application/persistence-error.js";
+import { normalizeTaskPatch } from "../../application/task-store.js";
 import type {
   CreateTaskInput,
   TaskFilter,
@@ -224,16 +225,6 @@ function normalizeCreateInput(input: CreateTaskInput): CreateTaskInput {
     project: assertRequiredText(input.project, "project"),
     ...(input.dueDate === undefined ? {} : { dueDate: assertDueDate(input.dueDate) }),
     ...(input.originIdeaId === undefined ? {} : { originIdeaId: assertRequiredText(input.originIdeaId, "originIdeaId") }),
-  };
-}
-
-function normalizeTaskPatch(patch: TaskPatch): TaskPatch {
-  const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as TaskPatch;
-  return {
-    ...defined,
-    ...(defined.title === undefined ? {} : { title: assertRequiredText(defined.title, "title") }),
-    ...(defined.project === undefined ? {} : { project: assertRequiredText(defined.project, "project") }),
-    ...(defined.dueDate === undefined || defined.dueDate === null ? {} : { dueDate: assertDueDate(defined.dueDate) }),
   };
 }
 
