@@ -70,6 +70,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(proposals[0]!.text).toContain(`Действие: создать задачу\nНазвание: Task from ${modality}\nПроект: ASSISTANT\nТип: operations\nСрок: не указан`);
     expect(proposals[0]!.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
     expect(taskButton(proposals[0]!, "✅ Подтвердить")).toBe("tm:c:telegram-confirmation-1");
+    expect(telegram.sentMessages().findIndex((message) => message === proposals[0])).toBeLessThan(telegram.sentMessages().findIndex((message) => message.text === "Предложение подготовлено."));
     await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
 
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-1" });
@@ -80,6 +81,126 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-2" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    ["text" as const],
+    ["voice" as const],
+  ])("retries delivery of the same %s proposal before exposing the assistant response", async (modality) => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      await context.tasks.propose({ kind: "create", title: `Retry ${modality}`, project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    if (modality === "voice") telegram.setMessageDeliverySequence("pass", "fail");
+    else telegram.failNextMessageDelivery();
+
+    if (modality === "text") await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+    else await telegram.sendVoice({ chatId: owner.chatId, userId: owner.userId, fileId: "retry-voice-task", transcript: "create", durationSeconds: 1 });
+
+    const attempts = telegram.messageDeliveryAttempts().filter((message) => message.text.includes("Предложение:"));
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toEqual(attempts[1]);
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(telegram.sentMessages().findIndex((message) => message === proposal)).toBeLessThan(telegram.sentMessages().findIndex((message) => message.text === "Предложение подготовлено."));
+    expect(telegram.taskMutationRejectCalls()).toEqual([]);
+    expect(turns).toBe(1);
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: `retry-${modality}` });
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: `Retry ${modality}` }]);
+  });
+
+  it("keeps duplicate proposal buttons safe when the first delivery outcome is uncertain", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "create", title: "Duplicate buttons", project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    telegram.setMessageDeliverySequence("deliver_then_fail");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+
+    const proposals = telegram.sentMessages().filter((message) => message.text.includes("Предложение:"));
+    expect(proposals).toHaveLength(2);
+    expect(taskButton(proposals[0]!, "✅ Подтвердить")).toBe(taskButton(proposals[1]!, "✅ Подтвердить"));
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-first-duplicate" });
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[1]!, "✅ Подтвердить"), messageId: proposals[1]!.messageId, callbackQueryId: "confirm-second-duplicate" });
+
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение уже сохранено.");
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Duplicate buttons" }]);
+    await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
+  });
+
+  it("keeps delivered proposal buttons valid when the following assistant text delivery fails", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      await context.tasks.propose({ kind: "create", title: "Visible before text failure", project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    telegram.setMessageDeliverySequence("pass", "fail");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось обработать сообщение. Попробуйте ещё раз позже.");
+    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    expect(telegram.taskMutationRejectCalls()).toEqual([]);
+    expect(turns).toBe(1);
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-after-text-failure" });
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Visible before text failure" }]);
+  });
+
+  it.each([
+    ["text" as const],
+    ["voice" as const],
+  ])("terminally rejects a %s proposal after two delivery failures and reports cancellation honestly", async (modality) => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      await context.tasks.propose({ kind: "create", title: `Undeliverable ${modality}`, project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    if (modality === "voice") telegram.setMessageDeliverySequence("pass", "fail", "fail");
+    else telegram.setMessageDeliverySequence("fail", "fail");
+
+    if (modality === "text") await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+    else await telegram.sendVoice({ chatId: owner.chatId, userId: owner.userId, fileId: "undeliverable-voice-task", transcript: "create", durationSeconds: 1 });
+
+    expect(telegram.messageDeliveryAttempts().filter((message) => message.text.includes("Предложение:"))).toHaveLength(2);
+    expect(telegram.taskMutationRejectCalls()).toEqual(["telegram-confirmation-1"]);
+    expect(telegram.sentMessages().map((message) => message.text)).toContain("Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.");
+    expect(telegram.sentMessages().map((message) => message.text)).not.toContain("Предложение подготовлено.");
+    expect(turns).toBe(1);
+    await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: "tm:c:telegram-confirmation-1", callbackQueryId: `confirm-cancelled-${modality}-delivery` });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Предложение уже отклонено.");
+    await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
+  });
+
+  it("does not claim cancellation or repeat the agent when terminal rejection is uncertain", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      await context.tasks.propose({ kind: "create", title: "Uncertain rejection", project: "ASSISTANT", type: "operations" });
+      return "Предложение подготовлено.";
+    });
+    telegram.setMessageDeliverySequence("fail", "fail");
+    telegram.failNextTaskMutationRejection();
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
+
+    expect(telegram.taskMutationRejectCalls()).toEqual(["telegram-confirmation-1"]);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось доставить предложение и проверить его отмену. Статус предложения неизвестен; попробуйте позже.");
+    expect(telegram.sentMessages().at(-1)?.text).not.toContain("отменено");
+    expect(turns).toBe(1);
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: "tm:c:telegram-confirmation-1", callbackQueryId: "confirm-after-uncertain-reject" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Uncertain rejection" }]);
   });
 
   it("renders every effective update field and explicit due-date removal", async () => {

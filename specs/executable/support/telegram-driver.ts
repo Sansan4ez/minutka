@@ -26,8 +26,11 @@ export class TelegramDriver {
   private readonly replyMarkupEdits: ReplyMarkupEdit[] = [];
   private readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
   private nextMessageId = 1;
-  private failNextSend = false;
+  private readonly sendOutcomes: Array<"pass" | "fail" | "deliver_then_fail"> = [];
+  private readonly deliveryAttempts: Array<Omit<SentMessage, "messageId">> = [];
   private failNextMarkupEdit = false;
+  private failNextTaskReject = false;
+  private readonly taskRejects: string[] = [];
   private readonly voiceFiles = new Map<string, Buffer>();
   private readonly voiceTranscripts = new Map<string, string>();
   private readonly voiceErrors = new Map<string, "download" | "download-hang" | "transcribe" | "stream" | "hang">();
@@ -39,6 +42,7 @@ export class TelegramDriver {
   constructor(world: InMemoryWorld, agentRunner: AgentRunner, deps: MinutkaServiceDeps = {}, voiceEnabled = true, voiceProcessingTimeoutMs?: number, runtimeInput?: Omit<ReturnType<typeof createInMemoryRuntime>, "service"> & { service: ReturnType<typeof createInMemoryRuntime>["service"] | PersonalAssistantService }, artifactIntake?: TelegramArtifactIntake) {
     const runtime = runtimeInput ?? createInMemoryRuntime({ world, agentRunner, deps: createDefaultSpecDeps(deps) });
     const baseTransport = createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" });
+    const self = this;
     const transport = runtime.service instanceof PersonalAssistantService ? {
       redeemTelegramInvite: (input: Parameters<typeof baseTransport.redeemTelegramInvite>[0]) => baseTransport.redeemTelegramInvite(input),
       forEmployee(employeeId: string) {
@@ -49,6 +53,11 @@ export class TelegramDriver {
               const result = await (runtime.service as PersonalAssistantService).chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
               return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
             };
+            if (property === "rejectTaskMutation") return async (confirmationId: string, input: Parameters<typeof scoped.rejectTaskMutation>[1]) => {
+              self.taskRejects.push(confirmationId);
+              if (self.failNextTaskReject) { self.failNextTaskReject = false; throw new Error("simulated task rejection failure"); }
+              return scoped.rejectTaskMutation(confirmationId, input);
+            };
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;
           },
@@ -56,12 +65,14 @@ export class TelegramDriver {
       },
     } : baseTransport;
     const client = new ServiceMinutkaClient(transport);
-    const self = this;
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
-        if (self.failNextSend) { self.failNextSend = false; throw new Error("simulated Telegram delivery failure"); }
+        self.deliveryAttempts.push({ chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        const outcome = self.sendOutcomes.shift();
+        if (outcome === "fail") throw new Error("simulated Telegram delivery failure");
         const messageId = self.nextMessageId++;
         self.sent.push({ messageId, chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        if (outcome === "deliver_then_fail") throw new Error("simulated uncertain Telegram delivery failure");
         return { messageId };
       },
       async editReplyMarkup(chatId, messageId, replyMarkup) {
@@ -122,16 +133,20 @@ export class TelegramDriver {
   async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.deliverCallback(input); }
   async deliverCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number; callbackQueryId?: string }): Promise<void> { await this.shell.handleCallback(input.chatId, input.callbackQueryId ?? `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
-  failNextMessageDelivery(): void { this.failNextSend = true; }
+  failNextMessageDelivery(): void { this.sendOutcomes.push("fail"); }
+  setMessageDeliverySequence(...outcomes: Array<"pass" | "fail" | "deliver_then_fail">): void { this.sendOutcomes.push(...outcomes); }
+  failNextTaskMutationRejection(): void { this.failNextTaskReject = true; }
   failNextReplyMarkupEdit(): void { this.failNextMarkupEdit = true; }
   sentMessages(): SentMessage[] { return this.sent; }
+  messageDeliveryAttempts(): Array<Omit<SentMessage, "messageId">> { return [...this.deliveryAttempts]; }
+  taskMutationRejectCalls(): string[] { return [...this.taskRejects]; }
   callbackAnswers(): CallbackAnswer[] { return this.callbacks; }
   replyMarkupEditCalls(): ReplyMarkupEdit[] { return this.replyMarkupEdits; }
   sentChatActions(): Array<{ chatId: string; action: "typing" }> { return this.chatActions; }
   voiceDownloadCalls(): string[] { return [...this.voiceDownloads]; }
   transcriptionCalls(): string[] { return [...this.transcriptions]; }
   closedVoiceStreamIds(): string[] { return [...this.closedVoiceStreams]; }
-  clear() { this.sent.length = 0; this.callbacks.length = 0; this.replyMarkupEdits.length = 0; this.chatActions.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
+  clear() { this.sent.length = 0; this.callbacks.length = 0; this.replyMarkupEdits.length = 0; this.chatActions.length = 0; this.deliveryAttempts.length = 0; this.taskRejects.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
   private latestActionMessageId(chatId: string): number | undefined {
     for (let index = this.sent.length - 1; index >= 0; index--) {
       const message = this.sent[index];

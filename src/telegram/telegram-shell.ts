@@ -69,6 +69,9 @@ const onboardingConfirmationAlreadySentMessage = "Анкета уже готов
 export const maxTelegramArtifactFileSizeBytes = 100 * 1024 * 1024;
 class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
+class TaskProposalTerminalizationUnknownError extends Error {}
+const taskProposalCancelledMessage = "Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.";
+const taskProposalTerminalizationUnknownMessage = "Не удалось доставить предложение и проверить его отмену. Статус предложения неизвестен; попробуйте позже.";
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
   let bytes = 0;
   const limit = new Transform({
@@ -340,10 +343,29 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       async release(deliveryKey: string, claimedAt: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
     };
   }
-  async function sendTaskProposal(chatId: string, chat: ChatResult): Promise<void> {
+  async function sendTaskProposal(chatId: string, chat: ChatResult, employeeId: string): Promise<"delivered" | "cancelled"> {
     const pendingAction = taskPendingAction(chat);
-    if (!pendingAction) return;
-    await rawReplyPort.sendMessage(chatId, ["Предложение:", ...renderTaskActionPreview(pendingAction.preview), "", "Подтвердить изменение?"].join("\n"), { replyMarkup: pendingActionReplyMarkup(chat) });
+    if (!pendingAction) return "delivered";
+    const text = ["Предложение:", ...renderTaskActionPreview(pendingAction.preview), "", "Подтвердить изменение?"].join("\n");
+    const options = { replyMarkup: pendingActionReplyMarkup(chat) };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await rawReplyPort.sendMessage(chatId, text, options);
+        return "delivered";
+      } catch (error) {
+        logShellError("task proposal delivery", error);
+      }
+    }
+    let rejected: TaskMutationDecisionResult;
+    try {
+      rejected = await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
+    } catch (error) {
+      logShellError("task proposal terminal rejection", error);
+      throw new TaskProposalTerminalizationUnknownError();
+    }
+    if (rejected.status === "rejected" || rejected.status === "already_rejected" || rejected.status === "not_found") return "cancelled";
+    logShellError("task proposal terminal rejection", new TaskProposalTerminalizationUnknownError());
+    throw new TaskProposalTerminalizationUnknownError();
   }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;
@@ -353,8 +375,11 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
     const pendingAction = taskPendingAction(chat);
     const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    if (pendingAction && await sendTaskProposal(chatId, chat, session.employeeId) === "cancelled") {
+      await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
+      return;
+    }
     for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
-    if (pendingAction) await sendTaskProposal(chatId, chat);
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
@@ -383,7 +408,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await removeActiveReplyMarkup(chatId);
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return; await dispatchText(chatId, trimmed, session, "text", userId);
-      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, error instanceof TaskProposalTerminalizationUnknownError ? taskProposalTerminalizationUnknownMessage : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleFile(chatId: string, attachment: TelegramFileAttachment, userId?: string) {
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
@@ -458,7 +483,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (audio) destroyStream(audio);
           if (audio && audio !== file?.stream) destroyStream(file!.stream);
         }
-      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
+      } catch (error) { logShellError("voice message", error); await replyPort.sendMessage(chatId, error instanceof VoiceFileTooLargeError ? "Голосовое сообщение слишком большое (максимум 20 МБ)." : error instanceof TaskProposalTerminalizationUnknownError ? taskProposalTerminalizationUnknownMessage : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать голосовое сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
     async handleCallback(chatId: string, callbackQueryId: string, data: string, userId?: string, messageId?: number) {
       const actionKey = messageId === undefined ? undefined : `${chatId}:${messageId}`;
