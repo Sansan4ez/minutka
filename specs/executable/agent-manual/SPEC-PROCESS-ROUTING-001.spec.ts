@@ -69,7 +69,7 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
     );
   });
 
-  it("selects evening reflection and insight extraction for evening chat", async () => {
+  it("keeps legacy evening routing disabled after evening_reflection moves to the active assistant registry", async () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
       observedRuns.push({ input, context });
@@ -106,14 +106,16 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
     ]);
 
     expect(evening.selectedProcessIds).toEqual(
-      expect.arrayContaining(["core", "evening_reflection", "insight_extraction"]),
+      expect.arrayContaining(["core", "insight_extraction"]),
     );
+    expect(evening.selectedProcessIds).not.toContain("evening_reflection");
     const eveningRun = observedRuns.find((run) =>
       run.input.text.includes("Отчёт не успел"),
     );
     expect(eveningRun?.context?.selectedProcessIds).toEqual(
-      expect.arrayContaining(["core", "evening_reflection", "insight_extraction"]),
+      expect.arrayContaining(["core", "insight_extraction"]),
     );
+    expect(eveningRun?.context?.selectedProcessIds).not.toContain("evening_reflection");
   });
 
   it("audits guardrail process for blocked chat without insight extraction", async () => {

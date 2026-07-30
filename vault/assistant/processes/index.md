@@ -8,6 +8,7 @@ The index is guidance, not a separate authority or decision artifact. It does no
 |---|---|---|
 | `inbox_capture` | The owner asks to retain an idea, note, link, voice memo, photo, or another inbound record. | Call the owner-scoped `captureIdea` typed tool before claiming that the item was saved. |
 | `day_focus` | The owner asks what to focus on today or now, requests a short plan, or wants to reprioritize goals, ideas, and tasks. | Return no more than three priorities and exactly one concrete next action; task changes still require proposal and explicit confirmation. |
+| `evening_reflection` | The owner reflects on the workday, blockers, meetings, fatigue, missed priorities, or asks for an end-of-day review. It may also be invoked by a trusted scheduled evening trigger. | Offer a concise, non-judgmental reflection and one small step for tomorrow; do not score productivity or mutate tasks without proposal and confirmation. |
 
 ## Routing principles
 
@@ -20,3 +21,4 @@ The index is guidance, not a separate authority or decision artifact. It does no
 - Read/list/search and task proposal/confirmation remain typed tools because their inputs and effects are mechanical; `inbox_capture` is a process because the agent interprets the item before invoking `captureIdea`.
 - For task requests, use `listTasks` as needed and prepare at most one create/update/complete/cancel with `proposeTaskMutation` (or one idea provenance proposal with `proposeIdeaToTask`). The application exposes the safe pending action; authenticated confirm/reject commands run outside the agent tool loop. Never claim mutation from a proposal alone.
 - `day_focus` is internal-first: use bounded `/proc/context` and `/proc/records`, state missing data or conflicts explicitly, and do not require calendar integration.
+- `evening_reflection` may use bounded recent history to connect the evening review with the morning focus, but it must not invent completed work, blockers, meetings, or emotional state when the owner has not supplied them.

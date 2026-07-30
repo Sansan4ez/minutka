@@ -104,6 +104,7 @@ export class PersonalAssistantService {
 
 function scheduledProcessPrompt(processId: AssistantDiagnosticProcessId): string {
   if (processId === "day_focus") return "Сформируй утренний фокус на сегодня по процессу day_focus.";
+  if (processId === "evening_reflection") return "Проведи вечернюю рефлексию по процессу evening_reflection: мягко предложи владельцу подвести итоги дня, назвать препятствия и выбрать один небольшой шаг на завтра.";
   return assertNever(processId);
 }
 

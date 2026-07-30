@@ -59,20 +59,22 @@ describe("SPEC-PERSONAL-ASSISTANT-PROCESS-DIAGNOSTICS-001: evidence-derived proc
         { kind: "tool", toolName: "captureIdea" },
         { kind: "tool", toolName: "captureIdea" },
         { kind: "process", processId: "day_focus" },
+        { kind: "process", processId: "evening_reflection" },
         { kind: "process", processId: "unknown" },
       ],
-    )).toEqual(["core", "day_focus", "inbox_capture"]);
+    )).toEqual(["core", "day_focus", "inbox_capture", "evening_reflection"]);
   });
 
   it("rejects unknown inline process ids and grants no business capability", async () => {
     const service = harness(async (_input, context) => {
       expect(() => context.markProcessUsed("unknown" as never)).toThrow("unknown assistant diagnostic process id");
       context.markProcessUsed("day_focus");
-      return { text: "Read-only focus answer.", executionTrace: [] };
+      context.markProcessUsed("evening_reflection");
+      return { text: "Read-only focus and reflection answer.", executionTrace: [] };
     });
 
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "Что делать сейчас?" });
-    expect(result.selectedProcessIds).toEqual(["core", "day_focus"]);
+    expect(result.selectedProcessIds).toEqual(["core", "day_focus", "evening_reflection"]);
     expect(result.effect).toBe("none");
     expect(result.pendingAction).toBeUndefined();
   });

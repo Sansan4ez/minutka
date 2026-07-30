@@ -33,6 +33,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
     expect(instructions).toContain("Process file: day_focus");
+    expect(instructions).toContain("Process file: evening_reflection");
+    expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
+    expect(instructions).toContain("trusted scheduled `evening_reflection` trigger");
     expect(instructions).toContain("Call the typed `captureIdea` action before responding");
     expect(instructions).toContain("Select at most three priorities");
     expect(instructions).toContain("exactly one concrete next action");
@@ -69,7 +72,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       expect(readFileSync(`vault/assistant/bin/${manifest}`, "utf8")).toContain("## Purpose");
     }
     for (const match of processFiles.matchAll(/`([a-z][A-Za-z0-9]+)`/g)) {
-      expect(registeredIds).toContain(match[1]);
+      const referencedId = match[1]!;
+      if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId)) expect(registeredIds).toContain(referencedId);
     }
     expect(readFileSync("vault/assistant/bin/README.md", "utf8")).toContain("feedback callbacks call `submitFeedback` directly");
   });
@@ -107,6 +111,11 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(draftPaths.size).toBe(draftRegistry.drafts.length);
     expect([...draftPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
     expect([...draftPaths].filter((path) => activePaths.has(path) || legacyPaths.has(path))).toEqual([]);
+    expect([...activePaths].filter((path) => legacyPaths.has(path))).toEqual([
+      "vault/assistant/processes/inbox_capture.md",
+    ]);
+    expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
+    expect([...legacyPaths]).not.toContain("vault/assistant/processes/evening_reflection.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);
     expect(findUnclassifiedProcessFiles(processFiles, activePaths, draftPaths, legacyPaths)).toEqual([]);
     expect(findUnclassifiedProcessFiles(

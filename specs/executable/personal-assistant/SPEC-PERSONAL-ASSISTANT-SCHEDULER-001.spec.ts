@@ -55,7 +55,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       },
     };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
-      const result = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId });
+      const result = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "day_focus" });
       deliveries.push({ chatId: "owner-chat", text: result.response });
     });
     await store.save("maxim", {
@@ -67,6 +67,34 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "day_focus" }]);
     expect(deliveries).toEqual([{ chatId: "owner-chat", text: "Три приоритета и один следующий шаг." }]);
     await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
+      status: "succeeded", completedAt: clock.now(),
+    }]);
+  });
+
+  it("runs evening_reflection through the same facade and Telegram delivery path", async () => {
+    const clock = { now: () => "2026-07-30T16:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
+    const deliveries: Array<{ chatId: string; text: string }> = [];
+    const facade = {
+      async runScheduledProcess(input: { userId: string; threadId: string; processId: "evening_reflection" }) {
+        facadeCalls.push(input);
+        return { response: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?" };
+      },
+    };
+    const scheduler = new SchedulerService(store, clock, async (fire) => {
+      const result = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "evening_reflection" });
+      deliveries.push({ chatId: "owner-chat", text: result.response });
+    });
+    await store.save("maxim", {
+      id: "evening-reflection", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Europe/Moscow",
+      enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "evening_reflection", status: "pending" }]);
+    expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "evening_reflection" }]);
+    expect(deliveries).toEqual([{ chatId: "owner-chat", text: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?" }]);
+    await expect(store.listFires("maxim", "evening-reflection")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
     }]);
   });

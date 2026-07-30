@@ -6,7 +6,7 @@ Record request-scoped diagnostic evidence that the agent actually applied an all
 
 ## Inputs
 
-A closed product process id accepted by the tool schema. During C.1 the only accepted id is `day_focus`.
+A closed product process id accepted by the tool schema. The active read-only process ids are `day_focus` and `evening_reflection`.
 
 ## Output
 

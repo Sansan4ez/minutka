@@ -136,6 +136,38 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
     expect(received?.text).toContain("day_focus");
   });
 
+  it("exposes a deterministic scheduled evening_reflection trigger through the same product facade", async () => {
+    let received: Parameters<AssistantService["chat"]>[0] | undefined;
+    const conversation: Pick<AssistantService, "chat"> = { async chat(input) {
+      received = input;
+      return {
+        messageId: "scheduled-evening-message",
+        response: "Как прошёл день?",
+        selectedProcessIds: ["core", "evening_reflection"],
+        outcome: { status: "completed" },
+        effect: "none",
+      };
+    } };
+    const facade = new PersonalAssistantService(
+      {} as ConstructorParameters<typeof PersonalAssistantService>[0],
+      conversation,
+      {} as ConstructorParameters<typeof PersonalAssistantService>[2],
+    );
+
+    await expect(facade.runScheduledProcess({
+      userId: "owner",
+      threadId: "telegram-thread",
+      processId: "evening_reflection",
+    })).resolves.toMatchObject({ response: "Как прошёл день?", selectedProcessIds: ["core", "evening_reflection"] });
+    expect(received).toMatchObject({
+      userId: "owner",
+      threadId: "telegram-thread",
+      responseChannel: "telegram",
+      requiredProcessId: "evening_reflection",
+    });
+    expect(received?.text).toContain("evening_reflection");
+  });
+
   it("forces the trusted scheduled process without relying on model diagnostic evidence", async () => {
     const clock = { now: () => now };
     const world = createInMemoryWorld(clock.now);

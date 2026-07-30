@@ -45,18 +45,6 @@
       ]
     },
     {
-      "id": "evening_reflection",
-      "path": "vault/assistant/processes/evening_reflection.md",
-      "appliesTo": [
-        "chat"
-      ],
-      "dependencies": [
-        "docs/product/Final_Description.md#scenario-5-employee-completes-evening-reflection",
-        "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
-        "specs/executable/context/SPEC-CONTEXT-001.spec.ts"
-      ]
-    },
-    {
       "id": "workday_guardrails",
       "path": "vault/assistant/processes/workday_guardrails.md",
       "appliesTo": [

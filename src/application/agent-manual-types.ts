@@ -53,7 +53,6 @@ export const agentManualProcessIds = [
 export const requiredAgentManualProcessIds = [
   "onboarding",
   "consent_and_privacy",
-  "evening_reflection",
   "workday_guardrails",
   "insight_extraction",
   "inbox_capture",

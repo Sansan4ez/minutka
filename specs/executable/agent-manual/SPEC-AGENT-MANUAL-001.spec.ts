@@ -43,16 +43,16 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(existsSync("vault/assistant/docs/legacy-authority-and-mutability.md")).toBe(false);
     expect(existsSync("vault/assistant/docs/legacy-privacy-boundary.md")).toBe(false);
     expect(existsSync("vault/assistant/docs/reflection.md")).toBe(false);
-    expect(manual.processes.length).toBeGreaterThanOrEqual(6);
+    expect(manual.processes.length).toBeGreaterThanOrEqual(5);
 
     expect(manual.processes.map((process) => process.id).sort()).toEqual([
       "consent_and_privacy",
-      "evening_reflection",
       "inbox_capture",
       "insight_extraction",
       "onboarding",
       "workday_guardrails",
     ]);
+    expect(manual.processes).not.toContainEqual(expect.objectContaining({ id: "evening_reflection" }));
     expect(manual.processes).not.toContainEqual(expect.objectContaining({ id: "feedback" }));
 
     for (const process of manual.processes) {
