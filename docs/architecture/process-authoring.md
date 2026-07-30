@@ -1,6 +1,6 @@
-# Minutka process authoring contract
+# Process authoring contract
 
-This document is developer documentation. Runtime process files live in `vault/processes/` and are loaded by application code.
+This document is developer documentation for the personal assistant (contract inherited from Minutka). Runtime process files live in `vault/assistant/processes/` and are loaded by application code.
 
 Every process file must use this exact structure:
 

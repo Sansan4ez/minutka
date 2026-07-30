@@ -19,10 +19,10 @@
 ## Ключевые папки
 
 - [`docs/`](docs) — [`architecture/`](docs/architecture) (RFC), [`CONVENTIONS.md`](docs/CONVENTIONS.md) (правила доков), [`plans/`](docs/plans) ([индекс](docs/plans/README.md); планы ведутся **эпиками в `br`**, папка держит только шаблон/README/TODO), [`product/`](docs/product) (бриф), [`runbooks/`](docs/runbooks).
-- [`vault/`](vault) — Agent Vault: роль ([`AGENTS.md`](vault/AGENTS.md)), навыки [`processes/`](vault/processes), typed-действия [`bin/`](vault/bin), проекции `proc/`.
+- [`vault/`](vault) — Agent Vault: [`assistant/`](vault/assistant) — роль ([`AGENTS.md`](vault/assistant/AGENTS.md)), навыки [`processes/`](vault/assistant/processes), typed-действия [`bin/`](vault/assistant/bin), проекции `proc/`; `user/` — приватный vault владельца (вынесен в отдельный Git-репозиторий).
 - [`specs/`](specs) — executable specs ([`executable/`](specs/executable)), [`persistence/`](specs/persistence), [`smoke/`](specs/smoke). Гоняются без LLM/сети через in-memory адаптеры.
 - [`migrations/`](migrations) — SQL-миграции PostgreSQL.
-- [`researches/`](researches) — исследовательские RFC.
+- [`docs/researches/`](docs/researches) — исследовательские отчёты и RFC.
 
 ## Команды
 

@@ -1,5 +1,7 @@
 # Minutka agent vault architecture
 
+> **Обновление 2026-07-30.** Концепция vault действует для персонального ассистента, но layout изменился: инструкции агента живут в `vault/assistant/` (`AGENTS.md`, `processes/`, `bin/`, `docs/`, `proc/`, `run/`), а приватный `vault/user/` вынесен в отдельный Git-репозиторий (C0.13b, `prs-jxy.45`). Пути вида `vault/AGENTS.md` в тексте ниже — исторические.
+
 ## Decision
 
 Minutka runtime instructions, business-process descriptions, active runtime docs, tool manifests, and state projection contracts live in a single logical vault:

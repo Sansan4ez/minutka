@@ -1,5 +1,7 @@
 # Final Description — agent "Minutka"
 
+> **Historical («Минутка»).** Итоговое описание предыдущего проекта «Минутка»; сохранено как провенанс переиспользуемого фундамента. Текущий продукт — персональный AI-ассистент: [product-brief-personal-ai-assistant.md](./product-brief-personal-ai-assistant.md).
+
 ## 1. Product Summary
 
 `agent "Minutka"` is an AI partner for employees who participate in a corporate AI education program. During a two-week program cycle, an employee communicates with Minutka mainly through Telegram: plans the day, checks in during the day if needed, reflects in the evening, and receives short personalized feedback about work patterns, energy, focus, and possible simplifications.
