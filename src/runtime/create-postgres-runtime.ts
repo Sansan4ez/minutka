@@ -33,6 +33,8 @@ import { createMinioDocumentStore } from "../infrastructure/minio/minio-document
 import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { createPostgresTaskStore } from "../infrastructure/postgres/postgres-task-store.js";
+import { createPostgresScheduleStore } from "../infrastructure/postgres/postgres-schedule-store.js";
+import { SchedulerService } from "../application/scheduler-service.js";
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
@@ -141,6 +143,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
+    const scheduler = new SchedulerService(createPostgresScheduleStore(pool), systemClock);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
@@ -169,6 +172,15 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       void runRetentionCleanupJobs(retentionCleanupJobs);
     }, 60 * 60 * 1_000);
     retentionCleanup.unref();
+    // The pilot runs one process instance. The durable fire ledger recovers
+    // pending work after restart; the interval only materializes due occurrences.
+    await scheduler.tick();
+    const scheduleTick = setInterval(() => {
+      void scheduler.tick().catch((error: unknown) => {
+        console.warn(`Scheduler tick failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+      });
+    }, 60_000);
+    scheduleTick.unref();
     return {
       assistant,
       ingestion,
@@ -180,7 +192,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
         catch { return false; }
       },
-      shutdown: async () => { clearInterval(retentionCleanup); await pool.end(); },
+      shutdown: async () => { clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
 }

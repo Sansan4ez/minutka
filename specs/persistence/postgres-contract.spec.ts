@@ -17,6 +17,7 @@ import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/p
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
 import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
+import { createPostgresScheduleStore } from "../../src/infrastructure/postgres/postgres-schedule-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
@@ -620,6 +621,35 @@ describe("PostgreSQL storage contracts", () => {
     await expect(tasks.get("task_owner", "task-open")).resolves.not.toHaveProperty("dueDate");
     await expect(tasks.update("task_other", "task-open", { expectedRevision: 3, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
     await expect(tasks.list("task_owner")).resolves.toHaveLength(3);
+  });
+
+  it("persists schedules and one idempotent fire across adapter restarts", async () => {
+    await issueProfileReadyParticipant(pool, "schedule_owner", "invite_schedule_owner");
+    await issueProfileReadyParticipant(pool, "schedule_other", "invite_schedule_other");
+    let schedules = createPostgresScheduleStore(pool);
+    await expect(schedules.save("schedule_owner", {
+      id: "schedule-morning", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      enabled: true, nextFireAt: "2026-07-30T06:00:00.000Z",
+    })).resolves.toMatchObject({ userId: "schedule_owner", timezone: "Europe/Moscow" });
+
+    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toMatchObject([{
+      scheduleId: "schedule-morning", userId: "schedule_owner", processId: "day_focus",
+      scheduledFor: "2026-07-30T06:00:00.000Z", status: "pending",
+    }]);
+    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(1);
+    await expect(schedules.get("schedule_owner", "schedule-morning")).resolves.toMatchObject({ nextFireAt: "2026-07-31T06:00:00.000Z" });
+    await expect(schedules.get("schedule_other", "schedule-morning")).resolves.toBeNull();
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    schedules = createPostgresScheduleStore(pool);
+    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(1);
+    await expect(schedules.listFires("schedule_owner", "schedule-morning")).resolves.toHaveLength(1);
+    await expect(schedules.listFires("schedule_other")).resolves.toEqual([]);
+    await expect(schedules.completeFire("schedule_owner", {
+      scheduleId: "schedule-morning", scheduledFor: "2026-07-30T06:00:00.000Z", status: "succeeded",
+    })).resolves.toMatchObject({ status: "succeeded" });
+    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toEqual([]);
   });
 
   it("keeps task schema ownership with the migrator and grants runtime data access only", async () => {
