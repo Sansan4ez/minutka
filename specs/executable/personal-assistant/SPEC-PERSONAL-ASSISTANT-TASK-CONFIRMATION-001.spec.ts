@@ -4,7 +4,7 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, pendingTaskReceipt, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
+import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, pendingTaskReceipt, safeConfirmationDisplayText, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
 import { EmployeeMinutkaClient, type EmployeeMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
 import { chatResponseSchema, pendingTaskReceiptSchema } from "../../../src/contracts/minutka-api.js";
 import { countUnicodeCodePoints, pendingTaskSummaryMaximumCodePoints } from "../../../src/shared/chat-limits.js";
@@ -70,11 +70,47 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: "task-1", expectedRevision: 1 })).preview).toEqual({ kind: "cancel", taskId: { value: "task-1", truncated: false } });
   });
 
-  it("clips owner preview text on Unicode boundaries and marks truncation", async () => {
+  it.each([
+    ["bidi override", "left\u202Eright", "left<U+202E>right"],
+    ["bidi isolates", "a\u2066b\u2067c\u2068d\u2069e", "a<U+2066>b<U+2067>c<U+2068>d<U+2069>e"],
+    ["zero-width formats", "a\u200Bb\u200Cc\u200Dd", "a<U+200B>b<U+200C>c<U+200D>d"],
+    ["ordinary whitespace", "  a\n\tb\u2003c  ", "a b c"],
+    ["C0 control", "a\u0001b", "a<U+0001>b"],
+    ["C1 control", "a\u0085b", "a<U+0085>b"],
+  ])("projects %s into deterministic printable owner text", (_case, canonical, expected) => {
+    expect(safeConfirmationDisplayText(canonical)).toEqual({ value: expected, truncated: false });
+  });
+
+  it("uses the same safe display projection for every user-controlled preview field without changing canonical values", async () => {
     const { service } = harness();
-    const title = "🙂".repeat(pendingTaskPreviewValueMaximumCharacters + 1);
+    const unsafe = "left\u202Eright\u200D\u0001";
+    const expected = "left<U+202E>right<U+200D><U+0001>";
+    const createPending = await service.propose("owner", { ...createProposal, input: { ...createProposal.input, title: unsafe, project: unsafe } });
+    expect(pendingTaskAction(createPending).preview).toMatchObject({ kind: "create", title: { value: expected }, project: { value: expected } });
+    expect(createPending.proposal).toMatchObject({ input: { title: unsafe, project: unsafe } });
+
+    const ideaPending = await service.propose("owner", { ...createProposal, input: { ...createProposal.input, id: "idea-task", title: unsafe, project: unsafe, originIdeaId: "idea-1" } }, { actionKind: "idea_to_task" });
+    expect(pendingTaskAction(ideaPending).preview).toMatchObject({ kind: "idea_to_task", title: { value: expected }, project: { value: expected } });
+
+    const updatePending = await service.propose("owner", { kind: "update", taskId: unsafe, expectedRevision: 1, patch: { title: unsafe, project: unsafe } });
+    expect(pendingTaskAction(updatePending).preview).toEqual({
+      kind: "update",
+      taskId: { value: expected, truncated: false },
+      fields: [
+        { field: "title", value: { value: expected, truncated: false } },
+        { field: "project", value: { value: expected, truncated: false } },
+      ],
+    });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: unsafe, expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" })).preview).toEqual({ kind: "complete", taskId: { value: expected, truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: unsafe, expectedRevision: 1 })).preview).toEqual({ kind: "cancel", taskId: { value: expected, truncated: false } });
+  });
+
+  it("clips escaped owner preview text on Unicode code-point boundaries and marks truncation", async () => {
+    const { service } = harness();
+    const escapedPrefix = "a".repeat(pendingTaskPreviewValueMaximumCharacters - 7);
+    const title = `${escapedPrefix}\u202Eend`;
     const action = pendingTaskAction(await service.propose("owner", { ...createProposal, input: { ...createProposal.input, title } }));
-    expect(action.preview).toMatchObject({ title: { value: "🙂".repeat(pendingTaskPreviewValueMaximumCharacters), truncated: true } });
+    expect(action.preview).toMatchObject({ title: { value: `${escapedPrefix}<U+202E`, truncated: true } });
   });
 
   it("uses one Unicode code-point limit from producer through tool, chat and SDK schemas", async () => {

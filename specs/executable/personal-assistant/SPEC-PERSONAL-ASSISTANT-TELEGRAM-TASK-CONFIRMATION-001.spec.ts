@@ -203,6 +203,38 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Uncertain rejection" }]);
   });
 
+  it("renders unsafe task text as inert tokens without allowing labels or field boundaries to be reordered", async () => {
+    const unsafeTaskId = "task\u2066id\u2069";
+    const unsafeTitle = "left\u202Eright\u200D\u0001\nnext";
+    const unsafeProject = "pro\u2067ject\u2069\u0085";
+    const { telegram } = await harness(async (_input, context) => {
+      await context.tasks.propose({
+        kind: "update",
+        taskId: unsafeTaskId,
+        expectedRevision: 3,
+        patch: { title: unsafeTitle, project: unsafeProject, type: "development", status: "in_progress", dueDate: null },
+      });
+      return "Предложение подготовлено.";
+    });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "unsafe update" });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toBe([
+      "Предложение:",
+      "Действие: изменить задачу",
+      "Задача: task<U+2066>id<U+2069>",
+      "Название: left<U+202E>right<U+200D><U+0001> next",
+      "Проект: pro<U+2067>ject<U+2069><U+0085>",
+      "Тип: development",
+      "Статус: in_progress",
+      "Срок: снять срок",
+      "",
+      "Подтвердить изменение?",
+    ].join("\n"));
+    expect(proposal.text.replace(/\n/gu, "")).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+  });
+
   it("renders every effective update field and explicit due-date removal", async () => {
     const { telegram } = await harness(async (_input, context) => {
       await context.tasks.propose({

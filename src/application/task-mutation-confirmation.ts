@@ -47,6 +47,8 @@ export type TaskMutationProposal =
 export type TaskPendingActionKind = "create" | "update" | "complete" | "cancel" | "idea_to_task";
 export const pendingTaskPreviewValueMaximumCharacters = 280;
 
+const unsafeConfirmationDisplayCodePoint = /[\p{Cc}\p{Cf}]/u;
+
 /** Canonical private record. It must never cross a transport or model boundary. */
 export type PendingTaskMutation = {
   confirmationId: string;
@@ -323,13 +325,25 @@ function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: T
   return { kind: "update", taskId: previewText(proposal.taskId), fields };
 }
 
-function previewText(value: string): PendingTaskPreviewText {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  const characters = [...normalized];
+export function safeConfirmationDisplayText(value: string): PendingTaskPreviewText {
+  const escaped = [...value.replace(/[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/gu, " ").replace(/^ +| +$/gu, "")]
+    .map((character) => unsafeConfirmationDisplayCodePoint.test(character) ? unicodeDisplayToken(character) : character)
+    .join("");
+  const characters = [...escaped];
   return {
     value: characters.slice(0, pendingTaskPreviewValueMaximumCharacters).join(""),
     truncated: characters.length > pendingTaskPreviewValueMaximumCharacters,
   };
+}
+
+function previewText(value: string): PendingTaskPreviewText {
+  return safeConfirmationDisplayText(value);
+}
+
+function unicodeDisplayToken(character: string): string {
+  const codePoint = character.codePointAt(0);
+  if (codePoint === undefined) throw new Error("confirmation display character is required");
+  return `<U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}>`;
 }
 
 function taskActionSummary(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): string {
