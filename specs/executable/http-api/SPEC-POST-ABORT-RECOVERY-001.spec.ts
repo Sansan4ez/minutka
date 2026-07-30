@@ -18,7 +18,7 @@ import { createInMemoryArtifactStore } from "../../../src/application/in-memory-
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { HttpServiceMinutkaTransport, MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
+import { HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
 import { assertAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../../src/config/assistant-timeout-budgets.js";
 
 const now = "2026-07-30T12:00:00.000Z";
@@ -77,7 +77,9 @@ function createComposition(options: {
     },
   );
   const artifactStore = createInMemoryArtifactStore({
-    contentStore: createInMemoryArtifactContentStore(),
+    contentStore: createInMemoryArtifactContentStore(clock),
+    clock,
+    limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 },
   });
   const personalAssistant = new PersonalAssistantService(
     { issueInvite: notUsed, openInvite: notUsed, getProfile: notUsed, acceptConsent: notUsed, completeOnboarding: notUsed, listInsights: notUsed, submitFeedback: notUsed, redeemTelegramInvite: notUsed, recordPrivacyExplanationShown: notUsed, submitOnboardingAnswer: notUsed, confirmOnboarding: notUsed, resetOnboardingDraft: notUsed },
@@ -103,7 +105,8 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
       effect: "pending_action_created",
       pendingAction: { confirmationId: "recovery-confirmation-1" },
     });
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
+    await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Post-abort proposal" }]);
   });
 
@@ -124,7 +127,8 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
         pendingAction: { confirmationId: "recovery-confirmation-1" },
       });
       // Proposal remains owner-visible and confirmable
-      await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
+      await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
       await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Post-abort proposal" }]);
       // History was not persisted because the store stalled
       expect(world.messages).toHaveLength(0);
@@ -154,7 +158,8 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
         pendingAction: { confirmationId: "recovery-confirmation-1" },
       });
       // The confirmation ID is visible, so confirming it is valid
-      await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
+      await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     } finally {
       warning.mockRestore();
     }
