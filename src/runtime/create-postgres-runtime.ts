@@ -161,6 +161,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextBudget,
       contextPriorities,
       applicationTimeoutMs: productionAssistantTimeoutBudgets.applicationMs,
+      recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.

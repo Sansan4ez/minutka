@@ -1,6 +1,8 @@
 export type AssistantTimeoutBudgets = {
   /** Whole AssistantService turn budget, including agent/tool execution and deterministic recovery. */
   applicationMs: number;
+  /** Post-agent recovery reserve for conversation append and deterministic wrap-up. */
+  recoveryReserveMs: number;
   /** Last server-side emergency bound for the HTTP chat handler. */
   httpChatHandlerMs: number;
   /** SDK wait budget used by Telegram and other HTTP clients. */
@@ -15,6 +17,7 @@ export type AssistantTimeoutBudgets = {
  */
 export const productionAssistantTimeoutBudgets: AssistantTimeoutBudgets = {
   applicationMs: 75_000,
+  recoveryReserveMs: 15_000,
   httpChatHandlerMs: 100_000,
   sdkTransportMs: 110_000,
   serverRequestMs: 120_000,
@@ -24,10 +27,10 @@ export function assertAssistantTimeoutBudgets(budgets: AssistantTimeoutBudgets):
   for (const [name, value] of Object.entries(budgets)) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Assistant timeout budget ${name} must be a positive safe integer.`);
   }
-  if (!(budgets.applicationMs < budgets.httpChatHandlerMs
+  if (!(budgets.applicationMs + budgets.recoveryReserveMs <= budgets.httpChatHandlerMs
     && budgets.httpChatHandlerMs < budgets.sdkTransportMs
     && budgets.sdkTransportMs < budgets.serverRequestMs)) {
-    throw new Error("Assistant timeout budgets must satisfy application < HTTP handler < SDK transport < server request timeout.");
+    throw new Error("Assistant timeout budgets must satisfy application + recoveryReserve <= HTTP handler < SDK transport < server request timeout.");
   }
   return budgets;
 }

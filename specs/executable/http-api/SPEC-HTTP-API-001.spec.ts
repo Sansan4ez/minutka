@@ -120,7 +120,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     let agentCalls = 0;
     let proposalSaves = 0;
     let confirmationId: string | undefined;
-    const budgets = { applicationMs: 10, httpChatHandlerMs: 80, sdkTransportMs: 160, serverRequestMs: 240 };
+    const budgets = { applicationMs: 10, recoveryReserveMs: 30, httpChatHandlerMs: 80, sdkTransportMs: 160, serverRequestMs: 240 };
     const assistant = {
       async chat(_input: { signal?: AbortSignal }) {
         agentCalls += 1;
@@ -183,8 +183,10 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("rejects credential collisions, logs redacted errors, and validates the strict timeout hierarchy", async () => {
     expect(chatHandlerTimeoutMs).toBeGreaterThanOrEqual(defaultHandlerTimeoutMs);
     expect(productionAssistantTimeoutBudgets).toMatchObject({ httpChatHandlerMs: chatHandlerTimeoutMs, serverRequestMs: serverRequestTimeoutMs });
-    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 10, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).not.toThrow();
-    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 20, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).toThrow(/strict|satisfy/i);
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 10, recoveryReserveMs: 5, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).not.toThrow();
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 10, recoveryReserveMs: 10, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).not.toThrow();
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 10, recoveryReserveMs: 11, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).toThrow(/satisfy/i);
+    expect(() => assertAssistantTimeoutBudgets({ applicationMs: 20, recoveryReserveMs: 5, httpChatHandlerMs: 20, sdkTransportMs: 30, serverRequestMs: 40 })).toThrow(/satisfy/i);
     const duplicate = "x".repeat(64); expect(() => apiAuthConfigFromEnv({ MINUTKA_SERVICE_TOKEN: duplicate, MINUTKA_EMPLOYEE_TOKENS: `emp_a:${duplicate}` })).toThrow(/unique per principal/);
     const errors: unknown[] = []; const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
     const server = await listenHttpServer({ application: createSpecHttpApplication(runtime.service), port: 0, health: async () => { throw new Error("secret-request-payload"); }, logger: () => undefined, errorLogger: (entry) => errors.push(entry), auth: { employeeTokens: new Map([["emp_a", employeeToken]]) } }); running.push(server);

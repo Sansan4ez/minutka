@@ -93,7 +93,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -113,6 +113,7 @@ export class AssistantService {
   }
 
   async chat(input: AssistantChatInput): Promise<AssistantChatResult> {
+    const chatStartedAt = Date.now();
     const userId = assertUserId(input.userId);
     const threadId = input.threadId.trim();
     const text = input.text.trim();
@@ -387,7 +388,7 @@ export class AssistantService {
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
     try {
-      await this.deps.conversationStore.appendTurn({
+      const appendTurn = this.deps.conversationStore.appendTurn({
         messageId,
         // The existing application history store uses employeeId as its neutral
         // owner key. AssistantService maps its trusted userId only at this seam.
@@ -397,8 +398,9 @@ export class AssistantService {
         agentResponse: response,
         timestamp: this.clock.now(),
       });
+      await boundedRecovery(appendTurn, computeRecoveryRemainingMs(chatStartedAt, this.deps.applicationTimeoutMs, this.deps.recoveryReserveMs));
     } catch (error) {
-      if (taskProposalState.persistence === "none") throw error;
+      if (taskProposalState.persistence === "none" && !isRecoveryTimeoutError(error)) throw error;
       logAssistantOperationalError("conversation history persistence after task proposal", error);
     }
     await this.auditSafely({
@@ -598,4 +600,48 @@ function emptyRecordsProjection(input: { userId: string; requestId: string; now:
     scope: { userId: input.userId, requestId: input.requestId },
     data: { records: [], tasks: [], truncated: false },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery-bounded post-agent helpers
+// ---------------------------------------------------------------------------
+
+class RecoveryTimeoutError extends Error {
+  constructor() { super("Post-agent recovery budget exhausted."); this.name = "RecoveryTimeoutError"; }
+}
+
+export function isRecoveryTimeoutError(error: unknown): error is RecoveryTimeoutError {
+  return error instanceof RecoveryTimeoutError;
+}
+
+/**
+ * Compute remaining recovery milliseconds. Returns `undefined` when both
+ * `applicationTimeoutMs` and `recoveryReserveMs` are unset (no bounding).
+ */
+function computeRecoveryRemainingMs(chatStartedAt: number, applicationTimeoutMs: number | undefined, recoveryReserveMs: number | undefined): number | undefined {
+  if (applicationTimeoutMs === undefined || recoveryReserveMs === undefined) return undefined;
+  const deadline = chatStartedAt + applicationTimeoutMs + recoveryReserveMs;
+  return Math.max(0, deadline - Date.now());
+}
+
+/**
+ * Race `task` against an optional recovery timeout. When `remainingMs` is
+ * `undefined` the task runs unbounded (backwards-compatible default). When the
+ * budget is exhausted, throw {@link RecoveryTimeoutError} so the caller can
+ * decide whether to degrade or propagate.
+ */
+async function boundedRecovery<T>(task: Promise<T>, remainingMs: number | undefined): Promise<T> {
+  if (remainingMs === undefined) return task;
+  if (remainingMs <= 0) throw new RecoveryTimeoutError();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new RecoveryTimeoutError()), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
