@@ -22,8 +22,12 @@ export type TelegramOnboardingConfirmationClaimResult =
   | { status: "claimed" }
   | { status: "already_claimed" };
 
+export type TelegramDeliverySession = TelegramSession & { chatId: string };
+
 export interface TelegramSessionStore {
   getByIdentity(identity: TelegramIdentity): Promise<TelegramSession | undefined>;
+  /** Private outbound-delivery lookup. Raw chat id never crosses the application facade. */
+  getDeliveryByEmployee(employeeId: string): Promise<TelegramDeliverySession | undefined>;
   claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
   /** Removes the chat-to-employee link during personal-data deletion. */
   deleteByEmployee(employeeId: string): Promise<void>;

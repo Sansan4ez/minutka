@@ -25,6 +25,7 @@ import type { OnboardingProgress } from "./onboarding-types.js";
 import type { TaskMutationAuditContext, TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
+import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -73,6 +74,16 @@ export class PersonalAssistantService {
   getProfile(input: { employeeId: string }): Promise<UserProfile> { return this.identityService.getProfile(input); }
   chat(input: AssistantChatInput): Promise<AssistantChatResult> { return this.conversationService.chat(input); }
 
+  runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantDiagnosticProcessId }): Promise<AssistantChatResult> {
+    return this.conversationService.chat({
+      userId: input.userId,
+      threadId: input.threadId,
+      text: scheduledProcessPrompt(input.processId),
+      responseChannel: "telegram",
+      requiredProcessId: input.processId,
+    });
+  }
+
   confirmTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
     return this.taskMutations.confirm(ownerId, confirmationId, audit);
@@ -89,4 +100,13 @@ export class PersonalAssistantService {
   getArtifact(ownerId: string, artifactId: string): Promise<ArtifactReference | null> { return this.artifactStore.get(ownerId, artifactId); }
   listArtifacts(ownerId: string): Promise<ArtifactReference[]> { return this.artifactStore.list(ownerId); }
   deleteArtifact(ownerId: string, artifactId: string): Promise<ArtifactReference | null> { return this.artifactStore.delete(ownerId, artifactId); }
+}
+
+function scheduledProcessPrompt(processId: AssistantDiagnosticProcessId): string {
+  if (processId === "day_focus") return "Сформируй утренний фокус на сегодня по процессу day_focus.";
+  return assertNever(processId);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`unsupported scheduled process: ${value}`);
 }

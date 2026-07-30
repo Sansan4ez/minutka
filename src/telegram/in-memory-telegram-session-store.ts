@@ -11,6 +11,10 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       if (!found || (identity.userId !== undefined && found.identity.userId !== identity.userId)) return undefined;
       return { ...found.session };
     },
+    async getDeliveryByEmployee(employeeId) {
+      const found = [...store.entries()].find(([, entry]) => entry.session.employeeId === employeeId);
+      return found ? { chatId: found[0], ...found[1].session } : undefined;
+    },
     async claim({ identity, session }): Promise<TelegramSessionClaimResult> {
       if (store.has(identity.chatId)) return { status: "chat_already_linked" };
       if ([...store.values()].some((entry) => entry.session.employeeId === session.employeeId)) return { status: "employee_already_linked" };

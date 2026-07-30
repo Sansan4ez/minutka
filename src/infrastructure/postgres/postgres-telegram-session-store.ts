@@ -13,6 +13,8 @@ type Row = {
   updated_at: Date;
 };
 
+type DeliveryRow = Row & { chat_id: string };
+
 const session = (row: Row) => ({
   employeeId: row.employee_id,
   threadId: row.thread_id,
@@ -46,6 +48,21 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
+    async getDeliveryByEmployee(employeeId) {
+      try {
+        const result = await pool.query<DeliveryRow>(
+          `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at,
+                  pgp_sym_decrypt(s.chat_id_encrypted, $2)::text AS chat_id
+           FROM minutka_private.telegram_sessions s
+           LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
+           WHERE s.employee_id = $1`,
+          [employeeId, pepper],
+        );
+        return result.rows[0] ? { chatId: result.rows[0].chat_id, ...session(result.rows[0]) } : undefined;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async claim({ identity, session: next }) {
       const chat = keyedDigest(identity.chatId, pepper);
       const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
@@ -53,11 +70,11 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         return await withTransaction(pool, async (client) => {
           const inserted = await client.query<Row>(
             `INSERT INTO minutka_private.telegram_sessions
-              (chat_id_digest, user_id_digest, employee_id, thread_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6)
+              (chat_id_digest, user_id_digest, employee_id, thread_id, created_at, updated_at, chat_id_encrypted)
+             VALUES ($1, $2, $3, $4, $5, $6, pgp_sym_encrypt($7, $8))
              ON CONFLICT DO NOTHING
              RETURNING employee_id, thread_id, consent_accepted_at, NULL::text AS privacy_version, created_at, updated_at`,
-            [chat, user, next.employeeId, next.threadId, next.createdAt, next.updatedAt],
+            [chat, user, next.employeeId, next.threadId, next.createdAt, next.updatedAt, identity.chatId, pepper],
           );
           if (inserted.rowCount) return { status: "claimed" as const, session: session(inserted.rows[0]) };
 

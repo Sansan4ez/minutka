@@ -43,8 +43,10 @@ import { privacyConfigFromEnv } from "../config/privacy.js";
 import { taskMutationCompletedReplayRetentionFromEnv } from "../config/task-confirmation-retention.js";
 import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
+import type { TelegramReplyPort } from "../telegram/telegram-types.js";
+import { deliverTelegramMessage } from "../telegram/telegram-shell.js";
 
-export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput) {
+export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();
@@ -143,7 +145,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
-    const scheduler = new SchedulerService(createPostgresScheduleStore(pool), systemClock);
+    const scheduleStore = createPostgresScheduleStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
@@ -167,32 +169,56 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
+    const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
+      if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
+      const delivery = await telegramSessionStore.getDeliveryByEmployee(fire.userId);
+      if (!delivery) throw new TelegramDeliverySessionNotFoundError();
+      const result = await assistant.runScheduledProcess({
+        userId: fire.userId,
+        threadId: delivery.threadId,
+        processId: fire.processId,
+      });
+      await deliverTelegramMessage(input.telegramReplyPort, delivery.chatId, result.response);
+    });
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
       void runRetentionCleanupJobs(retentionCleanupJobs);
     }, 60 * 60 * 1_000);
     retentionCleanup.unref();
-    // The pilot runs one process instance. The durable fire ledger recovers
-    // pending work after restart; the interval only materializes due occurrences.
-    await scheduler.tick();
-    const scheduleTick = setInterval(() => {
-      void scheduler.tick().catch((error: unknown) => {
-        console.warn(`Scheduler tick failed (${error instanceof Error ? error.name : "UnknownError"}).`);
-      });
-    }, 60_000);
-    scheduleTick.unref();
+    let scheduleTick: ReturnType<typeof setInterval> | undefined;
+    const startScheduler = async () => {
+      if (scheduleTick) return;
+      // The pilot runs one process instance. The durable fire ledger recovers
+      // pending work after restart; the interval only materializes due occurrences.
+      await scheduler.tick();
+      scheduleTick = setInterval(() => {
+        void scheduler.tick().catch((error: unknown) => {
+          console.warn(`Scheduler tick failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+        });
+      }, 60_000);
+      scheduleTick.unref();
+    };
     return {
       assistant,
       ingestion,
       artifactContentStore,
       telegramSessionStore,
       privacyExplanation: privacy.explanation,
+      startScheduler,
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
         catch { return false; }
       },
-      shutdown: async () => { clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
+      shutdown: async () => { if (scheduleTick) clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
+}
+
+class TelegramDeliveryNotConfiguredError extends Error {
+  constructor() { super("Telegram delivery is not configured."); this.name = "TelegramDeliveryNotConfiguredError"; }
+}
+
+class TelegramDeliverySessionNotFoundError extends Error {
+  constructor() { super("Telegram delivery session not found."); this.name = "TelegramDeliverySessionNotFoundError"; }
 }

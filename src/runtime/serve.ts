@@ -22,8 +22,27 @@ function apiPort(value: string | undefined): number { const port = Number(value 
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
 
 async function main(): Promise<void> {
-  loadDotEnv(); const timeoutBudgets = assertAssistantTimeoutBudgets(productionAssistantTimeoutBudgets); const auth = apiAuthConfigFromEnv(process.env); const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env });
-  let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
+  loadDotEnv(); const timeoutBudgets = assertAssistantTimeoutBudgets(productionAssistantTimeoutBudgets); const auth = apiAuthConfigFromEnv(process.env);
+  let activeBot: Telegraf | undefined;
+  const replyPort: TelegramReplyPort = {
+    async sendMessage(chatId, text, options) {
+      if (telegramMessageLength(text) > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000 UTF-16-unit limit");
+      if (!activeBot) throw new Error("Bot not running");
+      const sent = await activeBot.telegram.sendMessage(chatId, text, {
+        ...(options?.replyToMessageId === undefined ? {} : { reply_parameters: { message_id: options.replyToMessageId } }),
+        reply_markup: options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined,
+      });
+      return { messageId: sent.message_id };
+    },
+    async editReplyMarkup(chatId, messageId, replyMarkup) {
+      if (!activeBot) throw new Error("Bot not running");
+      await activeBot.telegram.editMessageReplyMarkup(chatId, messageId, undefined, replyMarkup ? { inline_keyboard: replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : { inline_keyboard: [] });
+    },
+    async sendChatAction(chatId, action) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendChatAction(chatId, action); },
+    async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },
+  };
+  const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env, telegramReplyPort: replyPort });
+  let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined;
   try {
     listener = await listenHttpServer({
       application: runtime.assistant,
@@ -45,24 +64,6 @@ async function main(): Promise<void> {
       const token = process.env.TELEGRAM_BOT_TOKEN; const serviceToken = process.env.MINUTKA_SERVICE_TOKEN;
       if (!token || !serviceToken) throw new Error("TELEGRAM_MODE=polling requires TELEGRAM_BOT_TOKEN and MINUTKA_SERVICE_TOKEN");
       const stt = sttConfigFromEnv(process.env);
-      let activeBot: Telegraf | undefined;
-      const replyPort: TelegramReplyPort = {
-        async sendMessage(chatId, text, options) {
-          if (telegramMessageLength(text) > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000 UTF-16-unit limit");
-          if (!activeBot) throw new Error("Bot not running");
-          const sent = await activeBot.telegram.sendMessage(chatId, text, {
-            ...(options?.replyToMessageId === undefined ? {} : { reply_parameters: { message_id: options.replyToMessageId } }),
-            reply_markup: options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined,
-          });
-          return { messageId: sent.message_id };
-        },
-        async editReplyMarkup(chatId, messageId, replyMarkup) {
-          if (!activeBot) throw new Error("Bot not running");
-          await activeBot.telegram.editMessageReplyMarkup(chatId, messageId, undefined, replyMarkup ? { inline_keyboard: replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : { inline_keyboard: [] });
-        },
-        async sendChatAction(chatId, action) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendChatAction(chatId, action); },
-        async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },
-      };
       const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: listener.url, token: serviceToken, timeoutMs: timeoutBudgets.sdkTransportMs }));
       const voiceFileGateway: TelegramVoiceFileGateway | undefined = stt ? {
         async openVoiceFile(fileId, signal) {
@@ -83,8 +84,9 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; launchCompleted = bot.launch();
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; await bot.launch();
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
+    await runtime.startScheduler();
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {
     try { await listener?.close(); } finally { await runtime.shutdown(); }
@@ -99,7 +101,6 @@ async function main(): Promise<void> {
       // Telegram handlers call the loopback API, so drain polling before closing it.
       try {
         bot?.stop(signal);
-        await launchCompleted;
       } finally {
         await listener?.close();
       }

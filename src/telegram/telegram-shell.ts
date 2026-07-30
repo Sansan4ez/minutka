@@ -236,6 +236,12 @@ export type TelegramFileAttachment = {
 
 export type TelegramArtifactIntake = { saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> };
 
+export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatId: string, text: string): Promise<void> {
+  const chunks = splitTelegramMessage(text);
+  if (!chunks.length) throw new Error("Telegram delivery text is required");
+  for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk);
+}
+
 export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
   const privacyExplanation = deps.privacyExplanation.trim();

@@ -180,6 +180,10 @@ describe("PostgreSQL storage contracts", () => {
     })).toMatchObject({ status: "claimed" });
     expect(await sessions.getByIdentity({ chatId: "chat_probe" })).toMatchObject({ employeeId: "emp_probe" });
     expect(await sessions.getByIdentity({ chatId: "chat_probe", userId: "wrong_user" })).toBeUndefined();
+    expect(await sessions.getDeliveryByEmployee("emp_probe")).toMatchObject({
+      chatId: "chat_probe", employeeId: "emp_probe", threadId: "thread_probe",
+    });
+    expect(await sessions.getDeliveryByEmployee("missing")).toBeUndefined();
   });
 
   it("leases Telegram onboarding confirmation delivery and recovers stale claims", async () => {

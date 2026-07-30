@@ -52,7 +52,7 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   });
 
   it("rejects a base-instructions ceiling below the exact production section before opening PostgreSQL", async () => {
-    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions());
+    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions("day_focus"));
     const createPool = expectNoPostgresPool();
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");
 
@@ -98,7 +98,7 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   });
 
   it("accepts exact static and generated minimums and proceeds to the external-resource boundary", async () => {
-    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions());
+    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions("day_focus"));
     const manualMinimum = countUnicodeCharacters(renderAssistantAgentManual(loadAssistantAgentInstructions(), renderMaximumResponsePolicy()));
     const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
     const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(4));

@@ -32,7 +32,7 @@ import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./a
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 
-export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; signal?: AbortSignal };
+export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
   systemContext: string;
   personalContext: AssistantContextProjection;
@@ -118,6 +118,8 @@ export class AssistantService {
     const threadId = input.threadId.trim();
     const text = input.text.trim();
     const source = input.source ?? { kind: "text", text };
+    const requiredProcessId = input.requiredProcessId;
+    if (requiredProcessId !== undefined && !isAssistantDiagnosticProcessId(requiredProcessId)) throw new Error(`unknown required assistant process id: ${requiredProcessId}`);
     if (!threadId) throw new Error("threadId is required");
     if (!text) throw new Error("text is required");
     const applicationSignal = createAssistantApplicationSignal(this.deps.applicationTimeoutMs, input.signal);
@@ -262,7 +264,7 @@ export class AssistantService {
         chatEffect.pendingActionCreated = true;
       },
     });
-    const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget);
+    const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget, requiredProcessId);
     if (systemContextBudget.omittedSourceIds.length > 0) {
       this.warnOperationally({
         type: "context_budget_overflow",
@@ -311,6 +313,7 @@ export class AssistantService {
           reducedProfileAndHistory,
           text,
           this.overflowRecoveryContextBudget,
+          requiredProcessId,
         );
         await this.auditSafely({
           id: this.ids.auditEventId(), requestId, type: "overflow_recovery", employeeId: userId, threadId, messageId,
@@ -408,7 +411,10 @@ export class AssistantService {
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
     }, "chat response audit");
     this.scheduleThreadCompaction({ employeeId: userId, threadId, requestId });
-    const selectedProcessIds = deriveSelectedProcessIds(mergeExecutionTrace(executionTrace, observedExecutionTrace));
+    const selectedProcessIds = deriveSelectedProcessIds(mergeExecutionTrace(executionTrace, [
+      ...(requiredProcessId ? [{ kind: "process" as const, processId: requiredProcessId }] : []),
+      ...observedExecutionTrace,
+    ]));
     return {
       messageId,
       response,
@@ -449,8 +455,9 @@ export function buildAssistantSystemContext(
   profileAndHistory?: ChatProcSnapshot,
   userInput = "",
   contextBudget: ContextBudgetConfig = defaultContextBudget,
+  requiredProcessId?: AssistantDiagnosticProcessId,
 ): string {
-  return buildAssistantSystemContextBudget(personalContext, records, agentInstructions, responsePolicy, profileAndHistory, userInput, contextBudget).text;
+  return buildAssistantSystemContextBudget(personalContext, records, agentInstructions, responsePolicy, profileAndHistory, userInput, contextBudget, requiredProcessId).text;
 }
 
 export function buildAssistantSystemContextBudget(
@@ -461,6 +468,7 @@ export function buildAssistantSystemContextBudget(
   profileAndHistory?: ChatProcSnapshot,
   userInput = "",
   contextBudget: ContextBudgetConfig = defaultContextBudget,
+  requiredProcessId?: AssistantDiagnosticProcessId,
 ): ContextBudgetResult {
   const profileSection = profileAndHistory === undefined ? "" : renderRuntimeProfileProjection(profileAndHistory.profile.data);
   const threadSummarySection = profileAndHistory === undefined ? "" : renderThreadSummaryProjection(profileAndHistory.thread.data);
@@ -469,7 +477,7 @@ export function buildAssistantSystemContextBudget(
     userInput,
     config: contextBudget,
     sections: [
-      { sourceId: "base_instructions", content: renderAssistantBaseInstructions() },
+      { sourceId: "base_instructions", content: renderAssistantBaseInstructions(requiredProcessId) },
       { sourceId: "agent_manual", content: renderAssistantAgentManual(agentInstructions, responsePolicy) },
       { sourceId: "profile", content: profileSection },
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },

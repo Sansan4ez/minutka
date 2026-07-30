@@ -7,6 +7,7 @@ import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import type { Task } from "../../../src/domain/task.js";
 
 const now = "2026-07-28T09:00:00.000Z";
@@ -103,6 +104,70 @@ async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; sy
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () => {
+  it("exposes a deterministic scheduled day_focus trigger through the product facade", async () => {
+    let received: Parameters<AssistantService["chat"]>[0] | undefined;
+    const conversation: Pick<AssistantService, "chat"> = { async chat(input) {
+      received = input;
+      return {
+        messageId: "scheduled-message",
+        response: "Фокус на сегодня.",
+        selectedProcessIds: ["core", "day_focus"],
+        outcome: { status: "completed" },
+        effect: "none",
+      };
+    } };
+    const facade = new PersonalAssistantService(
+      {} as ConstructorParameters<typeof PersonalAssistantService>[0],
+      conversation,
+      {} as ConstructorParameters<typeof PersonalAssistantService>[2],
+    );
+
+    await expect(facade.runScheduledProcess({
+      userId: "owner",
+      threadId: "telegram-thread",
+      processId: "day_focus",
+    })).resolves.toMatchObject({ response: "Фокус на сегодня.", selectedProcessIds: ["core", "day_focus"] });
+    expect(received).toMatchObject({
+      userId: "owner",
+      threadId: "telegram-thread",
+      responseChannel: "telegram",
+      requiredProcessId: "day_focus",
+    });
+    expect(received?.text).toContain("day_focus");
+  });
+
+  it("forces the trusted scheduled process without relying on model diagnostic evidence", async () => {
+    const clock = { now: () => now };
+    const world = createInMemoryWorld(clock.now);
+    const documents = createInMemoryDocumentStore(clock);
+    const ideas = createInMemoryIdeaStore(clock);
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
+    let systemContext = "";
+    const service = new AssistantService(async (_input, context) => {
+      systemContext = context.systemContext;
+      return "Утренний фокус.";
+    }, {
+      documentStore: documents,
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService: ingestion,
+      ideaStore: ideas,
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      clock,
+    });
+
+    const result = await service.chat({
+      userId: "owner",
+      threadId: "scheduled-thread",
+      text: "Сформируй утренний фокус.",
+      requiredProcessId: "day_focus",
+      responseChannel: "telegram",
+    });
+
+    expect(systemContext).toContain("Trusted deterministic process trigger");
+    expect(systemContext).toContain("`day_focus`");
+    expect(result.selectedProcessIds).toEqual(["core", "day_focus"]);
+  });
+
   it("returns an honest empty-state answer with one concrete next action", async () => {
     const { response, systemContext, selectedProcessIds } = await runFocus({});
 

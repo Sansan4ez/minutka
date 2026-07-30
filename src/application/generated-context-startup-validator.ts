@@ -10,6 +10,7 @@ import { renderEmptyContextTreeIndex } from "./context-tree-index.js";
 import { renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "./thread-summarizer.js";
 import { renderMaximumResponsePolicy } from "../domain/response-policy.js";
+import { assistantDiagnosticProcessIds } from "../domain/assistant-process.js";
 
 /**
  * Rejects source ceilings that cannot hold generated sections even when the
@@ -17,7 +18,16 @@ import { renderMaximumResponsePolicy } from "../domain/response-policy.js";
  */
 export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig, agentInstructions: string): void {
   const generatedSections: ReadonlyArray<{ sourceId: ContextSourceId; content: string }> = [
-    { sourceId: "base_instructions", content: renderAssistantBaseInstructions() },
+    {
+      sourceId: "base_instructions",
+      content: assistantDiagnosticProcessIds.reduce(
+        (longest, processId) => {
+          const rendered = renderAssistantBaseInstructions(processId);
+          return countUnicodeCharacters(rendered) > countUnicodeCharacters(longest) ? rendered : longest;
+        },
+        renderAssistantBaseInstructions(),
+      ),
+    },
     {
       sourceId: "agent_manual",
       content: renderAssistantAgentManual(agentInstructions, renderMaximumResponsePolicy()),
