@@ -16,7 +16,7 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/search-documents.md` | `searchDocuments` | No | No | Authenticated owner's `/proc/context` only | Search owner document paths/content with bounded snippets. |
 | `/bin/list-tasks.md` | `listTasks` | No | No | Authenticated owner's tasks only | List bounded tasks and current revisions. |
 | `/bin/propose-task-mutation.md` | `proposeTaskMutation` | No durable task mutation | Returns safe pending-action receipt | Owner bound by `AssistantService`; task id is application-generated and private | Propose one create/update/complete/cancel per turn. |
-| `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable task mutation | Returns safe pending-action receipt for a new proposal | Owner and new-task provenance bound privately by application use-case | Propose one idempotent idea-to-task conversion per turn. |
+| `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable task mutation | Returns owner-free status/task id or a safe pending-action receipt | Owner and idea/task provenance bound privately by application use-case | Propose one idempotent idea-to-task conversion per turn. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
 
 Task confirmation and rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.

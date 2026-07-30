@@ -46,7 +46,7 @@ const taskProposalInputSchema = z.discriminatedUnion("kind", [
 
 const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("not_found") }),
-  z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1), originIdeaId: z.string().min(1) }),
+  z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskReceiptSchema }),
 ]);
 
@@ -78,7 +78,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Prepare one owner-bound conversion of an existing idea into a task while preserving originIdeaId. This never mutates a task; the application returns a separate confirmation action to the owner.",
+      description: "Prepare one owner-bound conversion of an existing idea into a task. This never mutates a task; the application preserves provenance privately and returns a separate confirmation action to the owner.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,

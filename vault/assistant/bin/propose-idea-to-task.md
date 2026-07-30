@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Prepare one idempotent conversion of an existing owner idea into a task while preserving typed `originIdeaId` provenance.
+Prepare one idempotent conversion of an existing owner idea into a task while the application preserves provenance privately.
 
 ## Inputs
 
@@ -10,7 +10,7 @@ An existing idea id. There is no owner id, task id, confirmation payload, or pro
 
 ## Output
 
-`not_found`, `already_converted` with existing provenance ids, or `needs_confirmation` with only the safe pending-action receipt. For a new proposal, the model and serialized tool trace do not receive owner id, canonical proposal, generated task id, origin idea id, digest, or creation timestamp; `AssistantService` captures the canonical record privately.
+`not_found`, `already_converted` with only the existing task id, or `needs_confirmation` with only the safe pending-action receipt. In every branch, the model and serialized tool trace do not receive owner id, canonical proposal, generated task provenance, origin idea id, digest, or creation timestamp; `AssistantService` captures canonical data privately.
 
 ## Boundary
 

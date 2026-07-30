@@ -16,7 +16,7 @@ export type AssistantTaskMutationProposal =
 
 export type AssistantIdeaToTaskProposalResult =
   | { status: "not_found" }
-  | { status: "already_converted"; taskId: string; originIdeaId: string }
+  | { status: "already_converted"; taskId: string }
   | { status: "needs_confirmation"; confirmation: PendingTaskReceipt };
 
 export type AssistantTaskCapabilities = {
@@ -63,7 +63,8 @@ export function createAssistantTaskCapabilities(input: {
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
       const result = await input.ideaToTask.propose(input.ownerId, ideaId, input.audit, input.beforePersist);
-      if (result.status !== "needs_confirmation") return result;
+      if (result.status === "not_found") return { status: "not_found" };
+      if (result.status === "already_converted") return { status: "already_converted", taskId: result.taskId };
       input.onProposal(result.confirmation);
       return { status: "needs_confirmation", confirmation: pendingTaskReceipt(result.confirmation) };
     },
