@@ -17,6 +17,7 @@ import { loadDotEnv } from "../config/env.js";
 import type { TelegramVoiceFileGateway } from "../telegram/telegram-voice-file-gateway.js";
 import { createTelegramFileGateway } from "../telegram/telegram-file-gateway.js";
 import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
+import { startTransports } from "./transport-startup.js";
 
 function apiPort(value: string | undefined): number { const port = Number(value ?? "8787"); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("MINUTKA_API_PORT must be a valid port"); return port; }
 function booleanEnv(value: string | undefined, name: string): boolean { if (value === undefined || value === "false") return false; if (value === "true") return true; throw new Error(`${name} must be true or false`); }
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
   let activeBot: Telegraf | undefined;
   const replyPort = createTelegrafReplyPort(() => activeBot?.telegram);
   const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env, telegramReplyPort: replyPort });
-  let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined;
+  let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
       application: runtime.assistant,
@@ -68,9 +69,13 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot; await bot.launch();
+      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot;
     } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
-    await runtime.startScheduler();
+    const telegramBot = bot;
+    ({ launchCompleted } = await startTransports({
+      startScheduler: runtime.startScheduler,
+      launchTelegram: telegramBot ? () => telegramBot.launch() : undefined,
+    }));
     console.log(`Minutka HTTP API listening on ${listener.url}`);
   } catch (error) {
     try { await listener?.close(); } finally { await runtime.shutdown(); }
@@ -85,6 +90,7 @@ async function main(): Promise<void> {
       // Telegram handlers call the loopback API, so drain polling before closing it.
       try {
         bot?.stop(signal);
+        await launchCompleted;
       } finally {
         await listener?.close();
       }
@@ -92,6 +98,10 @@ async function main(): Promise<void> {
       await runtime.shutdown();
     }
   };
+  void launchCompleted?.catch((error: unknown) => {
+    console.error(`Telegram polling failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    return shutdown("TELEGRAM_POLLING_ERROR");
+  }).catch(() => { process.exitCode = 1; });
   process.on("SIGINT", () => void shutdown("SIGINT").catch(() => { process.exitCode = 1; })); process.on("SIGTERM", () => void shutdown("SIGTERM").catch(() => { process.exitCode = 1; }));
 }
 main().catch((error) => { console.error(`Fatal error: ${error instanceof Error ? error.message : "unknown error"}`); process.exit(1); });
