@@ -43,4 +43,4 @@ npm run telegram:dev   # локальный Telegram-бот (polling)
 
 ## Статус
 
-Прототип для пилота / проверки спроса (3–5 доверенных тестировщиков). Планка качества и модель угроз пилота — [`docs/architecture/rfc-pilot-quality-bar.md`](docs/architecture/rfc-pilot-quality-bar.md). Отслеживание задач — через [beads](https://github.com/Dicklesworthstone/beads_rust) (`br`) в [`.beads/`](.beads); планы ведутся эпиками, см. [`docs/plans/README.md`](docs/plans/README.md).
+Прототип для пилота / проверки спроса (до 10–15 доверенных тестировщиков по приглашению оператора). Планка качества и модель угроз пилота — [`docs/architecture/rfc-pilot-quality-bar.md`](docs/architecture/rfc-pilot-quality-bar.md). Отслеживание задач — через [beads](https://github.com/Dicklesworthstone/beads_rust) (`br`) в [`.beads/`](.beads); планы ведутся эпиками, см. [`docs/plans/README.md`](docs/plans/README.md).
