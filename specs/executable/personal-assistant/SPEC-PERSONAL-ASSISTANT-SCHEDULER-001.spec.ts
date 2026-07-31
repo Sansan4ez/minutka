@@ -3,12 +3,47 @@ import { createInMemoryScheduleStore } from "../../../src/application/in-memory-
 import { SchedulerService } from "../../../src/application/scheduler-service.js";
 import { nextDailyFireAt } from "../../../src/shared/schedule-time.js";
 import { requireTelegramDeliverySession } from "../../../src/telegram/telegram-session-store.js";
+import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { DefaultScheduleProvisioner } from "../../../src/application/default-schedules.js";
 
 class TelegramUnavailableError extends Error {
   constructor() { super("Telegram is unavailable"); this.name = "TelegramUnavailableError"; }
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => {
+  it("provisions owner-prefixed defaults from each completed profile timezone without overwriting personal changes", async () => {
+    const now = "2026-01-15T05:30:00.000Z";
+    const runtime = createInMemoryRuntime({
+      world: createInMemoryWorld(() => now),
+      agentRunner: async () => "Добро пожаловать!",
+    });
+    await onboard(runtime, "owner_moscow", "Europe/Moscow");
+    await onboard(runtime, "owner_tokyo", "Asia/Tokyo");
+
+    await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
+      { id: "owner_moscow:day_focus-daily", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow", nextFireAt: "2026-01-15T06:00:00.000Z" },
+      { id: "owner_moscow:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Europe/Moscow", nextFireAt: "2026-01-15T16:00:00.000Z" },
+    ]);
+    await expect(runtime.scheduleStore.list("owner_tokyo")).resolves.toMatchObject([
+      { id: "owner_tokyo:day_focus-daily", processId: "day_focus", timeOfDay: "09:00", timezone: "Asia/Tokyo", nextFireAt: "2026-01-16T00:00:00.000Z" },
+      { id: "owner_tokyo:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T10:00:00.000Z" },
+    ]);
+    await expect(runtime.scheduleStore.list("other_owner")).resolves.toEqual([]);
+
+    await runtime.scheduleStore.save("owner_moscow", {
+      id: "owner_moscow:day_focus-daily", processId: "day_focus", timeOfDay: "10:30", timezone: "Europe/Moscow",
+      enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z",
+    });
+    await expect(runtime.service.completeOnboarding({ employeeId: "owner_moscow", persona: "efficiency", timezone: "Europe/Moscow" })).resolves.toMatchObject({ completion: "already" });
+    const restartedProvisioner = new DefaultScheduleProvisioner(runtime.scheduleStore, { now: () => "2026-01-16T05:30:00.000Z" });
+    await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({ created: false });
+    await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
+      { id: "owner_moscow:day_focus-daily", timeOfDay: "10:30", enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z" },
+      { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", enabled: true },
+    ]);
+  });
+
   it("materializes one due fire and does not duplicate it on repeated ticks or service restart", async () => {
     let now = "2026-07-30T05:59:00.000Z";
     const clock = { now: () => now };
@@ -183,7 +218,15 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await store.claimDue(clock.now());
 
     await expect(store.get("other", "schedule-1")).resolves.toBeNull();
+    await expect(store.list("other")).resolves.toEqual([]);
     await expect(store.listFires("other")).resolves.toEqual([]);
     await expect(store.completeFire("other", { scheduleId: "schedule-1", scheduledFor: clock.now(), status: "succeeded" })).resolves.toBeNull();
   });
 });
+
+async function onboard(runtime: ReturnType<typeof createInMemoryRuntime>, employeeId: string, timezone: string): Promise<void> {
+  await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}` });
+  await runtime.service.openInvite({ inviteCode: `invite_${employeeId}` });
+  await runtime.service.acceptConsent({ employeeId, accepted: true, source: "test" });
+  await runtime.service.completeOnboarding({ employeeId, persona: "efficiency", timezone });
+}

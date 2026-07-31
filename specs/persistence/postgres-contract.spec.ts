@@ -757,7 +757,9 @@ describe("PostgreSQL storage contracts", () => {
     }]);
     await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(1);
     await expect(schedules.get("schedule_owner", "schedule-morning")).resolves.toMatchObject({ nextFireAt: "2026-07-31T06:00:00.000Z" });
+    await expect(schedules.list("schedule_owner")).resolves.toMatchObject([{ id: "schedule-morning", userId: "schedule_owner" }]);
     await expect(schedules.get("schedule_other", "schedule-morning")).resolves.toBeNull();
+    await expect(schedules.list("schedule_other")).resolves.toEqual([]);
 
     await pool.end();
     pool = createPostgresPool(config);

@@ -19,6 +19,9 @@ import type { ConversationDecisionRouter } from "../application/conversation-dec
 import type { InsightExtractor } from "../application/insight-extractor.js";
 import type { DocumentStore } from "../application/document-store.js";
 import { createPrivacyExplanation } from "../domain/privacy.js";
+import { createInMemoryScheduleStore } from "../application/in-memory-schedule-store.js";
+import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
+import type { ScheduleStore } from "../application/schedule-store.js";
 
 export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v2.html";
 export const executableSpecPrivacyExplanation = createPrivacyExplanation(executableSpecPrivacyPolicyUrl);
@@ -28,6 +31,7 @@ export type InMemoryRuntime = {
   world: InMemoryWorld;
   documentStore: DocumentStore;
   telegramSessionStore: TelegramSessionStore;
+  scheduleStore: ScheduleStore;
 };
 
 /** Executable-spec composition only. Production must use createPostgresRuntime. */
@@ -52,6 +56,7 @@ export function createInMemoryRuntime(input: {
     afterDelete: async (employeeId) => { await sessionStore.deleteByEmployee(employeeId); world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== employeeId); },
   });
   const auditEventStore = createInMemoryAuditEventStore(world);
+  const scheduleStore = createInMemoryScheduleStore(clock);
   const consentAcceptanceStore: ConsentAcceptanceStore = {
     async accept({ consent, auditEvent, telegramIdentity }) {
       const result = await profileStore.acceptConsent(consent);
@@ -81,9 +86,10 @@ export function createInMemoryRuntime(input: {
     }),
     privacyExplanation: executableSpecPrivacyExplanation,
     onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
+    defaultScheduleProvisioner: new DefaultScheduleProvisioner(scheduleStore, clock),
     clock,
     idGenerator: createDeterministicIdGenerator(),
     ...deps,
   } as MinutkaServiceDeps);
-  return { service, world, documentStore, telegramSessionStore: sessionStore };
+  return { service, world, documentStore, telegramSessionStore: sessionStore, scheduleStore };
 }

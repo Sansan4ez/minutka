@@ -36,6 +36,13 @@ export function createInMemoryScheduleStore(clock: Clock): ScheduleStore {
       const schedule = schedules.get(scheduleKey(userId, scheduleId));
       return schedule ? copySchedule(schedule) : null;
     },
+    async list(userId) {
+      const safeUserId = assertUserId(userId);
+      return [...schedules.values()]
+        .filter((schedule) => schedule.userId === safeUserId)
+        .sort((left, right) => left.timeOfDay.localeCompare(right.timeOfDay) || left.id.localeCompare(right.id))
+        .map(copySchedule);
+    },
     async claimDue(now, limit = 100) {
       const safeNow = timestamp(now, "now");
       const safeLimit = positiveLimit(limit);

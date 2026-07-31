@@ -51,6 +51,7 @@ import { ConversationThreadService } from "../application/conversation-thread-se
 import { IdeaDeletionService } from "../application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
+import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -115,6 +116,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       systemClock,
       { auditEventStore, idGenerator: randomIdGenerator },
     );
+    const scheduleStore = createPostgresScheduleStore(pool);
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
       onboardingDraftStore,
@@ -143,6 +145,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ),
       privacyExplanation: privacy.explanation,
       onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService: ingestion }),
+      defaultScheduleProvisioner: new DefaultScheduleProvisioner(scheduleStore, systemClock),
       clock: systemClock,
       idGenerator: randomIdGenerator,
       onboardingProfileExtractor: extractOnboardingProfileWithAgent,
@@ -162,7 +165,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
-    const scheduleStore = createPostgresScheduleStore(pool);
     const usageStore = createPostgresUsageStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {

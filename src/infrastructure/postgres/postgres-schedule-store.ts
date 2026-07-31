@@ -61,6 +61,16 @@ export function createPostgresScheduleStore(pool: Pool): ScheduleStore {
         return result.rows[0] ? restoreSchedule(result.rows[0]) : null;
       } catch (error) { throw mapPostgresError(error); }
     },
+    async list(userId) {
+      const safeUserId = assertUserId(userId);
+      try {
+        const result = await pool.query<ScheduleRow>(
+          "SELECT * FROM minutka_private.process_schedules WHERE user_id=$1 ORDER BY time_of_day,schedule_id",
+          [safeUserId],
+        );
+        return result.rows.map(restoreSchedule);
+      } catch (error) { throw mapPostgresError(error); }
+    },
     async claimDue(now, limit = 100) {
       const safeNow = timestamp(now, "now");
       const safeLimit = positiveLimit(limit);

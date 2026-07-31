@@ -32,6 +32,7 @@ import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-pro
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import type { ChatInputModality, ResponseChannel } from "../contracts/minutka-api.js";
 import { createResponsePolicy, renderResponsePolicy } from "../domain/response-policy.js";
+import type { DefaultScheduleProvisioner } from "./default-schedules.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; effect: "none" };
@@ -108,6 +109,7 @@ export type MinutkaServiceDeps = {
   manual?: AgentManual;
   /** Exact versioned text shown before accepting the current privacy version. */
   privacyExplanation?: string;
+  defaultScheduleProvisioner?: DefaultScheduleProvisioner;
 };
 
 /** Transport- and storage-independent application use cases. */
@@ -286,6 +288,7 @@ export class MinutkaService {
     if (allowUpdate && existing && changedFields.length === 0) {
       await this.materializeOnboardingContext(input.employeeId);
       await this.deleteOnboardingDraftSafely(input.employeeId);
+      await this.provisionDefaultSchedules(existing);
       return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: existing, firstResponse: "Профиль уже сохранён." };
     }
     // Context documents are persisted before the profile completion marker. If
@@ -295,6 +298,7 @@ export class MinutkaService {
     // Profile completion and draft removal are one storage transaction. This
     // makes the finalized profile the source of truth even under stale writes.
     const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
+    await this.provisionDefaultSchedules(completed.profile);
     if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
     await this.auditProfileCompletionSafely({ requestId, employeeId: input.employeeId, timestamp, changedFields, persona: completed.profile.persona, isNewProfile: !completed.wasCompleted });
     if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse: "Профиль обновлён." };
@@ -362,6 +366,7 @@ export class MinutkaService {
     if (existingProfile) {
       await this.materializeOnboardingContext(employeeId);
       await this.deleteOnboardingDraftSafely(employeeId);
+      await this.provisionDefaultSchedules(existingProfile);
       return { employeeId, status: "profile_completed", completion: "already", profile: existingProfile, firstResponse: "Профиль уже сохранён." };
     }
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
@@ -380,6 +385,10 @@ export class MinutkaService {
     // revisions monotonic prevents that stale CAS write from reviving old data.
     const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "preferredName", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
     return onboardingProgress(await this.stores.onboardingDraftStore.replace(draft));
+  }
+
+  private async provisionDefaultSchedules(profile: UserProfile): Promise<void> {
+    await this.deps.defaultScheduleProvisioner?.provision(profile.employeeId, profile.timezone);
   }
 
   async getProfile(input: { employeeId: string }): Promise<UserProfile> {

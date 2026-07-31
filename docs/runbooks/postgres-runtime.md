@@ -168,6 +168,46 @@ removes employee-keyed private records, including those audit events, through FK
 cascades and retains only an anonymous `employee_data_deleted` marker (no
 employee ID, transport identity, or personal content).
 
+## Расписания ежедневных касаний
+
+После завершения онбординга application создаёт владельцу два расписания один
+раз: `day_focus` на 09:00 и `evening_reflection` на 19:00 в IANA-таймзоне из
+профиля. Если у владельца уже есть хотя бы одна строка расписания, автоматическое
+провижининг ничего не создаёт и не меняет: персональные правки в PostgreSQL имеют
+приоритет.
+
+Проверить расписания конкретного участника:
+
+```sql
+SELECT schedule_id, process_id, time_of_day, timezone, enabled, next_fire_at
+FROM minutka_private.process_schedules
+WHERE user_id = 'emp_001'
+ORDER BY time_of_day, schedule_id;
+```
+
+Для участников, завершивших онбординг до появления автоматического провижининга,
+один раз запустите идемпотентный backfill с runtime-учётными данными:
+
+```bash
+set -a; . ./.env; set +a
+npm run pilot:schedules:backfill
+```
+
+Команда выбирает только `profile_completed` без единого расписания и создаёт им
+те же два дефолта в таймзоне профиля. Повторный запуск безопасен. Она не меняет
+владельцев, у которых уже есть хотя бы одна строка.
+
+Временно выключить все ежедневные касания одному владельцу:
+
+```sql
+UPDATE minutka_private.process_schedules
+SET enabled = false, updated_at = now()
+WHERE user_id = 'emp_001';
+```
+
+Вернуть касания можно аналогичным `UPDATE ... SET enabled = true`; сохранённые
+время, таймзона и `next_fire_at` при этом не перезаписываются.
+
 ## Restart smoke
 
 1. Migrate an empty approved database.

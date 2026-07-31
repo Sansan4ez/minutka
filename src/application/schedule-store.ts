@@ -16,6 +16,7 @@ export type CompleteScheduleFireInput = {
 export interface ScheduleStore {
   save(userId: string, input: SaveProcessScheduleInput): Promise<ProcessSchedule>;
   get(userId: string, scheduleId: string): Promise<ProcessSchedule | null>;
+  list(userId: string): Promise<ProcessSchedule[]>;
   /** Materializes due occurrences and returns pending work for startup recovery. */
   claimDue(now: string, limit?: number): Promise<ScheduleFire[]>;
   listFires(userId: string, scheduleId?: string): Promise<ScheduleFire[]>;
