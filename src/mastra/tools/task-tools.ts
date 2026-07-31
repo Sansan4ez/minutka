@@ -24,13 +24,16 @@ const taskFilterSchema = z.strictObject({
   dueAfter: z.iso.date().optional(),
 });
 
-const activeTaskPatchSchema = z.strictObject({
+const activeTaskPatchFields = {
   title: z.string().min(1).optional(),
   project: z.string().min(1).optional(),
   type: recordTypeSchema.optional(),
   status: z.enum(["open", "in_progress"]).optional(),
   dueDate: z.iso.date().nullable().optional(),
-}).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
+};
+
+const activeTaskPatchSchema = z.strictObject(activeTaskPatchFields)
+  .refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
 
 const taskProposalInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("create"), title: z.string().min(1), project: z.string().min(1), type: recordTypeSchema, dueDate: z.iso.date().optional() }),
@@ -43,6 +46,29 @@ const taskProposalInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("complete"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
   z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
 ]);
+
+// OpenAI Responses rejects the `oneOf` emitted by discriminated unions in
+// function parameters. Expose one flat transport object to the provider, then
+// enforce the exact operation-specific domain contract before application code.
+const taskProposalTransportSchema = z.strictObject({
+  kind: z.enum(["create", "update", "complete", "cancel"]),
+  title: z.string().min(1).optional(),
+  project: z.string().min(1).optional(),
+  type: recordTypeSchema.optional(),
+  dueDate: z.iso.date().optional(),
+  taskId: z.string().min(1).optional(),
+  expectedRevision: z.number().int().positive().optional(),
+  patch: z.strictObject({
+    title: activeTaskPatchFields.title,
+    project: activeTaskPatchFields.project,
+    type: activeTaskPatchFields.type,
+    status: activeTaskPatchFields.status,
+    dueDate: z.iso.date().optional(),
+    // A nullable date becomes `anyOf` in JSON Schema. The provider transport
+    // uses this explicit sentinel while domain validation restores null.
+    clearDueDate: z.boolean().optional(),
+  }).optional(),
+});
 
 const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("not_found") }),
@@ -71,10 +97,30 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
       id: "proposeTaskMutation",
       description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application returns a separate confirmation action to the owner.",
       strict: true,
-      inputSchema: taskProposalInputSchema,
+      inputSchema: taskProposalTransportSchema,
       outputSchema: pendingTaskReceiptSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
-      execute: (input) => tasks.propose(input),
+      execute: (input) => {
+        const { patch, ...proposal } = input;
+        if (patch?.clearDueDate && patch.dueDate !== undefined) {
+          throw new Error("task proposal validation failed: dueDate and clearDueDate are mutually exclusive");
+        }
+        const normalizedPatch = patch && {
+          ...(patch.title === undefined ? {} : { title: patch.title }),
+          ...(patch.project === undefined ? {} : { project: patch.project }),
+          ...(patch.type === undefined ? {} : { type: patch.type }),
+          ...(patch.status === undefined ? {} : { status: patch.status }),
+          ...(patch.clearDueDate ? { dueDate: null } : patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
+        };
+        const validation = taskProposalInputSchema.safeParse({
+          ...proposal,
+          ...(normalizedPatch ? { patch: normalizedPatch } : {}),
+        });
+        if (!validation.success) {
+          throw new Error(`task proposal validation failed: ${validation.error.message}`);
+        }
+        return tasks.propose(validation.data);
+      },
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",

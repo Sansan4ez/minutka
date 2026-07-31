@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { mastra } from "../../../src/mastra/index.js";
+import { createTaskTools } from "../../../src/mastra/tools/task-tools.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets, createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 
@@ -20,6 +21,28 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(source("src/runtime/serve.ts")).not.toMatch(/runMinutkaAgent|legacyMinutkaAgentRunner/);
     expect(source("src/runtime/create-postgres-runtime.ts")).not.toContain("createMastraMinutkaServiceDeps");
     expect(source("src/server/http/http-server.ts")).not.toContain("legacyChat");
+  });
+
+  it("keeps task function parameters compatible with OpenAI Responses", async () => {
+    const tools = createTaskTools({
+      async list() { return []; },
+      async propose(input) {
+        return { confirmationId: "confirmation-1", actionKind: input.kind, summary: "proposal", expiresAt: "2026-07-31T21:00:00.000Z" };
+      },
+      async proposeIdeaToTask() { return { status: "not_found" }; },
+    });
+    const schema = tools.proposeTaskMutation.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" });
+
+    expect(JSON.stringify(schema)).not.toMatch(/"oneOf"|"anyOf"/);
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "create", title: "Provider-safe task", project: "ASSISTANT", type: "operations",
+    }, {} as never)).resolves.toMatchObject({ actionKind: "create" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "update", taskId: "task-1", expectedRevision: 1, patch: { clearDueDate: true },
+    }, {} as never)).resolves.toMatchObject({ actionKind: "update" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "create", taskId: "wrong-shape",
+    } as never, {} as never)).rejects.toThrow("task proposal validation failed");
   });
 
   it("binds request-scoped tools to safe model-visible outputs", async () => {

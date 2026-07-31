@@ -86,7 +86,30 @@ npm run db:status
 
 Не направлять этот прогон или persistence specs на чужую/production-базу без явного разрешения оператора.
 
-### 3. Runtime с живым Telegram
+### 3. Импорт базы знаний тестировщика (если она участвует в проверке)
+
+Импорт не является частью онбординга и не запускается автоматически при выдаче инвайта. Если в прогоне нужно проверить персонализацию по существующим owner-документам, выполнить импорт **после применения миграций и проверки MinIO, но до запуска runtime и до первого сообщения тестировщика**. Полная процедура, dry-run, allow-list и rollback описаны в [runbook импорта pilot knowledge base](./pilot-knowledge-base-import.md).
+
+Важно:
+
+- `PILOT_USER_ID` должен точно совпадать с `employeeId`, для которого ниже будет выдан инвайт;
+- сначала выполнить dry-run, затем реальный импорт и повторный идемпотентный запуск;
+- для нового тестировщика без подготовленного owner vault этот шаг пропустить: пустая база знаний не блокирует базовый D.0 gate;
+- импорт для другого `PILOT_USER_ID` не будет виден тестировщику из-за owner scope.
+
+Минимальная последовательность:
+
+```bash
+set -a; . ./.env; set +a
+export PILOT_USER_ID=<id>
+export PILOT_KNOWLEDGE_BASE_ROOT=/home/admin/user_knowledge_base
+
+npm run pilot:knowledge-base:import -- --dry-run
+npm run pilot:knowledge-base:import
+npm run pilot:knowledge-base:import  # ожидаются только skipped
+```
+
+### 4. Runtime с живым Telegram
 
 Запустить shared runtime в polling-режиме под процесс-менеджером, который сохраняет stdout/stderr до завершения прогона:
 
@@ -96,7 +119,7 @@ TELEGRAM_MODE=polling npm run serve
 
 Ожидается строка `Minutka HTTP API listening on ...`, после которой процесс остаётся запущенным. Не очищать PostgreSQL, MinIO или runtime-логи между утренним и вечерним шагами.
 
-### 4. Новый инвайт без правки `.env`
+### 5. Новый инвайт без правки `.env`
 
 В отдельном терминале настроить standalone CLI на работающий runtime:
 
