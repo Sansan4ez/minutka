@@ -2,7 +2,7 @@ node_modules/
 dist/
 .env
 .env_
-.env.bak
+.env.bak*
 .postgres-local.env
 .mastra/
 .direnv/
