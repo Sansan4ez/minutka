@@ -17,6 +17,7 @@ br show <id>                # детали задачи: description / ## Design
 
 - [../architecture/rfc-personal-assistant-architecture.md](../architecture/rfc-personal-assistant-architecture.md) + [../architecture/rfc-agent-led-routing.md](../architecture/rfc-agent-led-routing.md) — текущая архитектура.
 - [../architecture/rfc-pilot-quality-bar.md](../architecture/rfc-pilot-quality-bar.md) — планка качества пилота: модель угроз, бюджет ревью (один раунд на эпик), триаж находок.
+- [../runbooks/pilot-scenario-run.md](../runbooks/pilot-scenario-run.md) — ручной двухсуточный integration gate D.0 через живой Telegram и живой LLM.
 - [../architecture/minutka-foundation.md](../architecture/minutka-foundation.md) — исторический мастер-план фундамента «Минутки» (провенанс переиспользуемого кода).
 
 ## Эпики (снимок 2026-07-30)
