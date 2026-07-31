@@ -48,6 +48,8 @@ import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { deliverTelegramMessage } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
+import { IdeaDeletionService } from "../application/idea-deletion.js";
+import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -102,6 +104,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       limits: { maximumBytes: 100 * 1024 * 1024, timeoutMs: 60_000 },
     });
     const ideaStore = createPostgresIdeaStore(pool);
+    const ideaDeletions = new IdeaDeletionService(
+      ideaStore,
+      createPostgresIdeaDeletionConfirmationStore(pool),
+      systemClock,
+      { auditEventStore, idGenerator: randomIdGenerator },
+    );
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
       onboardingDraftStore,
@@ -157,6 +165,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
       ideaStore,
+      ideaDeletions,
       taskStore,
       taskMutations,
       ideaToTask,
@@ -176,7 +185,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
       if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
       const delivery = await telegramSessionStore.getDeliveryByEmployee(fire.userId);

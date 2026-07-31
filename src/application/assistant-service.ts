@@ -10,6 +10,7 @@ import { NO_PROJECT } from "../domain/classification.js";
 import { createAssistantContextProjectionBuilder, renderAssistantContextIndex, renderAssistantContextProjection, type AssistantContextProjection, type ContextProjectionAudit } from "./assistant-context-projection.js";
 import { createAssistantRecordsProjectionBuilder, renderAssistantRecordsProjection, type AssistantRecordsProjection } from "./assistant-records-projection.js";
 import type { IdeaSource, IdeaStore } from "./idea-store.js";
+import { pendingIdeaDeletionAction, type IdeaDeletionService, type PendingIdeaDeletion, type PendingIdeaDeletionAction } from "./idea-deletion.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import { PersistenceError } from "./persistence-error.js";
@@ -47,6 +48,12 @@ export type AssistantAgentContext = {
   documents: ReturnType<typeof createOwnerDocumentReader>;
   /** Owner-bound task reads and proposals. Execution is an authenticated application command. */
   tasks: AssistantTaskCapabilities;
+  /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
+  ideas: {
+    search(input: { query?: string; limit?: number }): ReturnType<IdeaDeletionService["search"]>;
+    propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
+    undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
+  };
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -71,7 +78,7 @@ export type AssistantChatResult = {
   /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
-  pendingAction?: PendingTaskAction;
+  pendingAction?: PendingTaskAction | PendingIdeaDeletionAction;
   /** Explicit recovery state: a proposal is durable but is not a business mutation. */
   effect: AssistantChatEffectState;
 };
@@ -94,7 +101,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -245,12 +252,38 @@ export class AssistantService {
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
     let pendingTaskMutation: PendingTaskMutation | undefined;
+    let pendingIdeaDeletion: { record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] } | undefined;
     const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
     const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
       throwAssistantAbortReason(applicationSignal);
       if (taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
       pendingTaskMutation = pending;
       taskProposalState.persistence = "attempted";
+    };
+    const ideas = {
+      search: (input: { query?: string; limit?: number }) => {
+        if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
+        return this.deps.ideaDeletions.search(userId, input);
+      },
+      propose: async (input: { ideaId: string; expectedRevision: number; reason?: string }) => {
+        if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
+        if (pendingIdeaDeletion || pendingTaskMutation) throw new Error("only one pending action is allowed per assistant turn");
+        const result = await this.deps.ideaDeletions.propose(userId, input, {
+          audit: { requestId, threadId, messageId },
+        });
+        if (result.status === "needs_confirmation") {
+          pendingIdeaDeletion = { record: result.confirmation, idea: result.idea };
+          chatEffect.pendingActionCreated = true;
+        }
+        return result;
+      },
+      undo: async (input: { ideaId?: string; expectedRevision?: number }) => {
+        if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
+        const result = await this.deps.ideaDeletions.undo(userId, input, { requestId, threadId, messageId });
+        if (result.outcome === "restored") chatEffect.businessWrite = "committed";
+        observedExecutionTrace.push({ kind: "tool", toolName: "undoIdeaDeletion" });
+        return result;
+      },
     };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
@@ -285,6 +318,7 @@ export class AssistantService {
       captureIdea,
       documents,
       tasks,
+      ideas,
       markProcessUsed,
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
@@ -427,7 +461,9 @@ export class AssistantService {
       selectedProcessIds,
       outcome: { status: "completed" },
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
-      ...(pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
+      ...(pendingIdeaDeletion
+        ? { pendingAction: pendingIdeaDeletionAction(pendingIdeaDeletion.record, pendingIdeaDeletion.idea) }
+        : pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
       effect: currentChatEffectState(),
     };
   }
@@ -640,6 +676,9 @@ function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: Assist
 
 const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>> = {
   captureIdea: "inbox_capture",
+  searchIdeas: "inbox_capture",
+  proposeIdeaDeletion: "inbox_capture",
+  undoIdeaDeletion: "inbox_capture",
 };
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {

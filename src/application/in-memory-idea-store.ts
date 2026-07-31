@@ -17,14 +17,14 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       if (input.source?.kind === "blob" && !input.source.blobKey.trim()) throw new Error("source blob key is required");
       if (globalIds.has(input.id)) throw new Error("idea id already exists");
       const now = clock.now();
-      const idea: Idea = { ...input, userId, createdAt: now, lastActivityAt: now };
+      const idea: Idea = { ...input, userId, createdAt: now, lastActivityAt: now, revision: 1 };
       ideas.set(key(userId, idea.id), idea);
       globalIds.add(idea.id);
       return { ...idea };
     },
     async get(userId, id) {
       const idea = ideas.get(key(userId, id));
-      return idea === undefined ? null : { ...idea };
+      return idea === undefined || idea.deletedAt !== undefined ? null : { ...idea };
     },
     async list(userId, filter, options) {
       const safeUserId = assertUserId(userId);
@@ -32,6 +32,7 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       return [...ideas.values()]
         .filter((idea) =>
           idea.userId === safeUserId &&
+          (options?.includeDeleted === true || idea.deletedAt === undefined) &&
           (!filter?.project || idea.project === filter.project) &&
           (!filter?.type || idea.type === filter.type) &&
           (!filter?.status || idea.status === filter.status),
@@ -47,16 +48,45 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       if (!Number.isFinite(days) || days < 0) throw new Error("days must be a non-negative finite number");
       const threshold = new Date(Date.parse(clock.now()) - days * 86_400_000).toISOString();
       return [...ideas.values()]
-        .filter((idea) => idea.userId === safeUserId && (idea.status === "raw" || idea.status === "discussed") && idea.lastActivityAt <= threshold)
+        .filter((idea) => idea.userId === safeUserId && idea.deletedAt === undefined && (idea.status === "raw" || idea.status === "discussed") && idea.lastActivityAt <= threshold)
         .sort((left, right) => left.lastActivityAt.localeCompare(right.lastActivityAt) || left.id.localeCompare(right.id))
         .map((idea) => ({ ...idea }));
     },
     async update(userId, id, patch: UpdateIdeaInput) {
       const existing = ideas.get(key(userId, id));
-      if (!existing) return null;
-      const updated: Idea = { ...existing, ...definedIdeaPatch(patch), lastActivityAt: clock.now() };
+      if (!existing || existing.deletedAt !== undefined) return null;
+      const defined = definedIdeaPatch(patch);
+      const updated: Idea = Object.keys(defined).length === 0
+        ? existing
+        : { ...existing, ...defined, lastActivityAt: clock.now(), revision: existing.revision + 1 };
       ideas.set(key(existing.userId, id), updated);
       return { ...updated };
+    },
+    async softDelete(userId, id, input) {
+      const existing = ideas.get(key(userId, id));
+      if (!existing) return { outcome: "not_found" };
+      if (existing.deletedAt !== undefined) return { outcome: "already_deleted", idea: { ...existing } };
+      if (input.expectedRevision !== undefined && input.expectedRevision !== existing.revision) return { outcome: "conflict", current: { ...existing } };
+      const updated: Idea = {
+        ...existing,
+        deletedAt: input.deletedAt,
+        undoExpiresAt: input.undoExpiresAt,
+        lastActivityAt: input.deletedAt,
+        revision: existing.revision + 1,
+      };
+      ideas.set(key(existing.userId, id), updated);
+      return { outcome: "deleted", idea: { ...updated } };
+    },
+    async undoDelete(userId, id, input) {
+      const existing = ideas.get(key(userId, id));
+      if (!existing) return { outcome: "not_found" };
+      if (existing.deletedAt === undefined) return { outcome: "unchanged", idea: { ...existing } };
+      if (input.expectedRevision !== undefined && input.expectedRevision !== existing.revision) return { outcome: "conflict", current: { ...existing } };
+      if (existing.undoExpiresAt === undefined || Date.parse(input.restoredAt) > Date.parse(existing.undoExpiresAt)) return { outcome: "expired" };
+      const { deletedAt: _deletedAt, undoExpiresAt: _undoExpiresAt, ...active } = existing;
+      const updated: Idea = { ...active, lastActivityAt: input.restoredAt, revision: existing.revision + 1 };
+      ideas.set(key(existing.userId, id), updated);
+      return { outcome: "restored", idea: { ...updated } };
     },
   };
 }

@@ -27,6 +27,7 @@ import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
 import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
 import type { ConversationThreadService } from "./conversation-thread-service.js";
+import type { IdeaDeletionAuditContext, IdeaDeletionService } from "./idea-deletion.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -62,6 +63,7 @@ export class PersonalAssistantService {
     private readonly artifactStore: Pick<ArtifactStore, "save" | "get" | "list" | "delete">,
     private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject">,
     private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
+    private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -99,6 +101,21 @@ export class PersonalAssistantService {
   rejectTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
     return this.taskMutations.reject(ownerId, confirmationId, audit);
+  }
+
+  confirmIdeaDeletion(ownerId: string, confirmationId: string, audit?: IdeaDeletionAuditContext) {
+    if (!this.ideaDeletions) throw new Error("idea deletion confirmation is not configured");
+    return this.ideaDeletions.confirm(ownerId, confirmationId, audit);
+  }
+
+  rejectIdeaDeletion(ownerId: string, confirmationId: string, audit?: IdeaDeletionAuditContext) {
+    if (!this.ideaDeletions) throw new Error("idea deletion confirmation is not configured");
+    return this.ideaDeletions.reject(ownerId, confirmationId, audit);
+  }
+
+  undoIdeaDeletion(ownerId: string, ideaId?: string) {
+    if (!this.ideaDeletions) throw new Error("idea deletion confirmation is not configured");
+    return this.ideaDeletions.undo(ownerId, ideaId ? { ideaId } : {});
   }
 
   listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.identityService.listInsights(input); }

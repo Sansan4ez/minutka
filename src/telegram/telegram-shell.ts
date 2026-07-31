@@ -6,7 +6,7 @@ import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, typ
 import type { TelegramReplyPort, TelegramSentMessage } from "./telegram-types.js";
 import { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
 import { renderTelegramMarkdown, renderTelegramPlainText, type TelegramRenderedChunk } from "./telegram-renderer.js";
-import { decodeFeedbackCallbackData, decodeTaskMutationCallbackData, encodeFeedbackCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
+import { decodeFeedbackCallbackData, decodeIdeaDeletionCallbackData, decodeTaskMutationCallbackData, encodeFeedbackCallbackData, encodeIdeaDeletionCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
@@ -142,15 +142,17 @@ function taskPendingAction(chat: ChatResult) {
 function pendingActionReplyMarkup(chat: ChatResult) {
   const pendingAction = taskPendingAction(chat);
   if (!pendingAction) return undefined;
+  const encode = pendingAction.actionKind === "delete_idea" ? encodeIdeaDeletionCallbackData : encodeTaskMutationCallbackData;
   return { inlineKeyboard: [[
-    { text: "✅ Подтвердить", callbackData: encodeTaskMutationCallbackData("confirm", pendingAction.confirmationId) },
-    { text: "❌ Отклонить", callbackData: encodeTaskMutationCallbackData("reject", pendingAction.confirmationId) },
+    { text: "✅ Подтвердить", callbackData: encode("confirm", pendingAction.confirmationId) },
+    { text: "❌ Отклонить", callbackData: encode("reject", pendingAction.confirmationId) },
   ]] };
 }
 function previewText(value: { value: string; truncated: boolean }): string {
   return `${value.value}${value.truncated ? "… [сокращено]" : ""}`;
 }
 function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPendingAction>>["preview"]): string[] {
+  if (preview.kind === "delete_idea") return [`Действие: удалить идею`, `Идея: ${previewText(preview.summary)}`, `ID: ${previewText(preview.ideaId)}`];
   if (preview.kind === "create" || preview.kind === "idea_to_task") {
     return [
       `Действие: ${preview.kind === "idea_to_task" ? "создать задачу из идеи" : "создать задачу"}`,
@@ -381,9 +383,11 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         logShellError("task proposal delivery", error);
       }
     }
-    let rejected: TaskMutationDecisionResult;
+    let rejected: { status: string };
     try {
-      rejected = await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
+      rejected = pendingAction.actionKind === "delete_idea"
+        ? await employeeClient(employeeId).rejectIdeaDeletion(pendingAction.confirmationId)
+        : await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
     } catch (error) {
       logShellError("task proposal terminal rejection", error);
       throw new TaskProposalTerminalizationUnknownError();
@@ -573,20 +577,31 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
-        if (data.startsWith("tm:")) {
-          const decoded = decodeTaskMutationCallbackData(data);
+        if (data.startsWith("tm:") || data.startsWith("id:")) {
+          const ideaDeletion = data.startsWith("id:");
+          const decoded = ideaDeletion ? decodeIdeaDeletionCallbackData(data) : decodeTaskMutationCallbackData(data);
           if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат действия.");
           if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
           if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+          const action = ideaDeletion
+            ? () => decoded.action === "confirm"
+              ? employeeClient(session.employeeId).confirmIdeaDeletion(decoded.confirmationId)
+              : employeeClient(session.employeeId).rejectIdeaDeletion(decoded.confirmationId)
+            : () => decoded.action === "confirm"
+              ? employeeClient(session.employeeId).confirmTaskMutation(decoded.confirmationId)
+              : employeeClient(session.employeeId).rejectTaskMutation(decoded.confirmationId);
           const handled = await runCallbackAction({
             chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
-            action: () => decoded.action === "confirm"
-              ? employeeClient(session.employeeId).confirmTaskMutation(decoded.confirmationId)
-              : employeeClient(session.employeeId).rejectTaskMutation(decoded.confirmationId),
+            action: action as () => Promise<{ status: string }>,
             repeatedText: "Уже обработано.",
           });
           if (handled.repeated) return;
-          const text = taskDecisionText(handled.result);
+          const text = ideaDeletion
+            ? handled.result.status === "confirmed" ? "Идея удалена. Можно отменить удаление командой «верни последнюю идею»."
+              : handled.result.status === "already_confirmed" ? "Идея уже удалена."
+                : handled.result.status === "rejected" || handled.result.status === "already_rejected" ? "Удаление отменено."
+                  : handled.result.status === "expired" ? "Время подтверждения истекло." : "Идея не найдена."
+            : taskDecisionText(handled.result as TaskMutationDecisionResult);
           try { await replyPort.answerCallbackQuery(callbackQueryId, text); }
           catch (error) { logShellError("task decision callback answer", error); }
           if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
@@ -600,7 +615,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
         if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
-        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
+        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") || data.startsWith("id:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       } finally {
         const remaining = leaveChat(chatId);
         if (remaining === 0 && actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);

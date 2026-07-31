@@ -5,7 +5,7 @@ import type { PersonalAssistantService } from "../../application/personal-assist
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
-  taskMutationDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
+  taskMutationDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
 } from "../../contracts/minutka-api.js";
 import { authenticateBearer, type ApiAuthConfig, type AuthenticatedPrincipal } from "./auth.js";
@@ -41,6 +41,9 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "chat"
   | "confirmTaskMutation"
   | "rejectTaskMutation"
+  | "confirmIdeaDeletion"
+  | "rejectIdeaDeletion"
+  | "undoIdeaDeletion"
 >;
 export type HttpServerOptions = { application: HttpApplicationService; auth: ApiAuthConfig; host?: string; port?: number; allowNonLoopback?: boolean; trustProxy?: boolean; health?: () => Promise<boolean>; logger?: (entry: AccessLogEntry) => void; errorLogger?: (entry: ErrorLogEntry) => void; timeoutBudgets?: AssistantTimeoutBudgets };
 export type RunningHttpServer = { url: string; close(): Promise<void>; server: Server };
@@ -143,6 +146,26 @@ export function createHttpServer(options: HttpServerOptions): Server {
           ? options.application.confirmTaskMutation(employee.employeeId, confirmationId)
           : options.application.rejectTaskMutation(employee.employeeId, confirmationId)), id);
       }
+      const meIdeaDeletionDecision = url.pathname.match(/^\/v1\/me\/idea-deletions\/([^/]+)\/(confirm|reject)$/);
+      if (req.method === "POST" && meIdeaDeletionDecision) {
+        const employee = requireKind(principal, "employee");
+        parse(ideaDeletionDecisionRequestSchema, await body(req));
+        const confirmationId = decodeURIComponent(meIdeaDeletionDecision[1]);
+        const decision = meIdeaDeletionDecision[2];
+        template = `/v1/me/idea-deletions/:confirmationId/${decision}`;
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
+          ? options.application.confirmIdeaDeletion(employee.employeeId, confirmationId)
+          : options.application.rejectIdeaDeletion(employee.employeeId, confirmationId)), id);
+      }
+      const meIdeaUndo = url.pathname.match(/^\/v1\/me\/ideas(?:\/([^/]+))?\/undo$/);
+      if (req.method === "POST" && meIdeaUndo) {
+        const employee = requireKind(principal, "employee");
+        parse(ideaDeletionDecisionRequestSchema, await body(req));
+        template = "/v1/me/ideas/:ideaId?/undo";
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.undoIdeaDeletion(employee.employeeId, meIdeaUndo[1] ? decodeURIComponent(meIdeaUndo[1]) : undefined)), id);
+      }
       const meMessage = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/messages$/);
       if (req.method === "POST" && meMessage) { template = "/v1/me/threads/:threadId/messages"; const employee = requireKind(principal, "employee"); const input = parse(chatRequestSchema, { ...objectBody(await body(req)), threadId: parse(threadIdSchema, decodeURIComponent(meMessage[1])) }); status = 200; return send(res, status, await withHandlerTimeout(timeoutBudgets.httpChatHandlerMs, async (signal) => publicChatResponse(await options.application.chat({ userId: employee.employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, signal }))), id); }
       const meFeedback = url.pathname.match(/^\/v1\/me\/threads\/([^/]+)\/feedback$/);
@@ -177,6 +200,28 @@ export function createHttpServer(options: HttpServerOptions): Server {
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
           ? options.application.confirmTaskMutation(employeeId, confirmationId)
           : options.application.rejectTaskMutation(employeeId, confirmationId)), id);
+      }
+      const serviceIdeaDeletionDecision = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/idea-deletions\/([^/]+)\/(confirm|reject)$/);
+      if (req.method === "POST" && serviceIdeaDeletionDecision) {
+        requireKind(principal, "service");
+        parse(ideaDeletionDecisionRequestSchema, await body(req));
+        const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceIdeaDeletionDecision[1]));
+        const confirmationId = decodeURIComponent(serviceIdeaDeletionDecision[2]);
+        const decision = serviceIdeaDeletionDecision[3];
+        template = `/v1/service/employees/:employeeId/idea-deletions/:confirmationId/${decision}`;
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
+          ? options.application.confirmIdeaDeletion(employeeId, confirmationId)
+          : options.application.rejectIdeaDeletion(employeeId, confirmationId)), id);
+      }
+      const serviceIdeaUndo = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/ideas(?:\/([^/]+))?\/undo$/);
+      if (req.method === "POST" && serviceIdeaUndo) {
+        requireKind(principal, "service");
+        parse(ideaDeletionDecisionRequestSchema, await body(req));
+        const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceIdeaUndo[1]));
+        template = "/v1/service/employees/:employeeId/ideas/:ideaId?/undo";
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.undoIdeaDeletion(employeeId, serviceIdeaUndo[2] ? decodeURIComponent(serviceIdeaUndo[2]) : undefined)), id);
       }
       const serviceMessage = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/threads\/([^/]+)\/messages$/);
       if (req.method === "POST" && serviceMessage) { template = "/v1/service/employees/:employeeId/threads/:threadId/messages"; requireKind(principal, "service"); const input = parse(serviceChatRequestSchema, { ...objectBody(await body(req)), threadId: decodeURIComponent(serviceMessage[2]) }); const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceMessage[1])); status = 200; return send(res, status, await withHandlerTimeout(timeoutBudgets.httpChatHandlerMs, async (signal) => publicChatResponse(await options.application.chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel, signal }))), id); }

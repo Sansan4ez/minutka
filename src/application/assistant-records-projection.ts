@@ -11,7 +11,7 @@ export type AssistantRecordsProjection = {
   generatedAt: string;
   scope: { userId: string; requestId: string };
   data: {
-    records: Array<Pick<Idea, "id" | "project" | "type" | "summary" | "status" | "createdAt" | "lastActivityAt">>;
+    records: Array<Pick<Idea, "id" | "project" | "type" | "summary" | "status" | "createdAt" | "lastActivityAt" | "revision">>;
     tasks: Array<Pick<Task, "id" | "project" | "type" | "title" | "status" | "dueDate" | "createdAt" | "updatedAt"> & { relevance: AssistantTaskRelevance }>;
     truncated: boolean;
   };
@@ -98,7 +98,7 @@ export function renderAssistantRecordsProjection(projection: AssistantRecordsPro
     ]),
     ...(projection.data.records.length === 0 ? [] : [
       "### Ideas",
-      ...projection.data.records.map((record) => `<record id="${escape(record.id)}" project="${escape(record.project)}" type="${record.type}" status="${record.status}">${escape(record.summary)}</record>`),
+      ...projection.data.records.map((record) => `<record id="${escape(record.id)}" project="${escape(record.project)}" type="${record.type}" status="${record.status}" revision="${record.revision}">${escape(record.summary)}</record>`),
     ]),
     ...(projection.data.truncated ? ["Some records were omitted or truncated by the projection limit."] : []),
   ].join("\n");
@@ -159,6 +159,7 @@ function projectIdea(idea: Idea, characterLimit: number) {
     status: idea.status,
     createdAt: idea.createdAt,
     lastActivityAt: idea.lastActivityAt,
+    revision: idea.revision,
     textTruncated: clipped.truncated,
   };
 }

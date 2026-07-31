@@ -15,9 +15,12 @@ export type Idea = Classified & {
   status: IdeaStatus;
   createdAt: string;
   lastActivityAt: string;
+  revision: number;
+  deletedAt?: string;
+  undoExpiresAt?: string;
 };
 
-export type AddIdeaInput = Omit<Idea, "createdAt" | "lastActivityAt">;
+export type AddIdeaInput = Omit<Idea, "createdAt" | "lastActivityAt" | "revision" | "deletedAt" | "undoExpiresAt">;
 
 export type IdeaFilter = Partial<Classified> & {
   status?: IdeaStatus;
@@ -27,9 +30,16 @@ export type IdeaListOptions = {
   /** Optional bounded read. */
   limit?: number;
   order?: "created_asc" | "activity_desc";
+  /** Typed deletion use-cases only; normal reads hide tombstones. */
+  includeDeleted?: boolean;
 };
 
 export type UpdateIdeaInput = Partial<Pick<Idea, "project" | "type" | "summary" | "source" | "status">>;
+
+export type IdeaMutationResult =
+  | { outcome: "deleted" | "already_deleted" | "restored" | "unchanged"; idea: Idea }
+  | { outcome: "not_found" | "expired" }
+  | { outcome: "conflict"; current?: Idea };
 
 /**
  * Owner-scoped persistence boundary for the idea bank.
@@ -41,6 +51,8 @@ export interface IdeaStore {
   list(userId: string, filter?: IdeaFilter, options?: IdeaListOptions): Promise<Idea[]>;
   stale(userId: string, days: number): Promise<Idea[]>;
   update(userId: string, id: string, patch: UpdateIdeaInput): Promise<Idea | null>;
+  softDelete(userId: string, id: string, input: { expectedRevision?: number; deletedAt: string; undoExpiresAt: string }): Promise<IdeaMutationResult>;
+  undoDelete(userId: string, id: string, input: { expectedRevision?: number; restoredAt: string }): Promise<IdeaMutationResult>;
 }
 
 export function validateIdeaText(value: string, field: "project" | "summary"): string {

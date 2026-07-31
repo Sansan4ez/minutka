@@ -13,6 +13,9 @@ export type AuditEventType =
   | "feedback_received"
   | "agent_manual_load_failed"
   | "idea_captured"
+  | "idea_deletion_proposed"
+  | "idea_deletion_decided"
+  | "idea_deletion_undone"
   | "document_tool_used"
   | "context_projection_degraded"
   | "overflow_recovery"
@@ -51,6 +54,9 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   feedback_received: ["feedbackId", "rating", "source"],
   agent_manual_load_failed: [],
   idea_captured: ["ideaId", "recordType", "sourceKind"],
+  idea_deletion_proposed: ["ideaId", "recordType", "result", "confirmationId"],
+  idea_deletion_decided: ["ideaId", "recordType", "result", "confirmationId"],
+  idea_deletion_undone: ["ideaId", "recordType", "result"],
   document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
   overflow_recovery: ["reason", "attempt", "recordsCeiling", "historyCeiling", "contextIndexCeiling"],

@@ -46,6 +46,7 @@ export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChann
 export const recordTypeSchema = z.enum(["money", "development", "content", "people", "operations", "knowledge", "personal"]);
 export const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
 export const pendingTaskActionKindSchema = z.enum(["create", "update", "complete", "cancel", "idea_to_task"]);
+export const pendingActionKindSchema = z.union([pendingTaskActionKindSchema, z.literal("delete_idea")]);
 const pendingTaskPreviewTextSchema = z.strictObject({
   value: z.string().refine((value) => countUnicodeCodePoints(value) <= 280, "Preview value must have at most 280 Unicode code points"),
   truncated: z.boolean(),
@@ -70,9 +71,14 @@ const pendingTaskSummarySchema = z.string().min(1).refine(
 );
 export const pendingTaskReceiptSchema = z.strictObject({ confirmationId: z.string().min(1), actionKind: pendingTaskActionKindSchema, summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime() });
 export const pendingTaskActionSchema = pendingTaskReceiptSchema.extend({ preview: pendingTaskActionPreviewSchema });
+const pendingIdeaDeletionActionSchema = z.strictObject({
+  confirmationId: z.string().min(1), actionKind: z.literal("delete_idea"), summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime(),
+  preview: z.strictObject({ kind: z.literal("delete_idea"), ideaId: pendingTaskPreviewTextSchema, summary: pendingTaskPreviewTextSchema, revision: z.number().int().positive() }),
+});
+export const pendingActionSchema = z.union([pendingTaskActionSchema, pendingIdeaDeletionActionSchema]);
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
 const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
-const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingTaskActionSchema.optional(), effect: assistantChatEffectSchema });
+const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingActionSchema.optional(), effect: assistantChatEffectSchema });
 export const chatResponseSchema = z.union([legacyChatResponseSchema, assistantChatResponseSchema]);
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);
@@ -96,6 +102,7 @@ export const taskPatchSchema = z.strictObject({
   dueDate: z.iso.date().nullable().optional(),
 }).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
 export const taskMutationDecisionRequestSchema = z.strictObject({});
+export const ideaDeletionDecisionRequestSchema = z.strictObject({});
 const taskSchema = classifiedSchema.extend({ id: z.string().min(1), userId: employeeIdSchema, title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: z.number().int().positive() });
 const taskMutationOutcomeSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.enum(["created", "updated", "unchanged"]), task: taskSchema }),
@@ -107,6 +114,16 @@ export const taskMutationDecisionResponseSchema = z.discriminatedUnion("status",
   z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "owner_mismatch", "expired", "invalid_payload"]) }),
 ]);
 export type TaskMutationDecisionRequest = z.infer<typeof taskMutationDecisionRequestSchema>;
+export const ideaMutationOutcomeSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({ outcome: z.enum(["deleted", "already_deleted", "restored", "unchanged"]), idea: z.strictObject({ id: z.string().min(1), revision: z.number().int().positive() }).passthrough() }),
+  z.strictObject({ outcome: z.enum(["not_found", "expired"]) }),
+  z.strictObject({ outcome: z.literal("conflict"), current: z.strictObject({ id: z.string().min(1), revision: z.number().int().positive() }).passthrough().optional() }),
+]);
+export const ideaDeletionDecisionResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: ideaMutationOutcomeSchema }),
+  z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "expired", "invalid_payload"]) }),
+]);
+export type IdeaDeletionDecisionRequest = z.infer<typeof ideaDeletionDecisionRequestSchema>;
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
 export const structuredInsightSchema = z.discriminatedUnion("kind", [

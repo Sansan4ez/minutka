@@ -11,6 +11,9 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | Tool manifest | Runtime id | Mutating | Confirmation | Owner scope | Purpose |
 |---|---|---:|---|---|---|
 | `/bin/capture-idea.md` | `captureIdea` | Yes, reversible internal write | No | Bound by `AssistantService`; owner id is not model input | Save a classified owner idea through `IngestionService`. |
+| `/bin/search-ideas.md` | `searchIdeas` | No | No | Authenticated owner's active ideas only | Resolve exact or ambiguous deletion candidates with current revisions. |
+| `/bin/propose-idea-deletion.md` | `proposeIdeaDeletion` | No durable deletion | Returns safe pending-action receipt | Owner and exact idea id/revision bound by `AssistantService` | Prepare one reversible idea deletion for authenticated confirmation. |
+| `/bin/undo-idea-deletion.md` | `undoIdeaDeletion` | Yes, reversible internal write | No | Authenticated owner's tombstones inside the undo window | Restore an exact or most recently deleted idea idempotently. |
 | `/bin/list-documents.md` | `listDocuments` | No | No | Authenticated owner's `/proc/context` only | List bounded logical document metadata. |
 | `/bin/read-document.md` | `readDocument` | No | No | Authenticated owner's `/proc/context` only | Read a bounded document range or Markdown section. |
 | `/bin/search-documents.md` | `searchDocuments` | No | No | Authenticated owner's `/proc/context` only | Search owner document paths/content with bounded snippets. |
@@ -19,7 +22,7 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable task mutation | Returns owner-free status/task id or a safe pending-action receipt | Owner and idea/task provenance bound privately by application use-case | Propose one idempotent idea-to-task conversion per turn. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
 
-Task confirmation and rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.
+Task and idea-deletion confirmation/rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.
 
 Read, list, and search are tools because they are deterministic typed operations over an owner-scoped namespace. `inbox_capture` is a business process because the agent must interpret the inbound item, choose its project and record type, decide whether clarification is needed, and then invoke `captureIdea`.
 

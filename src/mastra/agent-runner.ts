@@ -4,10 +4,12 @@ import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
 import { assistantTaskToolNames, createTaskTools } from "./tools/task-tools.js";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
+import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
   documents: assistantDocumentToolNames,
+  ideas: assistantIdeaToolNames,
   tasks: assistantTaskToolNames,
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -15,6 +17,7 @@ export const assistantRuntimeToolsets = {
 export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.inbox,
   ...assistantRuntimeToolsets.documents,
+  ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
@@ -38,6 +41,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
       toolsets: {
         inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
         documents: createDocumentTools(context.documents),
+        ideas: createIdeaTools(context.ideas),
         tasks: createTaskTools(context.tasks),
         diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
       },

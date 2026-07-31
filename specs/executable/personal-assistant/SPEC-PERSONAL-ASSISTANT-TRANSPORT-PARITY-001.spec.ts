@@ -14,6 +14,8 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { IdeaDeletionService } from "../../../src/application/idea-deletion.js";
+import { createInMemoryIdeaDeletionConfirmationStore } from "../../../src/application/in-memory-idea-deletion-confirmation-store.js";
 import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { EmployeeMinutkaClient, ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
@@ -182,6 +184,39 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     await expect(taskEmployee.rejectTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "rejected" });
     await expect(taskTelegram.confirmTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "already_rejected" });
     await expect(tasks.list("owner-a")).resolves.toHaveLength(1);
+  });
+
+  it("uses the same owner-bound idea deletion confirmation and undo over employee HTTP and Telegram service HTTP", async () => {
+    const clock = { now: () => "2026-07-31T09:00:00.000Z" };
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+    await prepareOwner(runtime.service, "owner-a", "invite-idea-delete-owner", { chatId: "chat-idea-delete-owner", userId: "telegram-idea-delete-owner" });
+    const documents = createInMemoryDocumentStore(clock);
+    const ideas = createInMemoryIdeaStore(clock);
+    const captured = await ideas.add({ id: "transport-delete-idea", userId: "owner-a", project: "ASSISTANT", type: "knowledge", summary: "Delete through transport", status: "raw" });
+    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
+    const deletions = new IdeaDeletionService(ideas, createInMemoryIdeaDeletionConfirmationStore(ideas), clock, { confirmationId: () => "transport-idea-deletion" });
+    const assistant = new AssistantService(async (_input, context) => {
+      await context.ideas.propose({ ideaId: captured.id, expectedRevision: captured.revision });
+      return "Подтвердите удаление.";
+    }, {
+      documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
+      ideaStore: ideas, ideaDeletions: deletions, requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
+    });
+    const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
+    const server = await listenHttpServer({
+      application: new PersonalAssistantService(runtime.service, assistant, artifacts, undefined, undefined, deletions),
+      port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["owner-a", ownerToken]]) },
+    });
+    running.push(server);
+    const employee = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
+    const telegram = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })).forEmployee("owner-a");
+
+    const proposed = await employee.chat({ threadId: "idea-delete", text: "delete it" });
+    if (!("pendingAction" in proposed) || proposed.pendingAction?.actionKind !== "delete_idea") throw new Error("expected idea deletion pending action");
+    await expect(telegram.confirmIdeaDeletion(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "deleted" } });
+    await expect(ideas.get("owner-a", captured.id)).resolves.toBeNull();
+    await expect(employee.undoIdeaDeletion()).resolves.toMatchObject({ outcome: "restored", idea: { id: captured.id } });
+    await expect(ideas.get("owner-a", captured.id)).resolves.toMatchObject({ revision: 3 });
   });
 
   it("keeps proposals actionable through HTTP and Telegram when conversation history persistence fails", async () => {

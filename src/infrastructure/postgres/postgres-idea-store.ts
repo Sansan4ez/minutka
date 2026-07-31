@@ -17,6 +17,9 @@ const ideaSchema = z.strictObject({
   status: z.enum(["raw", "discussed", "planned", "done", "dropped"]),
   createdAt: z.string().min(1),
   lastActivityAt: z.string().min(1),
+  revision: z.number().int().positive(),
+  deletedAt: z.string().min(1).optional(),
+  undoExpiresAt: z.string().min(1).optional(),
 });
 type Row = {
   idea_id: string;
@@ -28,6 +31,9 @@ type Row = {
   status: string;
   created_at: Date;
   last_activity_at: Date;
+  revision: string | number;
+  deleted_at: Date | null;
+  undo_expires_at: Date | null;
 };
 
 function restoreIdea(row: Row): Idea {
@@ -41,6 +47,9 @@ function restoreIdea(row: Row): Idea {
     status: row.status,
     createdAt: row.created_at.toISOString(),
     lastActivityAt: row.last_activity_at.toISOString(),
+    revision: Number(row.revision),
+    ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at.toISOString() }),
+    ...(row.undo_expires_at === null ? {} : { undoExpiresAt: row.undo_expires_at.toISOString() }),
   });
 }
 
@@ -67,7 +76,7 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
     async get(userId, id) {
       try {
         const result = await pool.query<Row>(
-          "SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2",
+          "SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL",
           [userId, id],
         );
         return result.rows[0] === undefined ? null : restoreIdea(result.rows[0]);
@@ -77,6 +86,7 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
     },
     async list(userId, filter, options) {
       const clauses = ["user_id=$1"];
+      if (options?.includeDeleted !== true) clauses.push("deleted_at IS NULL");
       const params: unknown[] = [userId];
       if (filter?.project) { params.push(filter.project); clauses.push(`project=$${params.length}`); }
       if (filter?.type) { params.push(filter.type); clauses.push(`record_type=$${params.length}`); }
@@ -100,7 +110,7 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
       try {
         const result = await pool.query<Row>(
           `SELECT * FROM minutka_private.ideas
-           WHERE user_id=$1 AND status IN ('raw','discussed') AND last_activity_at <= now() - ($2 * interval '1 day')
+           WHERE user_id=$1 AND deleted_at IS NULL AND status IN ('raw','discussed') AND last_activity_at <= now() - ($2 * interval '1 day')
            ORDER BY last_activity_at ASC, idea_id ASC`,
           [userId, days],
         );
@@ -120,16 +130,57 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
         params.push(name === "source" ? JSON.stringify(value) : value);
         return `${column[name]}=$${params.length}${name === "source" ? "::jsonb" : ""}`;
       });
-      assignments.push("last_activity_at=now()");
+      if (fields.length === 0) return this.get(userId, id);
+      assignments.push("last_activity_at=now()", "revision=revision+1");
       try {
         const result = await pool.query<Row>(
-          `UPDATE minutka_private.ideas SET ${assignments.join(", ")} WHERE user_id=$1 AND idea_id=$2 RETURNING *`,
+          `UPDATE minutka_private.ideas SET ${assignments.join(", ")} WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL RETURNING *`,
           params,
         );
         return result.rows[0] === undefined ? null : restoreIdea(result.rows[0]);
       } catch (error) {
         throw mapPostgresError(error);
       }
+    },
+    async softDelete(userId, id, input) {
+      const params: unknown[] = [userId, id, input.deletedAt, input.undoExpiresAt];
+      const expected = input.expectedRevision === undefined ? "" : ` AND revision=$${params.push(input.expectedRevision)}`;
+      try {
+        const result = await pool.query<Row>(
+          `UPDATE minutka_private.ideas
+           SET deleted_at=$3, undo_expires_at=$4, last_activity_at=$3, revision=revision+1
+           WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL${expected}
+           RETURNING *`,
+          params,
+        );
+        if (result.rows[0]) return { outcome: "deleted", idea: restoreIdea(result.rows[0]) };
+        const selected = await pool.query<Row>("SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2", [userId, id]);
+        const current = selected.rows[0];
+        if (!current) return { outcome: "not_found" };
+        const idea = restoreIdea(current);
+        return idea.deletedAt !== undefined ? { outcome: "already_deleted", idea } : { outcome: "conflict", current: idea };
+      } catch (error) { throw mapPostgresError(error); }
+    },
+    async undoDelete(userId, id, input) {
+      const params: unknown[] = [userId, id, input.restoredAt];
+      const expected = input.expectedRevision === undefined ? "" : ` AND revision=$${params.push(input.expectedRevision)}`;
+      try {
+        const result = await pool.query<Row>(
+          `UPDATE minutka_private.ideas
+           SET deleted_at=NULL, undo_expires_at=NULL, last_activity_at=$3, revision=revision+1
+           WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NOT NULL AND undo_expires_at >= $3${expected}
+           RETURNING *`,
+          params,
+        );
+        if (result.rows[0]) return { outcome: "restored", idea: restoreIdea(result.rows[0]) };
+        const selected = await pool.query<Row>("SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2", [userId, id]);
+        const current = selected.rows[0];
+        if (!current) return { outcome: "not_found" };
+        const idea = restoreIdea(current);
+        if (idea.deletedAt === undefined) return { outcome: "unchanged", idea };
+        if (idea.undoExpiresAt !== undefined && Date.parse(input.restoredAt) > Date.parse(idea.undoExpiresAt)) return { outcome: "expired" };
+        return { outcome: "conflict", current: idea };
+      } catch (error) { throw mapPostgresError(error); }
     },
   };
 }

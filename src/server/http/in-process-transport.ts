@@ -45,6 +45,9 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: employeeId(this.principal) }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(employeeId(this.principal), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(employeeId(this.principal), confirmationId); }
+  confirmIdeaDeletion(confirmationId: string) { return personal(this.application).confirmIdeaDeletion(employeeId(this.principal), confirmationId); }
+  rejectIdeaDeletion(confirmationId: string) { return personal(this.application).rejectIdeaDeletion(employeeId(this.principal), confirmationId); }
+  undoIdeaDeletion(ideaId?: string) { return personal(this.application).undoIdeaDeletion(employeeId(this.principal), ideaId); }
 }
 
 export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
@@ -74,6 +77,9 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(this.employeeId(), confirmationId); }
+  confirmIdeaDeletion(confirmationId: string) { return personal(this.application).confirmIdeaDeletion(this.employeeId(), confirmationId); }
+  rejectIdeaDeletion(confirmationId: string) { return personal(this.application).rejectIdeaDeletion(this.employeeId(), confirmationId); }
+  undoIdeaDeletion(ideaId?: string) { return personal(this.application).undoIdeaDeletion(this.employeeId(), ideaId); }
   forEmployee(employeeId: string): ServiceEmployeeMinutkaTransport { service(this.principal); if (!employeeId) throw new Error("employeeId is required for service scope"); return new InProcessServiceMinutkaTransport(this.application, this.principal, employeeId); }
 }
 

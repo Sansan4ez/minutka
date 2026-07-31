@@ -22,6 +22,8 @@ import { createPostgresUsageStore } from "../../src/infrastructure/postgres/post
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
+import { IdeaDeletionService } from "../../src/application/idea-deletion.js";
+import { createPostgresIdeaDeletionConfirmationStore } from "../../src/infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -585,6 +587,30 @@ describe("PostgreSQL storage contracts", () => {
     });
     await createPostgresProfileStore(pool, config.inviteCodePepper).deleteEmployeePersonalData("confirmation_retention_owner");
     expect((await pool.query("SELECT 1 FROM minutka_private.task_mutation_confirmations WHERE confirmation_id=$1", [cascade.confirmationId])).rowCount).toBe(0);
+  });
+
+  it("soft-deletes and restores an owner idea across PostgreSQL restarts", async () => {
+    await issueProfileReadyParticipant(pool, "idea_delete_owner", "invite_idea_delete_owner");
+    await issueProfileReadyParticipant(pool, "idea_delete_other", "invite_idea_delete_other");
+    const clock = { now: () => "2026-07-31T09:00:00.000Z" };
+    let ideas = createPostgresIdeaStore(pool);
+    const captured = await ideas.add({ id: "idea_delete_pg", userId: "idea_delete_owner", project: "ASSISTANT", type: "knowledge", summary: "private deletion content", status: "raw" });
+    let service = new IdeaDeletionService(ideas, createPostgresIdeaDeletionConfirmationStore(pool), clock, { confirmationId: () => "idea-delete-pg-confirmation" });
+    const proposed = await service.propose("idea_delete_owner", { ideaId: captured.id, expectedRevision: captured.revision });
+    expect(proposed.status).toBe("needs_confirmation");
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await expect(service.confirm("idea_delete_other", proposed.confirmation.confirmationId)).resolves.toEqual({ status: "not_found" });
+    await expect(service.confirm("idea_delete_owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "deleted", idea: { revision: 2 } } });
+    await expect(ideas.get("idea_delete_owner", captured.id)).resolves.toBeNull();
+    await expect(ideas.list("idea_delete_owner")).resolves.toEqual([]);
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    ideas = createPostgresIdeaStore(pool);
+    service = new IdeaDeletionService(ideas, createPostgresIdeaDeletionConfirmationStore(pool), { now: () => "2026-07-31T09:05:00.000Z" });
+    await expect(service.confirm("idea_delete_owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({ status: "already_confirmed", outcome: { outcome: "deleted", idea: { revision: 2 } } });
+    await expect(service.undo("idea_delete_owner")).resolves.toMatchObject({ outcome: "restored", idea: { revision: 3 } });
+    await expect(ideas.get("idea_delete_owner", captured.id)).resolves.toMatchObject({ summary: "private deletion content", revision: 3 });
   });
 
   it("converts an idea through durable confirmation and recovers the stable result after restart", async () => {
