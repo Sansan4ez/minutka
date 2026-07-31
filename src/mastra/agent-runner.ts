@@ -1,4 +1,5 @@
 import type { AssistantAgentRunner } from "../application/assistant-service.js";
+import type { Agent } from "@mastra/core/agent";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
 import { assistantTaskToolNames, createTaskTools } from "./tools/task-tools.js";
@@ -18,21 +19,20 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
-export type MastraAgentLike = {
-  generate(
-    text: string,
-    options: { system?: string; toolChoice?: "auto" | "none"; maxSteps?: number; toolsets?: Record<string, Record<string, unknown>>; activeTools?: string[]; abortSignal?: AbortSignal },
-  ): Promise<{
-    text?: string;
-    toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
-    toolResults?: Array<{ payload?: { toolCallId?: string; toolName?: string; isError?: boolean } }>;
-  }>;
+type MastraGenerateResult = {
+  text?: string;
+  toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
+  toolResults?: Array<{ payload?: { toolCallId?: string; toolName?: string; isError?: boolean } }>;
+  usage?: { promptTokens?: number; completionTokens?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number };
 };
 
+export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
+type AssistantMastraAgent = Pick<Agent, "generate">;
+
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
-export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAgentRunner {
+export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent): AssistantAgentRunner {
   return async (input, context, signal) => {
-    const result = await agent.generate(input.text, {
+    const result: MastraGenerateResult = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
       toolsets: {
@@ -47,11 +47,21 @@ export function createAssistantAgentRunner(agent: MastraAgentLike): AssistantAge
       maxSteps: 4,
       ...(signal ? { abortSignal: signal } : {}),
     });
+    const usage = normalizedUsage(result.usage);
     return {
       text: result.text ?? "",
       executionTrace: successfulToolNames(result).map((toolName) => ({ kind: "tool" as const, toolName })),
+      ...(usage ? { usage } : {}),
     };
   };
+}
+
+function normalizedUsage(usage: MastraGenerateResult["usage"]): { inputTokens: number; outputTokens: number; totalTokens: number } | undefined {
+  if (!usage) return undefined;
+  const inputTokens = usage.inputTokens ?? usage.promptTokens;
+  const outputTokens = usage.outputTokens ?? usage.completionTokens;
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  return { inputTokens, outputTokens, totalTokens: usage.totalTokens ?? inputTokens + outputTokens };
 }
 
 function successfulToolNames(result: Awaited<ReturnType<MastraAgentLike["generate"]>>): string[] {

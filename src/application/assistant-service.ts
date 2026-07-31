@@ -31,6 +31,7 @@ import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from 
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
+import { estimateUsageCostUsdMicros, usageMonth, type ModelTokenUsage, type UsageCostPolicy, type UsageStore } from "./usage-store.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -53,12 +54,12 @@ export type AssistantExecutionTraceEvent =
   | { kind: "tool"; toolName: string }
   | { kind: "process"; processId: string };
 export type AssistantExecutionTrace = readonly AssistantExecutionTraceEvent[];
-export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace };
+export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace; usage?: ModelTokenUsage };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult>;
 type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
-export type AssistantOperationalWarning = Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & {
-  type: "context_budget_overflow";
-};
+export type AssistantOperationalWarning =
+  | (Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & { type: "context_budget_overflow" })
+  | { type: "usage_soft_limit_exceeded"; userId: string; month: string; estimatedCostUsdMicros: number; softLimitUsdMicros: number };
 export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
   | { status: "completed" }
@@ -93,7 +94,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -287,10 +288,12 @@ export class AssistantService {
       markProcessUsed,
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
+    let usage: ModelTokenUsage | undefined;
     try {
       const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext, applicationSignal));
       response = run.text;
       executionTrace = run.executionTrace;
+      usage = run.usage;
     } catch (error) {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
@@ -337,6 +340,7 @@ export class AssistantService {
           }, applicationSignal));
           response = retryRun.text;
           executionTrace = retryRun.executionTrace;
+          usage = retryRun.usage;
         } catch (retryError) {
           const retryEffectState = currentChatEffectState();
           if (!classifyProviderContextOverflow(retryError)) {
@@ -390,6 +394,8 @@ export class AssistantService {
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
+    const usageWarning = usage ? await this.recordUsageSafely({ userId, requestId, threadId, messageId, usage }) : undefined;
+    if (usageWarning) response = appendUsageSoftLimitWarning(response);
     try {
       const appendTurn = this.deps.conversationStore.appendTurn({
         messageId,
@@ -424,6 +430,48 @@ export class AssistantService {
       ...(pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
       effect: currentChatEffectState(),
     };
+  }
+
+  private async recordUsageSafely(input: { userId: string; requestId: string; threadId: string; messageId: string; usage: ModelTokenUsage }): Promise<boolean> {
+    const store = this.deps.usageStore;
+    const policy = this.deps.usageCostPolicy;
+    if (!store || !policy) return false;
+    const occurredAt = this.clock.now();
+    try {
+      const monthly = await store.record({
+        id: (this.ids.usageId ?? randomIdGenerator.usageId!)(),
+        userId: input.userId,
+        requestId: input.requestId,
+        month: usageMonth(occurredAt),
+        ...input.usage,
+        estimatedCostUsdMicros: estimateUsageCostUsdMicros(input.usage, policy),
+        occurredAt,
+      });
+      if (monthly.estimatedCostUsdMicros <= policy.monthlySoftLimitUsdMicros) return false;
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId: input.requestId, type: "usage_soft_limit_exceeded", employeeId: input.userId,
+        threadId: input.threadId, messageId: input.messageId, occurredAt,
+        metadata: safeAuditMetadata("usage_soft_limit_exceeded", {
+          month: monthly.month,
+          inputTokens: monthly.inputTokens,
+          outputTokens: monthly.outputTokens,
+          totalTokens: monthly.totalTokens,
+          estimatedCostUsdMicros: monthly.estimatedCostUsdMicros,
+          softLimitUsdMicros: policy.monthlySoftLimitUsdMicros,
+        }),
+      }, "usage soft-limit audit");
+      this.warnOperationally({
+        type: "usage_soft_limit_exceeded",
+        userId: input.userId,
+        month: monthly.month,
+        estimatedCostUsdMicros: monthly.estimatedCostUsdMicros,
+        softLimitUsdMicros: policy.monthlySoftLimitUsdMicros,
+      });
+      return true;
+    } catch (error) {
+      logAssistantOperationalError("usage persistence", error);
+      return false;
+    }
   }
 
   private scheduleThreadCompaction(input: { employeeId: string; threadId: string; requestId: string }): void {
@@ -567,6 +615,12 @@ function throwAssistantAbortReason(signal: AbortSignal): void {
 
 function normalizeAssistantAgentRunResult(result: AssistantAgentRunResult | string): AssistantAgentRunResult {
   return typeof result === "string" ? { text: result, executionTrace: [] } : result;
+}
+
+const usageSoftLimitUserWarning = "⚠️ Мягкий месячный лимит использования превышен. Работа продолжается; оператор уже уведомлён.";
+
+function appendUsageSoftLimitWarning(response: string): string {
+  return `${response.trimEnd()}\n\n${usageSoftLimitUserWarning}`;
 }
 
 function mergeExecutionTrace(runnerTrace: AssistantExecutionTrace, observedTrace: AssistantExecutionTrace): AssistantExecutionTraceEvent[] {

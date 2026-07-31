@@ -34,6 +34,7 @@ import { createPostgresTelegramSessionStore } from "../infrastructure/postgres/p
 import { createPostgresTaskMutationConfirmationStore } from "../infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { createPostgresTaskStore } from "../infrastructure/postgres/postgres-task-store.js";
 import { createPostgresScheduleStore } from "../infrastructure/postgres/postgres-schedule-store.js";
+import { createPostgresUsageStore } from "../infrastructure/postgres/postgres-usage-store.js";
 import { SchedulerService } from "../application/scheduler-service.js";
 import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
@@ -45,6 +46,7 @@ import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { deliverTelegramMessage } from "../telegram/telegram-shell.js";
+import { usageCostPolicyFromEnv } from "../config/usage.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -56,6 +58,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   assertGeneratedContextSourceMinimums(contextBudget, agentInstructions);
   const privacy = privacyConfigFromEnv(input.env);
   const taskMutationCompletedReplayRetentionMilliseconds = taskMutationCompletedReplayRetentionFromEnv(input.env);
+  const usageCostPolicy = usageCostPolicyFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -146,6 +149,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const taskStore = createPostgresTaskStore(pool);
     const scheduleStore = createPostgresScheduleStore(pool);
+    const usageStore = createPostgresUsageStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
@@ -156,6 +160,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       taskMutations,
       ideaToTask,
       auditEventStore: stores.auditEventStore,
+      usageStore,
+      usageCostPolicy,
       participantStore: stores.profileStore,
       chatProjectionBuilder,
       threadCompactionService,

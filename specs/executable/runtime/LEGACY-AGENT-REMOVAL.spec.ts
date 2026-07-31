@@ -75,6 +75,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed", isError: false } },
             { payload: { toolCallId: "call-2", toolName: "captureIdea", isError: false } },
           ],
+          usage: { promptTokens: 120, completionTokens: 30, totalTokens: 150 },
         };
       },
     });
@@ -143,6 +144,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         { kind: "tool", toolName: "markProcessUsed" },
         { kind: "tool", toolName: "captureIdea" },
       ],
+      usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
     });
 
     expect(captured).toEqual([{

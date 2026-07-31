@@ -18,6 +18,7 @@ import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postg
 import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 import { createPostgresScheduleStore } from "../../src/infrastructure/postgres/postgres-schedule-store.js";
+import { createPostgresUsageStore } from "../../src/infrastructure/postgres/postgres-usage-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
@@ -67,6 +68,43 @@ describe("PostgreSQL storage contracts", () => {
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
+  });
+
+  it("persists metadata-only usage and aggregates it by owner and month", async () => {
+    await issueProfileReadyParticipant(pool, "usage_owner", "invite_usage_owner");
+    await issueProfileReadyParticipant(pool, "usage_other", "invite_usage_other");
+    let usage = createPostgresUsageStore(pool);
+    const first = {
+      id: "usage_pg_1", userId: "usage_owner", requestId: "request_usage_pg_1", month: "2026-07",
+      inputTokens: 100, outputTokens: 50, totalTokens: 150, estimatedCostUsdMicros: 325, occurredAt: "2026-07-31T23:00:00.000Z",
+    };
+    await usage.record(first);
+    await usage.record({
+      id: "usage_pg_2", userId: "usage_owner", requestId: "request_usage_pg_2", month: "2026-07",
+      inputTokens: 200, outputTokens: 100, totalTokens: 300, estimatedCostUsdMicros: 650, occurredAt: "2026-07-31T23:30:00.000Z",
+    });
+    await usage.record({
+      id: "usage_pg_other", userId: "usage_other", requestId: "request_usage_pg_other", month: "2026-07",
+      inputTokens: 20, outputTokens: 10, totalTokens: 30, estimatedCostUsdMicros: 65, occurredAt: "2026-07-31T23:45:00.000Z",
+    });
+    await usage.record(first);
+
+    expect(await usage.getMonthly("usage_owner", "2026-07")).toEqual({
+      userId: "usage_owner", month: "2026-07", inputTokens: 300, outputTokens: 150, totalTokens: 450, estimatedCostUsdMicros: 975,
+    });
+    expect(await usage.getMonthly("usage_other", "2026-07")).toMatchObject({ totalTokens: 30, estimatedCostUsdMicros: 65 });
+    expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0 });
+    const columns = await pool.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='minutka_private' AND table_name='usage' ORDER BY ordinal_position",
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual([
+      "usage_id", "user_id", "request_id", "usage_month", "input_tokens", "output_tokens", "total_tokens", "estimated_cost_usd_micros", "occurred_at",
+    ]);
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    usage = createPostgresUsageStore(pool);
+    expect(await usage.getMonthly("usage_owner", "2026-07")).toMatchObject({ totalTokens: 450, estimatedCostUsdMicros: 975 });
   });
 
   it("persists invite, profile, turn and stable feedback upsert after recreating the pool", async () => {
