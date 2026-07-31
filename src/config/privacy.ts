@@ -1,6 +1,8 @@
 import { currentPrivacyVersion, createPrivacyExplanation } from "../domain/privacy.js";
 
-export const privacyPolicyUrlEnvName = `PRIVACY_POLICY_${currentPrivacyVersion.replace("-", "_").toUpperCase()}_URL` as const;
+// The version already carries the `privacy-` prefix that the name starts with;
+// stripping it keeps PRIVACY_POLICY_V2_URL rather than doubling the prefix.
+export const privacyPolicyUrlEnvName = `PRIVACY_POLICY_${currentPrivacyVersion.replace(/^privacy-/u, "").toUpperCase()}_URL` as const;
 
 export type PrivacyConfig = {
   policyUrl: string;

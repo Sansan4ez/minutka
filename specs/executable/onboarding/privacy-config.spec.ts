@@ -4,6 +4,12 @@ import { privacyConfigFromEnv, privacyPolicyUrlEnvName } from "../../../src/conf
 const pinnedCommit = "0123456789abcdef0123456789abcdef01234567";
 
 describe("privacy-v2 deployment policy URL", () => {
+  // Asserting the literal keeps the derived name in step with .env.example and
+  // the runbook; indexing env by the exported constant alone cannot catch drift.
+  it("reads the environment variable documented for deployment", () => {
+    expect(privacyPolicyUrlEnvName).toBe("PRIVACY_POLICY_V2_URL");
+  });
+
   it("builds the consent text from a canonical versioned HTTPS URL", () => {
     const config = privacyConfigFromEnv({
       [privacyPolicyUrlEnvName]: "https://privacy.example.com/policies/privacy-v2.html",
