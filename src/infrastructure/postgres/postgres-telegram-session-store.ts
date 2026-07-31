@@ -13,6 +13,7 @@ type Row = {
   updated_at: Date;
 };
 
+type IdentityRow = Row & { delivery_target_linked: boolean };
 type DeliveryRow = Row & { chat_id: string };
 
 const session = (row: Row) => ({
@@ -28,14 +29,15 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
   const lookup = async (chatId: string, userId?: string) => {
     const chat = keyedDigest(chatId, pepper);
     const user = userId === undefined ? undefined : keyedDigest(userId, pepper);
-    const result = await pool.query<Row>(
-      `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at
+    const result = await pool.query<IdentityRow>(
+      `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at,
+              s.chat_id_encrypted IS NOT NULL AS delivery_target_linked
        FROM minutka_private.telegram_sessions s
        LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
        WHERE s.chat_id_digest = $1${user ? " AND s.user_id_digest = $2" : ""}`,
       user ? [chat, user] : [chat],
     );
-    return result.rows[0] ? session(result.rows[0]) : undefined;
+    return result.rows[0] ? { ...session(result.rows[0]), deliveryTargetLinked: result.rows[0].delivery_target_linked } : undefined;
   };
 
   return {
@@ -55,11 +57,40 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
                   pgp_sym_decrypt(s.chat_id_encrypted, $2)::text AS chat_id
            FROM minutka_private.telegram_sessions s
            LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
-           WHERE s.employee_id = $1`,
+           WHERE s.employee_id = $1
+             AND s.chat_id_encrypted IS NOT NULL`,
           [employeeId, pepper],
         );
         return result.rows[0] ? { chatId: result.rows[0].chat_id, ...session(result.rows[0]) } : undefined;
       } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+    async linkDeliveryTarget({ identity, employeeId }) {
+      try {
+        const chat = keyedDigest(identity.chatId, pepper);
+        const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
+        const result = await pool.query(
+          `UPDATE minutka_private.telegram_sessions
+           SET chat_id_encrypted = pgp_sym_encrypt($4, $5)
+           WHERE employee_id = $1
+             AND chat_id_digest = $2
+             AND user_id_digest IS NOT DISTINCT FROM $3
+             AND chat_id_encrypted IS NULL`,
+          [employeeId, chat, user, identity.chatId, pepper],
+        );
+        if (result.rowCount === 1) return;
+        const existing = await pool.query(
+          `SELECT 1 FROM minutka_private.telegram_sessions
+           WHERE employee_id = $1
+             AND chat_id_digest = $2
+             AND user_id_digest IS NOT DISTINCT FROM $3
+             AND chat_id_encrypted IS NOT NULL`,
+          [employeeId, chat, user],
+        );
+        if (!existing.rowCount) throw new PersistenceError("session_not_found");
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
         throw mapPostgresError(error);
       }
     },

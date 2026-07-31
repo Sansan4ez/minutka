@@ -226,6 +226,30 @@ describe("PostgreSQL storage contracts", () => {
     expect(await sessions.getDeliveryByEmployee("missing")).toBeUndefined();
   });
 
+  it("fails closed for a digest-only Telegram session and restores delivery by relinking", async () => {
+    await issueProfileReadyParticipant(pool, "emp_relink", "invite_relink");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const identity = { chatId: "chat_relink", userId: "user_relink" };
+    expect(await sessions.claim({
+      identity,
+      session: { employeeId: "emp_relink", threadId: "thread_relink", createdAt: now, updatedAt: now },
+    })).toMatchObject({ status: "claimed" });
+    await pool.query("UPDATE minutka_private.telegram_sessions SET chat_id_encrypted = NULL WHERE employee_id = $1", ["emp_relink"]);
+
+    expect(await sessions.getByIdentity(identity)).toMatchObject({
+      employeeId: "emp_relink",
+      deliveryTargetLinked: false,
+    });
+    expect(await sessions.getDeliveryByEmployee("emp_relink")).toBeUndefined();
+
+    await sessions.linkDeliveryTarget({ identity, employeeId: "emp_relink" });
+
+    expect(await sessions.getByIdentity(identity)).toMatchObject({ deliveryTargetLinked: true });
+    expect(await sessions.getDeliveryByEmployee("emp_relink")).toMatchObject({
+      chatId: "chat_relink", employeeId: "emp_relink", threadId: "thread_relink",
+    });
+  });
+
   it("rotates only the active Telegram thread for an existing owner", async () => {
     await issueProfileReadyParticipant(pool, "emp_rotate", "invite_rotate");
     const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);

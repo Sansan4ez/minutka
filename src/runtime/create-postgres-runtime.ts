@@ -36,7 +36,7 @@ import { createPostgresTaskStore } from "../infrastructure/postgres/postgres-tas
 import { createPostgresScheduleStore } from "../infrastructure/postgres/postgres-schedule-store.js";
 import { createPostgresUsageStore } from "../infrastructure/postgres/postgres-usage-store.js";
 import { SchedulerService } from "../application/scheduler-service.js";
-import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
+import { requireTelegramDeliverySession, telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
@@ -188,8 +188,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
       if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
-      const delivery = await telegramSessionStore.getDeliveryByEmployee(fire.userId);
-      if (!delivery) throw new TelegramDeliverySessionNotFoundError();
+      const delivery = requireTelegramDeliverySession(await telegramSessionStore.getDeliveryByEmployee(fire.userId));
       const result = await assistant.runScheduledProcess({
         userId: fire.userId,
         threadId: delivery.threadId,
@@ -234,8 +233,4 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
 
 class TelegramDeliveryNotConfiguredError extends Error {
   constructor() { super("Telegram delivery is not configured."); this.name = "TelegramDeliveryNotConfiguredError"; }
-}
-
-class TelegramDeliverySessionNotFoundError extends Error {
-  constructor() { super("Telegram delivery session not found."); this.name = "TelegramDeliverySessionNotFoundError"; }
 }

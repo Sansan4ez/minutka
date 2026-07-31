@@ -13,6 +13,8 @@ export type TelegramSession = {
   updatedAt: string;
 };
 
+export type TelegramIdentitySession = TelegramSession & { deliveryTargetLinked: boolean };
+
 export type TelegramSessionClaimResult =
   | { status: "claimed"; session: TelegramSession }
   | { status: "chat_already_linked" }
@@ -24,10 +26,21 @@ export type TelegramOnboardingConfirmationClaimResult =
 
 export type TelegramDeliverySession = TelegramSession & { chatId: string };
 
+export class TelegramDeliverySessionNotFoundError extends Error {
+  constructor() { super("Telegram delivery session not found."); this.name = "TelegramDeliverySessionNotFoundError"; }
+}
+
+export function requireTelegramDeliverySession(session: TelegramDeliverySession | undefined): TelegramDeliverySession {
+  if (!session) throw new TelegramDeliverySessionNotFoundError();
+  return session;
+}
+
 export interface TelegramSessionStore {
-  getByIdentity(identity: TelegramIdentity): Promise<TelegramSession | undefined>;
+  getByIdentity(identity: TelegramIdentity): Promise<TelegramIdentitySession | undefined>;
   /** Private outbound-delivery lookup. Raw chat id never crosses the application facade. */
   getDeliveryByEmployee(employeeId: string): Promise<TelegramDeliverySession | undefined>;
+  /** Restores proactive delivery for a digest-only legacy session without recreating it. */
+  linkDeliveryTarget(input: { identity: TelegramIdentity; employeeId: string }): Promise<void>;
   claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
   /** Rotates the active dialogue thread for one owner without deleting prior history or durable records. */
   rotateThread(input: { userId: string; nextThreadId: string; updatedAt: string }): Promise<void>;

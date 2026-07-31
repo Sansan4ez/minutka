@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryScheduleStore } from "../../../src/application/in-memory-schedule-store.js";
 import { SchedulerService } from "../../../src/application/scheduler-service.js";
 import { nextDailyFireAt } from "../../../src/shared/schedule-time.js";
+import { requireTelegramDeliverySession } from "../../../src/telegram/telegram-session-store.js";
 
 class TelegramUnavailableError extends Error {
   constructor() { super("Telegram is unavailable"); this.name = "TelegramUnavailableError"; }
@@ -96,6 +97,28 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     expect(deliveries).toEqual([{ chatId: "owner-chat", text: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?" }]);
     await expect(store.listFires("maxim", "evening-reflection")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
+    }]);
+  });
+
+  it("marks a missing Telegram delivery target without rejecting the scheduler tick", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    const logged: Array<{ errorCode: string; processId: string }> = [];
+    const scheduler = new SchedulerService(
+      store,
+      clock,
+      async () => { requireTelegramDeliverySession(undefined); },
+      ({ fire, errorCode }) => logged.push({ errorCode, processId: fire.processId }),
+    );
+    await store.save("maxim", {
+      id: "morning-focus", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toHaveLength(1);
+    expect(logged).toEqual([{ errorCode: "TelegramDeliverySessionNotFoundError", processId: "day_focus" }]);
+    await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
+      status: "failed", errorCode: "TelegramDeliverySessionNotFoundError", completedAt: clock.now(),
     }]);
   });
 

@@ -8,6 +8,7 @@ import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../.
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { currentPrivacyVersion } from "../../../src/domain/privacy.js";
 import { Readable } from "node:stream";
+import { createInMemoryTelegramSessionStore } from "../../../src/telegram/in-memory-telegram-session-store.js";
 
 const botInfo = { id: 999, is_bot: true as const, first_name: "Assistant", username: "assistant_bot", can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false };
 const baseMessage = { date: 1, chat: { id: 1, type: "private" as const }, from: { id: 2, is_bot: false, first_name: "Owner" } };
@@ -62,6 +63,36 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     await bot.handleUpdate(update({ voice: { file_id: "voice", file_unique_id: "voice-u", duration: 2, file_size: 10 } }, 16));
 
     expect(chatActions).toEqual([{ chatId: "1", action: "typing" }]);
+  });
+
+  it("relinks a legacy delivery target on the first owner message only", async () => {
+    const world = createInMemoryWorld();
+    const runtime = createInMemoryRuntime({ world, agentRunner: async () => "Готово" });
+    const sessionStore = createInMemoryTelegramSessionStore({ deliveryTargetsLinked: false });
+    const claimedAt = new Date().toISOString();
+    await sessionStore.claim({
+      identity: { chatId: "1", userId: "2" },
+      session: { employeeId: "owner", threadId: "thread", createdAt: claimedAt, updatedAt: claimedAt },
+    });
+    let linkCalls = 0;
+    const originalLink = sessionStore.linkDeliveryTarget.bind(sessionStore);
+    sessionStore.linkDeliveryTarget = async (input) => { linkCalls += 1; await originalLink(input); };
+    const client = new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "relink-spec" }));
+    const shell = createTelegramShell({
+      client,
+      sessionStore,
+      privacyExplanation: executableSpecPrivacyExplanation,
+      replyPort: {
+        async sendMessage() { return { messageId: 1 }; },
+        async editReplyMarkup() {}, async sendChatAction() {}, async answerCallbackQuery() {},
+      },
+    });
+
+    await shell.handleStart("1", undefined, "2");
+    await shell.handleStart("1", undefined, "2");
+
+    expect(linkCalls).toBe(1);
+    expect(await sessionStore.getDeliveryByEmployee("owner")).toMatchObject({ chatId: "1" });
   });
 
   it("routes /new to the dedicated reset handler instead of ordinary text chat", async () => {

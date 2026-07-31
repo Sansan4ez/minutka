@@ -342,8 +342,17 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       if (inFlightActionMessages.get(key) === completion) inFlightActionMessages.delete(key);
     }
   }
+  async function getLinkedSession(chatId: string, userId?: string) {
+    const telegramIdentity = identity(chatId, userId);
+    const session = await sessionStore.getByIdentity(telegramIdentity);
+    if (session && !session.deliveryTargetLinked) {
+      await sessionStore.linkDeliveryTarget({ identity: telegramIdentity, employeeId: session.employeeId });
+      return { ...session, deliveryTargetLinked: true };
+    }
+    return session;
+  }
   async function authorizedSession(chatId: string, userId?: string) {
-    const session = await sessionStore.getByIdentity(identity(chatId, userId));
+    const session = await getLinkedSession(chatId, userId);
     if (!session) {
       const existingChat = await sessionStore.getByIdentity(identity(chatId));
       await replyPort.sendMessage(chatId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Откройте бота по индивидуальной ссылке /start <code>");
@@ -415,7 +424,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await removeActiveReplyMarkup(chatId);
       try {
         if (!userId) return void await replyPort.sendMessage(chatId, "Не удалось определить аккаунт Telegram.");
-        const telegramIdentity = identity(chatId, userId); const existing = await sessionStore.getByIdentity(telegramIdentity);
+        const telegramIdentity = identity(chatId, userId); const existing = await getLinkedSession(chatId, userId);
         if (existing) {
           if (!existing.consentAcceptedAt || existing.consentPrivacyVersion !== currentPrivacyVersion) { await sendConsentPrompt(replyPort, chatId, existing.employeeId, privacyExplanation); await employeeClient(existing.employeeId).recordPrivacyExplanationShown(); return; }
           return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
@@ -536,7 +545,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       enterChat(chatId);
       if (actionKey) callbackActionKeys.set(chatId, actionKey);
       try {
-        const telegramIdentity = identity(chatId, userId); const session = await sessionStore.getByIdentity(telegramIdentity);
+        const telegramIdentity = identity(chatId, userId); const session = await getLinkedSession(chatId, userId);
         if (data.startsWith("tg:consent:")) {
           const employeeId = data.slice("tg:consent:".length); if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
           const handled = await runCallbackAction({ chatId, userId, employeeId, messageId, callbackQueryId, action: () => employeeClient(employeeId).acceptConsent({ accepted: true, source: "telegram", telegramIdentity }) });

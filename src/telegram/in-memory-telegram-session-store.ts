@@ -3,22 +3,34 @@ import { currentPrivacyVersion } from "../domain/privacy.js";
 import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, TelegramSessionStore } from "./telegram-session-store.js";
 
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
-export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
-  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; actionMessages: Map<number, { claimedAt: string; completed: boolean }> }>();
+export function createInMemoryTelegramSessionStore(options: { deliveryTargetsLinked?: boolean } = {}): TelegramSessionStore {
+  const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; deliveryChatId?: string; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; actionMessages: Map<number, { claimedAt: string; completed: boolean }> }>();
   return {
     async getByIdentity(identity) {
       const found = store.get(identity.chatId);
       if (!found || (identity.userId !== undefined && found.identity.userId !== identity.userId)) return undefined;
-      return { ...found.session };
+      return { ...found.session, deliveryTargetLinked: found.deliveryChatId !== undefined };
     },
     async getDeliveryByEmployee(employeeId) {
-      const found = [...store.entries()].find(([, entry]) => entry.session.employeeId === employeeId);
-      return found ? { chatId: found[0], ...found[1].session } : undefined;
+      const found = [...store.values()].find((entry) => entry.session.employeeId === employeeId);
+      return found?.deliveryChatId ? { chatId: found.deliveryChatId, ...found.session } : undefined;
+    },
+    async linkDeliveryTarget({ identity, employeeId }) {
+      const found = store.get(identity.chatId);
+      if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
+        throw new PersistenceError("session_not_found");
+      }
+      if (found.deliveryChatId === undefined) found.deliveryChatId = identity.chatId;
     },
     async claim({ identity, session }): Promise<TelegramSessionClaimResult> {
       if (store.has(identity.chatId)) return { status: "chat_already_linked" };
       if ([...store.values()].some((entry) => entry.session.employeeId === session.employeeId)) return { status: "employee_already_linked" };
-      store.set(identity.chatId, { identity: { ...identity }, session: { ...session }, actionMessages: new Map() });
+      store.set(identity.chatId, {
+        identity: { ...identity },
+        session: { ...session },
+        ...(options.deliveryTargetsLinked === false ? {} : { deliveryChatId: identity.chatId }),
+        actionMessages: new Map(),
+      });
       return { status: "claimed", session: { ...session } };
     },
     async rotateThread({ userId, nextThreadId, updatedAt }) {
