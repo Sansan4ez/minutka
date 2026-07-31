@@ -3,6 +3,7 @@ import { PersistenceError, mapPostgresError } from "../../application/persistenc
 import type { Pool } from "pg";
 import { keyedDigest } from "./digests.js";
 import { withTransaction } from "./postgres-pool.js";
+import type { SecretBox } from "./secret-box.js";
 
 type Row = {
   employee_id: string;
@@ -14,7 +15,7 @@ type Row = {
 };
 
 type IdentityRow = Row & { delivery_target_linked: boolean };
-type DeliveryRow = Row & { chat_id: string };
+type DeliveryRow = Row & { chat_id_ciphertext: Buffer };
 
 const session = (row: Row) => ({
   employeeId: row.employee_id,
@@ -25,13 +26,17 @@ const session = (row: Row) => ({
   updatedAt: row.updated_at.toISOString(),
 });
 
-export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): TelegramSessionStore {
+export function createPostgresTelegramSessionStore(pool: Pool, pepper: string, secretBox?: SecretBox): TelegramSessionStore {
+  const requireSecretBox = () => {
+    if (!secretBox) throw new PersistenceError("persistence_unavailable");
+    return secretBox;
+  };
   const lookup = async (chatId: string, userId?: string) => {
     const chat = keyedDigest(chatId, pepper);
     const user = userId === undefined ? undefined : keyedDigest(userId, pepper);
     const result = await pool.query<IdentityRow>(
       `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at,
-              s.chat_id_encrypted IS NOT NULL AS delivery_target_linked
+              s.chat_id_ciphertext IS NOT NULL AS delivery_target_linked
        FROM minutka_private.telegram_sessions s
        LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
        WHERE s.chat_id_digest = $1${user ? " AND s.user_id_digest = $2" : ""}`,
@@ -54,14 +59,16 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
       try {
         const result = await pool.query<DeliveryRow>(
           `SELECT s.employee_id, s.thread_id, s.consent_accepted_at, c.privacy_version, s.created_at, s.updated_at,
-                  pgp_sym_decrypt(s.chat_id_encrypted, $2)::text AS chat_id
+                  s.chat_id_ciphertext
            FROM minutka_private.telegram_sessions s
            LEFT JOIN minutka_private.consents c ON c.employee_id = s.employee_id
            WHERE s.employee_id = $1
-             AND s.chat_id_encrypted IS NOT NULL`,
-          [employeeId, pepper],
+             AND s.chat_id_ciphertext IS NOT NULL`,
+          [employeeId],
         );
-        return result.rows[0] ? { chatId: result.rows[0].chat_id, ...session(result.rows[0]) } : undefined;
+        return result.rows[0]
+          ? { chatId: requireSecretBox().decrypt(result.rows[0].chat_id_ciphertext), ...session(result.rows[0]) }
+          : undefined;
       } catch (error) {
         throw mapPostgresError(error);
       }
@@ -70,14 +77,15 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
       try {
         const chat = keyedDigest(identity.chatId, pepper);
         const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
+        const ciphertext = requireSecretBox().encrypt(identity.chatId);
         const result = await pool.query(
           `UPDATE minutka_private.telegram_sessions
-           SET chat_id_encrypted = pgp_sym_encrypt($4, $5)
+           SET chat_id_ciphertext = $4
            WHERE employee_id = $1
              AND chat_id_digest = $2
              AND user_id_digest IS NOT DISTINCT FROM $3
-             AND chat_id_encrypted IS NULL`,
-          [employeeId, chat, user, identity.chatId, pepper],
+             AND chat_id_ciphertext IS NULL`,
+          [employeeId, chat, user, ciphertext],
         );
         if (result.rowCount === 1) return;
         const existing = await pool.query(
@@ -85,7 +93,7 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
            WHERE employee_id = $1
              AND chat_id_digest = $2
              AND user_id_digest IS NOT DISTINCT FROM $3
-             AND chat_id_encrypted IS NOT NULL`,
+             AND chat_id_ciphertext IS NOT NULL`,
           [employeeId, chat, user],
         );
         if (!existing.rowCount) throw new PersistenceError("session_not_found");
@@ -98,14 +106,15 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
       const chat = keyedDigest(identity.chatId, pepper);
       const user = identity.userId ? keyedDigest(identity.userId, pepper) : null;
       try {
+        const ciphertext = requireSecretBox().encrypt(identity.chatId);
         return await withTransaction(pool, async (client) => {
           const inserted = await client.query<Row>(
             `INSERT INTO minutka_private.telegram_sessions
-              (chat_id_digest, user_id_digest, employee_id, thread_id, created_at, updated_at, chat_id_encrypted)
-             VALUES ($1, $2, $3, $4, $5, $6, pgp_sym_encrypt($7, $8))
+              (chat_id_digest, user_id_digest, employee_id, thread_id, created_at, updated_at, chat_id_ciphertext)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT DO NOTHING
              RETURNING employee_id, thread_id, consent_accepted_at, NULL::text AS privacy_version, created_at, updated_at`,
-            [chat, user, next.employeeId, next.threadId, next.createdAt, next.updatedAt, identity.chatId, pepper],
+            [chat, user, next.employeeId, next.threadId, next.createdAt, next.updatedAt, ciphertext],
           );
           if (inserted.rowCount) return { status: "claimed" as const, session: session(inserted.rows[0]) };
 

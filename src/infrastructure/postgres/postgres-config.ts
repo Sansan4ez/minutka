@@ -1,3 +1,5 @@
+import { integrationEncryptionKeyFromBase64 } from "./secret-box.js";
+
 export type PostgresConfig = {
   databaseUrl: string;
   ssl: false | { rejectUnauthorized: boolean };
@@ -6,6 +8,7 @@ export type PostgresConfig = {
   statementTimeoutMillis: number;
   inviteCodePepper: string;
   telegramIdentityPepper: string;
+  integrationEncryptionKey?: Buffer;
 };
 
 export function postgresConfigFromEnv(env: NodeJS.ProcessEnv): PostgresConfig {
@@ -14,6 +17,13 @@ export function postgresConfigFromEnv(env: NodeJS.ProcessEnv): PostgresConfig {
   if (!databaseUrl) throw new Error("DATABASE_URL is required for postgres runtime");
   if (!env.INVITE_CODE_PEPPER) throw new Error("INVITE_CODE_PEPPER is required for postgres runtime");
   if (!env.TELEGRAM_IDENTITY_PEPPER) throw new Error("TELEGRAM_IDENTITY_PEPPER is required for postgres runtime");
+  const telegramMode = env.TELEGRAM_MODE ?? "disabled";
+  if (telegramMode === "polling" && !env.INTEGRATION_ENC_KEY) {
+    throw new Error("TELEGRAM_MODE=polling requires INTEGRATION_ENC_KEY");
+  }
+  const integrationEncryptionKey = env.INTEGRATION_ENC_KEY
+    ? integrationEncryptionKeyFromBase64(env.INTEGRATION_ENC_KEY)
+    : undefined;
   if (!["require", "disable"].includes(sslMode)) {
     throw new Error("DATABASE_SSL_MODE must be require or disable");
   }
@@ -25,6 +35,7 @@ export function postgresConfigFromEnv(env: NodeJS.ProcessEnv): PostgresConfig {
     statementTimeoutMillis: parsePositiveInt(env.DATABASE_STATEMENT_TIMEOUT_MS, 10_000),
     inviteCodePepper: env.INVITE_CODE_PEPPER,
     telegramIdentityPepper: env.TELEGRAM_IDENTITY_PEPPER,
+    integrationEncryptionKey,
   };
 }
 function parsePositiveInt(value: string | undefined, fallback: number) {

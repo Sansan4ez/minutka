@@ -21,7 +21,8 @@ cp .env.example .env
 chmod 600 .env
 # Set POSTGRES_SUPERUSER_PASSWORD, MINUTKA_DB_PASSWORD,
 # MINUTKA_MIGRATOR_DB_PASSWORD, INVITE_CODE_PEPPER and
-# TELEGRAM_IDENTITY_PEPPER to distinct random values. Also publish the
+# TELEGRAM_IDENTITY_PEPPER to distinct random values. Generate
+# INTEGRATION_ENC_KEY with `openssl rand -base64 32`. Also publish the
 # privacy-v2 policy snapshot and set PRIVACY_POLICY_V2_URL to its public URL.
 ```
 
@@ -59,6 +60,7 @@ TEST_MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5432/min
 DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
+INTEGRATION_ENC_KEY=<exactly 32 random bytes encoded as base64>
 PRIVACY_POLICY_V2_URL=https://privacy.example.com/privacy-v2.html
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_INVITES=emp_1:one-time-invite
@@ -70,8 +72,10 @@ Compose bootstrap creates `minutka_migrator` as database/schema owner and
 `MIGRATION_DATABASE_URL`; runtime uses `DATABASE_URL`. The application role
 receives `USAGE` on application schemas, DML on runtime tables, and read-only
 `SELECT` on `minutka_meta.schema_migrations` for the startup status check. Do
-not log the database URL, peppers, invite codes, Telegram identities, SQL
-parameters containing personal data, or raw provider errors.
+not log the database URL, peppers, encryption key, invite codes, Telegram
+identities, SQL parameters containing personal data, or raw provider errors.
+`INTEGRATION_ENC_KEY` never crosses the Node.js process boundary; PostgreSQL
+stores only the AES-256-GCM ciphertext.
 
 `PRIVACY_POLICY_V2_URL` is mandatory deployment configuration, with no repository
 fallback. Before accepting owners, publish the exact `privacy-v2` policy snapshot

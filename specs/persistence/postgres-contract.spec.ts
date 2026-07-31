@@ -24,6 +24,7 @@ import { TaskMutationConfirmationService } from "../../src/application/task-muta
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
 import { IdeaDeletionService } from "../../src/application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../../src/infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
+import { createSecretBox } from "../../src/infrastructure/postgres/secret-box.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -39,6 +40,7 @@ const config = {
   statementTimeoutMillis: 5_000,
   inviteCodePepper: "test-invite-pepper",
   telegramIdentityPepper: "test-telegram-pepper",
+  integrationEncryptionKey: Buffer.alloc(32, 7),
 };
 const migrationConfig = { ...config, databaseUrl: migrationUrl };
 const now = "2026-07-12T00:00:00.000Z";
@@ -213,7 +215,7 @@ describe("PostgreSQL storage contracts", () => {
 
   it("resolves a chat-only identity probe even when the session has a user digest", async () => {
     await issueProfileReadyParticipant(pool, "emp_probe", "invite_probe");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     expect(await sessions.claim({
       identity: { chatId: "chat_probe", userId: "user_probe" },
       session: { employeeId: "emp_probe", threadId: "thread_probe", createdAt: now, updatedAt: now },
@@ -223,18 +225,24 @@ describe("PostgreSQL storage contracts", () => {
     expect(await sessions.getDeliveryByEmployee("emp_probe")).toMatchObject({
       chatId: "chat_probe", employeeId: "emp_probe", threadId: "thread_probe",
     });
+    const stored = await pool.query<{ chat_id_ciphertext: Buffer }>(
+      "SELECT chat_id_ciphertext FROM minutka_private.telegram_sessions WHERE employee_id = $1",
+      ["emp_probe"],
+    );
+    expect(stored.rows[0]?.chat_id_ciphertext).toBeInstanceOf(Buffer);
+    expect(stored.rows[0]?.chat_id_ciphertext.includes(Buffer.from("chat_probe", "utf8"))).toBe(false);
     expect(await sessions.getDeliveryByEmployee("missing")).toBeUndefined();
   });
 
   it("fails closed for a digest-only Telegram session and restores delivery by relinking", async () => {
     await issueProfileReadyParticipant(pool, "emp_relink", "invite_relink");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const identity = { chatId: "chat_relink", userId: "user_relink" };
     expect(await sessions.claim({
       identity,
       session: { employeeId: "emp_relink", threadId: "thread_relink", createdAt: now, updatedAt: now },
     })).toMatchObject({ status: "claimed" });
-    await pool.query("UPDATE minutka_private.telegram_sessions SET chat_id_encrypted = NULL WHERE employee_id = $1", ["emp_relink"]);
+    await pool.query("UPDATE minutka_private.telegram_sessions SET chat_id_ciphertext = NULL WHERE employee_id = $1", ["emp_relink"]);
 
     expect(await sessions.getByIdentity(identity)).toMatchObject({
       employeeId: "emp_relink",
@@ -252,7 +260,7 @@ describe("PostgreSQL storage contracts", () => {
 
   it("rotates only the active Telegram thread for an existing owner", async () => {
     await issueProfileReadyParticipant(pool, "emp_rotate", "invite_rotate");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const identity = { chatId: "chat_rotate", userId: "user_rotate" };
     expect(await sessions.claim({
       identity,
@@ -271,7 +279,7 @@ describe("PostgreSQL storage contracts", () => {
 
   it("leases Telegram onboarding confirmation delivery and recovers stale claims", async () => {
     await issueProfileReadyParticipant(pool, "emp_confirmation_claim", "invite_confirmation_claim");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const identity = { chatId: "chat_confirmation_claim", userId: "user_confirmation_claim" };
     const employeeId = "emp_confirmation_claim";
     expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_confirmation_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
@@ -296,7 +304,7 @@ describe("PostgreSQL storage contracts", () => {
 
   it("leases Telegram action messages, releases failures, and preserves completed idempotency", async () => {
     await issueProfileReadyParticipant(pool, "emp_action_claim", "invite_action_claim");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const identity = { chatId: "chat_action_claim", userId: "user_action_claim" };
     const employeeId = "emp_action_claim";
     expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_action_claim", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
@@ -321,7 +329,7 @@ describe("PostgreSQL storage contracts", () => {
 
   it("sweeps only Telegram action messages older than the retention boundary", async () => {
     await issueProfileReadyParticipant(pool, "emp_action_sweep", "invite_action_sweep");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const identity = { chatId: "chat_action_sweep", userId: "user_action_sweep" };
     const employeeId = "emp_action_sweep";
     expect(await sessions.claim({ identity, session: { employeeId, threadId: "thread_action_sweep", createdAt: now, updatedAt: now } })).toMatchObject({ status: "claimed" });
@@ -341,7 +349,7 @@ describe("PostgreSQL storage contracts", () => {
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {
     await issueProfileReadyParticipant(pool, "emp_chat_a", "invite_chat_a");
     await issueProfileReadyParticipant(pool, "emp_chat_b", "invite_chat_b");
-    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     const [first, second] = await Promise.all([
       sessions.claim({ identity: { chatId: "shared_chat", userId: "user_a" }, session: { employeeId: "emp_chat_a", threadId: "thread_a", createdAt: now, updatedAt: now } }),
       sessions.claim({ identity: { chatId: "shared_chat", userId: "user_b" }, session: { employeeId: "emp_chat_b", threadId: "thread_b", createdAt: now, updatedAt: now } }),
@@ -849,7 +857,7 @@ describe("PostgreSQL storage contracts", () => {
       id: "ins_delete", employeeId: "emp_delete", threadId: "thread_delete", sourceMessageId: "msg_delete",
       kind: "task_category", label: "reporting", confidence: "low", category: "reporting", createdAt: now,
     }]);
-    const telegramSessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const telegramSessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
     await telegramSessions.claim({
       identity: { chatId: "chat_delete", userId: "user_delete" },
       session: { employeeId: "emp_delete", threadId: "thread_delete", createdAt: now, updatedAt: now },

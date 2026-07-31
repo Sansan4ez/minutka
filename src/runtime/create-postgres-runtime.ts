@@ -50,6 +50,7 @@ import { usageCostPolicyFromEnv } from "../config/usage.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
 import { IdeaDeletionService } from "../application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
+import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -68,7 +69,11 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const status = await migrationStatus(pool);
     if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
     const onboardingDraftStore = createPostgresOnboardingDraftStore(pool);
-    const telegramSessionStore = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const telegramSessionStore = createPostgresTelegramSessionStore(
+      pool,
+      config.telegramIdentityPepper,
+      config.integrationEncryptionKey ? createSecretBox(config.integrationEncryptionKey) : undefined,
+    );
     const auditEventStore = createPostgresAuditEventStore(pool);
     const taskMutationConfirmationStore = createPostgresTaskMutationConfirmationStore(pool);
     const taskMutations = new TaskMutationConfirmationService(taskMutationConfirmationStore, systemClock, {
