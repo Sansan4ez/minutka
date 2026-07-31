@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTelegrafBot } from "../../../src/telegram/telegraf-runtime.js";
+import { createTelegrafReplyPort } from "../../../src/telegram/telegraf-reply-port.js";
 
 const botInfo = { id: 999, is_bot: true as const, first_name: "Assistant", username: "assistant_bot", can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false };
 const baseMessage = { date: 1, chat: { id: 1, type: "private" as const }, from: { id: 2, is_bot: false, first_name: "Owner" } };
@@ -9,6 +10,20 @@ function update(message: object, updateId: number) {
 }
 
 describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
+  it("maps the reply contract to Telegraf HTML parse mode", async () => {
+    const calls: Array<{ chatId: string; text: string; options: Record<string, unknown> }> = [];
+    const telegram = {
+      async sendMessage(chatId: string, text: string, options: Record<string, unknown>) { calls.push({ chatId, text, options }); return { message_id: 17 }; },
+      async editMessageReplyMarkup() {}, async sendChatAction() {}, async answerCbQuery() {},
+    };
+    const replyPort = createTelegrafReplyPort(() => telegram as any);
+
+    const sent = await replyPort.sendMessage("chat", "<b>Важно</b>", { parseMode: "HTML", replyToMessageId: 11 });
+
+    expect(sent).toEqual({ messageId: 17 });
+    expect(calls).toEqual([{ chatId: "chat", text: "<b>Важно</b>", options: { parse_mode: "HTML", reply_parameters: { message_id: 11 }, reply_markup: undefined } }]);
+  });
+
   it("registers save-only handlers for supported files and keeps forwarded voice on the STT path", async () => {
     const files: any[] = [];
     const voices: any[] = [];

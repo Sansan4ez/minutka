@@ -71,7 +71,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     const telegram = new TelegramDriver(spec.world, runner, {}, false);
 
     await telegram.sendVoice({ chatId: "unknown", fileId: "unknown_voice", durationSeconds: 1 });
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start <code>");
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start &lt;code&gt;");
     expect(telegram.voiceDownloadCalls()).toEqual([]);
 
     await onboardTestEmployee(spec);
@@ -96,7 +96,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     const telegram = new TelegramDriver(spec.world, runner);
     await telegram.sendVoice({ chatId: "unknown", fileId: "unknown_voice", durationSeconds: 1, transcript: "ignored" });
     expect(telegram.voiceDownloadCalls()).toEqual([]);
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start <code>");
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Откройте бота по индивидуальной ссылке /start &lt;code&gt;");
 
     await onboardTestEmployee(spec);
     await telegram.start({ chatId: "pending", userId: "pending_user", inviteCode: testInvite.inviteCode });

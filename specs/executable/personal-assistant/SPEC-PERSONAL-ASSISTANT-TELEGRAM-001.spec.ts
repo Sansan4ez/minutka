@@ -113,7 +113,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-001: production inbox channel normali
     await shell.handleFile("1", attachment({ messageId: 11, fileSizeBytes: maxTelegramArtifactFileSizeBytes + 1 }), "user-1");
     expect(createdBodies).toEqual([]);
     expect(downloads).toEqual([]);
-    expect(replies).toContain("Откройте бота по индивидуальной ссылке /start <code>");
+    expect(replies).toContain("Откройте бота по индивидуальной ссылке /start &lt;code&gt;");
     expect(replies.at(-1)).toContain("Файл слишком большой");
   });
 

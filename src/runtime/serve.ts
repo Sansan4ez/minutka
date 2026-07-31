@@ -8,9 +8,9 @@ import { sttConfigFromEnv } from "./stt-config.js";
 import { createAssistantAgentRunner } from "../mastra/agent-runner.js";
 import { personalAssistantAgent } from "../mastra/agents/personal-assistant-agent.js";
 import { createOpenAiSpeechToText } from "../mastra/voice-transcriber.js";
-import { createTelegramShell, maxTelegramMessageCharacters, telegramMessageLength } from "../telegram/telegram-shell.js";
+import { createTelegramShell } from "../telegram/telegram-shell.js";
 import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
-import type { TelegramReplyPort } from "../telegram/telegram-types.js";
+import { createTelegrafReplyPort } from "../telegram/telegraf-reply-port.js";
 import { parseInviteSeeds } from "../telegram/invite-seeds.js";
 import { Telegraf } from "telegraf";
 import { loadDotEnv } from "../config/env.js";
@@ -24,23 +24,7 @@ function booleanEnv(value: string | undefined, name: string): boolean { if (valu
 async function main(): Promise<void> {
   loadDotEnv(); const timeoutBudgets = assertAssistantTimeoutBudgets(productionAssistantTimeoutBudgets); const auth = apiAuthConfigFromEnv(process.env);
   let activeBot: Telegraf | undefined;
-  const replyPort: TelegramReplyPort = {
-    async sendMessage(chatId, text, options) {
-      if (telegramMessageLength(text) > maxTelegramMessageCharacters) throw new Error("Telegram message exceeds the 4000 UTF-16-unit limit");
-      if (!activeBot) throw new Error("Bot not running");
-      const sent = await activeBot.telegram.sendMessage(chatId, text, {
-        ...(options?.replyToMessageId === undefined ? {} : { reply_parameters: { message_id: options.replyToMessageId } }),
-        reply_markup: options?.replyMarkup ? { inline_keyboard: options.replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : undefined,
-      });
-      return { messageId: sent.message_id };
-    },
-    async editReplyMarkup(chatId, messageId, replyMarkup) {
-      if (!activeBot) throw new Error("Bot not running");
-      await activeBot.telegram.editMessageReplyMarkup(chatId, messageId, undefined, replyMarkup ? { inline_keyboard: replyMarkup.inlineKeyboard.map((row) => row.map((button) => ({ text: button.text, callback_data: button.callbackData }))) } : { inline_keyboard: [] });
-    },
-    async sendChatAction(chatId, action) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.sendChatAction(chatId, action); },
-    async answerCallbackQuery(id, text) { if (!activeBot) throw new Error("Bot not running"); await activeBot.telegram.answerCbQuery(id, text?.slice(0, 200)); },
-  };
+  const replyPort = createTelegrafReplyPort(() => activeBot?.telegram);
   const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env, telegramReplyPort: replyPort });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined;
   try {

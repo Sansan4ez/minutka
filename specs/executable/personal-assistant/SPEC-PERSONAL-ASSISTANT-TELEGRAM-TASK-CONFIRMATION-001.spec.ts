@@ -223,9 +223,9 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(proposal.text).toBe([
       "Предложение:",
       "Действие: изменить задачу",
-      "Задача: task<U+2066>id<U+2069>",
-      "Название: left<U+202E>right<U+200D><U+0001> next",
-      "Проект: pro<U+2067>ject<U+2069><U+0085>",
+      "Задача: task&lt;U+2066&gt;id&lt;U+2069&gt;",
+      "Название: left&lt;U+202E&gt;right&lt;U+200D&gt;&lt;U+0001&gt; next",
+      "Проект: pro&lt;U+2067&gt;ject&lt;U+2069&gt;&lt;U+0085&gt;",
       "Тип: development",
       "Статус: in_progress",
       "Срок: снять срок",

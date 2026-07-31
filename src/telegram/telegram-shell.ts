@@ -3,7 +3,9 @@ import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { ChatResult, OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import type { TaskMutationDecisionResult } from "../application/task-mutation-confirmation.js";
 import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
-import type { TelegramReplyPort } from "./telegram-types.js";
+import type { TelegramReplyPort, TelegramSentMessage } from "./telegram-types.js";
+import { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
+import { renderTelegramMarkdown, renderTelegramPlainText, type TelegramRenderedChunk } from "./telegram-renderer.js";
 import { decodeFeedbackCallbackData, decodeTaskMutationCallbackData, encodeFeedbackCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
@@ -18,10 +20,8 @@ import { randomUUID } from "node:crypto";
 import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { pipeline, Transform } from "node:stream";
 
-export const maxTelegramMessageCharacters = 4_000;
+export { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
 const telegramPreferredSplitBoundaries = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "] as const;
-
-export function telegramMessageLength(text: string): number { return text.length; }
 
 function hardSplitEnd(text: string): number {
   let end = Math.min(maxTelegramMessageCharacters, telegramMessageLength(text));
@@ -192,7 +192,7 @@ async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string,
   // relationship between the original input and text sent to the agent.
   for (const chunk of splitTelegramMessage(`Распознано:\n${transcript}`)) await replyPort.sendMessage(chatId, chunk, { replyToMessageId });
 }
-async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<{ status: "claimed"; claimedAt: string } | { status: "already_claimed" }>; complete(deliveryKey: string, claimedAt: string): Promise<void>; release(deliveryKey: string, claimedAt: string): Promise<void> }): Promise<void> {
+async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<{ status: "claimed"; claimedAt: string } | { status: "already_claimed" }>; complete(deliveryKey: string, claimedAt: string): Promise<void>; release(deliveryKey: string, claimedAt: string): Promise<void> }, sendMarkdown?: (chatId: string, markdown: string) => Promise<TelegramSentMessage>): Promise<void> {
   if (progress.status === "needs_answer") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_choice") {
     const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
@@ -218,7 +218,8 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
   }
   const response = progress.result.firstResponse.trim();
   if (!response) throw new Error("Agent returned an empty onboarding response");
-  for (const chunk of splitTelegramMessage(response)) await replyPort.sendMessage(chatId, chunk);
+  if (sendMarkdown) await sendMarkdown(chatId, response);
+  else await deliverTelegramMessage(replyPort, chatId, response);
 }
 
 export type TelegramFileAttachment = {
@@ -237,9 +238,9 @@ export type TelegramFileAttachment = {
 export type TelegramArtifactIntake = { saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> };
 
 export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatId: string, text: string): Promise<void> {
-  const chunks = splitTelegramMessage(text);
+  const chunks = renderTelegramMarkdown(text);
   if (!chunks.length) throw new Error("Telegram delivery text is required");
-  for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk);
+  for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
 }
 
 export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
@@ -273,17 +274,28 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const messageId = activeActionMessageIds.get(chatId);
     if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
   }
+  async function sendRendered(chatId: string, chunks: TelegramRenderedChunk[], options?: Parameters<TelegramReplyPort["sendMessage"]>[2]): Promise<TelegramSentMessage> {
+    if (!chunks.length) throw new Error("Telegram delivery text is required");
+    if (options?.replyMarkup) await removeActiveReplyMarkup(chatId);
+    let sent: TelegramSentMessage | undefined;
+    for (const [index, chunk] of chunks.entries()) {
+      sent = await rawReplyPort.sendMessage(chatId, chunk.text, {
+        parseMode: chunk.parseMode,
+        ...(options?.replyToMessageId === undefined || index > 0 ? {} : { replyToMessageId: options.replyToMessageId }),
+        ...(options?.replyMarkup === undefined || index < chunks.length - 1 ? {} : { replyMarkup: options.replyMarkup }),
+      });
+    }
+    if (!sent) throw new Error("Telegram delivery text is required");
+    if (options?.replyMarkup) activeActionMessageIds.set(chatId, sent.messageId);
+    return sent;
+  }
   const replyPort: TelegramReplyPort = {
-    async sendMessage(chatId, text, options) {
-      if (options?.replyMarkup) await removeActiveReplyMarkup(chatId);
-      const sent = await rawReplyPort.sendMessage(chatId, text, options);
-      if (options?.replyMarkup) activeActionMessageIds.set(chatId, sent.messageId);
-      return sent;
-    },
+    sendMessage: (chatId, text, options) => sendRendered(chatId, renderTelegramPlainText(text), options),
     editReplyMarkup: (chatId, messageId, replyMarkup) => rawReplyPort.editReplyMarkup(chatId, messageId, replyMarkup),
     sendChatAction: (chatId, action) => rawReplyPort.sendChatAction(chatId, action),
     answerCallbackQuery: (callbackQueryId, text) => rawReplyPort.answerCallbackQuery(callbackQueryId, text),
   };
+  const sendMarkdown = (chatId: string, markdown: string, options?: Parameters<TelegramReplyPort["sendMessage"]>[2]) => sendRendered(chatId, renderTelegramMarkdown(markdown), options);
   async function runCallbackAction<T>(input: { chatId: string; userId?: string; employeeId: string; messageId?: number; callbackQueryId: string; action: () => Promise<T>; repeatedText?: string }): Promise<{ repeated: true } | { repeated: false; result: T }> {
     const { chatId, userId, employeeId, messageId, callbackQueryId, action, repeatedText = "Уже обработано." } = input;
     if (messageId === undefined) return { repeated: false, result: await action() };
@@ -356,7 +368,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const options = { replyMarkup: pendingActionReplyMarkup(chat) };
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        await rawReplyPort.sendMessage(chatId, text, options);
+        const rendered = renderTelegramPlainText(text);
+        if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
+        await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { ...options, parseMode: rendered[0]!.parseMode });
         return "delivered";
       } catch (error) {
         logShellError("task proposal delivery", error);
@@ -376,16 +390,16 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;
     try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
-    if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId));
+    if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId), sendMarkdown);
     const chat = await withTypingIndicator(replyPort, chatId, () => employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality, responseChannel: "telegram" }));
-    const chunks = splitTelegramMessage(chat.response); if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+    if (!chat.response.trim()) throw new Error("Agent returned an empty response");
     const pendingAction = taskPendingAction(chat);
     const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
     if (pendingAction && await sendTaskProposal(chatId, chat, session.employeeId) === "cancelled") {
       await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
       return;
     }
-    for (const [index, chunk] of chunks.entries()) await replyPort.sendMessage(chatId, chunk, !pendingAction && index === chunks.length - 1 ? { replyMarkup: feedbackMarkup } : undefined);
+    await sendMarkdown(chatId, chat.response, !pendingAction ? { replyMarkup: feedbackMarkup } : undefined);
   }
   return {
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
@@ -520,7 +534,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             await replyPort.answerCallbackQuery(callbackQueryId, alreadySaved ? "Профиль уже сохранён." : "Профиль сохранён!");
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
             if (alreadySaved) return;
-            for (const chunk of splitTelegramMessage(handled.result.firstResponse)) await replyPort.sendMessage(chatId, chunk);
+            await sendMarkdown(chatId, handled.result.firstResponse);
             return;
           }
           if (action === "reset" && !value) {
@@ -528,14 +542,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             if (handled.repeated) return;
             await replyPort.answerCallbackQuery(callbackQueryId, "Что нужно исправить?");
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId));
+            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId), sendMarkdown);
           }
           if ((action === "addressForm" || action === "persona" || action === "responseLength") && value) {
             const handled = await runCallbackAction({ chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId, action: () => employeeClient(session.employeeId).submitOnboardingAnswer({ text: value }) });
             if (handled.repeated) return;
             await replyPort.answerCallbackQuery(callbackQueryId);
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId));
+            return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId), sendMarkdown);
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }

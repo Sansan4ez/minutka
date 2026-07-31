@@ -2,7 +2,7 @@ import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js"
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createTelegramShell, type TelegramArtifactIntake, type TelegramFileAttachment } from "../../../src/telegram/telegram-shell.js";
-import type { TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
+import type { TelegramParseMode, TelegramReplyMarkup, TelegramReplyPort } from "../../../src/telegram/telegram-types.js";
 import type { InMemoryWorld } from "../../../src/application/in-memory-world.js";
 import type { AgentRunner, MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
@@ -15,7 +15,7 @@ import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-vo
 
 export type VoiceInput = { chatId: string; userId?: string; fileId: string; messageId?: number; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "download-hang" | "transcribe" | "stream" | "hang" };
 
-export type SentMessage = { messageId: number; chatId: string; text: string; replyMarkup?: TelegramReplyMarkup; replyToMessageId?: number };
+export type SentMessage = { messageId: number; chatId: string; text: string; parseMode?: TelegramParseMode; replyMarkup?: TelegramReplyMarkup; replyToMessageId?: number };
 export type CallbackAnswer = { callbackQueryId: string; text?: string };
 export type ReplyMarkupEdit = { chatId: string; messageId: number; replyMarkup?: TelegramReplyMarkup };
 
@@ -67,11 +67,11 @@ export class TelegramDriver {
     const client = new ServiceMinutkaClient(transport);
     const replyPort: TelegramReplyPort = {
       async sendMessage(chatId, text, options) {
-        self.deliveryAttempts.push({ chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        self.deliveryAttempts.push({ chatId, text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
         const outcome = self.sendOutcomes.shift();
         if (outcome === "fail") throw new Error("simulated Telegram delivery failure");
         const messageId = self.nextMessageId++;
-        self.sent.push({ messageId, chatId, text, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
+        self.sent.push({ messageId, chatId, text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup, replyToMessageId: options?.replyToMessageId });
         if (outcome === "deliver_then_fail") throw new Error("simulated uncertain Telegram delivery failure");
         return { messageId };
       },
