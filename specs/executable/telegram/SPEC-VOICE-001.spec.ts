@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSpecWorld, expectEvent, registerSpecMetadata } from "../support/spec-harness.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
@@ -21,6 +21,8 @@ registerSpecMetadata({
 
 const runner: AgentRunner = async () => "Готово: выделите один следующий шаг.";
 
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
 async function connectedDriver(voiceEnabled = true) {
   const spec = createSpecWorld(runner);
   const telegram = new TelegramDriver(spec.world, runner, {}, voiceEnabled);
@@ -40,6 +42,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
 
     expect(telegram.voiceDownloadCalls()).toEqual(["voice_1"]);
     expect(telegram.transcriptionCalls()).toEqual(["voice_1"]);
+    expect(telegram.sentChatActions()).toEqual([{ chatId: "voice_chat", action: "typing" }]);
     const [transcript, reply] = telegram.sentMessages();
     expect(transcript?.text).toBe("Распознано:\nСегодня хочу закрыть квартальный отчёт.");
     expect(transcript?.replyToMessageId).toBe(42);
@@ -57,6 +60,49 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
 
     await telegram.clickFeedback({ chatId: "voice_chat", userId: "voice_user", rating: "positive", targetMessageId: audit.messageId! });
     expect(spec.world.feedback).toHaveLength(1);
+  });
+
+  it("keeps one refreshed typing lifecycle across voice download, STT, transcript delivery, and chat", async () => {
+    const delayedRunner: AgentRunner = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return "Готово";
+    };
+    const spec = createSpecWorld(delayedRunner);
+    const telegram = new TelegramDriver(spec.world, delayedRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+    telegram.clear();
+    let refresh: (() => void) | undefined;
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    vi.spyOn(globalThis, "setInterval").mockImplementation(((callback: TimerHandler) => {
+      refresh = callback as () => void;
+      return { unref() {} } as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval);
+
+    const processing = telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "slow_voice", durationSeconds: 1, transcript: "Долгий голосовой запрос" });
+    await vi.waitFor(() => expect(refresh).toBeTypeOf("function"));
+    refresh!();
+    await processing;
+
+    expect(telegram.sentChatActions()).toEqual([
+      { chatId: "voice_chat", action: "typing" },
+      { chatId: "voice_chat", action: "typing" },
+    ]);
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("observes chat action failures without interrupting the voice response", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { telegram } = await connectedDriver();
+    telegram.failNextChatActionDelivery();
+
+    await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "action_error", durationSeconds: 1, transcript: "Продолжай обработку" });
+
+    expect(telegram.sentMessages().at(-1)?.text).toContain("следующий шаг");
+    expect(error).toHaveBeenCalledWith("Telegram shell typing indicator failed (Error).");
+    expect(JSON.stringify(error.mock.calls)).not.toContain("voice_chat");
   });
 
   it("keeps normal text modality at text", async () => {

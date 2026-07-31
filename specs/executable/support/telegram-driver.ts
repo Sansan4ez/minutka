@@ -25,6 +25,7 @@ export class TelegramDriver {
   private readonly callbacks: CallbackAnswer[] = [];
   private readonly replyMarkupEdits: ReplyMarkupEdit[] = [];
   private readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
+  private failNextChatAction = false;
   private nextMessageId = 1;
   private readonly sendOutcomes: Array<"pass" | "fail" | "deliver_then_fail"> = [];
   private readonly deliveryAttempts: Array<Omit<SentMessage, "messageId">> = [];
@@ -79,7 +80,10 @@ export class TelegramDriver {
         if (self.failNextMarkupEdit) { self.failNextMarkupEdit = false; throw new Error("simulated Telegram markup cleanup failure"); }
         self.replyMarkupEdits.push({ chatId, messageId, replyMarkup });
       },
-      async sendChatAction(chatId, action) { self.chatActions.push({ chatId, action }); },
+      async sendChatAction(chatId, action) {
+        self.chatActions.push({ chatId, action });
+        if (self.failNextChatAction) { self.failNextChatAction = false; throw new Error("simulated Telegram chat action failure"); }
+      },
       async answerCallbackQuery(callbackQueryId, text) { self.callbacks.push({ callbackQueryId, text }); },
     };
     const voiceFileGateway: TelegramVoiceFileGateway = {
@@ -134,6 +138,7 @@ export class TelegramDriver {
   async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.deliverCallback(input); }
   async deliverCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number; callbackQueryId?: string }): Promise<void> { await this.shell.handleCallback(input.chatId, input.callbackQueryId ?? `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   failNextMessageDelivery(): void { this.sendOutcomes.push("fail"); }
+  failNextChatActionDelivery(): void { this.failNextChatAction = true; }
   setMessageDeliverySequence(...outcomes: Array<"pass" | "fail" | "deliver_then_fail">): void { this.sendOutcomes.push(...outcomes); }
   failNextTaskMutationRejection(): void { this.failNextTaskReject = true; }
   failNextReplyMarkupEdit(): void { this.failNextMarkupEdit = true; }

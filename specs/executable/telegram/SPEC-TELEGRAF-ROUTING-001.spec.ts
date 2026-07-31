@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createTelegrafBot } from "../../../src/telegram/telegraf-runtime.js";
 import { createTelegrafReplyPort } from "../../../src/telegram/telegraf-reply-port.js";
+import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
+import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
+import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
+import { currentPrivacyVersion } from "../../../src/domain/privacy.js";
+import { Readable } from "node:stream";
 
 const botInfo = { id: 999, is_bot: true as const, first_name: "Assistant", username: "assistant_bot", can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false };
 const baseMessage = { date: 1, chat: { id: 1, type: "private" as const }, from: { id: 2, is_bot: false, first_name: "Owner" } };
@@ -22,6 +29,39 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
 
     expect(sent).toEqual({ messageId: 17 });
     expect(calls).toEqual([{ chatId: "chat", text: "<b>Важно</b>", options: { parse_mode: "HTML", reply_parameters: { message_id: 11 }, reply_markup: undefined } }]);
+  });
+
+  it("sends voice typing through the production Telegraf reply adapter", async () => {
+    const world = createInMemoryWorld();
+    const runtime = createInMemoryRuntime({ world, agentRunner: async () => "Готово" });
+    const claimedAt = new Date().toISOString();
+    await runtime.telegramSessionStore.claim({
+      identity: { chatId: "1", userId: "2" },
+      session: { employeeId: "owner", threadId: "thread", consentAcceptedAt: claimedAt, consentPrivacyVersion: currentPrivacyVersion, createdAt: claimedAt, updatedAt: claimedAt },
+    });
+    const chatActions: Array<{ chatId: string; action: string }> = [];
+    const telegram = {
+      async sendMessage(_chatId: string, _text: string, _options: Record<string, unknown>) { return { message_id: 17 }; },
+      async editMessageReplyMarkup() {},
+      async sendChatAction(chatId: string, action: string) { chatActions.push({ chatId, action }); },
+      async answerCbQuery() {},
+    };
+    const replyPort = createTelegrafReplyPort(() => telegram as any);
+    const client = new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegraf-spec" }));
+    const shell = createTelegramShell({
+      client,
+      sessionStore: runtime.telegramSessionStore,
+      replyPort,
+      privacyExplanation: executableSpecPrivacyExplanation,
+      voiceFileGateway: { async openVoiceFile() { return { stream: Readable.from("voice"), filetype: "ogg" }; } },
+      speechToText: { async transcribe() { return "Голосовой запрос"; } },
+    });
+    const bot = createTelegrafBot({ token: "test", shell });
+    bot.botInfo = botInfo;
+
+    await bot.handleUpdate(update({ voice: { file_id: "voice", file_unique_id: "voice-u", duration: 2, file_size: 10 } }, 16));
+
+    expect(chatActions).toEqual([{ chatId: "1", action: "typing" }]);
   });
 
   it("registers save-only handlers for supported files and keeps forwarded voice on the STT path", async () => {
