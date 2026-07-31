@@ -76,6 +76,7 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   resetOnboardingDraft() { return this.request("POST", `${this.prefix}/onboarding/reset`, {}); }
   getProfile() { return this.request("GET", `${this.prefix}/profile`); }
   resetConversation() { return this.request("POST", `${this.prefix}/conversation/reset`, {}); }
+  listSchedules() { return this.request("GET", `${this.prefix}/schedules`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }

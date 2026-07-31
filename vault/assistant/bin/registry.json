@@ -11,6 +11,9 @@
     { "id": "listTasks", "manifest": "list-tasks.md", "mutating": false },
     { "id": "proposeTaskMutation", "manifest": "propose-task-mutation.md", "mutating": false },
     { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "mutating": false },
+    { "id": "listSchedules", "manifest": "list-schedules.md", "mutating": false },
+    { "id": "setDailySchedule", "manifest": "set-daily-schedule.md", "mutating": true },
+    { "id": "disableSchedule", "manifest": "disable-schedule.md", "mutating": true },
     { "id": "markProcessUsed", "manifest": "mark-process-used.md", "mutating": false }
   ]
 }

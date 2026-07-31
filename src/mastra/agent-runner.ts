@@ -5,12 +5,14 @@ import { assistantDocumentToolNames, createDocumentTools } from "./tools/documen
 import { assistantTaskToolNames, createTaskTools } from "./tools/task-tools.js";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
 import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
+import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
   documents: assistantDocumentToolNames,
   ideas: assistantIdeaToolNames,
   tasks: assistantTaskToolNames,
+  schedules: assistantScheduleToolNames,
   diagnostics: [markProcessUsedToolName],
 } as const;
 
@@ -19,6 +21,7 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.documents,
   ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
+  ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
@@ -43,6 +46,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
         documents: createDocumentTools(context.documents),
         ideas: createIdeaTools(context.ideas),
         tasks: createTaskTools(context.tasks),
+        schedules: createScheduleTools(context.schedules),
         diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
       },
       // `activeTools` is applied after all toolsets are resolved, so ambient

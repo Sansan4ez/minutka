@@ -33,6 +33,7 @@ import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./a
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 import { estimateUsageCostUsdMicros, usageMonth, type ModelTokenUsage, type UsageCostPolicy, type UsageStore } from "./usage-store.js";
+import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -54,6 +55,8 @@ export type AssistantAgentContext = {
     propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
     undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
   };
+  /** Owner-bound daily schedule reads and reversible writes. */
+  schedules: OwnerScheduleCapabilities;
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -101,7 +104,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -285,6 +288,35 @@ export class AssistantService {
         return result;
       },
     };
+    const schedules: OwnerScheduleCapabilities = {
+      listSchedules: () => {
+        if (!this.deps.scheduleManagement) throw new Error("schedule management is not configured");
+        return this.deps.scheduleManagement.listSchedules(userId);
+      },
+      saveDailySchedule: async (input) => {
+        if (!this.deps.scheduleManagement) throw new Error("schedule management is not configured");
+        try {
+          const schedule = await this.deps.scheduleManagement.saveDailySchedule(userId, input);
+          if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+          return schedule;
+        } catch (cause) {
+          if (cause instanceof UnsupportedAssistantScheduleProcessError) throw cause;
+          chatEffect.businessWrite = "outcome_unknown";
+          throw new AssistantMutationOutcomeUnknownError({ cause });
+        }
+      },
+      disableSchedule: async (scheduleId) => {
+        if (!this.deps.scheduleManagement) throw new Error("schedule management is not configured");
+        try {
+          const schedule = await this.deps.scheduleManagement.disableSchedule(userId, scheduleId);
+          if (schedule && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+          return schedule;
+        } catch (cause) {
+          chatEffect.businessWrite = "outcome_unknown";
+          throw new AssistantMutationOutcomeUnknownError({ cause });
+        }
+      },
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
@@ -319,6 +351,7 @@ export class AssistantService {
       documents,
       tasks,
       ideas,
+      schedules,
       markProcessUsed,
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];

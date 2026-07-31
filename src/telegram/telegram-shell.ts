@@ -72,6 +72,7 @@ class VoiceProcessingTimeoutError extends Error {}
 class TaskProposalTerminalizationUnknownError extends Error {}
 const taskProposalCancelledMessage = "Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.";
 const conversationResetConfirmationMessage = "Готово, начали новый диалог. Предыдущий контекст больше не используется.";
+const emptyScheduleMessage = "У вас пока нет расписаний.";
 const taskProposalTerminalizationUnknownMessage = "Не удалось доставить предложение и проверить его отмену. Статус предложения неизвестен; попробуйте позже.";
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
   let bytes = 0;
@@ -147,6 +148,16 @@ function pendingActionReplyMarkup(chat: ChatResult) {
     { text: "✅ Подтвердить", callbackData: encode("confirm", pendingAction.confirmationId) },
     { text: "❌ Отклонить", callbackData: encode("reject", pendingAction.confirmationId) },
   ]] };
+}
+function scheduleProcessLabel(processId: string): string {
+  return processId === "day_focus" ? "Утренний фокус" : processId === "evening_reflection" ? "Вечерняя рефлексия" : processId;
+}
+function renderScheduleList(schedules: Awaited<ReturnType<ReturnType<ServiceMinutkaClient["forEmployee"]>["listSchedules"]>>["schedules"]): string {
+  if (!schedules.length) return emptyScheduleMessage;
+  return ["Ваше расписание:", ...schedules.map((schedule) => [
+    `• ${scheduleProcessLabel(schedule.processId)} — ${schedule.timeOfDay} (${schedule.timezone})`,
+    `  ${schedule.enabled ? "включено" : "выключено"}; следующее срабатывание: ${schedule.nextFireAt}`,
+  ].join("\n"))].join("\n");
 }
 function previewText(value: { value: string; truncated: boolean }): string {
   return `${value.value}${value.truncated ? "… [сокращено]" : ""}`;
@@ -439,6 +450,18 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         const message = code === "employee_already_linked" ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту." : code === "chat_already_linked" ? "Этот чат уже связан с профилем." : code === "invite_not_found" ? "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой." : "Не удалось завершить настройку. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
       }
+    },
+    async handleSchedule(chatId: string, userId?: string) {
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
+      try {
+        await removeActiveReplyMarkup(chatId);
+        const session = await authorizedSession(chatId, userId); if (!session) return;
+        const result = await employeeClient(session.employeeId).listSchedules();
+        await replyPort.sendMessage(chatId, renderScheduleList(result.schedules));
+      } catch (error) {
+        logShellError("/schedule", error);
+        await replyPort.sendMessage(chatId, "Не удалось показать расписание. Попробуйте ещё раз позже.");
+      } finally { leaveChat(chatId); }
     },
     async handleNew(chatId: string, userId?: string) {
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);

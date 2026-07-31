@@ -28,6 +28,8 @@ import type { UserProfile } from "../domain/employee.js";
 import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
 import type { ConversationThreadService } from "./conversation-thread-service.js";
 import type { IdeaDeletionAuditContext, IdeaDeletionService } from "./idea-deletion.js";
+import type { ProcessSchedule } from "../domain/schedule.js";
+import type { SaveDailyScheduleInput, ScheduleManagementService } from "./schedule-management-service.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -64,6 +66,7 @@ export class PersonalAssistantService {
     private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject">,
     private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
+    private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -81,6 +84,21 @@ export class PersonalAssistantService {
   resetConversation(input: { userId: string }): Promise<{ threadId: string }> {
     if (!this.conversationThreads) throw new Error("conversation thread reset is not configured");
     return this.conversationThreads.reset(input);
+  }
+
+  listSchedules(userId: string): Promise<ProcessSchedule[]> {
+    if (!this.schedules) throw new Error("schedule management is not configured");
+    return this.schedules.listSchedules(userId);
+  }
+
+  saveDailySchedule(userId: string, input: SaveDailyScheduleInput): Promise<ProcessSchedule> {
+    if (!this.schedules) throw new Error("schedule management is not configured");
+    return this.schedules.saveDailySchedule(userId, input);
+  }
+
+  disableSchedule(userId: string, scheduleId: string): Promise<ProcessSchedule | null> {
+    if (!this.schedules) throw new Error("schedule management is not configured");
+    return this.schedules.disableSchedule(userId, scheduleId);
   }
 
   runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantDiagnosticProcessId }): Promise<AssistantChatResult> {

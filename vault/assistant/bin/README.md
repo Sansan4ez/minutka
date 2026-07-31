@@ -20,6 +20,9 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/list-tasks.md` | `listTasks` | No | No | Authenticated owner's tasks only | List bounded tasks and current revisions. |
 | `/bin/propose-task-mutation.md` | `proposeTaskMutation` | No durable task mutation | Returns safe pending-action receipt | Owner bound by `AssistantService`; task id is application-generated and private | Propose one create/update/complete/cancel per turn. |
 | `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable task mutation | Returns owner-free status/task id or a safe pending-action receipt | Owner and idea/task provenance bound privately by application use-case | Propose one idempotent idea-to-task conversion per turn. |
+| `/bin/list-schedules.md` | `listSchedules` | No | No | Authenticated owner's schedules only | List owner-free daily schedule views and next fire times. |
+| `/bin/set-daily-schedule.md` | `setDailySchedule` | Yes, reversible internal write | No | Owner bound by `AssistantService`; process id is from a closed catalog | Create, change, or re-enable one daily assistant schedule. |
+| `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible internal write | No | Authenticated owner and exact schedule id | Disable a schedule without deleting its fire history. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
 
 Task and idea-deletion confirmation/rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.

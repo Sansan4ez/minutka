@@ -52,6 +52,7 @@ import { IdeaDeletionService } from "../application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
+import { ScheduleManagementService } from "../application/schedule-management-service.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -167,12 +168,14 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const taskStore = createPostgresTaskStore(pool);
     const usageStore = createPostgresUsageStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
+    const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
       ideaStore,
       ideaDeletions,
+      scheduleManagement,
       taskStore,
       taskMutations,
       ideaToTask,
@@ -192,7 +195,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
       if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
       const delivery = requireTelegramDeliverySession(await telegramSessionStore.getDeliveryByEmployee(fire.userId));

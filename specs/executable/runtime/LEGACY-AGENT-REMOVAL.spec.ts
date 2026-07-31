@@ -33,6 +33,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
         expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
+        expect(Object.keys(options.toolsets?.schedules ?? {})).toEqual(["listSchedules", "setDailySchedule", "disableSchedule"]);
         const taskTools = options.toolsets?.tasks as Record<string, { execute?: (input: unknown, context: unknown) => Promise<unknown> }>;
         const taskProposal = await taskTools.proposeTaskMutation?.execute?.({
           kind: "create", title: "Trace-safe task", project: "ASSISTANT", type: "operations",
@@ -128,6 +129,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
         propose: async () => ({ status: "not_found" }),
         undo: async () => ({ outcome: "not_found" }),
       },
+      schedules: {
+        listSchedules: async () => [],
+        saveDailySchedule: async () => { throw new Error("not used"); },
+        disableSchedule: async () => null,
+      },
       markProcessUsed(id) {
         expect(id).toBe("day_focus");
       },
@@ -171,6 +177,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
     expect(Object.keys(generateOptions?.toolsets?.ideas ?? {})).toEqual([...assistantRuntimeToolsets.ideas]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
+    expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
 });

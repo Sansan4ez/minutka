@@ -2,7 +2,7 @@ import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters, pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
-import { assistantProcessIds } from "../domain/assistant-process.js";
+import { assistantDiagnosticProcessIds, assistantProcessIds } from "../domain/assistant-process.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -17,6 +17,13 @@ export const timezoneSchema = z.string().min(1).max(64).transform((value, contex
 });
 export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
 export const assistantProcessIdSchema = z.enum(assistantProcessIds);
+export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
+export const scheduleViewSchema = z.strictObject({
+  id: z.string().min(1), processId: assistantDiagnosticProcessIdSchema,
+  timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: timezoneSchema,
+  enabled: z.boolean(), nextFireAt: z.iso.datetime(),
+});
+export const scheduleListResponseSchema = z.strictObject({ schedules: z.array(scheduleViewSchema) });
 export const employeeIdSchema = z.string().min(1).max(128);
 export const threadIdSchema = z.string().min(1).max(128);
 
@@ -170,6 +177,7 @@ export const errorCodeSchema = z.enum([
 ]);
 export const errorEnvelopeSchema = z.strictObject({ error: z.strictObject({ code: errorCodeSchema, message: z.string().min(1), requestId: z.string().min(1) }) });
 
+export type ScheduleView = z.infer<typeof scheduleViewSchema>;
 export type ChatInputModality = z.infer<typeof chatInputModalitySchema>;
 export type ResponseChannel = z.infer<typeof responseChannelSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

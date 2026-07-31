@@ -4,7 +4,7 @@ import {
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
-  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, userProfileSchema,
+  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
   type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
@@ -37,6 +37,7 @@ export type ServiceEmployeeMinutkaTransport = {
   resetOnboardingDraft(): Promise<unknown>;
   getProfile(): Promise<unknown>;
   resetConversation(): Promise<unknown>;
+  listSchedules(): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
@@ -90,6 +91,7 @@ export class ServiceEmployeeMinutkaClient {
   async resetOnboardingDraft() { return validate(onboardingProgressSchema, await this.transport.resetOnboardingDraft(), "reset onboarding response"); }
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
   async resetConversation() { await this.transport.resetConversation(); }
+  async listSchedules() { return validate(scheduleListResponseSchema, await this.transport.listSchedules(), "listSchedules response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
   async rejectTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.rejectTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "rejectTaskMutation request")), "rejectTaskMutation response"); }

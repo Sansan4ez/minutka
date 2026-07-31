@@ -15,6 +15,7 @@ import { AssistantContextOverflowError } from "../../application/assistant-overf
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../config/assistant-timeout-budgets.js";
+import { toScheduleView } from "../../application/schedule-view.js";
 
 export const bodyLimitBytes = 64 * 1024;
 /** Chat may consume the full LLM budget; all other application handlers fail fast. */
@@ -38,6 +39,7 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "confirmOnboarding"
   | "resetOnboardingDraft"
   | "resetConversation"
+  | "listSchedules"
   | "chat"
   | "confirmTaskMutation"
   | "rejectTaskMutation"
@@ -178,6 +180,8 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "GET" && serviceProfile) { template = "/v1/service/employees/:employeeId/profile"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: parse(employeeIdSchema, serviceProfile) })), id); }
       const serviceConversationReset = pathEmployee(url.pathname, "/conversation/reset");
       if (req.method === "POST" && serviceConversationReset) { template = "/v1/service/employees/:employeeId/conversation/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.resetConversation({ userId: parse(employeeIdSchema, serviceConversationReset) })); status = 204; return send(res, status, undefined, id); }
+      const serviceSchedules = pathEmployee(url.pathname, "/schedules");
+      if (req.method === "GET" && serviceSchedules) { template = "/v1/service/employees/:employeeId/schedules"; requireKind(principal, "service"); status = 200; return send(res, status, { schedules: (await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listSchedules(parse(employeeIdSchema, serviceSchedules)))).map(toScheduleView) }, id); }
       const serviceConsent = pathEmployee(url.pathname, "/consent");
       if (req.method === "POST" && serviceConsent) { template = "/v1/service/employees/:employeeId/consent"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptConsentRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceConsent) })), id); }
       const serviceOnboardingAnswer = pathEmployee(url.pathname, "/onboarding/answers");

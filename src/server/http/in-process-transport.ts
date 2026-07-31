@@ -10,6 +10,7 @@ import type {
   ServiceMinutkaTransport,
 } from "../../client/sdk/minutka-client.js";
 import type { AuthenticatedPrincipal } from "./auth.js";
+import { toScheduleView } from "../../application/schedule-view.js";
 
 type InProcessApplication = MinutkaService | PersonalAssistantService;
 
@@ -74,6 +75,7 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   resetOnboardingDraft() { return this.application.resetOnboardingDraft({ employeeId: this.employeeId() }); }
   getProfile() { return this.application.getProfile({ employeeId: this.employeeId() }); }
   resetConversation() { return personal(this.application).resetConversation({ userId: this.employeeId() }); }
+  async listSchedules() { return { schedules: (await personal(this.application).listSchedules(this.employeeId())).map(toScheduleView) }; }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(this.employeeId(), confirmationId); }
