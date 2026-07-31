@@ -71,6 +71,7 @@ class VoiceFileTooLargeError extends Error {}
 class VoiceProcessingTimeoutError extends Error {}
 class TaskProposalTerminalizationUnknownError extends Error {}
 const taskProposalCancelledMessage = "Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.";
+const conversationResetConfirmationMessage = "Готово, начали новый диалог. Предыдущий контекст больше не используется.";
 const taskProposalTerminalizationUnknownMessage = "Не удалось доставить предложение и проверить его отмену. Статус предложения неизвестен; попробуйте позже.";
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
   let bytes = 0;
@@ -425,6 +426,18 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         const message = code === "employee_already_linked" ? "Эта индивидуальная ссылка уже привязана к другому Telegram-аккаунту." : code === "chat_already_linked" ? "Этот чат уже связан с профилем." : code === "invite_not_found" ? "Эта индивидуальная ссылка недействительна. Обратитесь за новой ссылкой." : "Не удалось завершить настройку. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
       }
+    },
+    async handleNew(chatId: string, userId?: string) {
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
+      try {
+        await removeActiveReplyMarkup(chatId);
+        const session = await authorizedSession(chatId, userId); if (!session) return;
+        await employeeClient(session.employeeId).resetConversation();
+        await replyPort.sendMessage(chatId, conversationResetConfirmationMessage);
+      } catch (error) {
+        logShellError("/new", error);
+        await replyPort.sendMessage(chatId, "Не удалось начать новый диалог. Попробуйте ещё раз позже.");
+      } finally { leaveChat(chatId); }
     },
     async handleText(chatId: string, text: string, userId?: string) {
       if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);

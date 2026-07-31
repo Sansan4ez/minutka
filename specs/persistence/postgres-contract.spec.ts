@@ -224,6 +224,25 @@ describe("PostgreSQL storage contracts", () => {
     expect(await sessions.getDeliveryByEmployee("missing")).toBeUndefined();
   });
 
+  it("rotates only the active Telegram thread for an existing owner", async () => {
+    await issueProfileReadyParticipant(pool, "emp_rotate", "invite_rotate");
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);
+    const identity = { chatId: "chat_rotate", userId: "user_rotate" };
+    expect(await sessions.claim({
+      identity,
+      session: { employeeId: "emp_rotate", threadId: "thread_old", consentAcceptedAt: now, createdAt: now, updatedAt: now },
+    })).toMatchObject({ status: "claimed" });
+
+    await sessions.rotateThread({ userId: "emp_rotate", nextThreadId: "thread_new", updatedAt: "2026-07-17T11:00:00.000Z" });
+
+    expect(await sessions.getByIdentity(identity)).toMatchObject({
+      employeeId: "emp_rotate",
+      threadId: "thread_new",
+      consentAcceptedAt: now,
+      updatedAt: "2026-07-17T11:00:00.000Z",
+    });
+  });
+
   it("leases Telegram onboarding confirmation delivery and recovers stale claims", async () => {
     await issueProfileReadyParticipant(pool, "emp_confirmation_claim", "invite_confirmation_claim");
     const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper);

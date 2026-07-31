@@ -54,6 +54,7 @@ export class TelegramDriver {
               const result = await (runtime.service as PersonalAssistantService).chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
               return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
             };
+            if (property === "resetConversation") return () => (runtime.service as PersonalAssistantService).resetConversation({ userId: employeeId });
             if (property === "rejectTaskMutation") return async (confirmationId: string, input: Parameters<typeof scoped.rejectTaskMutation>[1]) => {
               self.taskRejects.push(confirmationId);
               if (self.failNextTaskReject) { self.failNextTaskReject = false; throw new Error("simulated task rejection failure"); }
@@ -125,6 +126,7 @@ export class TelegramDriver {
   }
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
+  async startNewConversation(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleNew(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendFile(input: { chatId: string; userId?: string; attachment: TelegramFileAttachment }): Promise<void> { await this.shell.handleFile(input.chatId, input.attachment, input.userId ?? this.defaultUserId(input.chatId)); }

@@ -40,6 +40,7 @@ export function createSpecHttpApplication(
     submitOnboardingAnswer: (input) => service.submitOnboardingAnswer(input),
     confirmOnboarding: (input) => service.confirmOnboarding(input),
     resetOnboardingDraft: (input) => service.resetOnboardingDraft(input),
+    resetConversation: async () => { throw new Error("conversation reset is not configured in this spec adapter"); },
     chat: (input) => assistant.chat(input),
     confirmTaskMutation: async () => { throw new Error("task mutation confirmation is not configured in this spec adapter"); },
     rejectTaskMutation: async () => { throw new Error("task mutation confirmation is not configured in this spec adapter"); },

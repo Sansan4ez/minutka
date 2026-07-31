@@ -64,12 +64,30 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     expect(chatActions).toEqual([{ chatId: "1", action: "typing" }]);
   });
 
+  it("routes /new to the dedicated reset handler instead of ordinary text chat", async () => {
+    const calls: Array<{ chatId: string; userId?: string }> = [];
+    const textCalls: string[] = [];
+    const shell = {
+      async handleStart() {},
+      async handleNew(chatId: string, userId?: string) { calls.push({ chatId, userId }); },
+      async handleText(_chatId: string, text: string) { textCalls.push(text); },
+      async handleCallback() {}, async handleFile() {}, async handleVoice() {}, async handleUnsupportedAttachment() {},
+    };
+    const bot = createTelegrafBot({ token: "test", shell: shell as any });
+    bot.botInfo = botInfo;
+
+    await bot.handleUpdate(update({ text: "/new", entities: [{ offset: 0, length: 4, type: "bot_command" }] }, 9));
+
+    expect(calls).toEqual([{ chatId: "1", userId: "2" }]);
+    expect(textCalls).toEqual([]);
+  });
+
   it("registers save-only handlers for supported files and keeps forwarded voice on the STT path", async () => {
     const files: any[] = [];
     const voices: any[] = [];
     const unsupported: string[] = [];
     const shell = {
-      async handleStart() {}, async handleText() {}, async handleCallback() {},
+      async handleStart() {}, async handleNew() {}, async handleText() {}, async handleCallback() {},
       async handleFile(chatId: string, file: unknown, userId?: string) { files.push({ chatId, userId, file }); },
       async handleVoice(chatId: string, voice: unknown, userId?: string) { voices.push({ chatId, userId, voice }); },
       async handleUnsupportedAttachment(chatId: string) { unsupported.push(chatId); },

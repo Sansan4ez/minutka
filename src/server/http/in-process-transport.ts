@@ -70,6 +70,7 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   confirmOnboarding() { return this.application.confirmOnboarding({ employeeId: this.employeeId() }); }
   resetOnboardingDraft() { return this.application.resetOnboardingDraft({ employeeId: this.employeeId() }); }
   getProfile() { return this.application.getProfile({ employeeId: this.employeeId() }); }
+  resetConversation() { return personal(this.application).resetConversation({ userId: this.employeeId() }); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(this.employeeId(), confirmationId); }

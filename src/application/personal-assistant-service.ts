@@ -26,6 +26,7 @@ import type { TaskMutationAuditContext, TaskMutationConfirmationService } from "
 import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
 import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
+import type { ConversationThreadService } from "./conversation-thread-service.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -60,6 +61,7 @@ export class PersonalAssistantService {
     private readonly conversationService: Pick<AssistantService, "chat">,
     private readonly artifactStore: Pick<ArtifactStore, "save" | "get" | "list" | "delete">,
     private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject">,
+    private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -73,6 +75,11 @@ export class PersonalAssistantService {
   resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> { return this.identityService.resetOnboardingDraft(input); }
   getProfile(input: { employeeId: string }): Promise<UserProfile> { return this.identityService.getProfile(input); }
   chat(input: AssistantChatInput): Promise<AssistantChatResult> { return this.conversationService.chat(input); }
+
+  resetConversation(input: { userId: string }): Promise<{ threadId: string }> {
+    if (!this.conversationThreads) throw new Error("conversation thread reset is not configured");
+    return this.conversationThreads.reset(input);
+  }
 
   runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantDiagnosticProcessId }): Promise<AssistantChatResult> {
     return this.conversationService.chat({

@@ -21,6 +21,11 @@ export function createInMemoryTelegramSessionStore(): TelegramSessionStore {
       store.set(identity.chatId, { identity: { ...identity }, session: { ...session }, actionMessages: new Map() });
       return { status: "claimed", session: { ...session } };
     },
+    async rotateThread({ userId, nextThreadId, updatedAt }) {
+      const found = [...store.values()].find((entry) => entry.session.employeeId === userId);
+      if (!found) throw new PersistenceError("session_not_found");
+      found.session = { ...found.session, threadId: nextThreadId, updatedAt };
+    },
     async deleteByEmployee(employeeId) {
       for (const [chatId, entry] of store) {
         if (entry.session.employeeId === employeeId) store.delete(chatId);

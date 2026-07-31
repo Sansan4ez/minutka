@@ -31,6 +31,11 @@ export function createTelegrafBot(deps: {
     await shell.handleStart(String(ctx.chat.id), text.split(/\s+/)[1] || undefined, ctx.from ? String(ctx.from.id) : undefined);
   });
 
+  bot.command("new", async (ctx) => {
+    if (!await privateChat(ctx)) return;
+    await shell.handleNew(String(ctx.chat.id), ctx.from ? String(ctx.from.id) : undefined);
+  });
+
   bot.on("text", async (ctx) => {
     if (!await privateChat(ctx)) return;
     await shell.handleText(String(ctx.chat.id), ctx.message.text, ctx.from ? String(ctx.from.id) : undefined);

@@ -29,6 +29,8 @@ export interface TelegramSessionStore {
   /** Private outbound-delivery lookup. Raw chat id never crosses the application facade. */
   getDeliveryByEmployee(employeeId: string): Promise<TelegramDeliverySession | undefined>;
   claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
+  /** Rotates the active dialogue thread for one owner without deleting prior history or durable records. */
+  rotateThread(input: { userId: string; nextThreadId: string; updatedAt: string }): Promise<void>;
   /** Removes the chat-to-employee link during personal-data deletion. */
   deleteByEmployee(employeeId: string): Promise<void>;
   markConsentAccepted(input: {

@@ -91,6 +91,20 @@ export function createPostgresTelegramSessionStore(pool: Pool, pepper: string): 
         throw mapPostgresError(error);
       }
     },
+    async rotateThread({ userId, nextThreadId, updatedAt }) {
+      try {
+        const result = await pool.query(
+          `UPDATE minutka_private.telegram_sessions
+           SET thread_id = $2, updated_at = $3
+           WHERE employee_id = $1`,
+          [userId, nextThreadId, updatedAt],
+        );
+        if (result.rowCount !== 1) throw new PersistenceError("session_not_found");
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
     async deleteByEmployee(employeeId) {
       try {
         await pool.query("DELETE FROM minutka_private.telegram_sessions WHERE employee_id = $1", [employeeId]);

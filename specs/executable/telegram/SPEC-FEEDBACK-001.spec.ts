@@ -7,6 +7,13 @@ import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { decodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import { parseInviteSeeds } from "../../../src/telegram/invite-seeds.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
+import { ConversationThreadService } from "../../../src/application/conversation-thread-service.js";
+import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
+import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
+import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
+import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
+import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
@@ -287,7 +294,61 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(event.transport).toBeUndefined();
   });
 
-  it("3a. Shows Telegram typing while a normal chat response is being generated", async () => {
+  it("3a. /new rotates the dialogue thread without changing durable owner data", async () => {
+    const observedContexts: string[] = [];
+    const historyAwareAgent: AgentRunner = async (_input, context) => {
+      observedContexts.push(context?.systemContext ?? "");
+      return "Контекст проверен.";
+    };
+    const spec = createSpecWorld(historyAwareAgent);
+    const runtime = createInMemoryRuntime({ world: spec.world, agentRunner: historyAwareAgent, deps: createDefaultSpecDeps() });
+    const clock = { now: spec.world.now };
+    let nextThread = 0;
+    const threadService = new ConversationThreadService(runtime.telegramSessionStore, { clock, idGenerator: { threadId: () => `thread_${++nextThread}` } });
+    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
+    const ideas = createInMemoryIdeaStore(clock);
+    const tasks = createInMemoryTaskStore(clock);
+    await ideas.add({ id: "idea_before_reset", userId: testEmployee.employeeId, project: "ASSISTANT", type: "development", summary: "Durable idea", status: "raw" });
+    await tasks.create(testEmployee.employeeId, { id: "task_before_reset", title: "Durable task", project: "ASSISTANT", type: "development", status: "open" });
+    const resetAwareService = new PersonalAssistantService(runtime.service, {
+      async chat(input) {
+        const result = await runtime.service.chat({ employeeId: input.userId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
+        return { ...result, selectedProcessIds: ["core"], outcome: { status: "completed" as const } };
+      },
+    }, artifactStore, undefined, threadService);
+    const telegram = new TelegramDriver(spec.world, historyAwareAgent, {}, true, undefined, { ...runtime, service: resetAwareService });
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "new_chat", userId: "new_user", inviteCode: testInvite.inviteCode });
+    const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "new_chat", userId: "new_user", callbackData: consentCallbackData! });
+
+    await telegram.sendText({ chatId: "new_chat", userId: "new_user", text: "Старый контекст" });
+    const before = {
+      profiles: structuredClone(spec.world.profiles),
+      participants: structuredClone(spec.world.participants),
+      messages: structuredClone(spec.world.messages),
+    };
+    telegram.clear();
+
+    await telegram.startNewConversation({ chatId: "new_chat", userId: "new_user" });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Готово, начали новый диалог. Предыдущий контекст больше не используется." }),
+    ]);
+    telegram.clear();
+    await telegram.sendText({ chatId: "new_chat", userId: "new_user", text: "Новый контекст" });
+
+    expect(observedContexts).toHaveLength(3);
+    expect(observedContexts[2]).not.toContain("Старый контекст");
+    expect(spec.world.profiles).toEqual(before.profiles);
+    expect(spec.world.participants).toEqual(before.participants);
+    await expect(ideas.list(testEmployee.employeeId)).resolves.toEqual([expect.objectContaining({ id: "idea_before_reset", summary: "Durable idea" })]);
+    await expect(tasks.list(testEmployee.employeeId)).resolves.toEqual([expect.objectContaining({ id: "task_before_reset", title: "Durable task" })]);
+    expect(spec.world.messages.filter((message) => message.text === "Старый контекст")).toHaveLength(1);
+    expect(spec.world.messages.filter((message) => message.text === "Новый контекст")).toHaveLength(1);
+    expect(new Set(spec.world.messages.map((message) => message.threadId)).size).toBe(2);
+  });
+
+  it("3b. Shows Telegram typing while a normal chat response is being generated", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await onboardTestEmployee(spec);

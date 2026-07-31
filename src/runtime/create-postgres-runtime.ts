@@ -47,6 +47,7 @@ import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-b
 import type { TelegramReplyPort } from "../telegram/telegram-types.js";
 import { deliverTelegramMessage } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
+import { ConversationThreadService } from "../application/conversation-thread-service.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
   // The process manual is deployment configuration: validate it before opening
@@ -174,7 +175,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       applicationTimeoutMs: productionAssistantTimeoutBudgets.applicationMs,
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations);
+    const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
       if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
       const delivery = await telegramSessionStore.getDeliveryByEmployee(fire.userId);
