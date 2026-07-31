@@ -44,5 +44,8 @@ export function createSpecHttpApplication(
     chat: (input) => assistant.chat(input),
     confirmTaskMutation: async () => { throw new Error("task mutation confirmation is not configured in this spec adapter"); },
     rejectTaskMutation: async () => { throw new Error("task mutation confirmation is not configured in this spec adapter"); },
+    confirmIdeaDeletion: async () => { throw new Error("idea deletion confirmation is not configured in this spec adapter"); },
+    rejectIdeaDeletion: async () => { throw new Error("idea deletion confirmation is not configured in this spec adapter"); },
+    undoIdeaDeletion: async () => { throw new Error("idea deletion undo is not configured in this spec adapter"); },
   };
 }

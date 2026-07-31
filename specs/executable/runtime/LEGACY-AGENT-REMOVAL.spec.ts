@@ -123,6 +123,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
           documentTooLarge: false, hint: null,
         }),
       },
+      ideas: {
+        search: async () => [],
+        propose: async () => ({ status: "not_found" }),
+        undo: async () => ({ outcome: "not_found" }),
+      },
       markProcessUsed(id) {
         expect(id).toBe("day_focus");
       },
@@ -132,7 +137,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
           idea: {
             id: "idea_1", userId: "owner", project: input.project, type: input.type, summary: input.summary,
             suggestedNextStep: input.suggestedNextStep, source: { kind: "text", text: "capture" }, status: "raw",
-            createdAt: "2026-07-16T09:00:00.000Z", lastActivityAt: "2026-07-16T09:00:00.000Z",
+            revision: 1, createdAt: "2026-07-16T09:00:00.000Z", lastActivityAt: "2026-07-16T09:00:00.000Z",
           },
           response: "saved",
           needsProjectClarification: input.needsProjectClarification,
@@ -164,6 +169,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(Object.keys(assistantRuntimeToolsets));
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);
     expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
+    expect(Object.keys(generateOptions?.toolsets?.ideas ?? {})).toEqual([...assistantRuntimeToolsets.ideas]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
