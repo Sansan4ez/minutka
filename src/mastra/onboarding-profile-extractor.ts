@@ -2,15 +2,16 @@ import { z } from "zod";
 import { normalizeTimezone, type OnboardingProfileExtractor } from "../application/onboarding-profile-extractor.js";
 import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
 
-const transportSchema = z.strictObject({
+/** Wire schema for structured output: must stay representable as JSON Schema (no transforms). */
+export const onboardingExtractorTransportSchema = z.strictObject({
   preferredName: z.string().trim().min(1).max(128).nullable(),
   assistantName: z.string().trim().min(1).max(128).nullable(),
   addressForm: z.enum(["informal", "formal"]).nullable(),
   persona: z.enum(["support", "efficiency"]).nullable(),
   responseLength: z.enum(["short", "balanced", "detailed"]).nullable(),
-  timezone: z.string().trim().max(64).nullable().transform((value) =>
-    value === null ? null : normalizeTimezone(value) ?? null
-  ),
+  // No transform here: a transform makes the field unrepresentable in the JSON Schema
+  // sent as response_format, and providers reject the resulting untyped `{}`.
+  timezone: z.string().trim().max(64).nullable(),
   ambiguousFields: z.array(z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"])),
 });
 
@@ -22,15 +23,16 @@ export const extractOnboardingProfileWithAgent: OnboardingProfileExtractor = asy
     "",
     "# Untrusted employee text",
     text,
-  ].join("\n"), { structuredOutput: { schema: transportSchema }, abortSignal: signal });
-  const parsed = transportSchema.parse(result.object);
+  ].join("\n"), { structuredOutput: { schema: onboardingExtractorTransportSchema }, abortSignal: signal });
+  const parsed = onboardingExtractorTransportSchema.parse(result.object);
+  const timezone = parsed.timezone === null ? undefined : normalizeTimezone(parsed.timezone);
   return {
     ...(parsed.preferredName ? { preferredName: parsed.preferredName } : {}),
     ...(parsed.assistantName ? { assistantName: parsed.assistantName } : {}),
     ...(parsed.addressForm ? { addressForm: parsed.addressForm } : {}),
     ...(parsed.persona ? { persona: parsed.persona } : {}),
     ...(parsed.responseLength ? { responseLength: parsed.responseLength } : {}),
-    ...(parsed.timezone ? { timezone: parsed.timezone } : {}),
+    ...(timezone ? { timezone } : {}),
     ambiguousFields: parsed.ambiguousFields,
   };
 };

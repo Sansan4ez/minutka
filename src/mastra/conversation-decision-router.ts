@@ -70,7 +70,7 @@ export const conversationDecisionSchema = z.object({
 // OpenAI Responses strict JSON Schema does not accept the `oneOf` emitted by
 // z.discriminatedUnion. Keep the domain schema above, but request a flat
 // transport shape and validate it again against the domain schema below.
-const decisionTransportSchema = z.object({
+export const decisionTransportSchema = z.object({
   selectedProcessIds: z.array(processId),
   workDecision: z.object({
     mode: z.enum(["allow", "boundary"]),

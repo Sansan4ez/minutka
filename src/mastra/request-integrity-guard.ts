@@ -5,7 +5,7 @@ import { renderUntrustedCurrentText } from "../application/untrusted-conversatio
 import { maxChatInputCharacters } from "../shared/chat-limits.js";
 import { requestIntegrityAgent } from "./agents/request-integrity-agent.js";
 
-const requestIntegrityOutcomeSchema = z.strictObject({
+export const requestIntegrityOutcomeSchema = z.strictObject({
   status: z.enum(["allowed", "denied"]),
   reason: z.enum(requestIntegrityDenialReasons).nullable(),
 });

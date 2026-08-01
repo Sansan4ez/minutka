@@ -77,7 +77,7 @@ export const insightExtractionSchema = z.object({
 // OpenAI Responses strict JSON Schema does not accept the oneOf emitted by
 // discriminated unions. This flat transport is converted and validated against
 // insightExtractionSchema before application code receives it.
-const insightTransportSchema = z.object({
+export const insightTransportSchema = z.object({
   insights: z.array(
     z.object({
       kind: insightBase.shape.kind,
