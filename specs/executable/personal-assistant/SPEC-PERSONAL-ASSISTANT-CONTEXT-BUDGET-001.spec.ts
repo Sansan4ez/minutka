@@ -13,6 +13,8 @@ import {
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
 import { renderEmptyAssistantContextSection } from "../../../src/application/assistant-context-renderer.js";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { renderAssistantAgentManual } from "../../../src/application/assistant-static-context.js";
+import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import { renderEmptyContextTreeIndex } from "../../../src/application/context-tree-index.js";
 import { assertGeneratedContextSourceMinimums } from "../../../src/application/generated-context-startup-validator.js";
 import { assistantRecordsLimits } from "../../../src/application/assistant-records-projection.js";
@@ -23,6 +25,26 @@ import { runtimeProjectionLimits } from "../../../src/application/runtime-projec
 import { minimumRecentHistoryCharacters, renderThreadSummaryProjection } from "../../../src/application/runtime-projections/runtime-projection-renderer.js";
 import { canonicalThreadSummaryWatermark, minimumThreadSummaryText } from "../../../src/application/thread-summarizer.js";
 import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
+
+/**
+ * `agent_manual` is the largest static context source and is resent on every LLM
+ * step of every owner turn, so its size is a recurring cost rather than a
+ * formatting detail.
+ *
+ * The runtime already refuses to start when the manual overflows its ceiling
+ * (`assertGeneratedContextSourceMinimums`), but that check runs inside
+ * `createPostgresRuntime` — a deploy-time failure for whoever last edited
+ * `vault/assistant`. Pinning the measured size moves the same failure into
+ * `npm run verify` and makes any growth deliberate.
+ *
+ * Measured 2026-08-02: 22 545 of 24 000 characters, i.e. 1 455 left — roughly
+ * half of one vault process body, while rfc-pilot-quality-bar §4 plans to
+ * reactivate processes from the legacy registry. Do not raise this pin merely to
+ * make a red spec green: the growth policy is decided in prs-7ohk, which
+ * measures the prompt-cache hit rate before choosing between a higher ceiling
+ * and splitting the manual.
+ */
+const pinnedAgentManualCharacters = 22_545;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -279,6 +301,17 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     }), agentInstructions)).toThrow(/context source base_instructions requires a minimum rendered representation of \d+ Unicode characters, but its configured ceiling is 1/u);
     expect(summaryMinimum).toBeLessThanOrEqual(defaultContextBudget.projectionLimits.threadSummaryCharacters);
     expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget, agentInstructions)).not.toThrow();
+  });
+
+  it("keeps the rendered agent manual inside its ceiling and pins deliberate growth", () => {
+    const used = countUnicodeCharacters(renderAssistantAgentManual(loadAssistantAgentInstructions(), renderMaximumResponsePolicy()));
+    const ceiling = sourceCharacterCeiling(defaultContextBudget, "agent_manual");
+    const measured = `rendered agent_manual is ${used} characters; ceiling ${ceiling}; pinned ${pinnedAgentManualCharacters}; headroom ${ceiling - used}`;
+
+    expect(pinnedAgentManualCharacters, measured).toBeLessThanOrEqual(ceiling);
+    expect(used, measured).toBeLessThanOrEqual(ceiling);
+    expect(used, `${measured}. Growing the manual is a cost decision, not a formatting detail: see prs-7ohk before repinning.`)
+      .toBeLessThanOrEqual(pinnedAgentManualCharacters);
   });
 });
 
