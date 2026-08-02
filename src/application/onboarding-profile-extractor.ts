@@ -1,13 +1,21 @@
 import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
 import { normalizeIanaTimezone, resolveTimezoneAlias } from "../shared/iana-timezone.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from "./onboarding-types.js";
+import type { ModelTokenUsage } from "./usage-store.js";
+
+/**
+ * Extraction is a billed LLM call, so the adapter reports its own token usage
+ * alongside the patch. `usage` is read by the caller before the patch is merged
+ * and never reaches the onboarding draft.
+ */
+export type OnboardingProfileExtraction = OnboardingProfilePatch & { usage?: ModelTokenUsage };
 
 export type OnboardingProfileExtractor = (input: {
   text: string;
   currentDraft: OnboardingDraft;
   /** The caller aborts slow provider work before falling back deterministically. */
   signal?: AbortSignal;
-}) => Promise<OnboardingProfilePatch>;
+}) => Promise<OnboardingProfileExtraction>;
 
 /**
  * Conservative, dependency-free extraction used both as the reliable fallback

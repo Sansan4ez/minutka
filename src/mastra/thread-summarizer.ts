@@ -1,6 +1,7 @@
 import type { ThreadSummarizer } from "../application/thread-summarizer.js";
 import { renderUntrustedConversationTurns, renderUntrustedPreviousThreadSummary } from "../application/untrusted-conversation-context.js";
 import { threadSummarizerAgent } from "./agents/thread-summarizer-agent.js";
+import { normalizeMastraUsage } from "./model-usage.js";
 
 export const summarizeThreadWithAgent: ThreadSummarizer = async (input) => {
   const prompt = [
@@ -22,7 +23,8 @@ export const summarizeThreadWithAgent: ThreadSummarizer = async (input) => {
     toolChoice: "none",
     modelSettings: { maxOutputTokens: summaryOutputTokenLimit(input.ceiling) },
   });
-  return { text: result.text ?? "" };
+  const usage = normalizeMastraUsage(result);
+  return { text: result.text ?? "", ...(usage ? { usage } : {}) };
 };
 
 /** Conservative sizing guidance; the application still enforces the character ceiling. */

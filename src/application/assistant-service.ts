@@ -32,7 +32,8 @@ import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from 
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
-import { estimateUsageCostUsdMicros, usageMonth, type ModelTokenUsage, type UsageCostPolicy, type UsageStore } from "./usage-store.js";
+import type { ModelTokenUsage, UsageCostPolicy, UsageStore } from "./usage-store.js";
+import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder } from "./usage-recorder.js";
 import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
@@ -69,8 +70,7 @@ export type AssistantAgentRunner = (input: AssistantChatInput, context: Assistan
 type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning =
   | (Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & { type: "context_budget_overflow" })
-  | ({ type: "assistant_turn_usage"; userId: string; requestId: string; contextSourceCharacters: ContextBudgetResult["contextSourceCharacters"] } & ModelTokenUsage)
-  | { type: "usage_soft_limit_exceeded"; userId: string; month: string; estimatedCostUsdMicros: number; softLimitUsdMicros: number };
+  | UsageOperationalWarning;
 export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
   | { status: "completed" }
@@ -102,6 +102,7 @@ export class AssistantService {
   private readonly ids: IdGenerator;
   private readonly contextBudget: ContextBudgetConfig;
   private readonly overflowRecoveryContextBudget: ContextBudgetConfig;
+  private readonly usage: UsageRecorder;
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
@@ -117,6 +118,16 @@ export class AssistantService {
     this.recordsProjectionBuilder = hasRecordsStore ? createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, taskStore: deps.taskStore, now: () => this.clock.now(), contextBudget: this.contextBudget }) : undefined;
     this.overflowRecordsProjectionBuilder = hasRecordsStore ? createAssistantRecordsProjectionBuilder({ ideaStore: deps.ideaStore, taskStore: deps.taskStore, now: () => this.clock.now(), contextBudget: this.overflowRecoveryContextBudget }) : undefined;
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
+    // The recorder is stateless, so every service that spends tokens builds its
+    // own; the soft-limit crossing is derived from the durable monthly total.
+    this.usage = createUsageRecorder({
+      usageStore: deps.usageStore,
+      usageCostPolicy: deps.usageCostPolicy,
+      auditEventStore: deps.auditEventStore,
+      clock: this.clock,
+      idGenerator: this.ids,
+      operationalLogger: (warning) => this.warnOperationally(warning),
+    });
   }
 
   /** Explicit onboarding write: reviewed Markdown flows through the ingestion boundary. */
@@ -150,6 +161,13 @@ export class AssistantService {
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_received", { inputModality }),
     }, "chat received audit");
     const integrityOutcome = await this.deps.requestIntegrityGuard({ userId, text });
+    // The guard runs on every turn and is billed whatever it decides, so its
+    // tokens are counted before the turn can take any early exit.
+    if (integrityOutcome.usage) {
+      await this.usage.record({
+        userId, requestId, source: "guard", threadId, messageId, usage: integrityOutcome.usage,
+      });
+    }
     if (integrityOutcome.status === "denied") {
       const response = requestIntegrityDenialResponse;
       await this.deps.conversationStore.appendTurn({
@@ -522,52 +540,16 @@ export class AssistantService {
     usage: ModelTokenUsage;
     contextSourceCharacters: ContextBudgetResult["contextSourceCharacters"];
   }): Promise<boolean> {
-    this.warnOperationally({
-      type: "assistant_turn_usage",
+    const { overSoftLimit } = await this.usage.record({
       userId: input.userId,
       requestId: input.requestId,
+      source: "chat",
+      threadId: input.threadId,
+      messageId: input.messageId,
+      usage: input.usage,
       contextSourceCharacters: input.contextSourceCharacters,
-      ...input.usage,
     });
-    const store = this.deps.usageStore;
-    const policy = this.deps.usageCostPolicy;
-    if (!store || !policy) return false;
-    const occurredAt = this.clock.now();
-    try {
-      const monthly = await store.record({
-        id: (this.ids.usageId ?? randomIdGenerator.usageId!)(),
-        userId: input.userId,
-        requestId: input.requestId,
-        month: usageMonth(occurredAt),
-        ...input.usage,
-        estimatedCostUsdMicros: estimateUsageCostUsdMicros(input.usage, policy),
-        occurredAt,
-      });
-      if (monthly.estimatedCostUsdMicros <= policy.monthlySoftLimitUsdMicros) return false;
-      await this.auditSafely({
-        id: this.ids.auditEventId(), requestId: input.requestId, type: "usage_soft_limit_exceeded", employeeId: input.userId,
-        threadId: input.threadId, messageId: input.messageId, occurredAt,
-        metadata: safeAuditMetadata("usage_soft_limit_exceeded", {
-          month: monthly.month,
-          inputTokens: monthly.inputTokens,
-          outputTokens: monthly.outputTokens,
-          totalTokens: monthly.totalTokens,
-          estimatedCostUsdMicros: monthly.estimatedCostUsdMicros,
-          softLimitUsdMicros: policy.monthlySoftLimitUsdMicros,
-        }),
-      }, "usage soft-limit audit");
-      this.warnOperationally({
-        type: "usage_soft_limit_exceeded",
-        userId: input.userId,
-        month: monthly.month,
-        estimatedCostUsdMicros: monthly.estimatedCostUsdMicros,
-        softLimitUsdMicros: policy.monthlySoftLimitUsdMicros,
-      });
-      return true;
-    } catch (error) {
-      logAssistantOperationalError("usage persistence", error);
-      return false;
-    }
+    return overSoftLimit;
   }
 
   private scheduleThreadCompaction(input: { employeeId: string; threadId: string; requestId: string }): void {

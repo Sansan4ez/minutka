@@ -20,6 +20,7 @@ import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 import { createPostgresScheduleStore } from "../../src/infrastructure/postgres/postgres-schedule-store.js";
 import { createPostgresUsageStore } from "../../src/infrastructure/postgres/postgres-usage-store.js";
+import type { UsageRecord } from "../../src/application/usage-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
@@ -79,37 +80,65 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, "usage_owner", "invite_usage_owner");
     await issueProfileReadyParticipant(pool, "usage_other", "invite_usage_other");
     let usage = createPostgresUsageStore(pool);
-    const first = {
-      id: "usage_pg_1", userId: "usage_owner", requestId: "request_usage_pg_1", month: "2026-07",
-      inputTokens: 100, outputTokens: 50, totalTokens: 150, estimatedCostUsdMicros: 325, occurredAt: "2026-07-31T23:00:00.000Z",
+    const first: UsageRecord = {
+      id: "usage_pg_1", userId: "usage_owner", requestId: "request_usage_pg_1", source: "chat", month: "2026-07",
+      inputTokens: 100, outputTokens: 50, totalTokens: 150, cachedInputTokens: 40, estimatedCostUsdMicros: 325, occurredAt: "2026-07-31T23:00:00.000Z",
     };
-    await usage.record(first);
+    expect(await usage.record(first)).toMatchObject({ inserted: true });
     await usage.record({
-      id: "usage_pg_2", userId: "usage_owner", requestId: "request_usage_pg_2", month: "2026-07",
+      id: "usage_pg_2", userId: "usage_owner", requestId: "request_usage_pg_2", source: "chat", month: "2026-07",
       inputTokens: 200, outputTokens: 100, totalTokens: 300, estimatedCostUsdMicros: 650, occurredAt: "2026-07-31T23:30:00.000Z",
     });
+    // Same request, different source: the auxiliary call must survive the
+    // deduplication that previously collapsed it into the chat row.
     await usage.record({
-      id: "usage_pg_other", userId: "usage_other", requestId: "request_usage_pg_other", month: "2026-07",
+      id: "usage_pg_1_guard", userId: "usage_owner", requestId: "request_usage_pg_1", source: "guard", month: "2026-07",
+      inputTokens: 30, outputTokens: 5, totalTokens: 35, cachedInputTokens: 0, estimatedCostUsdMicros: 25, occurredAt: "2026-07-31T23:00:01.000Z",
+    });
+    await usage.record({
+      id: "usage_pg_other", userId: "usage_other", requestId: "request_usage_pg_other", source: "chat", month: "2026-07",
       inputTokens: 20, outputTokens: 10, totalTokens: 30, estimatedCostUsdMicros: 65, occurredAt: "2026-07-31T23:45:00.000Z",
     });
-    await usage.record(first);
+    expect(await usage.record(first)).toMatchObject({ inserted: false });
 
     expect(await usage.getMonthly("usage_owner", "2026-07")).toEqual({
-      userId: "usage_owner", month: "2026-07", inputTokens: 300, outputTokens: 150, totalTokens: 450, estimatedCostUsdMicros: 975,
+      userId: "usage_owner", month: "2026-07", inputTokens: 330, outputTokens: 155, totalTokens: 485,
+      estimatedCostUsdMicros: 1000, records: 3, cachedInputTokens: 40, cachedInputUnknownRecords: 1,
+      bySource: [
+        {
+          source: "chat", inputTokens: 300, outputTokens: 150, totalTokens: 450,
+          estimatedCostUsdMicros: 975, records: 2, cachedInputTokens: 40, cachedInputUnknownRecords: 1,
+        },
+        {
+          source: "guard", inputTokens: 30, outputTokens: 5, totalTokens: 35,
+          estimatedCostUsdMicros: 25, records: 1, cachedInputTokens: 0, cachedInputUnknownRecords: 0,
+        },
+      ],
     });
     expect(await usage.getMonthly("usage_other", "2026-07")).toMatchObject({ totalTokens: 30, estimatedCostUsdMicros: 65 });
-    expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0 });
+    expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0, bySource: [] });
     const columns = await pool.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_schema='minutka_private' AND table_name='usage' ORDER BY ordinal_position",
     );
     expect(columns.rows.map((row) => row.column_name)).toEqual([
-      "usage_id", "user_id", "request_id", "usage_month", "input_tokens", "output_tokens", "total_tokens", "estimated_cost_usd_micros", "occurred_at",
+      "usage_id", "user_id", "request_id", "usage_month", "input_tokens", "output_tokens", "total_tokens",
+      "estimated_cost_usd_micros", "occurred_at", "source", "cached_input_tokens",
+    ]);
+    // An unreported cache breakdown stays NULL: the durable row never claims a
+    // cache miss the provider did not report.
+    const cached = await pool.query<{ usage_id: string; cached_input_tokens: string | null }>(
+      "SELECT usage_id, cached_input_tokens FROM minutka_private.usage WHERE user_id='usage_owner' ORDER BY usage_id",
+    );
+    expect(cached.rows).toEqual([
+      { usage_id: "usage_pg_1", cached_input_tokens: "40" },
+      { usage_id: "usage_pg_1_guard", cached_input_tokens: "0" },
+      { usage_id: "usage_pg_2", cached_input_tokens: null },
     ]);
 
     await pool.end();
     pool = createPostgresPool(config);
     usage = createPostgresUsageStore(pool);
-    expect(await usage.getMonthly("usage_owner", "2026-07")).toMatchObject({ totalTokens: 450, estimatedCostUsdMicros: 975 });
+    expect(await usage.getMonthly("usage_owner", "2026-07")).toMatchObject({ totalTokens: 485, estimatedCostUsdMicros: 1000 });
   });
 
   it("persists invite, profile, turn and stable feedback upsert after recreating the pool", async () => {

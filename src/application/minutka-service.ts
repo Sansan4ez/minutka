@@ -10,7 +10,8 @@ import type { InsightExtractor } from "./insight-extractor.js";
 import type { InsightStore } from "./insight-store.js";
 import type { ProfileStore } from "./profile-store.js";
 import type { OnboardingDraftStore } from "./onboarding-draft-store.js";
-import type { OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
+import type { OnboardingProfileExtraction, OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
+import type { UsageRecorder } from "./usage-recorder.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "./onboarding-profile-extractor.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
 import type { OnboardingContextMaterializer } from "./onboarding-context-materializer.js";
@@ -94,6 +95,7 @@ export type MinutkaServiceDeps = {
   onboardingContextMaterializer?: OnboardingContextMaterializer;
   /** Bounds provider latency; extraction always falls back before the HTTP budget expires. */
   onboardingExtractionTimeoutMs?: number;
+  usageRecorder?: UsageRecorder;
   conversationStore?: ConversationStore;
   insightStore?: InsightStore;
   feedbackStore?: FeedbackStore;
@@ -324,7 +326,7 @@ export class MinutkaService {
       if (isAffirmativeOnboardingAnswer(text)) return { status: "completed", result: await this.confirmOnboarding({ employeeId }) };
       if (isNegativeOnboardingAnswer(text)) return { status: "needs_correction", prompt: onboardingCorrectionPrompt };
     }
-    let extracted: OnboardingProfilePatch;
+    let extracted: OnboardingProfileExtraction;
     try {
       extracted = this.deps.onboardingProfileExtractor
         ? await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, this.deps.onboardingExtractionTimeoutMs ?? 10_000)
@@ -332,6 +334,16 @@ export class MinutkaService {
     } catch (error) {
       logOperationalError("onboarding profile extraction", error);
       extracted = extractDeterministicOnboardingPatch({ text, currentDraft: current });
+    }
+    // Extraction runs on every onboarding answer, so it is a recurring spend of
+    // the owner contour and needs its own attributed usage row.
+    if (extracted.usage) {
+      await this.deps.usageRecorder?.record({
+        userId: employeeId,
+        requestId: this.ids.requestId(),
+        source: "onboarding",
+        usage: extracted.usage,
+      });
     }
     const fallback = extractDeterministicOnboardingPatch({ text, currentDraft: current });
     const patch = normalizeOnboardingProfilePatch(mergePatches(extracted, fallback));
@@ -613,13 +625,13 @@ async function extractOnboardingPatchWithTimeout(
   extractor: OnboardingProfileExtractor,
   input: { text: string; currentDraft: OnboardingDraft },
   timeoutMs: number,
-): Promise<OnboardingProfilePatch> {
+): Promise<OnboardingProfileExtraction> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       extractor({ ...input, signal: controller.signal }),
-      new Promise<OnboardingProfilePatch>((_, reject) => {
+      new Promise<OnboardingProfileExtraction>((_, reject) => {
         timer = setTimeout(() => { controller.abort(); reject(new Error("onboarding_extractor_timeout")); }, timeoutMs);
       }),
     ]);

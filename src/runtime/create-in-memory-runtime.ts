@@ -38,7 +38,7 @@ export type InMemoryRuntime = {
 export function createInMemoryRuntime(input: {
   agentRunner: AgentRunner;
   world?: InMemoryWorld;
-  deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingContextMaterializer" | "onboardingExtractionTimeoutMs"> & {
+  deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingContextMaterializer" | "onboardingExtractionTimeoutMs" | "usageRecorder"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
     insightExtractor?: InsightExtractor;
   };

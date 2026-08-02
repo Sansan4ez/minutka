@@ -46,6 +46,7 @@ import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 import type { createTelegramShell } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
+import { createUsageRecorder } from "../application/usage-recorder.js";
 import { artifactRuntimeConfigFromEnv } from "../config/artifacts.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
 import { IdeaDeletionService } from "../application/idea-deletion.js";
@@ -157,6 +158,17 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaStore,
       maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
     });
+    const usageStore = createPostgresUsageStore(pool);
+    // Every service that spends provider tokens writes through the same
+    // recorder, so the monthly total covers the whole owner contour and each
+    // row states which call it came from.
+    const usageRecorder = createUsageRecorder({
+      usageStore,
+      usageCostPolicy,
+      auditEventStore,
+      clock: systemClock,
+      idGenerator: randomIdGenerator,
+    });
     // MinutkaService remains a temporary identity/onboarding compatibility
     // component. Product chat never calls its legacy chat path, and onboarding
     // welcome text is deterministic, so production needs no legacy chat agent.
@@ -174,6 +186,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       clock: systemClock,
       idGenerator: randomIdGenerator,
       onboardingProfileExtractor: extractOnboardingProfileWithAgent,
+      usageRecorder,
       ...input.deps,
     });
     const chatProjectionBuilder = createRuntimeProjectionBuilder({ ...stores, clock: systemClock, contextBudget });
@@ -186,11 +199,11 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       fieldCharacterLimit: contextBudget.projectionLimits.threadCompactionFieldCharacters,
       summaryCeiling: contextBudget.projectionLimits.threadSummaryCharacters,
       auditEventStore: stores.auditEventStore,
+      usageRecorder,
       clock: systemClock,
       idGenerator: randomIdGenerator,
     });
     const taskStore = createPostgresTaskStore(pool);
-    const usageStore = createPostgresUsageStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {

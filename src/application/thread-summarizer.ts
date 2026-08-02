@@ -1,6 +1,7 @@
 import type { ConversationTurn } from "./conversation-store.js";
 import { renderedThreadSummaryCharacters } from "./runtime-projections/runtime-projection-renderer.js";
 import type { ThreadSummary } from "./thread-summary-store.js";
+import type { ModelTokenUsage } from "./usage-store.js";
 
 export const threadSummarySectionHeadings = [
   "Факты",
@@ -37,5 +38,8 @@ export type ThreadSummaryInput = {
   fieldCharacters: number;
 };
 
+/** Compaction is a billed LLM call, so it reports its own token usage for attribution. */
+export type ThreadSummaryResult = { text: string; usage?: ModelTokenUsage };
+
 /** Pure derivation boundary: it receives text and returns text, with no store capabilities. */
-export type ThreadSummarizer = (input: ThreadSummaryInput) => Promise<{ text: string }>;
+export type ThreadSummarizer = (input: ThreadSummaryInput) => Promise<ThreadSummaryResult>;

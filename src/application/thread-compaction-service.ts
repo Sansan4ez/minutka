@@ -9,6 +9,7 @@ import {
 } from "./thread-summarizer.js";
 import type { ThreadSummary, ThreadSummaryStore } from "./thread-summary-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
+import type { UsageRecorder } from "./usage-recorder.js";
 
 export type ThreadCompactionService = {
   compact(input: { employeeId: string; threadId: string; requestId: string }): Promise<void>;
@@ -25,6 +26,7 @@ export function createThreadCompactionService(deps: {
   clock: Clock;
   idGenerator: IdGenerator;
   auditEventStore?: AuditEventStore;
+  usageRecorder?: UsageRecorder;
 }): ThreadCompactionService {
   const queues = new Map<string, Promise<void>>();
   const runCompaction = async (input: { employeeId: string; threadId: string; requestId: string }): Promise<void> => {
@@ -51,12 +53,25 @@ export function createThreadCompactionService(deps: {
 
     let generated: { text: string };
     try {
-      generated = await deps.summarizer({
+      const summarized = await deps.summarizer({
         previous,
         turns: pending,
         ceiling: deps.summaryCeiling,
         fieldCharacters: deps.fieldCharacterLimit,
       });
+      // Compaction runs once per active turn, so its tokens are a load-proportional
+      // part of the owner's spend and must be attributed before the summary is
+      // parsed — a malformed summary still cost money.
+      if (summarized.usage) {
+        await deps.usageRecorder?.record({
+          userId: input.employeeId,
+          requestId: input.requestId,
+          source: "summarization",
+          threadId: input.threadId,
+          usage: summarized.usage,
+        });
+      }
+      generated = summarized;
       const sections = parseStructuredSummary(generated.text);
       const watermark = {
         fromMessageId: previous?.watermark.fromMessageId ?? pending[0]!.messageId,

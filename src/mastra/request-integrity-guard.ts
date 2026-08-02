@@ -4,13 +4,15 @@ import { requestIntegrityDenialReasons } from "../domain/request-integrity.js";
 import { renderUntrustedCurrentText } from "../application/untrusted-conversation-context.js";
 import { maxChatInputCharacters } from "../shared/chat-limits.js";
 import { requestIntegrityAgent } from "./agents/request-integrity-agent.js";
+import { normalizeMastraUsage } from "./model-usage.js";
+import type { ModelTokenUsage } from "../application/usage-store.js";
 
 export const requestIntegrityOutcomeSchema = z.strictObject({
   status: z.enum(["allowed", "denied"]),
   reason: z.enum(requestIntegrityDenialReasons).nullable(),
 });
 
-export type RequestIntegrityGeneration = { object?: unknown };
+export type RequestIntegrityGeneration = { object?: unknown; usage?: ModelTokenUsage };
 export type RequestIntegrityGenerator = (prompt: string) => Promise<RequestIntegrityGeneration>;
 
 /**
@@ -21,14 +23,17 @@ export type RequestIntegrityGenerator = (prompt: string) => Promise<RequestInteg
 export function createRequestIntegrityGuard(generate: RequestIntegrityGenerator): RequestIntegrityGuard {
   return async ({ text }) => {
     const result = await generate(buildRequestIntegrityPrompt(text));
+    // The guard already spent tokens whatever it decided, so usage travels back
+    // with every outcome, including a denial.
+    const usage = result.usage ? { usage: result.usage } : {};
     const parsed = requestIntegrityOutcomeSchema.parse(result.object);
     if (parsed.status === "allowed") {
       if (parsed.reason !== null) throw new Error("allowed request-integrity outcome cannot include a reason");
-      return { status: "allowed" };
+      return { status: "allowed", ...usage };
     }
     if (parsed.reason === null) throw new Error("denied request-integrity outcome requires a reason");
-    if (parsed.reason === "forbidden_action_laundering" && isOrdinaryOwnerScopedRequest(text)) return { status: "allowed" };
-    return { status: "denied", reason: parsed.reason };
+    if (parsed.reason === "forbidden_action_laundering" && isOrdinaryOwnerScopedRequest(text)) return { status: "allowed", ...usage };
+    return { status: "denied", reason: parsed.reason, ...usage };
   };
 }
 
@@ -37,7 +42,8 @@ export const evaluateRequestIntegrity = createRequestIntegrityGuard(async (promp
     structuredOutput: { schema: requestIntegrityOutcomeSchema },
     toolChoice: "none",
   });
-  return { object: result.object };
+  const usage = normalizeMastraUsage(result);
+  return { object: result.object, ...(usage ? { usage } : {}) };
 });
 
 function buildRequestIntegrityPrompt(text: string): string {

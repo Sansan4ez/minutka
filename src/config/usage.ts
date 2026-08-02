@@ -2,6 +2,7 @@ import type { UsageCostPolicy } from "../application/usage-store.js";
 
 export const usageMonthlySoftLimitEnvName = "ASSISTANT_USAGE_MONTHLY_SOFT_LIMIT_USD";
 export const usageInputPriceEnvName = "ASSISTANT_USAGE_INPUT_USD_PER_MILLION_TOKENS";
+export const usageCachedInputPriceEnvName = "ASSISTANT_USAGE_CACHED_INPUT_USD_PER_MILLION_TOKENS";
 export const usageOutputPriceEnvName = "ASSISTANT_USAGE_OUTPUT_USD_PER_MILLION_TOKENS";
 
 /**
@@ -12,6 +13,9 @@ export const usageOutputPriceEnvName = "ASSISTANT_USAGE_OUTPUT_USD_PER_MILLION_T
 export const defaultUsageCostPolicy: UsageCostPolicy = {
   monthlySoftLimitUsdMicros: 30_000_000,
   inputUsdMicrosPerMillionTokens: 5_000_000,
+  // Prompt-cache hits are billed at a tenth of the full input rate. Zero is
+  // allowed for a gateway that does not charge for them at all.
+  cachedInputUsdMicrosPerMillionTokens: 500_000,
   outputUsdMicrosPerMillionTokens: 30_000_000,
 };
 
@@ -19,6 +23,7 @@ export function usageCostPolicyFromEnv(env: NodeJS.ProcessEnv): UsageCostPolicy 
   return {
     monthlySoftLimitUsdMicros: parseUsd(env[usageMonthlySoftLimitEnvName], defaultUsageCostPolicy.monthlySoftLimitUsdMicros, usageMonthlySoftLimitEnvName, false),
     inputUsdMicrosPerMillionTokens: parseUsd(env[usageInputPriceEnvName], defaultUsageCostPolicy.inputUsdMicrosPerMillionTokens, usageInputPriceEnvName, true),
+    cachedInputUsdMicrosPerMillionTokens: parseUsd(env[usageCachedInputPriceEnvName], defaultUsageCostPolicy.cachedInputUsdMicrosPerMillionTokens, usageCachedInputPriceEnvName, true),
     outputUsdMicrosPerMillionTokens: parseUsd(env[usageOutputPriceEnvName], defaultUsageCostPolicy.outputUsdMicrosPerMillionTokens, usageOutputPriceEnvName, true),
   };
 }

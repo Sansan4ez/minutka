@@ -10,7 +10,7 @@ import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "../
 import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import * as postgresPoolModule from "../../../src/infrastructure/postgres/postgres-pool.js";
 import { taskMutationCompletedReplayRetentionEnvName, taskMutationCompletedReplayRetentionFromEnv } from "../../../src/config/task-confirmation-retention.js";
-import { defaultUsageCostPolicy, usageCostPolicyFromEnv, usageInputPriceEnvName, usageMonthlySoftLimitEnvName, usageOutputPriceEnvName } from "../../../src/config/usage.js";
+import { defaultUsageCostPolicy, usageCachedInputPriceEnvName, usageCostPolicyFromEnv, usageInputPriceEnvName, usageMonthlySoftLimitEnvName, usageOutputPriceEnvName } from "../../../src/config/usage.js";
 
 const noOpAgent: AssistantAgentRunner = async () => ({ text: "unused", executionTrace: [] });
 
@@ -40,19 +40,25 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
     expect(usageCostPolicyFromEnv({
       [usageMonthlySoftLimitEnvName]: "12.5",
       [usageInputPriceEnvName]: "1.25",
+      [usageCachedInputPriceEnvName]: "0.125",
       [usageOutputPriceEnvName]: "7",
     })).toEqual({
       monthlySoftLimitUsdMicros: 12_500_000,
       inputUsdMicrosPerMillionTokens: 1_250_000,
+      cachedInputUsdMicrosPerMillionTokens: 125_000,
       outputUsdMicrosPerMillionTokens: 7_000_000,
     });
     expect(defaultUsageCostPolicy).toEqual({
       monthlySoftLimitUsdMicros: 30_000_000,
       inputUsdMicrosPerMillionTokens: 5_000_000,
+      cachedInputUsdMicrosPerMillionTokens: 500_000,
       outputUsdMicrosPerMillionTokens: 30_000_000,
     });
     expect(() => usageCostPolicyFromEnv({ [usageMonthlySoftLimitEnvName]: "0" })).toThrow("positive safe USD amount");
     expect(() => usageCostPolicyFromEnv({ [usageInputPriceEnvName]: "1.0000001" })).toThrow("up to 6 decimal places");
+    // A gateway that does not charge for cache hits is a valid configuration.
+    expect(usageCostPolicyFromEnv({ [usageCachedInputPriceEnvName]: "0" })).toMatchObject({ cachedInputUsdMicrosPerMillionTokens: 0 });
+    expect(() => usageCostPolicyFromEnv({ [usageCachedInputPriceEnvName]: "-1" })).toThrow("USD amount with up to 6 decimal places");
   });
 
   function expectNoPostgresPool(): ReturnType<typeof vi.spyOn> {
