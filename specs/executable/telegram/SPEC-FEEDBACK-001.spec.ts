@@ -912,7 +912,48 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const short = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0];
     expect(short).toMatchObject({ text: "Коротко", callbackData: "ob:responseLength:short" });
     await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: short!.callbackData });
-    expect(telegram.sentMessages().at(-1)?.text).toContain("часовой пояс");
+    const timezonePrompt = telegram.sentMessages().at(-1);
+    expect(timezonePrompt?.text).toContain("часовой пояс");
+    expect(timezonePrompt?.replyMarkup?.inlineKeyboard.flat()).toContainEqual({ text: "Екатеринбург", callbackData: "ob:timezone:Asia/Yekaterinburg" });
+  });
+
+  it("10bc. Saves a timezone button, removes its keyboard, and shows local time in confirmation", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_timezone_button", "--employee", "emp_timezone_button"]);
+    await telegram.start({ chatId: "chat_timezone_button", inviteCode: "invite_timezone_button" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_timezone_button", callbackData: consent! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_timezone_button", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
+    const timezonePrompt = telegram.sentMessages().at(-1)!;
+    const yekaterinburg = timezonePrompt.replyMarkup?.inlineKeyboard.flat().find((button) => button.text === "Екатеринбург");
+    expect(yekaterinburg).toMatchObject({ callbackData: "ob:timezone:Asia/Yekaterinburg" });
+
+    await telegram.deliverCallback({ chatId: "chat_timezone_button", callbackData: yekaterinburg!.callbackData, messageId: timezonePrompt.messageId, callbackQueryId: "timezone_choice" });
+
+    expect(spec.world.onboardingDrafts[0]).toMatchObject({ timezone: "Asia/Yekaterinburg", status: "awaiting_confirmation" });
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_timezone_button", messageId: timezonePrompt.messageId, replyMarkup: undefined });
+    expect(telegram.sentMessages().at(-1)?.text).toMatch(/часовой пояс: Asia\/Yekaterinburg \(сейчас у вас \d{2}:\d{2}\)/u);
+  });
+
+  it("10bd. Explains an unrecognized free-text timezone and restores the picker", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner, { onboardingProfileExtractor: async () => { throw new Error("unavailable"); } });
+    await spec.cli.run(["employee", "issue-invite", "--invite", "invite_timezone_retry", "--employee", "emp_timezone_retry"]);
+    await telegram.start({ chatId: "chat_timezone_retry", inviteCode: "invite_timezone_retry" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_timezone_retry", callbackData: consent! });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_timezone_retry", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_timezone_retry", text: "не знаю какой" });
+
+    const retry = telegram.sentMessages().at(-1);
+    expect(retry?.text).toContain("Не узнал этот пояс");
+    expect(retry?.replyMarkup?.inlineKeyboard.flat()).toContainEqual({ text: "Москва", callbackData: "ob:timezone:Europe/Moscow" });
   });
 
   it("10ba. Serializes onboarding callbacks with concurrent text deliveries", async () => {

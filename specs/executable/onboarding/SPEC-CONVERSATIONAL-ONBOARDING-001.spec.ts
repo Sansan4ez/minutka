@@ -3,7 +3,7 @@ import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-run
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
 import { timezoneSchema } from "../../../src/contracts/minutka-api.js";
-import { normalizeIanaTimezone } from "../../../src/shared/iana-timezone.js";
+import { normalizeIanaTimezone, resolveTimezoneAlias } from "../../../src/shared/iana-timezone.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
@@ -133,8 +133,42 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Спарк" })).toMatchObject({ status: "needs_choice", field: "addressForm" });
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "informal" })).toMatchObject({ status: "needs_choice", field: "persona" });
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "efficiency" })).toMatchObject({ status: "needs_choice", field: "responseLength" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "short" })).toMatchObject({ status: "needs_answer", field: "timezone" });
+    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "short" })).toMatchObject({
+      status: "needs_choice",
+      field: "timezone",
+      choices: ["Калининград", "Москва", "Самара", "Екатеринбург", "Омск", "Красноярск", "Иркутск", "Владивосток", "Другой"],
+      allowFreeText: true,
+    });
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Europe/Moscow" })).toMatchObject({ status: "needs_confirmation" });
+  });
+
+  it("resolves friendly timezone aliases and fixed offsets without reversing the sign", () => {
+    for (const alias of ["Москва", "москва", "мск", "MSK"]) expect(resolveTimezoneAlias(alias)).toBe("Europe/Moscow");
+    expect(resolveTimezoneAlias("екб")).toBe("Asia/Yekaterinburg");
+    expect(resolveTimezoneAlias("Нью-Йорк")).toBe("America/New_York");
+    expect(resolveTimezoneAlias("New York")).toBe("America/New_York");
+    expect(resolveTimezoneAlias("мусор")).toBeUndefined();
+
+    const instant = new Date("2026-01-01T00:00:00.000Z");
+    for (const input of ["UTC+3", "+03:00"]) {
+      const timezone = resolveTimezoneAlias(input);
+      expect(timezone).toBeDefined();
+      const hour = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hourCycle: "h23" }).format(instant);
+      expect(hour).toBe("03");
+    }
+  });
+
+  it("explains an unrecognized timezone and shows the choices again", async () => {
+    const runtime = await consentedRuntime("emp_bad_timezone");
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "Максим | Спарк | На ты | Деловой | Коротко | мусор" });
+
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "совсем не пояс" })).resolves.toMatchObject({
+      status: "needs_choice",
+      field: "timezone",
+      prompt: expect.stringContaining("Не узнал этот пояс"),
+      choices: expect.arrayContaining(["Москва", "Другой"]),
+      allowFreeText: true,
+    });
   });
 
   it("extracts multiple choice fields from one message through bounded signals", () => {
@@ -201,7 +235,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
   });
 
-  it("keeps valid agent fields when the structured result contains an invalid timezone", async () => {
+  it("keeps valid agent fields and resolves a friendly timezone returned by the extractor", async () => {
     vi.spyOn(onboardingProfileExtractorAgent, "generate").mockResolvedValue({
       object: {
         preferredName: "Максим",
@@ -231,13 +265,15 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       addressForm: "informal",
       persona: "efficiency",
       responseLength: "short",
+      timezone: "Europe/Moscow",
       ambiguousFields: [],
     });
   });
 
-  it("normalizes extractor names and rejects invalid timezone before saving the draft", async () => {
+  it("normalizes extractor names and rejects an unknown timezone before saving the draft", async () => {
     expect(normalizeOnboardingProfilePatch({ preferredName: "   ", assistantName: "  Спарк  ", timezone: "Moscow", ambiguousFields: [] })).toEqual({
       assistantName: "Спарк",
+      timezone: "Europe/Moscow",
       ambiguousFields: [],
     });
 
@@ -252,14 +288,14 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
           addressForm: "informal",
           persona: "efficiency",
           responseLength: "short",
-          timezone: "Moscow",
+          timezone: "неизвестный пояс",
           ambiguousFields: [],
         }),
       },
     });
 
     await expect(extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_untrusted_patch", text: "данные профиля" })).resolves.toMatchObject({
-      status: "needs_answer",
+      status: "needs_choice",
       field: "timezone",
     });
     expect(runtime.world.onboardingDrafts[0]).toMatchObject({
@@ -357,7 +393,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {
     const invalid = await consentedRuntime("emp_invalid_tz");
-    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | Спарк | На ты | Деловой | Коротко | Moscow" });
+    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
     expect(invalid.world.onboardingDrafts[0].timezone).toBeUndefined();
     expect(invalid.world.onboardingDrafts[0].pendingField).toBe("timezone");
 

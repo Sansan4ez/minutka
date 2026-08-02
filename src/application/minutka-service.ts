@@ -344,7 +344,10 @@ export class MinutkaService {
       // recreate or retain temporary personal data after that final transition.
       if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
       const next = makeOnboardingDraft(draft, mergeOnboardingPatch(draft, patch), this.clock.now());
-      try { return onboardingProgress(await this.stores.onboardingDraftStore.save(next, draft.revision)); }
+      try {
+        const saved = await this.stores.onboardingDraftStore.save(next, draft.revision);
+        return onboardingProgress(saved, current.pendingField === "timezone" && patch.timezone === undefined);
+      }
       catch (error) {
         if (!(error instanceof PersistenceError) || error.code !== "persistence_conflict" || attempt === 1) throw error;
         if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
@@ -569,6 +572,8 @@ const onboardingCorrectionPrompt = "Напишите, что исправить,
 const addressFormLabels = { informal: "на ты", formal: "на вы" } as const;
 const personaLabels = { support: "тёплый", efficiency: "деловой" } as const;
 const responseLengthLabels = { short: "коротко", balanced: "сбалансированно", detailed: "подробно" } as const;
+const timezoneChoices = ["Калининград", "Москва", "Самара", "Екатеринбург", "Омск", "Красноярск", "Иркутск", "Владивосток", "Другой"];
+const unrecognizedTimezonePrompt = "Не узнал этот пояс. Выберите ближайший город или напишите город, IANA timezone либо смещение, например UTC+3.";
 function onboardingExpiry(now: string): string { const date = new Date(now); date.setDate(date.getDate() + 30); return date.toISOString(); }
 function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да|верно|всё верно|подтверждаю|подтвердить)$/iu.test(text.trim()); }
 function isNegativeOnboardingAnswer(text: string): boolean { return /^(?:нет|неверно|не верно|исправить|не всё верно)$/iu.test(text.trim()); }
@@ -620,15 +625,15 @@ async function extractOnboardingPatchWithTimeout(
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
-function onboardingProgress(draft: OnboardingDraft): OnboardingProgress {
+function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false): OnboardingProgress {
   if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
   const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "preferredName";
   if (field === "addressForm") return { status: "needs_choice", field, prompt: "Обращаться к вам на ты или на вы?", choices: ["На ты", "На вы"] };
   if (field === "persona") return { status: "needs_choice", field, prompt: "Какой стиль общения вам ближе?", choices: ["Тёплый", "Деловой"] };
   if (field === "responseLength") return { status: "needs_choice", field, prompt: "Какой длины ответы удобнее?", choices: ["Коротко", "Сбалансированно", "Подробно"] };
+  if (field === "timezone") return { status: "needs_choice", field, prompt: timezoneUnrecognized ? unrecognizedTimezonePrompt : "Выберите ваш часовой пояс. Если нужного города нет, нажмите «Другой» и напишите город или смещение UTC.", choices: timezoneChoices, allowFreeText: true };
   if (field === "preferredName") return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться?" };
-  if (field === "assistantName") return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
-  return { status: "needs_answer", field, prompt: "Какой у вас часовой пояс? Укажите IANA timezone, например Europe/Moscow." };
+  return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
 }
 const trackedProfileFields = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {

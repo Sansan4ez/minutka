@@ -1,5 +1,5 @@
 import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
-import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
+import { normalizeIanaTimezone, resolveTimezoneAlias } from "../shared/iana-timezone.js";
 import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from "./onboarding-types.js";
 
 export type OnboardingProfileExtractor = (input: {
@@ -72,7 +72,8 @@ export function normalizeAddressForm(value: string): AddressForm | undefined {
 }
 
 export function normalizeTimezone(value: string): string | undefined {
-  return normalizeIanaTimezone(value.trim().replace(/[.,;!?]+$/u, ""));
+  const candidate = value.trim().replace(/[.,;!?]+$/u, "");
+  return resolveTimezoneAlias(candidate) ?? normalizeIanaTimezone(candidate);
 }
 
 function addressForm(value: string): AddressForm | undefined { return normalizeAddressForm(value); }
@@ -94,10 +95,11 @@ function cleanName(value: string): string | undefined {
   return cleaned && cleaned.length <= 128 ? cleaned : undefined;
 }
 function extractTimezone(value: string): string | undefined {
-  const explicit = value.match(/(?:timezone|часов(?:ой|ого) пояс)\s*[-—:]?\s*([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*)/iu)?.[1];
+  const explicit = value.match(/(?:timezone|часов(?:ой|ого) пояс)\s*[-—:]?\s*([^.;|\n]+)/iu)?.[1];
   if (explicit) return normalizeTimezone(explicit);
-  const standalone = value.match(/\b([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*)\b/gu)?.find((candidate) => normalizeTimezone(candidate) !== undefined);
-  return standalone ? normalizeTimezone(standalone) : undefined;
+  const standaloneIana = value.match(/\b([A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*)\b/gu)?.find((candidate) => normalizeTimezone(candidate) !== undefined);
+  if (standaloneIana) return normalizeTimezone(standaloneIana);
+  return resolveTimezoneAlias(value);
 }
 export function normalizeOnboardingProfilePatch(patch: OnboardingProfilePatch): OnboardingProfilePatch {
   const preferredName = patch.preferredName === undefined ? undefined : cleanName(patch.preferredName);
