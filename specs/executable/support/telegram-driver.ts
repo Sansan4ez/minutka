@@ -12,6 +12,7 @@ import type { FeedbackRating } from "../../../src/domain/feedback.js";
 import { Readable } from "node:stream";
 import type { SpeechToTextPort } from "../../../src/application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "../../../src/telegram/telegram-voice-file-gateway.js";
+import type { AssistantChatResult } from "../../../src/application/assistant-service.js";
 
 export type VoiceInput = { chatId: string; userId?: string; fileId: string; messageId?: number; durationSeconds: number; fileSizeBytes?: number; audioBytes?: number; transcript?: string; error?: "download" | "download-hang" | "transcribe" | "stream" | "hang" };
 
@@ -129,6 +130,7 @@ export class TelegramDriver {
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async startNewConversation(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleNew(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async showSchedule(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleSchedule(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
+  async deliverProactive(input: { chatId: string; employeeId: string; result: AssistantChatResult }): Promise<void> { await this.shell.deliverProactive(input.chatId, input.result, input.employeeId); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendFile(input: { chatId: string; userId?: string; attachment: TelegramFileAttachment }): Promise<void> { await this.shell.handleFile(input.chatId, input.attachment, input.userId ?? this.defaultUserId(input.chatId)); }

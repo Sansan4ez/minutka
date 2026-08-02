@@ -6,6 +6,7 @@ import { requireTelegramDeliverySession } from "../../../src/telegram/telegram-s
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { DefaultScheduleProvisioner } from "../../../src/application/default-schedules.js";
+import type { AssistantChatResult } from "../../../src/application/assistant-service.js";
 
 class TelegramUnavailableError extends Error {
   constructor() { super("Telegram is unavailable"); this.name = "TelegramUnavailableError"; }
@@ -83,16 +84,18 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
-    const deliveries: Array<{ chatId: string; text: string }> = [];
+    const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
+    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Три приоритета и один следующий шаг.", selectedProcessIds: ["core", "day_focus"], outcome: { status: "completed" }, effect: "none" };
     const facade = {
       async runScheduledProcess(input: { userId: string; threadId: string; processId: "day_focus" }) {
         facadeCalls.push(input);
-        return { response: "Три приоритета и один следующий шаг." };
+        return result;
       },
     };
+    const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
-      const result = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "day_focus" });
-      deliveries.push({ chatId: "owner-chat", text: result.response });
+      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "day_focus" });
+      await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });
     await store.save("maxim", {
       id: "morning-focus", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
@@ -101,7 +104,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
 
     await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "day_focus", status: "pending" }]);
     expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "day_focus" }]);
-    expect(deliveries).toEqual([{ chatId: "owner-chat", text: "Три приоритета и один следующий шаг." }]);
+    expect(deliveries).toEqual([{ chatId: "owner-chat", employeeId: "maxim", result }]);
     await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
     }]);
@@ -111,16 +114,18 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const clock = { now: () => "2026-07-30T16:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
-    const deliveries: Array<{ chatId: string; text: string }> = [];
+    const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
+    const result: AssistantChatResult = { messageId: "scheduled-evening-message", response: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?", selectedProcessIds: ["core", "evening_reflection"], outcome: { status: "completed" }, effect: "none" };
     const facade = {
       async runScheduledProcess(input: { userId: string; threadId: string; processId: "evening_reflection" }) {
         facadeCalls.push(input);
-        return { response: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?" };
+        return result;
       },
     };
+    const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
-      const result = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "evening_reflection" });
-      deliveries.push({ chatId: "owner-chat", text: result.response });
+      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "evening_reflection" });
+      await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });
     await store.save("maxim", {
       id: "evening-reflection", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Europe/Moscow",
@@ -129,7 +134,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
 
     await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "evening_reflection", status: "pending" }]);
     expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "evening_reflection" }]);
-    expect(deliveries).toEqual([{ chatId: "owner-chat", text: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?" }]);
+    expect(deliveries).toEqual([{ chatId: "owner-chat", employeeId: "maxim", result }]);
     await expect(store.listFires("maxim", "evening-reflection")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
     }]);

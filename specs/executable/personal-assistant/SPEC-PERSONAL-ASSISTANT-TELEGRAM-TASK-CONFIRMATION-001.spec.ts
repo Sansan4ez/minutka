@@ -44,7 +44,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
   const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations);
   const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade }, { saveArtifact: (input) => facade.saveArtifact(input) });
-  return { telegram, tasks, setNow(value: string) { now = value; } };
+  return { telegram, tasks, facade, setNow(value: string) { now = value; } };
 }
 
 function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number], text: string): string {
@@ -81,6 +81,22 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-2" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
+  });
+
+  it("delivers a scheduled pending action with confirmation buttons and applies it through the normal callback path", async () => {
+    const { telegram, tasks, facade } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "create", title: "Scheduled task", project: "ASSISTANT", type: "operations" });
+      return "Запланированное предложение подготовлено.";
+    });
+    const result = await facade.runScheduledProcess({ userId: owner.employeeId, threadId: owner.employeeId, processId: "day_focus" });
+    await telegram.deliverProactive({ chatId: owner.chatId, employeeId: owner.employeeId, result });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
+    expect(telegram.sentMessages().at(-1)).toEqual(expect.objectContaining({ text: "Запланированное предложение подготовлено.", replyMarkup: undefined }));
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-scheduled" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
+    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Scheduled task" }]);
   });
 
   it.each([

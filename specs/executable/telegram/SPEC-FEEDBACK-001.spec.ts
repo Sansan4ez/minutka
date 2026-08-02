@@ -549,6 +549,43 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Спасибо, учту 👍");
   });
 
+  it("6c. Proactive delivery replaces stale feedback buttons and saves feedback for its application message", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_proactive", userId: "user_proactive", inviteCode: testInvite.inviteCode });
+    const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_proactive", userId: "user_proactive", callbackData: consentCallback! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_proactive", userId: "user_proactive", text: "Первый вопрос" });
+    const previous = telegram.sentMessages()[0]!;
+    telegram.clear();
+    const scheduled = await spec.cli.json<{ messageId: string; response: string }>([
+      "employee", "chat", "--employee", testEmployee.employeeId, "--thread", testEmployee.threadId, "--text", "Запланированный фокус",
+    ]);
+    await telegram.deliverProactive({
+      chatId: "chat_proactive",
+      employeeId: testEmployee.employeeId,
+      result: {
+        messageId: scheduled.messageId,
+        response: scheduled.response,
+        selectedProcessIds: ["core"],
+        outcome: { status: "completed" },
+        effect: "none",
+      },
+    });
+
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_proactive", messageId: previous.messageId, replyMarkup: undefined });
+    const proactive = telegram.sentMessages().at(-1)!;
+    const feedback = proactive.replyMarkup?.inlineKeyboard[0]?.[0]?.callbackData;
+    expect(feedback).toBeTruthy();
+    expect(decodeFeedbackCallbackData(feedback!)?.targetMessageId).toBe(scheduled.messageId);
+
+    await telegram.deliverCallback({ chatId: "chat_proactive", userId: "user_proactive", callbackData: feedback!, messageId: proactive.messageId });
+    expect(spec.world.feedback).toContainEqual(expect.objectContaining({ targetMessageId: scheduled.messageId, rating: "positive", source: "telegram" }));
+  });
+
   it("7 & 8. Repeated /start for already linked chat / different invite behavior", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

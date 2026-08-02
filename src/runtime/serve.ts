@@ -9,6 +9,7 @@ import { createAssistantAgentRunner } from "../mastra/agent-runner.js";
 import { personalAssistantAgent } from "../mastra/agents/personal-assistant-agent.js";
 import { createOpenAiSpeechToText } from "../mastra/voice-transcriber.js";
 import { createTelegramShell } from "../telegram/telegram-shell.js";
+import type { AssistantChatResult } from "../application/assistant-service.js";
 import { createTelegrafBot } from "../telegram/telegraf-runtime.js";
 import { createTelegrafReplyPort } from "../telegram/telegraf-reply-port.js";
 import { parseInviteSeeds } from "../telegram/invite-seeds.js";
@@ -25,8 +26,19 @@ function booleanEnv(value: string | undefined, name: string): boolean { if (valu
 async function main(): Promise<void> {
   loadDotEnv(); const timeoutBudgets = assertAssistantTimeoutBudgets(productionAssistantTimeoutBudgets); const auth = apiAuthConfigFromEnv(process.env);
   let activeBot: Telegraf | undefined;
+  let telegramShell: ReturnType<typeof createTelegramShell> | undefined;
   const replyPort = createTelegrafReplyPort(() => activeBot?.telegram);
-  const runtime = await createPostgresRuntime({ assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent), env: process.env, telegramReplyPort: replyPort });
+  const telegramMode = process.env.TELEGRAM_MODE ?? "disabled";
+  if (telegramMode !== "disabled" && telegramMode !== "polling") throw new Error("TELEGRAM_MODE must be disabled or polling");
+  const telegramEnabled = telegramMode === "polling";
+  const runtime = await createPostgresRuntime({
+    assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent),
+    env: process.env,
+    ...(telegramEnabled ? { telegramShell: { deliverProactive: (chatId: string, result: AssistantChatResult, employeeId: string) => {
+      if (!telegramShell) throw new Error("Telegram shell is not configured.");
+      return telegramShell.deliverProactive(chatId, result, employeeId);
+    } } } : {}),
+  });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {
     listener = await listenHttpServer({
@@ -45,7 +57,7 @@ async function main(): Promise<void> {
       // per-operator abuse limiter so a valid large seed set can start atomically.
       for (const seed of inviteSeeds) await runtime.assistant.issueInvite(seed);
     }
-    if ((process.env.TELEGRAM_MODE ?? "disabled") === "polling") {
+    if (telegramEnabled) {
       const token = process.env.TELEGRAM_BOT_TOKEN; const serviceToken = process.env.MINUTKA_SERVICE_TOKEN;
       if (!token || !serviceToken) throw new Error("TELEGRAM_MODE=polling requires TELEGRAM_BOT_TOKEN and MINUTKA_SERVICE_TOKEN");
       const stt = sttConfigFromEnv(process.env);
@@ -69,8 +81,9 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      bot = createTelegrafBot({ token, shell: createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway }) }); activeBot = bot;
-    } else if ((process.env.TELEGRAM_MODE ?? "disabled") !== "disabled") throw new Error("TELEGRAM_MODE must be disabled or polling");
+      telegramShell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, speechToText, voiceFileGateway });
+      bot = createTelegrafBot({ token, shell: telegramShell }); activeBot = bot;
+    }
     const telegramBot = bot;
     ({ launchCompleted } = await startTransports({
       startScheduler: runtime.startScheduler,

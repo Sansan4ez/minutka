@@ -44,8 +44,7 @@ import { privacyConfigFromEnv } from "../config/privacy.js";
 import { taskMutationCompletedReplayRetentionFromEnv } from "../config/task-confirmation-retention.js";
 import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
-import type { TelegramReplyPort } from "../telegram/telegram-types.js";
-import { deliverTelegramMessage } from "../telegram/telegram-shell.js";
+import type { createTelegramShell } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
 import { IdeaDeletionService } from "../application/idea-deletion.js";
@@ -54,7 +53,7 @@ import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 import { ScheduleManagementService } from "../application/schedule-management-service.js";
 
-export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramReplyPort?: TelegramReplyPort }) {
+export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive"> }) {
   // The process manual is deployment configuration: validate it before opening
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();
@@ -197,14 +196,14 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
-      if (!input.telegramReplyPort) throw new TelegramDeliveryNotConfiguredError();
+      if (!input.telegramShell) throw new TelegramDeliveryNotConfiguredError();
       const delivery = requireTelegramDeliverySession(await telegramSessionStore.getDeliveryByEmployee(fire.userId));
       const result = await assistant.runScheduledProcess({
         userId: fire.userId,
         threadId: delivery.threadId,
         processId: fire.processId,
       });
-      await deliverTelegramMessage(input.telegramReplyPort, delivery.chatId, result.response);
+      await input.telegramShell.deliverProactive(delivery.chatId, result, fire.userId);
     });
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {

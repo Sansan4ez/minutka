@@ -1,6 +1,7 @@
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
+import type { AssistantChatResult } from "../application/assistant-service.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
-import type { ChatResult, OnboardingProgressResult } from "../client/sdk/minutka-client.js";
+import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import type { TaskMutationDecisionResult } from "../application/task-mutation-confirmation.js";
 import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort, TelegramSentMessage } from "./telegram-types.js";
@@ -137,10 +138,12 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
 }
-function taskPendingAction(chat: ChatResult) {
+type TelegramChatDeliveryResult = Pick<AssistantChatResult, "messageId" | "response" | "pendingAction">;
+
+function taskPendingAction(chat: TelegramChatDeliveryResult) {
   return "pendingAction" in chat ? chat.pendingAction : undefined;
 }
-function pendingActionReplyMarkup(chat: ChatResult) {
+function pendingActionReplyMarkup(chat: TelegramChatDeliveryResult) {
   const pendingAction = taskPendingAction(chat);
   if (!pendingAction) return undefined;
   const encode = pendingAction.actionKind === "delete_idea" ? encodeIdeaDeletionCallbackData : encodeTaskMutationCallbackData;
@@ -173,22 +176,26 @@ function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPend
       `Срок: ${preview.dueDate ?? "не указан"}`,
     ];
   }
-  if (preview.kind === "complete" || preview.kind === "cancel") {
-    return [`Действие: ${preview.kind === "complete" ? "завершить задачу" : "отменить задачу"}`, `Задача: ${previewText(preview.taskId)}`];
+  switch (preview.kind) {
+    case "complete":
+    case "cancel":
+      return [`Действие: ${preview.kind === "complete" ? "завершить задачу" : "отменить задачу"}`, `Задача: ${previewText(preview.taskId)}`];
+    case "update": {
+      const labels = { title: "Название", project: "Проект", type: "Тип", status: "Статус", dueDate: "Срок" } as const;
+      return [
+        "Действие: изменить задачу",
+        `Задача: ${previewText(preview.taskId)}`,
+        ...preview.fields.map((field) => {
+          const value = field.field === "title" || field.field === "project"
+            ? previewText(field.value)
+            : field.field === "dueDate"
+              ? field.value ?? "снять срок"
+              : field.value;
+          return `${labels[field.field]}: ${value}`;
+        }),
+      ];
+    }
   }
-  const labels = { title: "Название", project: "Проект", type: "Тип", status: "Статус", dueDate: "Срок" } as const;
-  return [
-    "Действие: изменить задачу",
-    `Задача: ${previewText(preview.taskId)}`,
-    ...preview.fields.map((field) => {
-      const value = field.field === "title" || field.field === "project"
-        ? previewText(field.value)
-        : field.field === "dueDate"
-          ? field.value ?? "снять срок"
-          : field.value;
-      return `${labels[field.field]}: ${value}`;
-    }),
-  ];
 }
 export function taskDecisionText(result: TaskMutationDecisionResult): string {
   if (result.status === "confirmed" || result.status === "already_confirmed") {
@@ -388,7 +395,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       async release(deliveryKey: string, claimedAt: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
     };
   }
-  async function sendTaskProposal(chatId: string, chat: ChatResult, employeeId: string): Promise<"delivered" | "cancelled"> {
+  async function sendTaskProposal(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<"delivered" | "cancelled"> {
     const pendingAction = taskPendingAction(chat);
     if (!pendingAction) return "delivered";
     const text = ["Предложение:", ...renderTaskActionPreview(pendingAction.preview), "", "Подтвердить изменение?"].join("\n");
@@ -416,21 +423,30 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     logShellError("task proposal terminal rejection", new TaskProposalTerminalizationUnknownError());
     throw new TaskProposalTerminalizationUnknownError();
   }
+  async function deliverChatResult(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<void> {
+    if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+    const pendingAction = taskPendingAction(chat);
+    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    if (pendingAction) {
+      await removeActiveReplyMarkup(chatId);
+      if (await sendTaskProposal(chatId, chat, employeeId) === "cancelled") {
+        await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
+        return;
+      }
+    }
+    await sendMarkdown(chatId, chat.response, !pendingAction ? { replyMarkup: feedbackMarkup } : undefined);
+  }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;
     try { await employeeClient(session.employeeId).getProfile(); } catch (error) { if ((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found") profileExists = false; else throw error; }
     if (!profileExists) return renderOnboardingProgress(replyPort, chatId, await employeeClient(session.employeeId).submitOnboardingAnswer({ text }), onboardingConfirmationDelivery(chatId, userId, session.employeeId), sendMarkdown);
     const chat = await employeeClient(session.employeeId).chat({ threadId: session.threadId, text, inputModality, responseChannel: "telegram" });
-    if (!chat.response.trim()) throw new Error("Agent returned an empty response");
-    const pendingAction = taskPendingAction(chat);
-    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
-    if (pendingAction && await sendTaskProposal(chatId, chat, session.employeeId) === "cancelled") {
-      await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
-      return;
-    }
-    await sendMarkdown(chatId, chat.response, !pendingAction ? { replyMarkup: feedbackMarkup } : undefined);
+    await deliverChatResult(chatId, chat, session.employeeId);
   }
   return {
+    async deliverProactive(chatId: string, result: AssistantChatResult, employeeId: string) {
+      await deliverChatResult(chatId, result, employeeId);
+    },
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
       await removeActiveReplyMarkup(chatId);
       try {
