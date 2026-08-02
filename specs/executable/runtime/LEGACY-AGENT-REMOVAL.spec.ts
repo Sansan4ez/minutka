@@ -125,7 +125,8 @@ describe("A2.6: legacy Minutka agent removal", () => {
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed", isError: false } },
             { payload: { toolCallId: "call-2", toolName: "captureIdea", isError: false } },
           ],
-          usage: { promptTokens: 120, completionTokens: 30, totalTokens: 150, cachedInputTokens: 80 },
+          usage: { promptTokens: 70, completionTokens: 20, totalTokens: 90, cachedInputTokens: 50 },
+          totalUsage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, cachedInputTokens: 80 },
           steps: [
             { usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60, cachedInputTokens: 30 } },
             { usage: { inputTokens: 70, outputTokens: 20, totalTokens: 90, cachedInputTokens: 50 } },
@@ -233,4 +234,99 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
+
+  it("falls back to one coherent per-turn usage source", async () => {
+    const stepsRunner = createAssistantAgentRunner({
+      async generate() {
+        return {
+          text: "steps",
+          usage: { inputTokens: 70, outputTokens: 20, totalTokens: 90, cachedInputTokens: 50 },
+          steps: [
+            { usage: { inputTokens: 50, outputTokens: 10, totalTokens: 60, cachedInputTokens: 30 } },
+            { usage: { promptTokens: 70, completionTokens: 20, totalTokens: 90, cachedInputTokens: 50 } },
+          ],
+        };
+      },
+    });
+    await expect(runUsageOnly(stepsRunner)).resolves.toEqual({
+      text: "steps",
+      executionTrace: [],
+      usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
+    });
+
+    const lastStepRunner = createAssistantAgentRunner({
+      async generate() {
+        return { text: "last", usage: { promptTokens: 40, completionTokens: 5, cachedInputTokens: 10 } };
+      },
+    });
+    await expect(runUsageOnly(lastStepRunner)).resolves.toEqual({
+      text: "last",
+      executionTrace: [],
+      usage: { inputTokens: 40, outputTokens: 5, totalTokens: 45, llmSteps: 1, cachedInputTokens: 10 },
+    });
+  });
+
+  it("drops inconsistent cached tokens without dropping turn usage", async () => {
+    const warnings: unknown[] = [];
+    const runner = createAssistantAgentRunner({
+      async generate() {
+        return {
+          text: "done",
+          totalUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 101 },
+          steps: [{ usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 101 } }],
+        };
+      },
+    }, { operationalLogger: (warning) => warnings.push(warning) });
+
+    await expect(runUsageOnly(runner)).resolves.toEqual({
+      text: "done",
+      executionTrace: [],
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, llmSteps: 1 },
+    });
+    expect(warnings).toEqual([{
+      type: "assistant_agent_usage_cached_input_exceeds_input",
+      source: "totalUsage",
+      inputTokens: 100,
+      cachedInputTokens: 101,
+    }]);
+  });
 });
+
+function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
+  return runner({ userId: "owner", threadId: "thread", text: "usage" }, {
+    systemContext: "private context",
+    personalContext: {} as never,
+    profileAndHistory: {} as never,
+    records: {} as never,
+    source: { kind: "text", text: "usage" },
+    captureIdea: async () => { throw new Error("not used"); },
+    documents: {
+      limits: {
+        listDefault: 20,
+        listMaximum: 50,
+        readDefaultCharacters: 4_000,
+        readMaximumCharacters: 8_000,
+        turnReadCharacters: 20_000,
+        maximumDocumentBytes: 100_000,
+        turnScanBytes: 200_000,
+        searchDefault: 10,
+        searchMaximum: 20,
+        searchSnippetCharacters: 500,
+      },
+      listDocuments: async () => ({ documents: [], nextCursor: null, truncated: false }),
+      readDocument: async ({ path, offset = 0 }: { path: string; offset?: number }) => ({
+        path, found: false, sectionFound: false, content: "", offset, totalCharacters: null, nextOffset: null,
+        truncated: false, readBudgetExhausted: false, scanBudgetExhausted: false, documentTooLarge: false,
+        hint: null, version: "", updatedAt: "",
+      }),
+      searchDocuments: async () => ({
+        matches: [], truncated: false, readBudgetExhausted: false, scanBudgetExhausted: false,
+        documentTooLarge: false, hint: null,
+      }),
+    } as never,
+    ideas: {} as never,
+    tasks: {} as never,
+    schedules: {} as never,
+    markProcessUsed() {},
+  });
+}

@@ -39,14 +39,24 @@ type MastraGenerateResult = {
   toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
   toolResults?: Array<{ payload?: { toolCallId?: string; toolName?: string; isError?: boolean } }>;
   usage?: MastraTokenUsage;
+  totalUsage?: MastraTokenUsage;
   steps?: Array<{ usage?: MastraTokenUsage }>;
 };
+
+type UsageSource = "totalUsage" | "steps" | "usage";
+type AssistantAgentUsageWarning = {
+  type: "assistant_agent_usage_cached_input_exceeds_input";
+  source: UsageSource;
+  inputTokens: number;
+  cachedInputTokens: number;
+};
+type AssistantAgentRunnerOptions = { operationalLogger?: (warning: AssistantAgentUsageWarning) => void };
 
 export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
-export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent): AssistantAgentRunner {
+export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent, options: AssistantAgentRunnerOptions = {}): AssistantAgentRunner {
   return async (input, context, signal) => {
     const result: MastraGenerateResult = await agent.generate(input.text, {
       system: context.systemContext,
@@ -65,7 +75,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
       maxSteps: 4,
       ...(signal ? { abortSignal: signal } : {}),
     });
-    const usage = normalizedUsage(result);
+    const usage = normalizedUsage(result, options.operationalLogger ?? logAssistantAgentUsageWarning);
     return {
       text: result.text ?? "",
       executionTrace: successfulToolNames(result).map((toolName) => ({ kind: "tool" as const, toolName })),
@@ -74,26 +84,74 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
   };
 }
 
-function normalizedUsage(result: Pick<MastraGenerateResult, "usage" | "steps">): { inputTokens: number; outputTokens: number; totalTokens: number; llmSteps: number; cachedInputTokens?: number } | undefined {
-  const usage = result.usage;
-  if (!usage) return undefined;
-  const inputTokens = usage.inputTokens ?? usage.promptTokens;
-  const outputTokens = usage.outputTokens ?? usage.completionTokens;
-  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+function normalizedUsage(
+  result: Pick<MastraGenerateResult, "usage" | "totalUsage" | "steps">,
+  operationalLogger: (warning: AssistantAgentUsageWarning) => void,
+): { inputTokens: number; outputTokens: number; totalTokens: number; llmSteps: number; cachedInputTokens?: number } | undefined {
   const steps = result.steps ?? [];
-  const cachedInputTokens = usage.cachedInputTokens ?? sumReportedCachedInputTokens(steps);
+  const selected = selectTurnUsage(result, steps);
+  if (!selected) return undefined;
+  const inputTokens = selected.usage.inputTokens ?? selected.usage.promptTokens;
+  const outputTokens = selected.usage.outputTokens ?? selected.usage.completionTokens;
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  const cachedInputTokens = selected.usage.cachedInputTokens;
+  const validCachedInputTokens = cachedInputTokens === undefined || cachedInputTokens <= inputTokens
+    ? cachedInputTokens
+    : undefined;
+  if (cachedInputTokens !== undefined && validCachedInputTokens === undefined) {
+    warnOperationally(operationalLogger, {
+      type: "assistant_agent_usage_cached_input_exceeds_input",
+      source: selected.source,
+      inputTokens,
+      cachedInputTokens,
+    });
+  }
   return {
     inputTokens,
     outputTokens,
-    totalTokens: usage.totalTokens ?? inputTokens + outputTokens,
+    totalTokens: selected.usage.totalTokens ?? inputTokens + outputTokens,
     llmSteps: Math.max(1, steps.length),
+    ...(validCachedInputTokens === undefined ? {} : { cachedInputTokens: validCachedInputTokens }),
+  };
+}
+
+function selectTurnUsage(
+  result: Pick<MastraGenerateResult, "usage" | "totalUsage">,
+  steps: Array<{ usage?: MastraTokenUsage }>,
+): { source: UsageSource; usage: MastraTokenUsage } | undefined {
+  if (result.totalUsage) return { source: "totalUsage", usage: result.totalUsage };
+  const stepUsage = sumStepUsage(steps);
+  if (stepUsage) return { source: "steps", usage: stepUsage };
+  return result.usage ? { source: "usage", usage: result.usage } : undefined;
+}
+
+function sumStepUsage(steps: Array<{ usage?: MastraTokenUsage }>): MastraTokenUsage | undefined {
+  const reported = steps.map((step) => step.usage).filter((usage): usage is MastraTokenUsage => usage !== undefined);
+  if (reported.length === 0) return undefined;
+  const inputTokens = sumTokenField(reported, (usage) => usage.inputTokens ?? usage.promptTokens);
+  const outputTokens = sumTokenField(reported, (usage) => usage.outputTokens ?? usage.completionTokens);
+  const totalTokens = sumTokenField(reported, (usage) => usage.totalTokens);
+  const cachedInputTokens = sumTokenField(reported, (usage) => usage.cachedInputTokens);
+  return {
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
   };
 }
 
-function sumReportedCachedInputTokens(steps: Array<{ usage?: MastraTokenUsage }>): number | undefined {
-  const reported = steps.map((step) => step.usage?.cachedInputTokens).filter((tokens): tokens is number => tokens !== undefined);
+function sumTokenField(usages: MastraTokenUsage[], select: (usage: MastraTokenUsage) => number | undefined): number | undefined {
+  const reported = usages.map(select).filter((tokens): tokens is number => tokens !== undefined);
   return reported.length === 0 ? undefined : reported.reduce((total, tokens) => total + tokens, 0);
+}
+
+function warnOperationally(logger: (warning: AssistantAgentUsageWarning) => void, warning: AssistantAgentUsageWarning): void {
+  try { logger(warning); }
+  catch (error) { console.warn(`Assistant agent usage warning failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
+}
+
+function logAssistantAgentUsageWarning(warning: AssistantAgentUsageWarning): void {
+  console.warn("Assistant agent usage warning.", warning);
 }
 
 function successfulToolNames(result: Awaited<ReturnType<MastraAgentLike["generate"]>>): string[] {

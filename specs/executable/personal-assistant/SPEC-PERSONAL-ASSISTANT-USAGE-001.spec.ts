@@ -78,6 +78,36 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage and soft limit"
     expect(await usageStore.getMonthly("owner-a", "2026-08")).toMatchObject({ totalTokens: 300, estimatedCostUsdMicros: 300 });
   });
 
+  it("persists usage and evaluates the soft limit when cached tokens were sanitized by the producer", async () => {
+    const world = createInMemoryWorld(() => "2026-07-31T12:00:00.000Z");
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const usageStore = createInMemoryUsageStore();
+    const service = new AssistantService(async () => ({
+      text: "Учёт сохранён.", executionTrace: [], usage: { inputTokens: 400, outputTokens: 200, totalTokens: 600, llmSteps: 2 },
+    }), {
+      documentStore: documents,
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      auditEventStore: createInMemoryAuditEventStore(world),
+      usageStore,
+      usageCostPolicy: policy,
+      clock: { now: world.now },
+      idGenerator: createDeterministicIdGenerator(),
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "Посчитай usage" });
+
+    expect(result.response).toContain("Учёт сохранён.");
+    expect(result.response).toContain("Мягкий месячный лимит использования превышен");
+    expect(await usageStore.getMonthly("owner", "2026-07")).toEqual({
+      userId: "owner", month: "2026-07", inputTokens: 400, outputTokens: 200, totalTokens: 600, estimatedCostUsdMicros: 600,
+    });
+    expect(await usageStore.listRecords()).toEqual([
+      expect.objectContaining({ inputTokens: 400, outputTokens: 200, totalTokens: 600, llmSteps: 2 }),
+    ]);
+  });
+
   it("does not discard a successful answer when usage persistence fails", async () => {
     const world = createInMemoryWorld(() => "2026-07-31T12:00:00.000Z");
     const documents = createInMemoryDocumentStore({ now: world.now });
