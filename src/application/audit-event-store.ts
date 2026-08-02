@@ -17,6 +17,7 @@ export type AuditEventType =
   | "idea_deletion_decided"
   | "idea_deletion_undone"
   | "document_tool_used"
+  | "context_document_mutated"
   | "context_projection_degraded"
   | "overflow_recovery"
   | "thread_summary_updated"
@@ -58,6 +59,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   idea_deletion_decided: ["ideaId", "recordType", "result", "confirmationId"],
   idea_deletion_undone: ["ideaId", "recordType", "result"],
   document_tool_used: ["operation", "resultCount", "truncated", "outcome", "path", "totalCharacters", "returnedCharacters", "nextOffset", "reason"],
+  context_document_mutated: ["operation", "path", "outcome", "version", "confirmationId"],
   context_projection_degraded: ["sourceId", "reason", "ceiling", "actualCharacters", "includedCharacters", "documentCount", "affectedCount"],
   overflow_recovery: ["reason", "attempt", "recordsCeiling", "historyCeiling", "contextIndexCeiling"],
   thread_summary_updated: ["turnCount", "summaryCharacters"],

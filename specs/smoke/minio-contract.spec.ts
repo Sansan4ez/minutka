@@ -111,6 +111,19 @@ describeMinio("MinIO personal-vault contracts", () => {
     await expect(documents.getExact(owner, legacyPath)).resolves.toBeNull();
   });
 
+  it("updates, deletes and restores selected owner document versions", async () => {
+    const path = "context/version-restore.md";
+    const first = await documents.put(owner, path, "first version");
+    const updated = await documents.putIfVersion(owner, path, first.version, "second version");
+    expect(updated).toMatchObject({ outcome: "updated", document: { content: "second version" } });
+    if (updated.outcome !== "updated") throw new Error("expected update");
+    await expect(documents.putIfVersion(owner, path, first.version, "stale overwrite")).resolves.toMatchObject({ outcome: "conflict" });
+    const deleted = await documents.deleteIfVersion(owner, path, updated.document.version);
+    expect(deleted).toMatchObject({ outcome: "deleted", version: updated.document.version });
+    await expect(documents.restoreVersion(otherOwner, path, first.version)).resolves.toBeNull();
+    await expect(documents.restoreVersion(owner, path, first.version)).resolves.toMatchObject({ path, content: "first version" });
+  });
+
   it("creates a context document once without overwriting concurrent or repeated onboarding writes", async () => {
     const path = "context/onboarding-once.md";
     const [first, second] = await Promise.all([

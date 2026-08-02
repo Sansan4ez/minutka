@@ -12,6 +12,22 @@ export type UserDocumentMetadata = Pick<UserDocument, "userId" | "path" | "versi
   size: number;
 };
 
+export type DocumentVersionConflict = { outcome: "conflict"; current?: UserDocumentMetadata };
+export type DocumentVersionNotFound = { outcome: "not_found" };
+export type DocumentUpdateResult =
+  | { outcome: "updated"; document: UserDocument }
+  | DocumentVersionConflict
+  | DocumentVersionNotFound;
+export type DocumentMoveResult =
+  | { outcome: "moved"; document: UserDocument; sourceVersion: string }
+  | { outcome: "destination_conflict"; current?: UserDocumentMetadata }
+  | DocumentVersionConflict
+  | DocumentVersionNotFound;
+export type DocumentDeleteResult =
+  | { outcome: "deleted"; path: string; version: string }
+  | DocumentVersionConflict
+  | DocumentVersionNotFound;
+
 type DocumentReadReference = {
   userId: string;
   logicalPath: string;
@@ -63,6 +79,14 @@ export type DocumentStore = {
   put(userId: string, path: string, content: string): Promise<UserDocument>;
   /** Atomically creates a missing logical document and never overwrites canonical or legacy owner content. */
   putIfAbsent(userId: string, path: string, content: string): Promise<UserDocument>;
+  /** Optimistic owner-scoped replacement. */
+  putIfVersion(userId: string, path: string, expectedVersion: string, content: string): Promise<DocumentUpdateResult>;
+  /** Optimistic logical move; a successful result leaves only the destination canonical document. */
+  moveIfVersion(userId: string, sourcePath: string, destinationPath: string, expectedVersion: string): Promise<DocumentMoveResult>;
+  /** Optimistic delete returning the logical restore reference. */
+  deleteIfVersion(userId: string, path: string, expectedVersion: string): Promise<DocumentDeleteResult>;
+  /** Restores one historical owner/path version as the new current version. */
+  restoreVersion(userId: string, path: string, version: string): Promise<UserDocument | null>;
   /** Lists logical metadata without reading document bodies. */
   listMetadata(userId: string, prefix?: string): Promise<UserDocumentMetadata[]>;
   /** Lazily iterates logical documents in stable path order, reading one body at a time. */
@@ -103,6 +127,15 @@ export function contextDocumentHandle(path: string): `/proc/context/${string}` {
   const canonicalPath = canonicalDocumentPath(path);
   if (!canonicalPath.startsWith("context/") || canonicalPath === "context/") throw new Error("context document path must start with context/");
   return `/proc/context/${canonicalPath.slice("context/".length)}`;
+}
+
+/** Maps the only writable transport/model handle namespace to a canonical logical path. */
+export function contextDocumentPath(handle: string): string {
+  const normalized = handle.trim();
+  if (!normalized.startsWith("/proc/context/")) throw new Error("context document handle must start with /proc/context/");
+  const path = assertSafeVaultPath(`context/${normalized.slice("/proc/context/".length)}`, "context/");
+  if (!path.toLocaleLowerCase().endsWith(".md")) throw new Error("context documents must be Markdown (.md)");
+  return canonicalDocumentPath(path);
 }
 
 export function assertUserId(userId: string): string {

@@ -149,6 +149,26 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     expect(client.getObjectBytes()).toBe(10);
   });
 
+  it("supports optimistic update, move, delete and selected-version restore", async () => {
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket, now: () => "2026-01-01T00:00:00.000Z" });
+    const first = await documents.put("owner", "context/versioned.md", "first");
+    await client.putObject(bucket, "other/context/versioned.md", Buffer.from("other private version"));
+    const updated = await documents.putIfVersion("owner", "context/versioned.md", first.version, "second");
+    expect(updated).toMatchObject({ outcome: "updated", document: { content: "second" } });
+    if (updated.outcome !== "updated") throw new Error("expected update");
+    await expect(documents.putIfVersion("owner", "context/versioned.md", first.version, "stale")).resolves.toMatchObject({ outcome: "conflict" });
+    await expect(documents.moveIfVersion("owner", "context/versioned.md", "context/moved.md", updated.document.version)).resolves.toMatchObject({ outcome: "moved" });
+    await expect(documents.get("owner", "context/versioned.md")).resolves.toBeNull();
+    const moved = await documents.get("owner", "context/moved.md");
+    expect(moved).toMatchObject({ content: "second" });
+    const deleted = await documents.deleteIfVersion("owner", "context/moved.md", moved!.version);
+    expect(deleted).toMatchObject({ outcome: "deleted" });
+    await expect(documents.restoreVersion("other", "context/versioned.md", first.version)).resolves.toBeNull();
+    await expect(documents.get("other", "context/versioned.md")).resolves.toMatchObject({ content: "other private version" });
+    await expect(documents.restoreVersion("owner", "context/versioned.md", first.version)).resolves.toMatchObject({ content: "first", path: "context/versioned.md" });
+  });
+
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket, now: () => "2026-01-01T00:00:00.000Z" });
@@ -177,6 +197,7 @@ type StoredObject = {
 
 function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanupFailures?: number }) {
   const objects = new Map<string, StoredObject>();
+  const histories = new Map<string, Map<string, StoredObject>>();
   let version = 0;
   let cleanupFailures = input.cleanupFailures ?? 0;
   let removeCount = 0;
@@ -205,6 +226,9 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
         lastModified: new Date("2026-01-01T00:00:00.000Z"),
       };
       objects.set(objectName, stored);
+      const history = histories.get(objectName) ?? new Map<string, StoredObject>();
+      history.set(stored.versionId, stored);
+      histories.set(objectName, history);
       return { etag: stored.etag, versionId: stored.versionId };
     },
     async statObject(_bucket: string, objectName: string) {
@@ -223,9 +247,11 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
       getObjectCount += 1;
       getObjectCounts.set(objectName, (getObjectCounts.get(objectName) ?? 0) + 1);
       getObjectOptions.set(objectName, [...(getObjectOptions.get(objectName) ?? []), options]);
-      const stored = objects.get(objectName);
-      if (!stored) throw objectStoreError("NotFound");
-      if (options?.versionId && options.versionId !== stored.versionId) throw objectStoreError("NoSuchVersion");
+      const current = objects.get(objectName);
+      const stored = options?.versionId
+        ? current && current.versionId !== options.versionId ? undefined : current ?? histories.get(objectName)?.get(options.versionId)
+        : current;
+      if (!stored) throw objectStoreError(options?.versionId ? "NoSuchVersion" : "NotFound");
       getObjectByteCount += stored.body.byteLength;
       return Readable.from(stored.body);
     },

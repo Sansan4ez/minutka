@@ -17,22 +17,38 @@ export function createInMemoryDocumentStore(
   initialDocuments: ReadonlyArray<Pick<UserDocument, "userId" | "path" | "content">> = [],
 ): DocumentStore {
   const documents = new Map<string, UserDocument>();
+  const versions = new Map<string, Map<string, UserDocument>>();
   let version = 0;
   const key = (userId: string, path: string) => `${assertUserId(userId)}\u0000${assertSafeVaultPath(path)}`;
+  const saveVersion = (document: UserDocument): UserDocument => {
+    documents.set(key(document.userId, document.path), document);
+    const history = versions.get(key(document.userId, document.path)) ?? new Map<string, UserDocument>();
+    history.set(document.version, { ...document });
+    versions.set(key(document.userId, document.path), history);
+    return { ...document };
+  };
   for (const initial of initialDocuments) {
     const userId = assertUserId(initial.userId);
     const path = assertSafeVaultPath(initial.path);
-    documents.set(key(userId, path), {
-      userId,
-      path,
-      content: initial.content,
-      version: `memory-${++version}`,
-      updatedAt: clock.now(),
-    });
+    saveVersion({ userId, path, content: initial.content, version: `memory-${++version}`, updatedAt: clock.now() });
   }
   const readExact = (userId: string, path: string): UserDocument | null => {
     const document = documents.get(key(userId, path));
     return document ? { ...document } : null;
+  };
+  const metadataOf = (document: UserDocument, logicalPath = document.path): UserDocumentMetadata => attachDocumentReadReference({
+    userId: document.userId,
+    path: logicalPath,
+    version: document.version,
+    updatedAt: document.updatedAt,
+    size: Buffer.byteLength(document.content, "utf8"),
+  }, document.path);
+  const currentLogical = (userId: string, path: string): UserDocument | null => {
+    const canonicalPath = canonicalDocumentPath(path);
+    return readExact(userId, canonicalPath) ?? (() => {
+      const legacyPath = legacyDocumentPath(canonicalPath);
+      return legacyPath ? readExact(userId, legacyPath) : null;
+    })();
   };
   const logicalEntries = <T extends UserDocument | UserDocumentMetadata>(
     userId: string,
@@ -101,20 +117,64 @@ export function createInMemoryDocumentStore(
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
       const document: UserDocument = { userId: safeUserId, path: canonicalPath, content, version: `memory-${++version}`, updatedAt: clock.now() };
-      documents.set(key(safeUserId, canonicalPath), document);
-      return { ...document };
+      return saveVersion(document);
     },
     async putIfAbsent(userId, path, content) {
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
-      const existing = readExact(safeUserId, canonicalPath) ?? (() => {
-        const legacyPath = legacyDocumentPath(canonicalPath);
-        return legacyPath ? readExact(safeUserId, legacyPath) : null;
-      })();
+      const existing = currentLogical(safeUserId, canonicalPath);
       if (existing) return { ...existing, path: canonicalPath };
       const document: UserDocument = { userId: safeUserId, path: canonicalPath, content, version: `memory-${++version}`, updatedAt: clock.now() };
-      documents.set(key(safeUserId, canonicalPath), document);
-      return { ...document };
+      return saveVersion(document);
+    },
+    async putIfVersion(userId, path, expectedVersion, content) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const current = currentLogical(safeUserId, canonicalPath);
+      if (!current) return { outcome: "not_found" };
+      if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
+      const document: UserDocument = { userId: safeUserId, path: canonicalPath, content, version: `memory-${++version}`, updatedAt: clock.now() };
+      return { outcome: "updated", document: saveVersion(document) };
+    },
+    async moveIfVersion(userId, sourcePath, destinationPath, expectedVersion) {
+      const safeUserId = assertUserId(userId);
+      const canonicalSource = canonicalDocumentPath(sourcePath);
+      const canonicalDestination = canonicalDocumentPath(destinationPath);
+      const source = currentLogical(safeUserId, canonicalSource);
+      if (!source) return { outcome: "not_found" };
+      if (source.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(source, canonicalSource) };
+      const destination = currentLogical(safeUserId, canonicalDestination);
+      if (destination) return { outcome: "destination_conflict", current: metadataOf(destination, canonicalDestination) };
+      const moved: UserDocument = { userId: safeUserId, path: canonicalDestination, content: source.content, version: `memory-${++version}`, updatedAt: clock.now() };
+      saveVersion(moved);
+      documents.delete(key(safeUserId, canonicalSource));
+      const legacyPath = legacyDocumentPath(canonicalSource);
+      if (legacyPath) documents.delete(key(safeUserId, legacyPath));
+      return { outcome: "moved", document: { ...moved }, sourceVersion: source.version };
+    },
+    async deleteIfVersion(userId, path, expectedVersion) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const current = currentLogical(safeUserId, canonicalPath);
+      if (!current) return { outcome: "not_found" };
+      if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
+      documents.delete(key(safeUserId, canonicalPath));
+      const legacyPath = legacyDocumentPath(canonicalPath);
+      if (legacyPath) documents.delete(key(safeUserId, legacyPath));
+      return { outcome: "deleted", path: canonicalPath, version: current.version };
+    },
+    async restoreVersion(userId, path, requestedVersion) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const storagePaths = [canonicalPath, legacyDocumentPath(canonicalPath)].filter((item): item is string => item !== null);
+      let historical: UserDocument | undefined;
+      for (const storagePath of storagePaths) {
+        historical = versions.get(key(safeUserId, storagePath))?.get(requestedVersion);
+        if (historical) break;
+      }
+      if (!historical) return null;
+      const restored: UserDocument = { userId: safeUserId, path: canonicalPath, content: historical.content, version: `memory-${++version}`, updatedAt: clock.now() };
+      return saveVersion(restored);
     },
     async listMetadata(userId, prefix) {
       const safeUserId = assertUserId(userId);

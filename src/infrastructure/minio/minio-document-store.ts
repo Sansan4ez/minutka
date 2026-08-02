@@ -7,7 +7,10 @@ import {
   documentReadReference,
   legacyDocumentPath,
   objectKey,
+  type DocumentDeleteResult,
+  type DocumentMoveResult,
   type DocumentStore,
+  type DocumentUpdateResult,
   type UserDocument,
   type UserDocumentMetadata,
 } from "../../application/document-store.js";
@@ -51,6 +54,27 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       if (isNotFound(error)) return null;
       throw error;
     }
+  };
+  const metadataOf = (document: UserDocument, logicalPath = document.path): UserDocumentMetadata => attachDocumentReadReference({
+    userId: document.userId,
+    path: logicalPath,
+    version: document.version,
+    updatedAt: document.updatedAt,
+    size: Buffer.byteLength(document.content, "utf8"),
+  }, document.path);
+  const readLogical = async (userId: string, path: string): Promise<UserDocument | null> => {
+    const canonicalPath = canonicalDocumentPath(path);
+    const canonical = await getExact(userId, canonicalPath);
+    if (canonical) return canonical;
+    const legacyPath = legacyDocumentPath(canonicalPath);
+    const legacy = legacyPath ? await getExact(userId, legacyPath) : null;
+    return legacy ? { ...legacy, path: canonicalPath } : null;
+  };
+  const writeCanonical = async (userId: string, path: string, content: string): Promise<UserDocument> => {
+    const result = await options.client.putObject(options.bucket, objectKey(userId, path), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
+      "Content-Type": "text/markdown; charset=utf-8",
+    });
+    return { userId, path, content, version: result.versionId ?? result.etag, updatedAt: now() };
   };
   const readAfterFailedCreate = async (userId: string, path: string): Promise<UserDocument | null> => {
     for (const delayMs of [0, 10, 25]) {
@@ -151,10 +175,7 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
     async put(userId, path, content) {
       const safeUserId = assertUserId(userId);
       const canonicalPath = canonicalDocumentPath(path);
-      const result = await options.client.putObject(options.bucket, objectKey(safeUserId, canonicalPath), Buffer.from(content, "utf8"), Buffer.byteLength(content), {
-        "Content-Type": "text/markdown; charset=utf-8",
-      });
-      return { userId: safeUserId, path: canonicalPath, content, version: result.versionId ?? result.etag, updatedAt: now() };
+      return writeCanonical(safeUserId, canonicalPath, content);
     },
     async putIfAbsent(userId, path, content) {
       const safeUserId = assertUserId(userId);
@@ -178,6 +199,61 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
         if (concurrent) return concurrent;
         throw error;
       }
+    },
+    async putIfVersion(userId, path, expectedVersion, content): Promise<DocumentUpdateResult> {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const current = await readLogical(safeUserId, canonicalPath);
+      if (!current) return { outcome: "not_found" };
+      if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
+      const latest = await readLogical(safeUserId, canonicalPath);
+      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalPath) } : { outcome: "not_found" };
+      return { outcome: "updated", document: await writeCanonical(safeUserId, canonicalPath, content) };
+    },
+    async moveIfVersion(userId, sourcePath, destinationPath, expectedVersion): Promise<DocumentMoveResult> {
+      const safeUserId = assertUserId(userId);
+      const canonicalSource = canonicalDocumentPath(sourcePath);
+      const canonicalDestination = canonicalDocumentPath(destinationPath);
+      const source = await readLogical(safeUserId, canonicalSource);
+      if (!source) return { outcome: "not_found" };
+      if (source.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(source, canonicalSource) };
+      const destination = await readLogical(safeUserId, canonicalDestination);
+      if (destination) return { outcome: "destination_conflict", current: metadataOf(destination, canonicalDestination) };
+      const latest = await readLogical(safeUserId, canonicalSource);
+      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalSource) } : { outcome: "not_found" };
+      const moved = await writeCanonical(safeUserId, canonicalDestination, latest.content);
+      await Promise.all([canonicalSource, legacyDocumentPath(canonicalSource)]
+        .filter((item): item is string => item !== null)
+        .map((documentPath) => options.client.removeObject(options.bucket, objectKey(safeUserId, documentPath))));
+      return { outcome: "moved", document: moved, sourceVersion: latest.version };
+    },
+    async deleteIfVersion(userId, path, expectedVersion): Promise<DocumentDeleteResult> {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      const current = await readLogical(safeUserId, canonicalPath);
+      if (!current) return { outcome: "not_found" };
+      if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
+      const latest = await readLogical(safeUserId, canonicalPath);
+      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalPath) } : { outcome: "not_found" };
+      await Promise.all([canonicalPath, legacyDocumentPath(canonicalPath)]
+        .filter((item): item is string => item !== null)
+        .map((documentPath) => options.client.removeObject(options.bucket, objectKey(safeUserId, documentPath))));
+      return { outcome: "deleted", path: canonicalPath, version: latest.version };
+    },
+    async restoreVersion(userId, path, requestedVersion) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      for (const storagePath of [canonicalPath, legacyDocumentPath(canonicalPath)].filter((item): item is string => item !== null)) {
+        const historical = await getExact(safeUserId, storagePath, attachDocumentReadReference({
+          userId: safeUserId,
+          path: canonicalPath,
+          version: requestedVersion,
+          updatedAt: now(),
+          size: 0,
+        }, storagePath));
+        if (historical) return writeCanonical(safeUserId, canonicalPath, historical.content);
+      }
+      return null;
     },
     listMetadata,
     async *iterate(userId, prefix) {

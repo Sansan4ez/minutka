@@ -53,6 +53,8 @@ import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/p
 import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 import { ScheduleManagementService } from "../application/schedule-management-service.js";
+import { ContextDocumentService, contextDocumentConfirmationTtlMilliseconds } from "../application/context-document-service.js";
+import { createPostgresContextDocumentConfirmationStore } from "../infrastructure/postgres/postgres-context-document-confirmation-store.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -79,6 +81,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     );
     const auditEventStore = createPostgresAuditEventStore(pool);
     const taskMutationConfirmationStore = createPostgresTaskMutationConfirmationStore(pool);
+    const contextDocumentConfirmationStore = createPostgresContextDocumentConfirmationStore(pool);
     const taskMutations = new TaskMutationConfirmationService(taskMutationConfirmationStore, systemClock, {
       auditEventStore,
       idGenerator: randomIdGenerator,
@@ -92,10 +95,22 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const purgeTaskMutationConfirmations = () => taskMutations.purge({
       completedReplayRetentionMilliseconds: taskMutationCompletedReplayRetentionMilliseconds,
     });
+    const purgeContextDocumentConfirmations = () => {
+      const now = systemClock.now();
+      return contextDocumentConfirmationStore.purge({
+        pendingExpiredBefore: now,
+        completedBefore: new Date(Date.parse(now) - taskMutationCompletedReplayRetentionMilliseconds).toISOString(),
+        limit: 500,
+      });
+    };
+    if (taskMutationCompletedReplayRetentionMilliseconds <= contextDocumentConfirmationTtlMilliseconds) {
+      throw new Error("Task confirmation replay retention must exceed the context document confirmation TTL.");
+    }
     const retentionCleanupJobs = [
       { operation: "Minutka onboarding draft", run: () => onboardingDraftStore.purgeExpired() },
       { operation: "Minutka Telegram action-message", run: purgeExpiredTelegramActions },
       { operation: "Personal assistant task-confirmation", run: purgeTaskMutationConfirmations },
+      { operation: "Personal assistant context-document confirmation", run: purgeContextDocumentConfirmations },
     ] as const;
     // Cleanup is best-effort: database connectivity and migrations have already
     // failed fast, while retention housekeeping must not block startup.
@@ -104,6 +119,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const minioClient = createMinioClient(minioConfig);
     await prepareMinioBucket(minioClient, minioConfig.bucket);
     const documentStore = createMinioDocumentStore({ client: minioClient, bucket: minioConfig.bucket });
+    const contextDocuments = new ContextDocumentService(
+      documentStore,
+      contextDocumentConfirmationStore,
+      systemClock,
+      { maximumDocumentBytes: contextBudget.documentTools.maximumDocumentBytes, auditEventStore, idGenerator: randomIdGenerator },
+    );
     const blobStore = createMinioBlobStore({ client: minioClient, bucket: minioConfig.bucket });
     const artifactContentStore = createMinioArtifactContentStore({ client: minioClient, bucket: minioConfig.bucket });
     const artifactStore = createPostgresArtifactStore({
@@ -231,6 +252,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       assistant,
       ingestion,
       artifactContentStore,
+      contextDocuments,
       telegramSessionStore,
       privacyExplanation: privacy.explanation,
       artifactMaximumBytes: artifactConfig.saveLimits.maximumBytes,
