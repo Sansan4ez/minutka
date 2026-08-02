@@ -2,6 +2,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { IdeaDeletionService } from "../../application/idea-deletion.js";
 import { pendingIdeaDeletionReceipt } from "../../application/idea-deletion.js";
+import type { Idea } from "../../application/idea-store.js";
 import { recordTypeSchema } from "../../contracts/minutka-api.js";
 
 const ideaViewSchema = z.strictObject({
@@ -37,7 +38,7 @@ export function createIdeaTools(ideas: {
       inputSchema: z.strictObject({ query: z.string().optional(), limit: z.number().int().min(1).max(10).optional() }),
       outputSchema: z.strictObject({ ideas: z.array(ideaViewSchema) }),
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-      execute: async (input) => ({ ideas: await ideas.search(input) }),
+      execute: async (input) => ({ ideas: (await ideas.search(input)).map(toIdeaView) }),
     }),
     proposeIdeaDeletion: createTool({
       id: "proposeIdeaDeletion",
@@ -71,5 +72,18 @@ export function createIdeaTools(ideas: {
         return { outcome, ...(idea ? { ideaId: idea.id } : {}) };
       },
     }),
+  };
+}
+
+function toIdeaView(idea: Idea): z.infer<typeof ideaViewSchema> {
+  return {
+    id: idea.id,
+    project: idea.project,
+    type: idea.type,
+    summary: idea.summary,
+    status: idea.status,
+    createdAt: idea.createdAt,
+    lastActivityAt: idea.lastActivityAt,
+    revision: idea.revision,
   };
 }
