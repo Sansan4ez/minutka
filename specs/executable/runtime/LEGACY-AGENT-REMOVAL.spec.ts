@@ -23,11 +23,13 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(source("src/server/http/http-server.ts")).not.toContain("legacyChat");
   });
 
-  it("keeps task function parameters compatible with OpenAI Responses", async () => {
+  it("keeps every task proposal form compatible with OpenAI Responses", async () => {
+    const proposals: unknown[] = [];
     const tools = createTaskTools({
       async list() { return []; },
       async propose(input) {
-        return { confirmationId: "confirmation-1", actionKind: input.kind, summary: "proposal", expiresAt: "2026-07-31T21:00:00.000Z" };
+        proposals.push(input);
+        return { confirmationId: `confirmation-${proposals.length}`, actionKind: input.kind, summary: "proposal", expiresAt: "2026-07-31T21:00:00.000Z" };
       },
       async proposeIdeaToTask() { return { status: "not_found" }; },
     });
@@ -41,8 +43,32 @@ describe("A2.6: legacy Minutka agent removal", () => {
       kind: "update", taskId: "task-1", expectedRevision: 1, patch: { clearDueDate: true },
     }, {} as never)).resolves.toMatchObject({ actionKind: "update" });
     await expect(tools.proposeTaskMutation.execute?.({
+      kind: "complete", taskId: "task-1", expectedRevision: 1,
+    }, {} as never)).resolves.toMatchObject({ actionKind: "complete" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "complete", taskId: "task-1", expectedRevision: 1, title: null, project: null, patch: null,
+    } as never, {} as never)).resolves.toMatchObject({ actionKind: "complete" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "complete", taskId: "task-1",
+    }, {} as never)).resolves.toMatchObject({ actionKind: "complete" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "cancel", taskId: "task-1", expectedRevision: 1,
+    }, {} as never)).resolves.toMatchObject({ actionKind: "cancel" });
+    await expect(tools.proposeTaskMutation.execute?.({
       kind: "create", taskId: "wrong-shape",
-    } as never, {} as never)).rejects.toThrow("task proposal validation failed");
+    } as never, {} as never)).resolves.toMatchObject({ status: "invalid_request" });
+    await expect(tools.proposeTaskMutation.execute?.({
+      kind: "complete", type: "personal", taskId: "task-1", expectedRevision: 1,
+    } as never, {} as never)).resolves.toMatchObject({ actionKind: "complete" });
+    expect(proposals).toEqual([
+      { kind: "create", title: "Provider-safe task", project: "ASSISTANT", type: "operations" },
+      { kind: "update", taskId: "task-1", expectedRevision: 1, patch: { dueDate: null } },
+      { kind: "complete", taskId: "task-1", expectedRevision: 1 },
+      { kind: "complete", taskId: "task-1", expectedRevision: 1 },
+      { kind: "complete", taskId: "task-1" },
+      { kind: "cancel", taskId: "task-1", expectedRevision: 1 },
+      { kind: "complete", taskId: "task-1", expectedRevision: 1 },
+    ]);
   });
 
   it("binds request-scoped tools to safe model-visible outputs", async () => {

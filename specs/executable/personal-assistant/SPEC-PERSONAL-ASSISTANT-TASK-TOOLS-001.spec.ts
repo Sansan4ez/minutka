@@ -67,6 +67,28 @@ function setup(
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", () => {
+  it("resolves an omitted task revision into the pending proposal and still detects a later conflict", async () => {
+    const { service, confirmations, tasks } = setup(async (_input, context) => {
+      const [task] = await context.tasks.list();
+      expect(task).toMatchObject({ id: "existing-task", revision: 1 });
+      await context.tasks.propose({ kind: "complete", taskId: task!.id });
+      return "Предложение готово";
+    });
+    await tasks.create("owner", {
+      id: "existing-task", title: "Записаться в бассейн", project: "здоровье", type: "personal", status: "open",
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "telegram:owner", text: "complete task" });
+    expect(result.pendingAction).toMatchObject({ actionKind: "complete", preview: { kind: "complete" } });
+
+    await tasks.update("owner", "existing-task", { expectedRevision: 1, patch: { status: "in_progress" } });
+    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({
+      status: "confirmed",
+      outcome: { outcome: "conflict", current: { revision: 2, status: "in_progress" } },
+    });
+    await expect(tasks.get("owner", "existing-task")).resolves.toMatchObject({ status: "in_progress", revision: 2 });
+  });
+
   it("returns one safe typed pending action without mutating a task", async () => {
     let modelVisible: unknown;
     const { service, confirmations, tasks } = setup(async (_input, context) => {

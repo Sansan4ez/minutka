@@ -40,35 +40,49 @@ const taskProposalInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("update"),
     taskId: z.string().min(1),
-    expectedRevision: z.number().int().positive(),
+    expectedRevision: z.number().int().positive().optional(),
     patch: activeTaskPatchSchema,
   }),
-  z.strictObject({ kind: z.literal("complete"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
-  z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive() }),
+  z.strictObject({ kind: z.literal("complete"), taskId: z.string().min(1), expectedRevision: z.number().int().positive().optional() }),
+  z.strictObject({ kind: z.literal("cancel"), taskId: z.string().min(1), expectedRevision: z.number().int().positive().optional() }),
 ]);
 
 // OpenAI Responses rejects the `oneOf` emitted by discriminated unions in
 // function parameters. Expose one flat transport object to the provider, then
 // enforce the exact operation-specific domain contract before application code.
+// Strict provider calls may materialize every optional field as null; preprocess
+// keeps the JSON Schema provider-compatible while treating null as omitted.
+const providerOptional = <T extends z.ZodType>(schema: T) => z.preprocess(
+  (value) => value === null ? undefined : value,
+  schema.optional(),
+);
+
 const taskProposalTransportSchema = z.strictObject({
   kind: z.enum(["create", "update", "complete", "cancel"]),
-  title: z.string().min(1).optional(),
-  project: z.string().min(1).optional(),
-  type: recordTypeSchema.optional(),
-  dueDate: z.iso.date().optional(),
-  taskId: z.string().min(1).optional(),
-  expectedRevision: z.number().int().positive().optional(),
-  patch: z.strictObject({
-    title: activeTaskPatchFields.title,
-    project: activeTaskPatchFields.project,
-    type: activeTaskPatchFields.type,
-    status: activeTaskPatchFields.status,
-    dueDate: z.iso.date().optional(),
+  title: providerOptional(z.string().min(1)),
+  project: providerOptional(z.string().min(1)),
+  type: providerOptional(recordTypeSchema),
+  dueDate: providerOptional(z.iso.date()),
+  taskId: providerOptional(z.string().min(1)),
+  expectedRevision: providerOptional(z.number().int().positive()),
+  patch: providerOptional(z.strictObject({
+    title: providerOptional(z.string().min(1)),
+    project: providerOptional(z.string().min(1)),
+    type: providerOptional(recordTypeSchema),
+    status: providerOptional(z.enum(["open", "in_progress"])),
+    dueDate: providerOptional(z.iso.date()),
     // A nullable date becomes `anyOf` in JSON Schema. The provider transport
     // uses this explicit sentinel while domain validation restores null.
-    clearDueDate: z.boolean().optional(),
-  }).optional(),
+    clearDueDate: providerOptional(z.boolean()),
+  })),
 });
+
+const invalidTaskProposalSchema = z.strictObject({
+  status: z.literal("invalid_request"),
+  message: z.string().min(1),
+});
+
+const taskProposalOutputSchema = z.union([pendingTaskReceiptSchema, invalidTaskProposalSchema]);
 
 const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("not_found") }),
@@ -98,12 +112,13 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
       description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application returns a separate confirmation action to the owner.",
       strict: true,
       inputSchema: taskProposalTransportSchema,
-      outputSchema: pendingTaskReceiptSchema,
+      outputSchema: taskProposalOutputSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
-      execute: (input) => {
-        const { patch, ...proposal } = input;
+      execute: async (input, context) => {
+        const cleaned = withoutNullValues(input);
+        const { patch, ...proposal } = cleaned;
         if (patch?.clearDueDate && patch.dueDate !== undefined) {
-          throw new Error("task proposal validation failed: dueDate and clearDueDate are mutually exclusive");
+          return invalidTaskProposal(context, cleaned, "dueDate and clearDueDate are mutually exclusive");
         }
         const normalizedPatch = patch && {
           ...(patch.title === undefined ? {} : { title: patch.title }),
@@ -113,11 +128,11 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
           ...(patch.clearDueDate ? { dueDate: null } : patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
         };
         const validation = taskProposalInputSchema.safeParse({
-          ...proposal,
+          ...operationFields(proposal),
           ...(normalizedPatch ? { patch: normalizedPatch } : {}),
         });
         if (!validation.success) {
-          throw new Error(`task proposal validation failed: ${validation.error.message}`);
+          return invalidTaskProposal(context, cleaned, validation.error.message);
         }
         return tasks.propose(validation.data);
       },
@@ -132,4 +147,46 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
       execute: ({ ideaId }) => tasks.proposeIdeaToTask(ideaId),
     }),
   };
+}
+
+function withoutNullValues<T extends Record<string, unknown>>(input: T): T {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null)) as T;
+}
+
+function operationFields(proposal: {
+  kind: "create" | "update" | "complete" | "cancel";
+  title?: string;
+  project?: string;
+  type?: z.infer<typeof recordTypeSchema>;
+  dueDate?: string;
+  taskId?: string;
+  expectedRevision?: number;
+}): Record<string, unknown> {
+  switch (proposal.kind) {
+    case "create":
+      return {
+        kind: proposal.kind,
+        ...(proposal.title === undefined ? {} : { title: proposal.title }),
+        ...(proposal.project === undefined ? {} : { project: proposal.project }),
+        ...(proposal.type === undefined ? {} : { type: proposal.type }),
+        ...(proposal.dueDate === undefined ? {} : { dueDate: proposal.dueDate }),
+      };
+    case "update":
+    case "complete":
+    case "cancel":
+      return {
+        kind: proposal.kind,
+        ...(proposal.taskId === undefined ? {} : { taskId: proposal.taskId }),
+        ...(proposal.expectedRevision === undefined ? {} : { expectedRevision: proposal.expectedRevision }),
+      };
+  }
+}
+
+function invalidTaskProposal(
+  context: { observe?: { log(level: "warn", message: string, data?: Record<string, unknown>): void } },
+  input: Record<string, unknown>,
+  message: string,
+): z.infer<typeof invalidTaskProposalSchema> {
+  context.observe?.log("warn", "Task proposal validation failed", { input, message });
+  return { status: "invalid_request", message: `Task proposal validation failed: ${message}` };
 }

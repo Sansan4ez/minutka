@@ -10,9 +10,9 @@ export type AssistantTaskView = Pick<Task, "id" | "title" | "project" | "type" |
 
 export type AssistantTaskMutationProposal =
   | { kind: "create"; title: string; project: string; type: Task["type"]; dueDate?: string }
-  | { kind: "update"; taskId: string; expectedRevision: number; patch: Omit<TaskPatch, "status"> & { status?: "open" | "in_progress" } }
-  | { kind: "complete"; taskId: string; expectedRevision: number }
-  | { kind: "cancel"; taskId: string; expectedRevision: number };
+  | { kind: "update"; taskId: string; expectedRevision?: number; patch: Omit<TaskPatch, "status"> & { status?: "open" | "in_progress" } }
+  | { kind: "complete"; taskId: string; expectedRevision?: number }
+  | { kind: "cancel"; taskId: string; expectedRevision?: number };
 
 export type AssistantIdeaToTaskProposalResult =
   | { status: "not_found" }
@@ -54,7 +54,7 @@ export function createAssistantTaskCapabilities(input: {
       if (!input.mutations) throw new Error("task mutation confirmation is not configured");
       const pending = await input.mutations.propose(
         input.ownerId,
-        normalizeAssistantTaskProposal(proposal, input.taskId),
+        await normalizeAssistantTaskProposal(proposal, input.taskId, input.ownerId, input.tasks),
         { actionKind: proposal.kind, audit: input.audit, beforePersist: input.beforePersist },
       );
       input.onProposal(pending);
@@ -85,7 +85,12 @@ export function toAssistantTaskView(task: Task): AssistantTaskView {
   };
 }
 
-function normalizeAssistantTaskProposal(proposal: AssistantTaskMutationProposal, taskId: () => string): TaskMutationProposal {
+async function normalizeAssistantTaskProposal(
+  proposal: AssistantTaskMutationProposal,
+  taskId: () => string,
+  ownerId: string,
+  tasks?: TaskReader,
+): Promise<TaskMutationProposal> {
   switch (proposal.kind) {
     case "create":
       return {
@@ -100,10 +105,22 @@ function normalizeAssistantTaskProposal(proposal: AssistantTaskMutationProposal,
         },
       };
     case "update":
-      return { kind: "update", taskId: proposal.taskId, expectedRevision: proposal.expectedRevision, patch: { ...proposal.patch } };
+      return { kind: "update", taskId: proposal.taskId, expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks), patch: { ...proposal.patch } };
     case "complete":
-      return { kind: "update", taskId: proposal.taskId, expectedRevision: proposal.expectedRevision, patch: { status: "done" } };
+      return { kind: "update", taskId: proposal.taskId, expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks), patch: { status: "done" } };
     case "cancel":
-      return { kind: "cancel", taskId: proposal.taskId, expectedRevision: proposal.expectedRevision };
+      return { kind: "cancel", taskId: proposal.taskId, expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks) };
   }
+}
+
+async function resolveExpectedRevision(
+  proposal: Exclude<AssistantTaskMutationProposal, { kind: "create" }>,
+  ownerId: string,
+  tasks?: TaskReader,
+): Promise<number> {
+  if (proposal.expectedRevision !== undefined) return proposal.expectedRevision;
+  if (!tasks) throw new Error("task reader is not configured");
+  const task = await tasks.get(ownerId, proposal.taskId);
+  if (!task) throw new Error("task not found");
+  return task.revision;
 }
