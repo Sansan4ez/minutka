@@ -38,7 +38,7 @@ export function createAssistantTaskCapabilities(input: {
   taskId: () => string;
   audit?: TaskMutationAuditContext;
   beforePersist: TaskMutationBeforePersist;
-  onProposal: (pending: PendingTaskMutation) => void;
+  onProposal: (pending: PendingTaskMutation, taskTitle?: string) => void;
 }): AssistantTaskCapabilities {
   return {
     async list(options = {}) {
@@ -52,12 +52,14 @@ export function createAssistantTaskCapabilities(input: {
     },
     async propose(proposal) {
       if (!input.mutations) throw new Error("task mutation confirmation is not configured");
+      const normalized = await normalizeAssistantTaskProposal(proposal, input.taskId, input.ownerId, input.tasks);
+      const taskTitle = proposal.kind === "create" ? undefined : await resolveTaskTitle(input.ownerId, proposal.taskId, input.tasks);
       const pending = await input.mutations.propose(
         input.ownerId,
-        await normalizeAssistantTaskProposal(proposal, input.taskId, input.ownerId, input.tasks),
+        normalized,
         { actionKind: proposal.kind, audit: input.audit, beforePersist: input.beforePersist },
       );
-      input.onProposal(pending);
+      input.onProposal(pending, taskTitle);
       return pendingTaskReceipt(pending);
     },
     async proposeIdeaToTask(ideaId) {
@@ -119,8 +121,17 @@ async function resolveExpectedRevision(
   tasks?: TaskReader,
 ): Promise<number> {
   if (proposal.expectedRevision !== undefined) return proposal.expectedRevision;
-  if (!tasks) throw new Error("task reader is not configured");
-  const task = await tasks.get(ownerId, proposal.taskId);
-  if (!task) throw new Error("task not found");
+  const task = await getTask(ownerId, proposal.taskId, tasks);
   return task.revision;
+}
+
+async function resolveTaskTitle(ownerId: string, taskId: string, tasks?: TaskReader): Promise<string> {
+  return (await getTask(ownerId, taskId, tasks)).title;
+}
+
+async function getTask(ownerId: string, taskId: string, tasks?: TaskReader): Promise<Task> {
+  if (!tasks) throw new Error("task reader is not configured");
+  const task = await tasks.get(ownerId, taskId);
+  if (!task) throw new Error("task not found");
+  return task;
 }

@@ -109,7 +109,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeTaskMutation: createTool({
       id: "proposeTaskMutation",
-      description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application returns a separate confirmation action to the owner.",
+      description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application renders the separate owner confirmation action. Do not quote the receipt or ids in your response.",
       strict: true,
       inputSchema: taskProposalTransportSchema,
       outputSchema: taskProposalOutputSchema,
@@ -139,7 +139,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Prepare one owner-bound conversion of an existing idea into a task. This never mutates a task; the application preserves provenance privately and returns a separate confirmation action to the owner.",
+      description: "Prepare one owner-bound conversion of an existing idea into a task. This never mutates a task; the application preserves provenance privately and renders the separate owner confirmation action. Do not quote the receipt or ids in your response.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,

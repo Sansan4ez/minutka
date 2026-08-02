@@ -68,9 +68,9 @@ const pendingTaskUpdatePreviewFieldSchema = z.discriminatedUnion("field", [
 const pendingTaskActionPreviewSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("create"), title: pendingTaskPreviewTextSchema, project: pendingTaskPreviewTextSchema, type: recordTypeSchema, dueDate: z.iso.date().nullable() }),
   z.strictObject({ kind: z.literal("idea_to_task"), title: pendingTaskPreviewTextSchema, project: pendingTaskPreviewTextSchema, type: recordTypeSchema, dueDate: z.iso.date().nullable() }),
-  z.strictObject({ kind: z.literal("update"), taskId: pendingTaskPreviewTextSchema, fields: z.array(pendingTaskUpdatePreviewFieldSchema).min(1).max(5) }),
-  z.strictObject({ kind: z.literal("complete"), taskId: pendingTaskPreviewTextSchema }),
-  z.strictObject({ kind: z.literal("cancel"), taskId: pendingTaskPreviewTextSchema }),
+  z.strictObject({ kind: z.literal("update"), taskId: pendingTaskPreviewTextSchema, taskTitle: pendingTaskPreviewTextSchema, fields: z.array(pendingTaskUpdatePreviewFieldSchema).min(1).max(5) }),
+  z.strictObject({ kind: z.literal("complete"), taskId: pendingTaskPreviewTextSchema, taskTitle: pendingTaskPreviewTextSchema }),
+  z.strictObject({ kind: z.literal("cancel"), taskId: pendingTaskPreviewTextSchema, taskTitle: pendingTaskPreviewTextSchema }),
 ]);
 const pendingTaskSummarySchema = z.string().min(1).refine(
   (value) => countUnicodeCodePoints(value) <= pendingTaskSummaryMaximumCodePoints,

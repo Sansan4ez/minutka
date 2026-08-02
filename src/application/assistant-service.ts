@@ -255,6 +255,7 @@ export class AssistantService {
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
     let pendingTaskMutation: PendingTaskMutation | undefined;
+    let pendingTaskTitle: string | undefined;
     let pendingIdeaDeletion: { record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] } | undefined;
     const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
     const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
@@ -325,7 +326,8 @@ export class AssistantService {
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
-      onProposal: () => {
+      onProposal: (_pending, taskTitle) => {
+        pendingTaskTitle = taskTitle;
         taskProposalState.persistence = "persisted";
         chatEffect.pendingActionCreated = true;
       },
@@ -496,7 +498,7 @@ export class AssistantService {
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
       ...(pendingIdeaDeletion
         ? { pendingAction: pendingIdeaDeletionAction(pendingIdeaDeletion.record, pendingIdeaDeletion.idea) }
-        : pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation) } : {}),
+        : pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation, pendingTaskTitle) } : {}),
       effect: currentChatEffectState(),
     };
   }

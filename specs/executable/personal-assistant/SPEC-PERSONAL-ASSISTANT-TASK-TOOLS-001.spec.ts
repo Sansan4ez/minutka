@@ -79,7 +79,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
 
     const result = await service.chat({ userId: "owner", threadId: "telegram:owner", text: "complete task" });
-    expect(result.pendingAction).toMatchObject({ actionKind: "complete", preview: { kind: "complete" } });
+    expect(result.pendingAction).toMatchObject({ actionKind: "complete", preview: { kind: "complete", taskTitle: { value: "Записаться в бассейн", truncated: false } } });
 
     await tasks.update("owner", "existing-task", { expectedRevision: 1, patch: { status: "in_progress" } });
     await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({

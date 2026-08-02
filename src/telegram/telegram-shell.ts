@@ -179,12 +179,12 @@ function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPend
   switch (preview.kind) {
     case "complete":
     case "cancel":
-      return [`Действие: ${preview.kind === "complete" ? "завершить задачу" : "отменить задачу"}`, `Задача: ${previewText(preview.taskId)}`];
+      return [`Действие: ${preview.kind === "complete" ? "завершить задачу" : "отменить задачу"}`, `Задача: ${previewText(preview.taskTitle)}`];
     case "update": {
       const labels = { title: "Название", project: "Проект", type: "Тип", status: "Статус", dueDate: "Срок" } as const;
       return [
         "Действие: изменить задачу",
-        `Задача: ${previewText(preview.taskId)}`,
+        `Задача: ${previewText(preview.taskTitle)}`,
         ...preview.fields.map((field) => {
           const value = field.field === "title" || field.field === "project"
             ? previewText(field.value)
@@ -431,10 +431,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await removeActiveReplyMarkup(chatId);
       if (await sendTaskProposal(chatId, chat, employeeId) === "cancelled") {
         await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
-        return;
       }
+      return;
     }
-    await sendMarkdown(chatId, chat.response, !pendingAction ? { replyMarkup: feedbackMarkup } : undefined);
+    await sendMarkdown(chatId, chat.response, { replyMarkup: feedbackMarkup });
   }
   async function dispatchText(chatId: string, text: string, session: { employeeId: string; threadId: string }, inputModality: "text" | "voice", userId?: string) {
     let profileExists = true;

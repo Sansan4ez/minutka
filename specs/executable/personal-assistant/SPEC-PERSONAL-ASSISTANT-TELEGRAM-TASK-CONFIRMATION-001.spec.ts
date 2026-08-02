@@ -70,7 +70,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(proposals[0]!.text).toContain(`Действие: создать задачу\nНазвание: Task from ${modality}\nПроект: ASSISTANT\nТип: operations\nСрок: не указан`);
     expect(proposals[0]!.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
     expect(taskButton(proposals[0]!, "✅ Подтвердить")).toBe("tm:c:telegram-confirmation-1");
-    expect(telegram.sentMessages().findIndex((message) => message === proposals[0])).toBeLessThan(telegram.sentMessages().findIndex((message) => message.text === "Предложение подготовлено."));
+    expect(telegram.sentMessages().map(({ text }) => text)).not.toContain("Предложение подготовлено.");
     await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
 
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-1" });
@@ -93,7 +93,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
 
     const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
     expect(proposal.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
-    expect(telegram.sentMessages().at(-1)).toEqual(expect.objectContaining({ text: "Запланированное предложение подготовлено.", replyMarkup: undefined }));
+    expect(telegram.sentMessages().map(({ text }) => text)).not.toContain("Запланированное предложение подготовлено.");
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-scheduled" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Scheduled task" }]);
@@ -119,7 +119,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(attempts).toHaveLength(2);
     expect(attempts[0]).toEqual(attempts[1]);
     const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
-    expect(telegram.sentMessages().findIndex((message) => message === proposal)).toBeLessThan(telegram.sentMessages().findIndex((message) => message.text === "Предложение подготовлено."));
+    expect(telegram.sentMessages().map(({ text }) => text)).not.toContain("Предложение подготовлено.");
     expect(telegram.taskMutationRejectCalls()).toEqual([]);
     expect(turns).toBe(1);
 
@@ -148,25 +148,25 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
   });
 
-  it("keeps delivered proposal buttons valid when the following assistant text delivery fails", async () => {
-    let turns = 0;
+  it("suppresses model-authored confirmation narration with opaque ids", async () => {
+    const leakedNarration = [
+      "Подготовил закрытие задачи через подтверждение.",
+      "ID: task_fd7e2e5f-04e9-4b1f-bddb-a795628033d0",
+      "Теперь подтверди действие в интерфейсе:",
+      "task-confirmation-5338218f-327c-4582-9a45-3f93e3c87bd3",
+    ].join("\n");
     const { telegram, tasks } = await harness(async (_input, context) => {
-      turns += 1;
-      await context.tasks.propose({ kind: "create", title: "Visible before text failure", project: "ASSISTANT", type: "operations" });
-      return "Предложение подготовлено.";
+      await context.tasks.propose({ kind: "create", title: "Visible card only", project: "ASSISTANT", type: "operations" });
+      return leakedNarration;
     });
-    telegram.setMessageDeliverySequence("pass", "fail");
 
     await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "create" });
 
-    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось обработать сообщение. Попробуйте ещё раз позже.");
-    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
-    expect(telegram.taskMutationRejectCalls()).toEqual([]);
-    expect(turns).toBe(1);
-
-    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-after-text-failure" });
-    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Visible before text failure" }]);
+    const messages = telegram.sentMessages();
+    expect(messages.filter((message) => message.text.includes("Предложение:"))).toHaveLength(1);
+    expect(messages.map(({ text }) => text)).not.toContain(leakedNarration);
+    expect(messages.every(({ text }) => !text.includes("task_fd7e2e5f") && !text.includes("task-confirmation-5338218f") && !text.includes("интерфейсе"))).toBe(true);
+    await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
   });
 
   it.each([
@@ -223,15 +223,16 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     const unsafeTaskId = "task\u2066id\u2069";
     const unsafeTitle = "left\u202Eright\u200D\u0001\nnext";
     const unsafeProject = "pro\u2067ject\u2069\u0085";
-    const { telegram } = await harness(async (_input, context) => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
       await context.tasks.propose({
         kind: "update",
         taskId: unsafeTaskId,
-        expectedRevision: 3,
+        expectedRevision: 1,
         patch: { title: unsafeTitle, project: unsafeProject, type: "development", status: "in_progress", dueDate: null },
       });
       return "Предложение подготовлено.";
     });
+    await tasks.create(owner.employeeId, { id: unsafeTaskId, title: unsafeTitle, project: "OLD", type: "operations", status: "open" });
 
     await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "unsafe update" });
 
@@ -239,7 +240,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(proposal.text).toBe([
       "Предложение:",
       "Действие: изменить задачу",
-      "Задача: task&lt;U+2066&gt;id&lt;U+2069&gt;",
+      "Задача: left&lt;U+202E&gt;right&lt;U+200D&gt;&lt;U+0001&gt; next",
       "Название: left&lt;U+202E&gt;right&lt;U+200D&gt;&lt;U+0001&gt; next",
       "Проект: pro&lt;U+2067&gt;ject&lt;U+2069&gt;&lt;U+0085&gt;",
       "Тип: development",
@@ -251,21 +252,43 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(proposal.text.replace(/\n/gu, "")).not.toMatch(/[\p{Cc}\p{Cf}]/u);
   });
 
+  it.each([
+    ["complete" as const, "завершить задачу"],
+    ["cancel" as const, "отменить задачу"],
+  ])("renders the human task title and no opaque ids for %s", async (kind, actionLabel) => {
+    const taskId = "task_fd7e2e5f-04e9-4b1f-bddb-a795628033d0";
+    const title = "Сходить в магазин в 14:00";
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind, taskId, expectedRevision: 1 });
+      return `Подготовил действие для ${taskId} через task-confirmation-hidden`;
+    });
+    await tasks.create(owner.employeeId, { id: taskId, title, project: "личное", type: "personal", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: kind });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toContain(`Действие: ${actionLabel}\nЗадача: ${title}`);
+    expect(proposal.text).not.toContain(taskId);
+    expect(proposal.text).not.toContain("task-confirmation");
+    expect(telegram.sentMessages()).toHaveLength(1);
+  });
+
   it("renders every effective update field and explicit due-date removal", async () => {
-    const { telegram } = await harness(async (_input, context) => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
       await context.tasks.propose({
         kind: "update",
         taskId: "task-update",
-        expectedRevision: 3,
+        expectedRevision: 1,
         patch: { title: "Новый заголовок", project: "PLAN", type: "development", status: "in_progress", dueDate: null },
       });
       return "Предложение подготовлено.";
     });
+    await tasks.create(owner.employeeId, { id: "task-update", title: "Старый заголовок", project: "OLD", type: "operations", status: "open" });
     await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "update" });
     const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
     expect(proposal.text).toContain([
       "Действие: изменить задачу",
-      "Задача: task-update",
+      "Задача: Старый заголовок",
       "Название: Новый заголовок",
       "Проект: PLAN",
       "Тип: development",

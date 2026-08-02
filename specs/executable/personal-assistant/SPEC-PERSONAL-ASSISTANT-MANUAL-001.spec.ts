@@ -41,6 +41,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("exactly one concrete next action");
     expect(instructions).toContain("authenticated application confirmation command");
     expect(instructions).toContain("never available inside the agent tool loop");
+    expect(instructions).toContain("the application owns the owner-visible confirmation card");
+    expect(instructions).toContain("Do not repeat the receipt, task id, confirmation id, or confirmation instructions in prose");
+    expect(instructions).not.toContain("show the resulting proposal to the owner");
     expect(instructions).toContain("do not require calendar integration");
     expect(instructions).toContain("current single-owner prototype privacy boundary");
     expect(instructions).toContain("must never cross an owner boundary");

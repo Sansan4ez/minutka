@@ -54,10 +54,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
       taskId: "task-1",
       expectedRevision: 1,
       patch: { title: "Новый план", project: "ПРОЕКТ", type: "development", status: "in_progress", dueDate: null },
-    }));
+    }), "Подготовить план");
     expect(update.preview).toEqual({
       kind: "update",
       taskId: { value: "task-1", truncated: false },
+      taskTitle: { value: "Подготовить план", truncated: false },
       fields: [
         { field: "title", value: { value: "Новый план", truncated: false } },
         { field: "project", value: { value: "ПРОЕКТ", truncated: false } },
@@ -66,8 +67,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
         { field: "dueDate", value: null },
       ],
     });
-    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: "task-1", expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" })).preview).toEqual({ kind: "complete", taskId: { value: "task-1", truncated: false } });
-    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: "task-1", expectedRevision: 1 })).preview).toEqual({ kind: "cancel", taskId: { value: "task-1", truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: "task-1", expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" }), "Подготовить план").preview).toEqual({ kind: "complete", taskId: { value: "task-1", truncated: false }, taskTitle: { value: "Подготовить план", truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: "task-1", expectedRevision: 1 }), "Подготовить план").preview).toEqual({ kind: "cancel", taskId: { value: "task-1", truncated: false }, taskTitle: { value: "Подготовить план", truncated: false } });
   });
 
   it.each([
@@ -93,16 +94,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     expect(pendingTaskAction(ideaPending).preview).toMatchObject({ kind: "idea_to_task", title: { value: expected }, project: { value: expected } });
 
     const updatePending = await service.propose("owner", { kind: "update", taskId: unsafe, expectedRevision: 1, patch: { title: unsafe, project: unsafe } });
-    expect(pendingTaskAction(updatePending).preview).toEqual({
+    expect(pendingTaskAction(updatePending, unsafe).preview).toEqual({
       kind: "update",
       taskId: { value: expected, truncated: false },
+      taskTitle: { value: expected, truncated: false },
       fields: [
         { field: "title", value: { value: expected, truncated: false } },
         { field: "project", value: { value: expected, truncated: false } },
       ],
     });
-    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: unsafe, expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" })).preview).toEqual({ kind: "complete", taskId: { value: expected, truncated: false } });
-    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: unsafe, expectedRevision: 1 })).preview).toEqual({ kind: "cancel", taskId: { value: expected, truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "update", taskId: unsafe, expectedRevision: 1, patch: { status: "done" } }, { actionKind: "complete" }), unsafe).preview).toEqual({ kind: "complete", taskId: { value: expected, truncated: false }, taskTitle: { value: expected, truncated: false } });
+    expect(pendingTaskAction(await service.propose("owner", { kind: "cancel", taskId: unsafe, expectedRevision: 1 }), unsafe).preview).toEqual({ kind: "cancel", taskId: { value: expected, truncated: false }, taskTitle: { value: expected, truncated: false } });
   });
 
   it("clips escaped owner preview text on Unicode code-point boundaries and marks truncation", async () => {

@@ -75,8 +75,8 @@ export type PendingTaskUpdatePreviewField =
   | { field: "dueDate"; value: string | null };
 export type PendingTaskActionPreview =
   | { kind: "create" | "idea_to_task"; title: PendingTaskPreviewText; project: PendingTaskPreviewText; type: Task["type"]; dueDate: string | null }
-  | { kind: "update"; taskId: PendingTaskPreviewText; fields: PendingTaskUpdatePreviewField[] }
-  | { kind: "complete" | "cancel"; taskId: PendingTaskPreviewText };
+  | { kind: "update"; taskId: PendingTaskPreviewText; taskTitle: PendingTaskPreviewText; fields: PendingTaskUpdatePreviewField[] }
+  | { kind: "complete" | "cancel"; taskId: PendingTaskPreviewText; taskTitle: PendingTaskPreviewText };
 
 /** Owner-visible transport projection. Canonical proposal authority remains private. */
 export type PendingTaskAction = PendingTaskReceipt & { preview: PendingTaskActionPreview };
@@ -242,8 +242,8 @@ export function pendingTaskReceipt(record: PendingTaskMutation): PendingTaskRece
   };
 }
 
-export function pendingTaskAction(record: PendingTaskMutation): PendingTaskAction {
-  return { ...pendingTaskReceipt(record), preview: pendingTaskActionPreview(record.actionKind, record.proposal) };
+export function pendingTaskAction(record: PendingTaskMutation, taskTitle?: string): PendingTaskAction {
+  return { ...pendingTaskReceipt(record), preview: pendingTaskActionPreview(record.actionKind, record.proposal, taskTitle) };
 }
 
 export function normalizeTaskMutationProposal(proposal: TaskMutationProposal): TaskMutationProposal {
@@ -300,7 +300,7 @@ function inferTaskPendingActionKind(proposal: TaskMutationProposal): TaskPending
   return Object.keys(proposal.patch).length === 1 && proposal.patch.status === "done" ? "complete" : "update";
 }
 
-function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal): PendingTaskActionPreview {
+function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: TaskMutationProposal, taskTitle?: string): PendingTaskActionPreview {
   if (proposal.kind === "create") {
     return {
       kind: actionKind === "idea_to_task" ? "idea_to_task" : "create",
@@ -310,8 +310,9 @@ function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: T
       dueDate: proposal.input.dueDate ?? null,
     };
   }
-  if (actionKind === "complete") return { kind: "complete", taskId: previewText(proposal.taskId) };
-  if (actionKind === "cancel") return { kind: "cancel", taskId: previewText(proposal.taskId) };
+  const safeTaskTitle = previewText(taskTitle?.trim() || "Задача");
+  if (actionKind === "complete") return { kind: "complete", taskId: previewText(proposal.taskId), taskTitle: safeTaskTitle };
+  if (actionKind === "cancel") return { kind: "cancel", taskId: previewText(proposal.taskId), taskTitle: safeTaskTitle };
   if (proposal.kind !== "update") throw new Error("task action kind does not match proposal");
   const fields: PendingTaskUpdatePreviewField[] = [];
   for (const field of ["title", "project", "type", "status", "dueDate"] as const) {
@@ -322,7 +323,7 @@ function pendingTaskActionPreview(actionKind: TaskPendingActionKind, proposal: T
     else if (field === "type") fields.push({ field, value: value as Task["type"] });
     else fields.push({ field, value: value as Task["status"] });
   }
-  return { kind: "update", taskId: previewText(proposal.taskId), fields };
+  return { kind: "update", taskId: previewText(proposal.taskId), taskTitle: safeTaskTitle, fields };
 }
 
 export function safeConfirmationDisplayText(value: string): PendingTaskPreviewText {

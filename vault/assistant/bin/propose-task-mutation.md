@@ -10,7 +10,7 @@ Task content or a current task id plus expected revision. The tool does not acce
 
 ## Output
 
-The model and serialized tool trace receive only the safe pending-action receipt: opaque confirmation id, action kind, bounded human-readable summary, and expiry. The canonical pending record is captured privately by `AssistantService` and is not part of the tool output.
+The model and serialized tool trace receive only the safe pending-action receipt: opaque confirmation id, action kind, bounded human-readable summary, and expiry. The canonical pending record is captured privately by `AssistantService` and is not part of the tool output. Do not quote or render the receipt, task id, confirmation id, or confirmation instructions in the assistant response; the application owns the owner-visible confirmation card.
 
 ## Boundary
 
