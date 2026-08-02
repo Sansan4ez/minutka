@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import type { ArtifactCapacityCheckInput, ArtifactCapacitySnapshot } from "./artifact-capacity.js";
 import { assertUserId } from "./document-store.js";
 
 export type ArtifactReferenceStatus = "active" | "deleted";
@@ -87,6 +88,8 @@ export type ArtifactListOptions = {
  * LLM or an artifact processor.
  */
 export interface ArtifactStore {
+  /** Conservative preflight for known transport sizes; duplicate deliveries have zero prospective bytes. */
+  checkCapacity(input: ArtifactCapacityCheckInput): Promise<ArtifactCapacitySnapshot>;
   save(input: SaveArtifactInput): Promise<SaveArtifactResult>;
   get(ownerId: string, artifactId: string): Promise<ArtifactReference | null>;
   list(ownerId: string, options?: ArtifactListOptions): Promise<ArtifactReference[]>;

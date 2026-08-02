@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import type { AssistantChatInput } from "../../../src/application/assistant-service.js";
+import { ArtifactGlobalCapacityExceededError, ArtifactOwnerQuotaExceededError } from "../../../src/application/artifact-capacity.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../../../src/application/artifact-body-stager.js";
 import type { SaveArtifactInput, SaveArtifactResult } from "../../../src/application/artifact-store.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
@@ -9,7 +10,7 @@ import { createInProcessServiceTransport } from "../../../src/server/http/in-pro
 import { createTelegramShell, maxTelegramArtifactFileSizeBytes, type TelegramFileAttachment } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 
-async function setup(input: { saveError?: Error } = {}) {
+async function setup(input: { saveError?: Error; capacityError?: Error } = {}) {
   const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
   await runtime.service.issueInvite({ employeeId: "maxim", inviteCode: "invite" });
   await runtime.service.redeemTelegramInvite({ inviteCode: "invite", identity: { chatId: "1", userId: "user-1" } });
@@ -45,6 +46,7 @@ async function setup(input: { saveError?: Error } = {}) {
     privacyExplanation: executableSpecPrivacyExplanation, client,
     sessionStore: runtime.telegramSessionStore,
     artifactIntake: {
+      async checkArtifactCapacity() { if (input.capacityError) throw input.capacityError; },
       async saveArtifact(file) {
         if (input.saveError) throw input.saveError;
         const duplicate = deliveryArtifacts.get(file.source.deliveryKey);
@@ -119,12 +121,25 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-001: production inbox channel normali
 
   it.each([
     [new ArtifactTooLargeError(), "Файл слишком большой"],
+    [new ArtifactOwnerQuotaExceededError(), "Квота хранения файлов"],
+    [new ArtifactGlobalCapacityExceededError(), "общей ёмкости хранилища"],
     [new ArtifactSaveTimeoutError(), "Не удалось сохранить файл вовремя"],
     [new Error("stream failed"), "Не удалось сохранить файл"],
   ])("returns a clear persistence error without calling the assistant", async (error, expected) => {
     const { shell, calls, replies } = await setup({ saveError: error });
     await shell.handleFile("1", attachment(), "user-1");
     expect(calls).toHaveLength(0);
+    expect(replies.at(-1)).toContain(expected);
+  });
+
+  it.each([
+    [new ArtifactOwnerQuotaExceededError(), "Квота хранения файлов"],
+    [new ArtifactGlobalCapacityExceededError(), "общей ёмкости хранилища"],
+  ])("rejects known-size quota failures before creating a download body", async (error, expected) => {
+    const { shell, createdBodies, downloads, replies } = await setup({ capacityError: error });
+    await shell.handleFile("1", attachment(), "user-1");
+    expect(createdBodies).toEqual([]);
+    expect(downloads).toEqual([]);
     expect(replies.at(-1)).toContain(expected);
   });
 

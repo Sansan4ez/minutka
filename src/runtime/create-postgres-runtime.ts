@@ -46,6 +46,7 @@ import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 import type { createTelegramShell } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
+import { artifactRuntimeConfigFromEnv } from "../config/artifacts.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
 import { IdeaDeletionService } from "../application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
@@ -64,6 +65,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const privacy = privacyConfigFromEnv(input.env);
   const taskMutationCompletedReplayRetentionMilliseconds = taskMutationCompletedReplayRetentionFromEnv(input.env);
   const usageCostPolicy = usageCostPolicyFromEnv(input.env);
+  const artifactConfig = artifactRuntimeConfigFromEnv(input.env);
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -107,7 +109,9 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const artifactStore = createPostgresArtifactStore({
       pool,
       contentStore: artifactContentStore,
-      limits: { maximumBytes: 100 * 1024 * 1024, timeoutMs: 60_000 },
+      limits: artifactConfig.saveLimits,
+      capacityPolicy: artifactConfig.capacityPolicy,
+      onCapacityWarning: (warning) => console.warn("Artifact capacity warning.", warning),
     });
     const ideaStore = createPostgresIdeaStore(pool);
     const ideaDeletions = new IdeaDeletionService(
@@ -229,6 +233,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       artifactContentStore,
       telegramSessionStore,
       privacyExplanation: privacy.explanation,
+      artifactMaximumBytes: artifactConfig.saveLimits.maximumBytes,
       startScheduler,
       /** Safe liveness/readiness probe: exposes no database metadata. */
       health: async () => {

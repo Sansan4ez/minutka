@@ -1,17 +1,31 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { ArtifactGlobalCapacityExceededError, ArtifactOwnerQuotaExceededError } from "../../../src/application/artifact-capacity.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../../../src/application/artifact-body-stager.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 
 const clock = { now: () => "2026-07-15T00:00:00.000Z" };
 
-function createStore(overrides?: { maximumBytes?: number; timeoutMs?: number }) {
+function createStore(overrides?: {
+  maximumBytes?: number;
+  timeoutMs?: number;
+  ownerSoftQuotaBytes?: number;
+  ownerHardQuotaBytes?: number;
+  globalHardQuotaBytes?: number;
+  warnings?: unknown[];
+}) {
   const contentStore = createInMemoryArtifactContentStore(clock);
   const store = createInMemoryArtifactStore({
     contentStore,
     clock,
     limits: { maximumBytes: overrides?.maximumBytes ?? 1024, timeoutMs: overrides?.timeoutMs ?? 1_000 },
+    capacityPolicy: {
+      ownerSoftQuotaBytes: overrides?.ownerSoftQuotaBytes ?? 2048,
+      ownerHardQuotaBytes: overrides?.ownerHardQuotaBytes ?? 4096,
+      globalHardQuotaBytes: overrides?.globalHardQuotaBytes ?? 8192,
+    },
+    onCapacityWarning: (warning) => overrides?.warnings?.push(warning),
   });
   return { store, contentStore };
 }
@@ -61,6 +75,33 @@ describe("SPEC-PERSONAL-ASSISTANT-ARTIFACT-STORE-001: owner-scoped durable CAS",
     expect(opened).toBe(false);
     await expect(store.save(saveInput({ artifactId: "stream-large", deliveryKey: "large-2", fileName: "large", size: 5, stream: () => Readable.from(["123", "456"]) }))).rejects.toBeInstanceOf(ArtifactTooLargeError);
     await expect(store.list("owner-a")).resolves.toEqual([]);
+  });
+
+  it("checks known-size quota before opening a stream and keeps owner usage isolated", async () => {
+    const { store } = createStore({ ownerSoftQuotaBytes: 5, ownerHardQuotaBytes: 10, globalHardQuotaBytes: 20 });
+    await store.save(saveInput({ ownerId: "owner-a", artifactId: "a-1", deliveryKey: "a-1", fileName: "a", bytes: "123456" }));
+    await expect(store.checkCapacity({ ownerId: "owner-a", deliveryKey: "a-2", size: 5 })).rejects.toBeInstanceOf(ArtifactOwnerQuotaExceededError);
+    await expect(store.checkCapacity({ ownerId: "owner-b", deliveryKey: "b-1", size: 10 })).resolves.toMatchObject({ ownerUsageBytes: 0, prospectiveBytes: 10 });
+  });
+
+  it("charges unique owner-scoped CAS bytes, warns above soft quota, and keeps boundary values inclusive", async () => {
+    const warnings: unknown[] = [];
+    const { store } = createStore({ ownerSoftQuotaBytes: 5, ownerHardQuotaBytes: 10, globalHardQuotaBytes: 20, warnings });
+    await store.save(saveInput({ artifactId: "a-1", deliveryKey: "a-1", fileName: "a", bytes: "123456" }));
+    await store.save(saveInput({ artifactId: "a-2", deliveryKey: "a-2", fileName: "renamed", bytes: "123456" }));
+    await store.save(saveInput({ artifactId: "a-3", deliveryKey: "a-3", fileName: "boundary", bytes: "7890" }));
+    expect(warnings).toHaveLength(2);
+    await expect(store.checkCapacity({ ownerId: "owner-a", deliveryKey: "a-1", size: 100 })).resolves.toMatchObject({ duplicateDelivery: true, prospectiveBytes: 0 });
+    await expect(store.checkCapacity({ ownerId: "owner-a", deliveryKey: "a-4", size: 1 })).rejects.toBeInstanceOf(ArtifactOwnerQuotaExceededError);
+  });
+
+  it("blocks the global hard budget without publishing a new reference", async () => {
+    const { store } = createStore({ ownerSoftQuotaBytes: 10, ownerHardQuotaBytes: 15, globalHardQuotaBytes: 12 });
+    await store.save(saveInput({ ownerId: "owner-a", artifactId: "a-1", deliveryKey: "a-1", fileName: "a", bytes: "12345678" }));
+    await store.save(saveInput({ ownerId: "owner-b", artifactId: "b-1", deliveryKey: "b-1", fileName: "b", bytes: "1234" }));
+    await expect(store.save(saveInput({ ownerId: "owner-b", artifactId: "b-2", deliveryKey: "b-2", fileName: "blocked", bytes: "x" }))).rejects.toBeInstanceOf(ArtifactGlobalCapacityExceededError);
+    await expect(store.list("owner-b")).resolves.toMatchObject([{ artifactId: "b-1" }]);
+    await expect(store.get("owner-a", "a-1")).resolves.toMatchObject({ size: 8 });
   });
 
   it("cleans up after timeout and stream failure so a retry can succeed", async () => {

@@ -12,6 +12,7 @@ import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastru
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
 import { Readable } from "node:stream";
+import { ArtifactOwnerQuotaExceededError } from "../../src/application/artifact-capacity.js";
 import { createInMemoryArtifactContentStore } from "../../src/application/in-memory-artifact-content-store.js";
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
@@ -816,11 +817,12 @@ describe("PostgreSQL storage contracts", () => {
       pool,
       contentStore: artifactContentStore,
       limits: { maximumBytes: 1024, timeoutMs: 1_000 },
+      capacityPolicy: { ownerSoftQuotaBytes: 5, ownerHardQuotaBytes: 10, globalHardQuotaBytes: 20 },
     });
-    const save = (ownerId: string, artifactId: string, deliveryKey: string, fileName: string) => artifacts.save({
+    const save = (ownerId: string, artifactId: string, deliveryKey: string, fileName: string, bytes = "same") => artifacts.save({
       ownerId, artifactId, originalFileName: fileName, declaredMediaType: "text/plain",
       source: { kind: "http_upload", deliveryKey },
-      body: { size: 4, openStream: () => Readable.from("same") },
+      body: { size: Buffer.byteLength(bytes), openStream: () => Readable.from(bytes) },
     });
     const first = await save("artifact_owner", "artifact-1", "delivery-1", "first.txt");
     const renamed = await save("artifact_owner", "artifact-2", "delivery-2", "renamed.txt");
@@ -830,11 +832,15 @@ describe("PostgreSQL storage contracts", () => {
     expect(renamed.contentDisposition).toBe("reused");
     expect(retry).toMatchObject({ deliveryDisposition: "duplicate_delivery", artifact: { artifactId: "artifact-1" } });
     expect(other.contentDisposition).toBe("stored");
+    await expect(artifacts.checkCapacity({ ownerId: "artifact_owner", deliveryKey: "delivery-1", size: 100 })).resolves.toMatchObject({ duplicateDelivery: true, prospectiveBytes: 0 });
+    await save("artifact_owner", "artifact-boundary", "delivery-boundary", "boundary.txt", "123456");
+    await expect(artifacts.checkCapacity({ ownerId: "artifact_owner", deliveryKey: "delivery-blocked", size: 1 })).rejects.toBeInstanceOf(ArtifactOwnerQuotaExceededError);
+    await expect(artifacts.checkCapacity({ ownerId: "artifact_other", deliveryKey: "other-boundary", size: 6 })).resolves.toMatchObject({ ownerUsageBytes: 4 });
     await expect(artifacts.get("artifact_other", "artifact-1")).resolves.toMatchObject({ ownerId: "artifact_other" });
     await expect(artifactContentStore.presignGet("artifact_other", first.artifact.contentDigest, 60)).resolves.toContain("artifact_other");
     await expect(artifactContentStore.presignGet("artifact_owner", first.artifact.contentDigest, 60)).resolves.toContain("artifact_owner");
     await expect(artifacts.delete("artifact_owner", "artifact-1")).resolves.toMatchObject({ status: "deleted" });
-    await expect(artifacts.list("artifact_owner")).resolves.toMatchObject([{ artifactId: "artifact-2" }]);
+    await expect(artifacts.list("artifact_owner")).resolves.toMatchObject([{ artifactId: "artifact-2" }, { artifactId: "artifact-boundary" }]);
   });
 
   it("deletes every employee-owned private record", async () => {
@@ -872,7 +878,12 @@ describe("PostgreSQL storage contracts", () => {
       { now: () => now },
       { confirmationId: () => "task_confirmation_delete" },
     ).propose("emp_delete", { kind: "cancel", taskId: "task_delete", expectedRevision: 1 });
-    await createPostgresArtifactStore({ pool, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1024, timeoutMs: 1_000 } }).save({
+    await createPostgresArtifactStore({
+      pool,
+      contentStore: createInMemoryArtifactContentStore({ now: () => now }),
+      limits: { maximumBytes: 1024, timeoutMs: 1_000 },
+      capacityPolicy: { ownerSoftQuotaBytes: 2048, ownerHardQuotaBytes: 4096, globalHardQuotaBytes: 8192 },
+    }).save({
       ownerId: "emp_delete", artifactId: "artifact_delete", originalFileName: "private.txt",
       source: { kind: "http_upload", deliveryKey: "delete-delivery" },
       body: { size: 7, openStream: () => Readable.from("private") },

@@ -1,4 +1,5 @@
 import type { AssistantChatInput, AssistantChatResult, AssistantService } from "./assistant-service.js";
+import type { ArtifactCapacityCheckInput, ArtifactCapacitySnapshot } from "./artifact-capacity.js";
 import type { ArtifactReference, ArtifactStore, SaveArtifactInput, SaveArtifactResult } from "./artifact-store.js";
 import type {
   AcceptConsentInput,
@@ -64,7 +65,7 @@ export class PersonalAssistantService {
       | "submitFeedback"
     >,
     private readonly conversationService: Pick<AssistantService, "chat">,
-    private readonly artifactStore: Pick<ArtifactStore, "save" | "get" | "list" | "delete">,
+    private readonly artifactStore: Pick<ArtifactStore, "checkCapacity" | "save" | "get" | "list" | "delete">,
     private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject">,
     private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
@@ -141,6 +142,7 @@ export class PersonalAssistantService {
 
   listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.identityService.listInsights(input); }
   submitFeedback(input: SubmitFeedbackInput): Promise<SubmitFeedbackResult> { return this.identityService.submitFeedback(input); }
+  checkArtifactCapacity(input: ArtifactCapacityCheckInput): Promise<ArtifactCapacitySnapshot> { return this.artifactStore.checkCapacity(input); }
   saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> { return this.artifactStore.save(input); }
   getArtifact(ownerId: string, artifactId: string): Promise<ArtifactReference | null> { return this.artifactStore.get(ownerId, artifactId); }
   listArtifacts(ownerId: string): Promise<ArtifactReference[]> { return this.artifactStore.list(ownerId); }

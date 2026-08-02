@@ -1,5 +1,13 @@
 import { z } from "zod";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
+import {
+  evaluateArtifactCapacity,
+  validateArtifactCapacityCheckInput,
+  validateArtifactCapacityPolicy,
+  type ArtifactCapacityPolicy,
+  type ArtifactCapacitySnapshot,
+  type ArtifactCapacityWarning,
+} from "../../application/artifact-capacity.js";
 import { createArtifactSaveDeadline, stageArtifactBody, throwArtifactSaveAbortReason, type ArtifactSaveLimits } from "../../application/artifact-body-stager.js";
 import type { ArtifactContentStore } from "../../application/artifact-content-store.js";
 import {
@@ -32,27 +40,48 @@ export function createPostgresArtifactStore(input: {
   pool: Pool;
   contentStore: ArtifactContentStore;
   limits: ArtifactSaveLimits;
+  capacityPolicy: ArtifactCapacityPolicy;
+  onCapacityWarning?: (warning: ArtifactCapacityWarning) => void;
 }): ArtifactStore {
+  const capacityPolicy = validateArtifactCapacityPolicy(input.capacityPolicy);
+  let capacityLock = Promise.resolve();
   return {
+    async checkCapacity(capacityInput) {
+      const safe = validateArtifactCapacityCheckInput(capacityInput);
+      return capacitySnapshot(input.pool, capacityPolicy, safe.ownerId, safe.deliveryKey, safe.size);
+    },
     async save(saveInput) {
       validateSaveArtifactInput(saveInput);
       const duplicate = await findByDelivery(input.pool, saveInput.ownerId, saveInput.source.deliveryKey);
       if (duplicate) return duplicateDelivery(duplicate);
+      if (saveInput.body.size !== undefined) {
+        try {
+          await capacitySnapshot(input.pool, capacityPolicy, saveInput.ownerId, saveInput.source.deliveryKey, saveInput.body.size);
+        } catch (error) {
+          // A known-size body can still reuse same-owner CAS bytes. If there is
+          // room for at least one new byte, stage/hash before deciding.
+          await capacitySnapshot(input.pool, capacityPolicy, saveInput.ownerId, saveInput.source.deliveryKey, 1);
+          if (saveInput.body.size === 0) throw error;
+        }
+      }
       const deadline = createArtifactSaveDeadline(input.limits.timeoutMs, saveInput.signal);
       let staged: Awaited<ReturnType<typeof stageArtifactBody>> | undefined;
       try {
         staged = await stageArtifactBody(saveInput.body, input.limits, deadline.signal);
-        const existingContent = await input.contentStore.stat(saveInput.ownerId, staged.contentDigest);
-        if (existingContent && existingContent.size !== staged.size) throw new Error("artifact_content_collision");
-        if (!existingContent) {
-          try {
-            await input.contentStore.put({ ownerId: saveInput.ownerId, contentDigest: staged.contentDigest, size: staged.size, openStream: staged.openStream, signal: deadline.signal });
-          } catch (error) {
-            throwArtifactSaveAbortReason(deadline.signal);
-            throw error;
+        return await withCapacityLock(async () => {
+          const existingContent = await input.contentStore.stat(saveInput.ownerId, staged!.contentDigest);
+          if (existingContent && existingContent.size !== staged!.size) throw new Error("artifact_content_collision");
+          await capacitySnapshot(input.pool, capacityPolicy, saveInput.ownerId, saveInput.source.deliveryKey, existingContent ? 0 : staged!.size);
+          if (!existingContent) {
+            try {
+              await input.contentStore.put({ ownerId: saveInput.ownerId, contentDigest: staged!.contentDigest, size: staged!.size, openStream: staged!.openStream, signal: deadline.signal });
+            } catch (error) {
+              throwArtifactSaveAbortReason(deadline.signal);
+              throw error;
+            }
           }
-        }
-        return await persistReference(input.pool, saveInput, staged.contentDigest, staged.size, existingContent !== null);
+          return persistReference(input.pool, saveInput, staged!.contentDigest, staged!.size, existingContent !== null, capacityPolicy, input.onCapacityWarning);
+        });
       } finally {
         deadline.cleanup();
         await staged?.cleanup();
@@ -96,11 +125,36 @@ export function createPostgresArtifactStore(input: {
       return result.rows[0] ? restore(result.rows[0]) : null;
     },
   };
+
+  async function withCapacityLock<T>(action: () => Promise<T>): Promise<T> {
+    const previous = capacityLock;
+    let release!: () => void;
+    capacityLock = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await action(); }
+    finally { release(); }
+  }
 }
 
-async function persistReference(pool: Pool, input: SaveArtifactInput, digest: string, size: number, contentExisted: boolean): Promise<SaveArtifactResult> {
+async function persistReference(
+  pool: Pool,
+  input: SaveArtifactInput,
+  digest: string,
+  size: number,
+  contentExisted: boolean,
+  capacityPolicy: ArtifactCapacityPolicy,
+  onCapacityWarning?: (warning: ArtifactCapacityWarning) => void,
+): Promise<SaveArtifactResult> {
   try {
-    return await withTransaction(pool, async (client) => {
+    const result = await withTransaction(pool, async (client) => {
+      const existingDelivery = await findByDelivery(client, input.ownerId, input.source.deliveryKey, true);
+      if (existingDelivery) return { result: duplicateDelivery(existingDelivery) };
+      const indexedContent = await client.query<{ size_bytes: string | number }>(
+        "SELECT size_bytes FROM minutka_private.artifact_contents WHERE user_id=$1 AND content_digest=$2 FOR UPDATE",
+        [input.ownerId, digest],
+      );
+      if (indexedContent.rows[0] && Number(indexedContent.rows[0].size_bytes) !== size) throw new Error("artifact_content_collision");
+      const capacity = await capacitySnapshot(client, capacityPolicy, input.ownerId, input.source.deliveryKey, indexedContent.rows[0] ? 0 : size);
       const contentInsert = await client.query(
         `INSERT INTO minutka_private.artifact_contents(user_id, content_digest, size_bytes)
          VALUES ($1,$2,$3) ON CONFLICT (user_id, content_digest) DO NOTHING`,
@@ -119,19 +173,60 @@ async function persistReference(pool: Pool, input: SaveArtifactInput, digest: st
          RETURNING *, $10::bigint AS size_bytes`,
         [input.artifactId, input.ownerId, input.source.deliveryKey, digest, input.originalFileName, input.declaredMediaType ?? null, input.detectedMediaType ?? null, JSON.stringify(input.source), input.caption ?? null, size],
       );
-      if (inserted.rows[0]) return { artifact: restore(inserted.rows[0]), deliveryDisposition: "created", contentDisposition: contentExisted || contentInsert.rowCount === 0 ? "reused" : "stored" };
+      if (inserted.rows[0]) {
+        return {
+          result: { artifact: restore(inserted.rows[0]), deliveryDisposition: "created", contentDisposition: contentExisted || contentInsert.rowCount === 0 ? "reused" : "stored" } as SaveArtifactResult,
+          capacity,
+        };
+      }
       const duplicate = await client.query<ArtifactRow>(`${SELECT_ARTIFACT} WHERE a.user_id=$1 AND a.delivery_key=$2`, [input.ownerId, input.source.deliveryKey]);
-      return duplicateDelivery(restore(duplicate.rows[0]!));
+      return { result: duplicateDelivery(restore(duplicate.rows[0]!)) };
     });
+    if (result.capacity?.ownerSoftLimitExceeded) {
+      try {
+        onCapacityWarning?.({
+          reason: "owner_soft_quota",
+          ownerUsageBytes: result.capacity.ownerUsageBytes,
+          globalUsageBytes: result.capacity.globalUsageBytes,
+          prospectiveBytes: result.capacity.prospectiveBytes,
+        });
+      } catch { /* metadata-only observability must not fail a durable save */ }
+    }
+    return result.result;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("artifact_")) throw error;
     throw mapPostgresError(error);
   }
 }
 
-async function findByDelivery(pool: Pool, ownerId: string, deliveryKey: string): Promise<ArtifactReference | null> {
-  const result = await pool.query<ArtifactRow>(`${SELECT_ARTIFACT} WHERE a.user_id=$1 AND a.delivery_key=$2`, [assertUserId(ownerId), deliveryKey]);
+async function findByDelivery(pool: Pool | PoolClient, ownerId: string, deliveryKey: string, lock = false): Promise<ArtifactReference | null> {
+  const result = await pool.query<ArtifactRow>(`${SELECT_ARTIFACT} WHERE a.user_id=$1 AND a.delivery_key=$2${lock ? " FOR UPDATE OF a" : ""}`, [assertUserId(ownerId), deliveryKey]);
   return result.rows[0] ? restore(result.rows[0]) : null;
+}
+
+async function capacitySnapshot(
+  queryable: Pool | PoolClient,
+  policy: ArtifactCapacityPolicy,
+  ownerId: string,
+  deliveryKey: string,
+  prospectiveBytes: number,
+): Promise<ArtifactCapacitySnapshot> {
+  const usage = await queryable.query<{ owner_usage_bytes: string | number; global_usage_bytes: string | number; duplicate_delivery: boolean }>(
+    `SELECT
+       COALESCE(SUM(size_bytes) FILTER (WHERE user_id=$1), 0) AS owner_usage_bytes,
+       COALESCE(SUM(size_bytes), 0) AS global_usage_bytes,
+       EXISTS (SELECT 1 FROM minutka_private.artifacts WHERE user_id=$1 AND delivery_key=$2) AS duplicate_delivery
+     FROM minutka_private.artifact_contents`,
+    [assertUserId(ownerId), deliveryKey],
+  );
+  const row = usage.rows[0]!;
+  return evaluateArtifactCapacity({
+    policy,
+    ownerUsageBytes: Number(row.owner_usage_bytes),
+    globalUsageBytes: Number(row.global_usage_bytes),
+    prospectiveBytes,
+    duplicateDelivery: row.duplicate_delivery,
+  });
 }
 
 function duplicateDelivery(artifact: ArtifactReference): SaveArtifactResult {

@@ -15,6 +15,7 @@ import { mutationOutcomeUserMessage } from "../application/assistant-mutation-ou
 import { voiceProcessingTimeoutMs as defaultVoiceProcessingTimeoutMs, type SpeechToTextPort } from "../application/speech-to-text.js";
 import type { TelegramVoiceFileGateway } from "./telegram-voice-file-gateway.js";
 import { ArtifactSaveTimeoutError, ArtifactTooLargeError } from "../application/artifact-body-stager.js";
+import { ArtifactGlobalCapacityExceededError, ArtifactOwnerQuotaExceededError } from "../application/artifact-capacity.js";
 import type { SaveArtifactInput, SaveArtifactResult, TelegramArtifactPayloadKind } from "../application/artifact-store.js";
 import type { TelegramFileGateway } from "./telegram-file-gateway.js";
 import { randomUUID } from "node:crypto";
@@ -73,6 +74,11 @@ class VoiceProcessingTimeoutError extends Error {}
 class TaskProposalTerminalizationUnknownError extends Error {}
 const taskProposalCancelledMessage = "Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.";
 const conversationResetConfirmationMessage = "Готово, начали новый диалог. Предыдущий контекст больше не используется.";
+function artifactObjectLimitMessage(maximumBytes: number): string {
+  const mebibytes = maximumBytes / (1024 * 1024);
+  const label = Number.isInteger(mebibytes) ? String(mebibytes) : mebibytes.toFixed(1);
+  return `Файл слишком большой (максимум ${label} МБ).`;
+}
 const emptyScheduleMessage = "У вас пока нет расписаний.";
 const taskProposalTerminalizationUnknownMessage = "Не удалось доставить предложение и проверить его отмену. Статус предложения неизвестен; попробуйте позже.";
 function limitVoiceStream(stream: NodeJS.ReadableStream, maximumBytes: number): NodeJS.ReadableStream {
@@ -272,7 +278,10 @@ export type TelegramFileAttachment = {
   forwarded: boolean;
 };
 
-export type TelegramArtifactIntake = { saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> };
+export type TelegramArtifactIntake = {
+  checkArtifactCapacity?(input: { ownerId: string; deliveryKey: string; size: number }): Promise<unknown>;
+  saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult>;
+};
 
 export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatId: string, text: string): Promise<void> {
   const chunks = renderTelegramMarkdown(text);
@@ -280,12 +289,14 @@ export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatI
   for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
   const privacyExplanation = deps.privacyExplanation.trim();
   if (!privacyExplanation) throw new Error("privacyExplanation is required");
   const rawReplyPort = deps.replyPort;
   const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs;
+  const artifactMaximumBytes = deps.artifactMaximumBytes ?? maxTelegramArtifactFileSizeBytes;
+  if (!Number.isSafeInteger(artifactMaximumBytes) || artifactMaximumBytes <= 0) throw new Error("artifactMaximumBytes must be a positive safe integer");
   const inFlightChatCounts = new Map<string, number>();
   const activeActionMessageIds = new Map<string, number>();
   const inFlightActionMessages = new Map<string, Promise<boolean>>();
@@ -518,8 +529,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (!artifactIntake || !fileGateway) return void await replyPort.sendMessage(chatId, "Сохранение файлов сейчас недоступно. Попробуйте ещё раз позже.");
-        if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > maxTelegramArtifactFileSizeBytes) return void await replyPort.sendMessage(chatId, "Файл слишком большой (максимум 100 МБ).");
+        if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > artifactMaximumBytes) return void await replyPort.sendMessage(chatId, artifactObjectLimitMessage(artifactMaximumBytes));
         const deliveryKey = `telegram:${chatId}:${attachment.messageId}:${attachment.payloadKind}:${attachment.fileUniqueId ?? attachment.fileId}`;
+        if (attachment.fileSizeBytes !== undefined) await artifactIntake.checkArtifactCapacity?.({ ownerId: session.employeeId, deliveryKey, size: attachment.fileSizeBytes });
         await artifactIntake.saveArtifact({
           ownerId: session.employeeId,
           artifactId: `artifact_${randomUUID()}`,
@@ -542,7 +554,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.sendMessage(chatId, "Файл сохранён.");
       } catch (error) {
         logShellError("file message", error);
-        const message = error instanceof ArtifactTooLargeError ? "Файл слишком большой (максимум 100 МБ)."
+        const message = error instanceof ArtifactTooLargeError ? artifactObjectLimitMessage(artifactMaximumBytes)
+          : error instanceof ArtifactOwnerQuotaExceededError ? "Квота хранения файлов для вашего профиля исчерпана. Обратитесь к оператору пилота."
+          : error instanceof ArtifactGlobalCapacityExceededError ? "Сохранение новых файлов временно приостановлено из-за общей ёмкости хранилища. Обратитесь к оператору пилота."
           : error instanceof ArtifactSaveTimeoutError || (error instanceof Error && error.name === "AbortError") ? "Не удалось сохранить файл вовремя. Попробуйте ещё раз позже."
           : "Не удалось сохранить файл. Попробуйте ещё раз позже.";
         await replyPort.sendMessage(chatId, message);
