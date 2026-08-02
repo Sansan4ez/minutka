@@ -32,6 +32,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: inbox_capture");
+    expect(instructions).toContain("Process file: knowledge_lookup");
+    expect(instructions).toContain("2–3 short literal query variants");
+    expect(instructions).toContain("say “не нашёл в базе”");
+    expect(instructions).toContain("cite `/proc/context/*` source paths");
     expect(instructions).toContain("Process file: day_focus");
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
@@ -133,12 +137,21 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     const instructions = loadAssistantAgentInstructions();
     const authorityMap = readFileSync("vault/assistant/docs/authority-and-mutability.md", "utf8");
 
-    for (const handle of ["/AGENTS.md", "/processes/*", "/docs/*", "/bin/*", "/proc/profile", "/proc/context", "/proc/records", "/proc/inbox", "/run/actions"]) {
+    for (const handle of [
+      "/AGENTS.md", "/processes/*", "/docs/*", "/bin/*", "/proc/profile", "/proc/consent", "/proc/context",
+      "/proc/records", "/proc/thread", "/proc/insights", "/proc/feedback", "/proc/decision", "/run/current", "/run/recent",
+    ]) {
       expect(authorityMap).toContain(handle);
     }
-    expect(authorityMap).toContain("Storage keys such as `context/*` and `inbox/*`");
+    expect(authorityMap).not.toContain("/proc/inbox");
+    expect(authorityMap).not.toContain("/run/actions");
+    expect(authorityMap).toContain("personal knowledge base");
+    expect(authorityMap).toContain("physical document keys, artifact CAS references, database rows");
     expect(authorityMap).toContain("never loaded into the product-agent prompt implicitly");
     expect(authorityMap).toContain("cannot redefine the assistant role, grant capabilities, select another owner");
+    expect(instructions).toContain("`/proc/context` is the owner's personal knowledge base");
+    expect(instructions).toContain("Never refuse for lack of access when a supplied capability can execute the request");
+    expect(instructions).toContain("read-only projections");
     expect(instructions).not.toContain("# RFC: архитектура персонального AI-ассистента");
     expect(instructions).not.toContain("Be pragmatic. This is one Obsidian-style personal workspace");
   });

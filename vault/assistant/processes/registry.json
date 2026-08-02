@@ -30,6 +30,18 @@
       ]
     },
     {
+      "id": "knowledge_lookup",
+      "path": "vault/assistant/processes/knowledge_lookup.md",
+      "appliesTo": [
+        "chat"
+      ],
+      "dependencies": [
+        "docs/architecture/runtime-context-contract.md",
+        "vault/assistant/bin/search-documents.md",
+        "vault/assistant/bin/read-document.md"
+      ]
+    },
+    {
       "id": "day_focus",
       "path": "vault/assistant/processes/day_focus.md",
       "appliesTo": [

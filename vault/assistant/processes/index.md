@@ -5,6 +5,7 @@ Choose the applicable registered process by meaning in the main answer turn; the
 | Process id | When it applies | Allowed effect |
 |---|---|---|
 | `inbox_capture` | Retain an idea, note, link, voice memo, photo, or other inbound record. | Call owner-scoped `captureIdea` before claiming it was saved. |
+| `knowledge_lookup` | Search the owner's knowledge base or notes for a subject, including “what do I have about X?”. | Try bounded query variants, read the best matches, cite `/proc/context/*` sources, and disclose incomplete reads or say “не нашёл в базе”. |
 | `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; task changes remain proposals requiring confirmation. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
 

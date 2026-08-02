@@ -42,7 +42,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * to make a red spec green: the growth policy remains a separate decision in
  * prs-7ohk.
  */
-const pinnedAgentManualCharacters = 17_204;
+const pinnedAgentManualCharacters = 19_733;
 
 const projection = {
   schemaVersion: 1 as const,

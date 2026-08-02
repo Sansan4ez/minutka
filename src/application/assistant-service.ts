@@ -249,6 +249,7 @@ export class AssistantService {
       return captured;
     };
     const auditDocumentTool: DocumentToolAudit = async (event) => {
+      observedExecutionTrace.push({ kind: "process", processId: "knowledge_lookup" });
       await this.auditSafely({
         id: this.ids.auditEventId(), requestId, type: "document_tool_used", employeeId: userId, threadId, messageId,
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("document_tool_used", event),
@@ -725,7 +726,7 @@ export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace
   };
   for (const event of executionTrace) {
     if (event.kind === "tool") add(processByToolName[event.toolName]);
-    else if (isAssistantProcessId(event.processId) && isAssistantDiagnosticProcessId(event.processId)) add(event.processId);
+    else if (isAssistantProcessId(event.processId) && (event.processId === "knowledge_lookup" || isAssistantDiagnosticProcessId(event.processId))) add(event.processId);
   }
   return selected;
 }

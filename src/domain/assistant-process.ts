@@ -1,6 +1,7 @@
 export const assistantProcessIds = [
   "core",
   "inbox_capture",
+  "knowledge_lookup",
   "day_focus",
   "evening_reflection",
 ] as const;

@@ -55,6 +55,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PROCESS-DIAGNOSTICS-001: evidence-derived proc
     expect(deriveSelectedProcessIds(
       [
         { kind: "tool", toolName: "listTasks" },
+        { kind: "process", processId: "knowledge_lookup" },
         { kind: "process", processId: "day_focus" },
         { kind: "tool", toolName: "captureIdea" },
         { kind: "tool", toolName: "captureIdea" },
@@ -62,7 +63,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PROCESS-DIAGNOSTICS-001: evidence-derived proc
         { kind: "process", processId: "evening_reflection" },
         { kind: "process", processId: "unknown" },
       ],
-    )).toEqual(["core", "day_focus", "inbox_capture", "evening_reflection"]);
+    )).toEqual(["core", "knowledge_lookup", "day_focus", "inbox_capture", "evening_reflection"]);
   });
 
   it("rejects unknown inline process ids and grants no business capability", async () => {

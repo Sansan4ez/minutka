@@ -8,15 +8,17 @@ Default text budget is 88,000 Unicode characters with an 8,000-character respons
 
 | Path | Source | Default bound | Product chat today |
 |---|---|---:|---|
-| trusted assistant manual | registered `/AGENTS.md`, `/docs/*`, process index/files | source ceiling 33,000 chars | included |
+| trusted assistant manual | registered `/AGENTS.md`, `/docs/*`, process index/files | source ceiling 24,000 chars | included |
 | `/proc/profile` | `ProfileStore` | field allow-list; ≤4,000 chars | included after onboarding when present |
-| `/proc/context` | `DocumentStore`, current owner `context/*` | 12 docs; 8,000/doc; 24,000 total | included |
-| `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner `context/*` paths | 6,000 chars; depth 4; file tree → folder → top-level → fixed-size global rollup; path segments prompt-escaped | included after context documents |
+| `/proc/consent` | `ProfileStore` consent read model | bounded typed fields | used by consent/onboarding flows |
+| `/proc/context` | `DocumentStore`, current owner's personal knowledge base | 12 docs; 8,000/doc; 24,000 total | included |
+| `/proc/context` machine index | `DocumentStore.listMetadata`, all current-owner logical paths | 6,000 chars; depth 4; file tree → folder → top-level → fixed-size global rollup; path segments prompt-escaped | included after context documents |
 | `/proc/records` | owner-scoped record stores | 24 records; 1,000/record; 12,000 total | included |
-| `/proc/inbox` | `ArtifactStore` / `BlobStore` | 12 relevant items; ≤8,000 chars | not included |
-| `thread_summary` in `/proc/thread` | regenerable `ThreadSummaryStore` checkpoint over turns outside the recent window | 4,000 chars; inclusive message-id watermark | included before recent history when present |
-| recent conversation history | `ConversationStore`, current owner and thread | 10 completed turns; 12,000 chars; 6,000/turn field | included |
-| `/run/actions` | request-scoped audit/action events | 50 events; ≤8,000 chars | not included |
+| `/proc/thread` | `ThreadSummaryStore` + `ConversationStore`, current owner and thread | summary 4,000 chars; 10 completed turns; 12,000 history chars | included when data exists |
+| `/proc/insights` | `InsightStore` | bounded typed records | used by scoped flows |
+| `/proc/feedback` | `FeedbackStore` | bounded typed records | used by scoped flows |
+| `/proc/decision` | execution-derived request diagnostic | one request | diagnostic only |
+| `/run/current`, `/run/recent` | redacted `AuditEventStore` read models | 50 events each | diagnostic only; not normal chat prompt |
 | document tool turn reads | `readDocument` content + `searchDocuments` snippets | 48,000 chars/turn; list metadata is free | included on demand; exhaustion returns a typed marker |
 
 Trusted `userId`, `threadId`, request scope, and capabilities come from the application and are never inferred from projection contents. Renderers label profile, context, records, inbox, and history as untrusted owner data and escape embedded markup. These values cannot override `/AGENTS.md`, process selection rules, or the request-scoped typed-tool set.

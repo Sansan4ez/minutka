@@ -62,7 +62,7 @@ Time-agent follows the same separation of responsibilities, but with a simpler i
 | `/docs` active policies | `vault/docs` runtime-facing product/methodology/boundary docs |
 | `/proc` live state files | application state projected as `/proc`, schemas in `vault/proc/schemas` |
 | `/bin` executables | typed TS use cases/Mastra tools, described by `vault/bin/*.md` manifests |
-| `/run/actions` | domain events/audit projections, contract in `vault/run/README.md` |
+| `/run/current`, `/run/recent` | domain event/audit projections, contract in `vault/assistant/run/README.md` |
 
 ## Static vs mutable data
 

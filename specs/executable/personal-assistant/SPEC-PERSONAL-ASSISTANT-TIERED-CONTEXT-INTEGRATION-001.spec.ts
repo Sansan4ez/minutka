@@ -121,6 +121,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "Use the project plan" });
 
     expect(result.personalContextDocuments).toEqual(["/proc/context/10_user_memory/01_личная_конституция.md"]);
+    expect(result.selectedProcessIds).toEqual(["core", "knowledge_lookup"]);
     expect(systemContext).toContain("Machine index: /proc/context");
     expect(systemContext).toContain('"40_projects"/');
     expect(systemContext).toContain("INDEX.md");

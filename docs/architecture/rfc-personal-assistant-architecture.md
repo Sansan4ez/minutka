@@ -75,7 +75,7 @@ HTTP / CLI ─────────────────────┼─
 внешний загрузчик (по userId) ──┘              │
                                                ├─ chat → AssistantService
                                                │          ├─ bounded owner projections
-                                               │          │   /proc/context /proc/records /proc/inbox
+                                               │          │   /proc/profile /proc/context /proc/records /proc/thread
                                                │          ├─ один AssistantAgent (Mastra)
                                                │          │   core + process index
                                                │          └─ typed owner-scoped tools/use-cases
@@ -125,7 +125,7 @@ HTTP / CLI ─────────────────────┼─
 |---|---|---|---|
 | Документы-контекст | Конституция, цели, проекты, характер, классификатор, источники | MinIO `{userId}/context/*.md` | Свободное чтение (bounded-проекция в prompt); правка через онбординг/подтверждение |
 | Рабочие записи | Идеи, задачи, встречи, расходы | PostgreSQL (typed stores) | Чтение через проекции; запись через use-cases |
-| Блобы и артефакты | Фото чеков, `.vtt`/`.txt` транскрибации, загрузки, сгенерированный HTML-дайджест | MinIO `{userId}/inbox/*`, `{userId}/artifacts/*` | Чтение по ссылке; запись через ingestion/генерацию |
+| Транспортные артефакты | Фото чеков, `.vtt`/`.txt` транскрибации, загрузки, сгенерированный HTML-дайджест | `ArtifactStore` + owner-scoped CAS; physical key скрыт адаптером | Чтение по logical artifact reference; запись через ingestion/генерацию |
 
 Почему именно так:
 
@@ -144,12 +144,16 @@ HTTP / CLI ─────────────────────┼─
 /processes/*      навыки продукта                                  (git)
 /docs/*           активные runtime-документы                       (git)
 /proc/profile     профиль текущего пользователя                    (проекция)
-/proc/context     bounded-срез документов-контекста                (проекция над DocumentStore)
+/proc/consent     состояние согласия                               (проекция)
+/proc/context     личная knowledge base владельца                  (проекция над DocumentStore)
 /proc/records     bounded-срез рабочих записей                     (проекция над record stores)
-/proc/inbox       недавние необработанные входящие                 (проекция над BlobStore)
-/proc/decision    решение router                                   (проекция)
-/bin/*            typed actions (мутации, внешние действия)         (git-манифесты + TS)
-/run/actions      audit/action trace                               (проекция)
+/proc/thread      summary + недавняя история текущего треда        (проекция)
+/proc/insights    bounded structured insights                      (проекция)
+/proc/feedback    bounded feedback                                 (проекция)
+/proc/decision    диагностическое решение                          (проекция)
+/bin/*            typed actions (мутации, внешние действия)        (git-манифесты + TS)
+/run/current      redacted trace текущего request                  (проекция)
+/run/recent       bounded recent redacted trace                    (проекция)
 ```
 
 `/processes`, `/docs`, `/AGENTS.md`, `/bin`-манифесты — общие для всех пользователей git-файлы (это продукт). Всё персональное живёт в MinIO/PostgreSQL и попадает в prompt только bounded-проекцией. Сырые персональные данные в git не коммитятся (правило из `agent-vault.md`).
@@ -164,13 +168,16 @@ HTTP / CLI ─────────────────────┼─
 | `/docs/*` | только явно allow-listed файлы `vault/assistant/docs/*` | curated runtime policy, общий для продукта | недоступны продуктовому агенту; repository maintenance + review |
 | `/bin/*` | Git-манифесты + wired typed TS use-cases/tools | trusted capability declaration; capability set задаёт application runtime | манифесты immutable; эффекты только через validated owner-scoped use-case и требуемое confirmation |
 | `/proc/profile` | PostgreSQL `ProfileStore` | owner data текущего authenticated `userId`; не identity/authority | read-only projection; запись через profile/onboarding use-case |
-| `/proc/context` | `DocumentStore`, storage key `{userId}/context/*` | untrusted owner-authored data текущего владельца | read-only bounded projection; запись через `IngestionService` |
+| `/proc/consent` | `ProfileStore` consent read model | owner data текущего authenticated `userId` | read-only projection; запись через authenticated consent use-case |
+| `/proc/context` | `DocumentStore` | untrusted owner-authored personal knowledge base | read-only bounded projection; запись через `IngestionService` |
 | `/proc/records` | owner-scoped PostgreSQL record stores | untrusted business data текущего владельца | read-only bounded projection; запись через typed record use-cases |
-| `/proc/inbox` | `BlobStore`/`ArtifactStore`, `{userId}/inbox/*` или owner-scoped CAS references | untrusted inbound data текущего владельца | read-only bounded projection; запись через validated ingestion |
+| `/proc/thread` | `ConversationStore` + `ThreadSummaryStore` | untrusted current-owner/thread data | read-only projection; append/compaction выполняет application layer |
+| `/proc/insights` | `InsightStore` | bounded structured owner insights | read-only projection; запись через typed extraction use-case |
+| `/proc/feedback` | `FeedbackStore` | bounded current-owner feedback | read-only projection; запись через authenticated feedback use-case |
 | `/proc/decision` | optional diagnostic reconstruction from actual process/tool execution | diagnostic one-request data, не authority source | read-only; восстанавливается из execution evidence |
-| `/run/actions` | redacted `AuditEventStore` projection | diagnostic data текущего владельца/request; не policy | read-only; allow-listed metadata пишет application layer |
+| `/run/current`, `/run/recent` | redacted `AuditEventStore` read models | diagnostic data текущего владельца/request; не policy | read-only; allow-listed metadata пишет application layer |
 
-Storage keys `context/*` и `inbox/*` не имеют ведущего `/` и существуют только за owner-scoped портами. В runtime они видны как `/proc/context` и `/proc/inbox`; конкурирующих `/context` и `/inbox` нет. Repository `docs/` — developer/RFC документация и никогда не загружается в prompt неявно. Содержимое profile/context/inbox/records/history не может подменить `userId`, роль, namespace или capability set.
+Каждый logical handle принадлежит одному application read model/component. Physical document keys, database rows и owner-scoped CAS references — детали adapters и не являются agent-facing paths. Repository `docs/` — developer/RFC документация и никогда не загружается в prompt неявно. Содержимое projections не может подменить `userId`, роль, namespace или capability set.
 
 ### 5.4. Изоляция
 
@@ -285,8 +292,8 @@ Telegram (голос/фото/ссылка/  → STT при необходимо
   пересланное/текст)             (идея/задача/материал/чек) → запись в нужный store
 Генерация по опросу           → онбординг-экстрактор → DocumentStore (context/*)
   (онбординг)
-Внешняя загрузка по userId    → валидация владельца → BlobStore (inbox/*)
-  (web/API)                      → постановка задачи на обработку
+Внешняя загрузка по userId    → валидация владельца → ArtifactStore durable save
+  (web/API)                      → owner-scoped CAS; обработка только отдельным этапом
 ```
 
 Классификация входящего из Telegram — это навык `inbox_capture` (§8), реализующий `бизнес-процесс_входящий_поток.md`: определить тип, предложить категорию (проект × тип), сохранить, подтвердить коротко, предложить следующий шаг. Внешние действия из этого потока (покупки, брони) — только предлагаются.
@@ -335,7 +342,7 @@ Agent-led runtime обслуживает содержательные `chat` и 
 | Подключить интеграцию, выдать доступ | Только пользователь |
 | Финансовое/публичное/юридически значимое | Только пользователь; агент готовит черновик |
 
-Каждое внешнее действие проходит через use-case, фиксируется в `AuditEventStore` и проецируется в `/run/actions`. В основном chat-path агенту доступны только явно подключённые typed tools для внутренних обратимых owner-scoped записей и proposal-only task tools. Task proposal сохраняется как canonical private pending record внутри application/persistence boundary; внутренний capture callback `AssistantService` получает эту запись, а model-visible tool result, provider/tool trace и chat используют только safe `PendingTaskAction` (`confirmationId`, `actionKind`, bounded `summary`, `expiresAt`). В новой idea→task proposal generated task id и provenance также остаются только в canonical record; model-visible status `already_converted` возвращает только id уже существующей задачи, без provenance. Confirm/reject принимает только authenticated owner + opaque confirmation id, загружает payload server-side и не входит в `toolsets`/`activeTools`. Полный proposal/outcome хранится только в bounded confirmation/replay window: TTL подтверждения — 15 минут, replay retention по умолчанию — 7 дней и настраивается `TASK_CONFIRMATION_COMPLETED_REPLAY_RETENTION_MS` с инвариантом `retention > TTL`. Startup и hourly best-effort cleanup удаляют expired pending и старые terminal rows bounded batches без отдельного scheduler. Audit task mutation содержит только `confirmationId`, `actionKind`, `status`/`result` и `taskId`, когда он известен; title, project и raw payload запрещены allow-list. Внешние и необратимые действия также не выдаются как свободный tool-loop: они инициируются через явные подтверждающие шаги.
+Каждое внешнее действие проходит через use-case и фиксируется в `AuditEventStore`; redacted diagnostics доступны через `/run/current` и `/run/recent`. В основном chat-path агенту доступны только явно подключённые typed tools для внутренних обратимых owner-scoped записей и proposal-only task tools. Task proposal сохраняется как canonical private pending record внутри application/persistence boundary; внутренний capture callback `AssistantService` получает эту запись, а model-visible tool result, provider/tool trace и chat используют только safe `PendingTaskAction` (`confirmationId`, `actionKind`, bounded `summary`, `expiresAt`). В новой idea→task proposal generated task id и provenance также остаются только в canonical record; model-visible status `already_converted` возвращает только id уже существующей задачи, без provenance. Confirm/reject принимает только authenticated owner + opaque confirmation id, загружает payload server-side и не входит в `toolsets`/`activeTools`. Полный proposal/outcome хранится только в bounded confirmation/replay window: TTL подтверждения — 15 минут, replay retention по умолчанию — 7 дней и настраивается `TASK_CONFIRMATION_COMPLETED_REPLAY_RETENTION_MS` с инвариантом `retention > TTL`. Startup и hourly best-effort cleanup удаляют expired pending и старые terminal rows bounded batches без отдельного scheduler. Audit task mutation содержит только `confirmationId`, `actionKind`, `status`/`result` и `taskId`, когда он известен; title, project и raw payload запрещены allow-list. Внешние и необратимые действия также не выдаются как свободный tool-loop: они инициируются через явные подтверждающие шаги.
 
 Внешние интеграции пилота: Google Calendar, Telegram, файловое хранилище, загруженные транскрибации (§11.2). Часть доступна как MCP-инструменты, но вызываются они через application use-cases, а не отдаются агенту напрямую.
 

@@ -69,7 +69,8 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     expect(receivedContext).not.toContain("# RFC:");
     expect(receivedContext).not.toContain("docs/architecture/rfc-personal-assistant-architecture.md");
     expect(receivedContext).not.toContain("vault/user/knowledge_base");
-    expect(receivedContext).not.toContain("## Runtime projection: /run/actions");
+    expect(receivedContext).not.toContain("## Runtime projection: /run/current");
+    expect(receivedContext).not.toContain("## Runtime projection: /run/recent");
     expect(world.messages).toHaveLength(1);
   });
 
