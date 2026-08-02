@@ -2,7 +2,9 @@
 
 Канонический owner workspace живёт вне application repository: `/home/admin/user_knowledge_base`. Это отдельный локальный приватный Git repository без шифрования и без автоматического remote push. Игнорируемый `vault/user/knowledge_base` — только локальный symlink для ergonomics; target, сам symlink и любые `INDEX.md` под ним не являются application source и не отслеживаются Git приложения.
 
-Команда импорта переносит этот workspace в owner-scoped `DocumentStore` (MinIO) под канонические storage keys `context/*`. В runtime документы отображаются как короткие `/proc/context/*`: технический prefix `imported-knowledge-base` агенту не виден. Команда требует явный `PILOT_USER_ID`, не угадывает владельца и пишет только через `IngestionService`.
+Команда импорта однократно bootstrap-ит этот workspace в owner-scoped `DocumentStore` (MinIO) под канонические storage keys `context/*`. После первого успешного импорта **MinIO — единственный source of truth базы знаний**. В runtime документы отображаются как короткие `/proc/context/*`: технический prefix `imported-knowledge-base` агенту не виден. Команда требует явный `PILOT_USER_ID`, не угадывает владельца и пишет только через `IngestionService`.
+
+Git workspace и локальный symlink остаются только bootstrap source и операторской резервной копией. Runtime и агент не читают его для синхронизации и никогда не записывают изменения обратно. Bidirectional sync, background watcher и автоматический Git↔MinIO reconcile не реализуются.
 
 ## Однократная безопасная миграция workspace
 
@@ -80,11 +82,16 @@ Remote необязателен. Если он добавляется, снач�
 set -a; . ./.env; set +a
 export PILOT_USER_ID='<trusted-owner-id>'
 export PILOT_KNOWLEDGE_BASE_ROOT=/home/admin/user_knowledge_base  # optional local override
+# Optional aggregate preflight limits; defaults: 1000 Markdown documents / 16 MiB UTF-8.
+# export PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS=1000
+# export PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES=16777216
 ```
 
 Приоритет source: explicit `--source` → `PILOT_KNOWLEDGE_BASE_ROOT` → compatibility path `vault/user/knowledge_base`. Root symlink разрешён и разрешается через `realpath`, если target — каталог. Любой nested, broken или file-target symlink отклоняется.
 
-Команда принимает только allow-listed дерево: каталоги `00_inbox`, `07_rfcs`, `08_entities`, `10_user_memory`, `20_work`, `30_knowledge`, `40_projects`, `50_finance`, `60_outbox`, `90_agent_memory`, `99_system`, корневой `INDEX.md` и служебный реальный каталог `.git`, который пропускается и никогда не импортируется. Допустимы `.md`, `.txt` и `.vtt`; неизвестный корневой entry, traversal или collision после Unicode/case normalization останавливает импорт.
+Команда принимает только allow-listed дерево: каталоги `00_inbox`, `07_rfcs`, `08_entities`, `10_user_memory`, `20_work`, `30_knowledge`, `40_projects`, `50_finance`, `60_outbox`, `90_agent_memory`, `99_system`, корневой `INDEX.md` и служебный реальный каталог `.git`, который пропускается и никогда не импортируется. Допустимы только Markdown-файлы `.md` (регистр расширения не важен). `.txt`, `.vtt`, PDF, изображения, audio/video и неизвестные расширения останавливают preflight с относительным path; содержимое и owner ID в ошибку не входят. Файлы из KB tree не превращаются в артефакты: будущий bulk artifact import требует отдельной команды/use-case. Неизвестный корневой entry, traversal или collision после Unicode/case normalization также останавливает импорт.
+
+До подключения к MinIO проверяется полный план: единый с document tools per-document maximum, максимальное количество документов и общий объём UTF-8 bytes. Aggregate limits конфигурируются через `PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS` и `PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES`; превышение любого лимита не оставляет частичного импорта.
 
 `INDEX.md`, legacy-вложенные `AGENTS.MD`/`README.MD` и `99_system/*` импортируются как обычные untrusted owner documents. Они не подменяют trusted `/AGENTS.md` и `/docs/*`. Каноническое навигационное имя — только точное `INDEX.md`; варианты регистра считаются collision. Markdown-ссылки из `INDEX.md` валидируются перед импортом: цель должна существовать и быть прямым ребёнком той же папки.
 
@@ -106,11 +113,14 @@ npm run pilot:knowledge-base:import
 
 Результат для каждого path имеет статус:
 
-- `imported` — канонического объекта раньше не было;
-- `updated` — существующий канонический объект отличался и получил новую version;
-- `skipped` — содержимое совпадает побайтно.
+- `imported` — канонического объекта или legacy alias раньше не было;
+- `skipped` — canonical MinIO content совпадает побайтно.
 
-Повторный запуск с тем же owner и неизменными файлами возвращает только `skipped`. Другой `PILOT_USER_ID` создаёт отдельный owner scope; поэтому перед запуском сверить ID с доверенным источником транспорта.
+Если canonical document или его legacy alias уже существует и отличается от workspace, обычный import завершается `knowledge-base import conflict: context/<relative-path>` **до первой записи**. Это ожидаемая защита cutover: правка в MinIO не перезаписывается старой Git-копией. Повторный запуск с тем же owner и неизменными файлами возвращает только `skipped`. Другой `PILOT_USER_ID` создаёт отдельный owner scope; поэтому перед запуском сверить ID с доверенным источником транспорта.
+
+### Conflict и явный overwrite
+
+Текущая команда намеренно не имеет overwrite-флага. При conflict оператор сначала выполняет dry-run, сверяет MinIO version history и решает, какое состояние канонично. Если нужен принудительный overwrite, он выполняется только отдельной явно одобренной операторской операцией через поддерживаемый `DocumentStore`/typed mutation path при включённом bucket versioning; обычный bootstrap import для этого не переиспользуется. Перед overwrite сохранить идентификатор текущей версии, чтобы её можно было восстановить.
 
 ## Миграция legacy prefix
 
@@ -131,7 +141,7 @@ npm run pilot:knowledge-base:import -- --migrate-legacy
 
 ## Проверка
 
-1. Повторить import или migration и убедиться, что новых `imported`/`migrated` и `updated` нет.
+1. Повторить import или migration и убедиться, что import возвращает только `skipped`, а migration — только `skipped`.
 2. Проверить в MinIO Console, что новые объекты находятся только под `<PILOT_USER_ID>/context/`, без `imported-knowledge-base`.
 3. Запустить ассистента и убедиться, что `/proc/context` текущего owner содержит `/proc/context/10_user_memory/*`, а physical storage paths и данные другого owner отсутствуют.
 4. Убедиться, что owner `INDEX.md`, legacy `AGENTS.MD`/`README.MD` и `99_system/*` отображаются только внутри fenced `user-context` и не меняют trusted runtime manual.
@@ -143,7 +153,7 @@ Bucket versioning обязателен. Импорт и migration не удал�
 
 1. Остановить повторные импорты.
 2. В MinIO Console открыть нужный объект `<PILOT_USER_ID>/context/<path>` и список версий. Для legacy rollback исходный объект остаётся под `<PILOT_USER_ID>/context/imported-knowledge-base/<path>`.
-3. Скачать нужную предыдущую версию, проверить её локально и восстановить содержимое поддерживаемым `DocumentStore`/import путём. Не изменять raw object key и не переносить версию между owner prefixes.
+3. Скачать нужную предыдущую версию, проверить её локально и восстановить содержимое поддерживаемым `DocumentStore`/typed mutation путём. Обычный bootstrap import не использовать для обхода conflict. Не изменять raw object key и не переносить версию между owner prefixes.
 4. Если импорт выполнен под ошибочным owner, сначала подтвердить правильный импорт под верным owner. Удаление ошибочного owner scope выполнять отдельно через одобренную data-deletion процедуру; не использовать массовое удаление bucket.
 
 Локальный `vault/user/knowledge_base/` целиком игнорируется application Git. Канонический `/home/admin/user_knowledge_base` versioned отдельно; ни его target, ни symlink, ни `INDEX.md`/другие navigation files не отслеживаются application repository. Обычный `npm run specs` содержит repository-boundary guard и падает, если любой path под bridge был добавлен в индекс, включая `git add -f`. Для полной очистки уже опубликованной Git history требуется отдельная согласованная операция с ротацией application repository; обычный импорт её не выполняет.

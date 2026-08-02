@@ -4,7 +4,14 @@ import type { BlobStore } from "../application/blob-store.js";
 import { createIngestionService } from "../application/ingestion-service.js";
 import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { loadContextPriorityManifest } from "../application/context-priority-manifest.js";
-import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../application/pilot-knowledge-base-import.js";
+import {
+  defaultPilotKnowledgeBaseLimits,
+  discoverPilotKnowledgeBase,
+  importPilotKnowledgeBase,
+  migrateLegacyPilotKnowledgeBase,
+  pilotUserIdFromEnv,
+  type PilotKnowledgeBaseLimits,
+} from "../application/pilot-knowledge-base-import.js";
 import { createMinioClient, minioConfigFromEnv, prepareMinioBucket } from "../infrastructure/minio/minio-config.js";
 import { createMinioDocumentStore } from "../infrastructure/minio/minio-document-store.js";
 
@@ -25,7 +32,8 @@ export async function runPilotKnowledgeBaseImport(input: {
   const sourceRoot = resolve(input.sourceRoot ?? knowledgeBaseRootFromEnv(env) ?? "vault/user/knowledge_base");
   const contextBudget = contextBudgetConfigFromEnv(env);
   const contextPriorities = input.dependencies?.loadContextPriorities?.() ?? loadContextPriorityManifest();
-  const files = await discoverPilotKnowledgeBase(sourceRoot, { contextBudget, contextPriorities });
+  const limits = pilotKnowledgeBaseLimitsFromEnv(env);
+  const files = await discoverPilotKnowledgeBase(sourceRoot, { contextBudget, contextPriorities, limits });
   if (files.length === 0) throw new Error("pilot knowledge-base source is empty");
 
   if (input.dryRun ?? false) {
@@ -42,11 +50,11 @@ export async function runPilotKnowledgeBaseImport(input: {
     maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
   });
   if (input.migrateLegacy ?? false) {
-    const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService, contextBudget, contextPriorities });
+    const result = await migrateLegacyPilotKnowledgeBase({ userId, documentStore, ingestionService, contextBudget, contextPriorities, limits });
     printJson({ dryRun: false, migration: true, ...result });
     return;
   }
-  const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService, contextBudget, contextPriorities });
+  const result = await importPilotKnowledgeBase({ userId, files, documentStore, ingestionService, contextBudget, contextPriorities, limits });
   printJson({ dryRun: false, migration: false, ...result });
 }
 
@@ -69,8 +77,32 @@ export function knowledgeBaseRootFromEnv(env: NodeJS.ProcessEnv): string | undef
   return sourceRoot || undefined;
 }
 
+export function pilotKnowledgeBaseLimitsFromEnv(env: NodeJS.ProcessEnv): PilotKnowledgeBaseLimits {
+  return {
+    maximumDocuments: optionalPositiveEnvInteger(
+      env.PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS,
+      "PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS",
+      defaultPilotKnowledgeBaseLimits.maximumDocuments,
+    ),
+    maximumTotalBytes: optionalPositiveEnvInteger(
+      env.PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES,
+      "PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES",
+      defaultPilotKnowledgeBaseLimits.maximumTotalBytes,
+    ),
+  };
+}
+
 function sumSizes(files: Array<{ size: number }>): number {
   return files.reduce((total, file) => total + file.size, 0);
+}
+
+function optionalPositiveEnvInteger(value: string | undefined, name: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) throw new Error(`${name} must be a positive integer`);
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive safe integer`);
+  return parsed;
 }
 
 function printJson(value: unknown): void {

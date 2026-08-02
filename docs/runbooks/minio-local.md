@@ -89,7 +89,7 @@ http://127.0.0.1:9001
 <owner-id>/artifacts/...
 ```
 
-Для документов pilot knowledge base канонический prefix:
+Для документов pilot knowledge base MinIO является единственным source of truth после bootstrap import; канонический prefix:
 
 ```text
 <PILOT_USER_ID>/context/

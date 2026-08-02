@@ -33,8 +33,18 @@ const allowedTopLevelEntries = new Set([
   "99_system",
   "INDEX.md",
 ]);
-const allowedExtensions = new Set([".md", ".txt", ".vtt"]);
+const allowedExtensions = new Set([".md"]);
 const destinationPrefix = "context";
+
+export type PilotKnowledgeBaseLimits = {
+  maximumDocuments: number;
+  maximumTotalBytes: number;
+};
+
+export const defaultPilotKnowledgeBaseLimits: PilotKnowledgeBaseLimits = {
+  maximumDocuments: 1_000,
+  maximumTotalBytes: 16 * 1024 * 1024,
+};
 
 export type PilotKnowledgeBaseFile = {
   sourcePath: string;
@@ -43,9 +53,8 @@ export type PilotKnowledgeBaseFile = {
 };
 
 export type PilotKnowledgeBaseImportResult = {
-  files: Array<{ path: string; size: number; status: "imported" | "updated" | "skipped" }>;
+  files: Array<{ path: string; size: number; status: "imported" | "skipped" }>;
   imported: number;
-  updated: number;
   skipped: number;
   bytes: number;
 };
@@ -62,7 +71,11 @@ export type PilotKnowledgeBaseMigrationResult = {
  */
 export async function discoverPilotKnowledgeBase(
   sourceRoot: string,
-  options: { contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest } = {},
+  options: {
+    contextBudget?: ContextBudgetConfig;
+    contextPriorities?: ContextPriorityManifest;
+    limits?: PilotKnowledgeBaseLimits;
+  } = {},
 ): Promise<PilotKnowledgeBaseFile[]> {
   const requestedRootStat = await lstat(sourceRoot).catch(() => null);
   if (!requestedRootStat) throw new Error("knowledge-base source does not exist");
@@ -126,6 +139,7 @@ export async function discoverPilotKnowledgeBase(
     if (paths.has(collisionKey)) throw new Error(`knowledge-base paths collide after normalization: ${file.path}`);
     paths.add(collisionKey);
   }
+  validatePilotKnowledgeBaseAggregate(sorted, options.limits ?? defaultPilotKnowledgeBaseLimits);
   await validatePilotKnowledgeBaseIndexes(discoveredRoot, sorted);
   await validatePilotKnowledgeBaseCoreDocuments({
     files: sorted,
@@ -143,7 +157,7 @@ export async function validatePilotKnowledgeBaseIndexes(sourceRoot: string, file
       ...[...content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => ({ target: match[1]?.trim() ?? "", kind: "link" as const })),
       ...[...content.matchAll(/`([^`\r\n]+)`/g)]
         .map((match) => match[1]?.trim() ?? "")
-        .filter((target) => /(?:\.(?:md|txt|vtt)|\/)$/iu.test(target))
+        .filter((target) => /(?:\.md|\/)$/iu.test(target))
         .map((target) => ({ target, kind: "code-span" as const })),
     ];
     const uniqueTargets = new Map(targets.map((target) => [`${target.kind}:${target.target}`, target]));
@@ -186,14 +200,19 @@ export async function validatePilotKnowledgeBaseCoreDocuments(input: {
   });
 }
 
-/** Writes only through IngestionService and skips byte-identical documents. */
+/**
+ * Bootstraps missing documents and skips byte-identical canonical state.
+ * A differing canonical or legacy-backed document is a conflict: import never
+ * overwrites the MinIO source of truth.
+ */
 export async function importPilotKnowledgeBase(input: {
   userId: string;
   files: PilotKnowledgeBaseFile[];
   documentStore: Pick<DocumentStore, "listExact">;
-  ingestionService: Pick<IngestionService, "saveContextDocument">;
+  ingestionService: Pick<IngestionService, "ensureContextDocument">;
   contextBudget?: ContextBudgetConfig;
   contextPriorities?: ContextPriorityManifest;
+  limits?: PilotKnowledgeBaseLimits;
 }): Promise<PilotKnowledgeBaseImportResult> {
   const userId = assertUserId(input.userId);
   const contextBudget = input.contextBudget ?? defaultContextBudget;
@@ -208,21 +227,31 @@ export async function importPilotKnowledgeBase(input: {
     return { ...file, content, size };
   }));
 
+  const limits = input.limits ?? defaultPilotKnowledgeBaseLimits;
+  validatePilotKnowledgeBaseAggregate(prepared, limits);
   const existingDocuments = await input.documentStore.listExact(userId, "context/");
+  const logicalDocuments = logicalDocumentMap(existingDocuments);
+  const conflict = prepared.find((file) => {
+    const existing = logicalDocuments.get(file.path);
+    return existing !== undefined && existing.content !== file.content;
+  });
+  if (conflict) throw new Error(`knowledge-base import conflict: ${conflict.path}`);
+
   validateFinalContextState({
     existingDocuments,
     plannedWrites: prepared,
     contextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
+    limits,
   });
-  const exactDocuments = new Map(existingDocuments.map((document) => [document.path, document]));
 
-  const result: PilotKnowledgeBaseImportResult = { files: [], imported: 0, updated: 0, skipped: 0, bytes: 0 };
+  const result: PilotKnowledgeBaseImportResult = { files: [], imported: 0, skipped: 0, bytes: 0 };
   for (const file of prepared) {
-    const existing = exactDocuments.get(file.path);
-    const status = existing?.content === file.content ? "skipped" : existing ? "updated" : "imported";
-    if (status !== "skipped") {
-      await input.ingestionService.saveContextDocument({ userId, path: file.path, content: file.content });
+    const existing = logicalDocuments.get(file.path);
+    const status = existing ? "skipped" : "imported";
+    if (status === "imported") {
+      const saved = await input.ingestionService.ensureContextDocument({ userId, path: file.path, content: file.content });
+      if (saved.content !== file.content) throw new Error(`knowledge-base import conflict: ${file.path}`);
     }
     result[status] += 1;
     result.bytes += file.size;
@@ -241,6 +270,7 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
   ingestionService: Pick<IngestionService, "saveContextDocument">;
   contextBudget?: ContextBudgetConfig;
   contextPriorities?: ContextPriorityManifest;
+  limits?: PilotKnowledgeBaseLimits;
 }): Promise<PilotKnowledgeBaseMigrationResult> {
   const userId = assertUserId(input.userId);
   const existingDocuments = await input.documentStore.listExact(userId, "context/");
@@ -276,6 +306,7 @@ export async function migrateLegacyPilotKnowledgeBase(input: {
     plannedWrites: plan.map(({ to: path, content }) => ({ path, content })),
     contextBudget,
     contextPriorities: input.contextPriorities ?? loadContextPriorityManifest(),
+    limits: input.limits ?? defaultPilotKnowledgeBaseLimits,
   });
 
   const result: PilotKnowledgeBaseMigrationResult = { files: [], migrated: 0, skipped: 0 };
@@ -295,6 +326,7 @@ export function validateFinalContextState(input: {
   plannedWrites: Array<{ path: string; content: string }>;
   contextBudget: ContextBudgetConfig;
   contextPriorities: ContextPriorityManifest;
+  limits?: PilotKnowledgeBaseLimits;
 }): void {
   const finalDocuments = new Map<string, { path: string; content: string; canonicalSource: boolean }>();
   for (const document of input.existingDocuments) {
@@ -310,12 +342,44 @@ export function validateFinalContextState(input: {
   }
 
   const files = [...finalDocuments.values()];
+  validatePilotKnowledgeBaseAggregate(
+    files.map(({ path, content }) => ({ path, size: Buffer.byteLength(content, "utf8") })),
+    input.limits ?? defaultPilotKnowledgeBaseLimits,
+  );
   const coreFiles = files.filter(({ path }) => matchesContextPriority(path, input.contextPriorities));
   validateCoreDocumentContents({
     files: coreFiles,
     contextBudget: input.contextBudget,
     reserveDegradationMarker: files.length > coreFiles.length,
   });
+}
+
+export function validatePilotKnowledgeBaseAggregate(
+  files: ReadonlyArray<{ path: string; size: number }>,
+  limits: PilotKnowledgeBaseLimits,
+): void {
+  assertPositiveSafeInteger(limits.maximumDocuments, "pilot knowledge-base maximum document count");
+  assertPositiveSafeInteger(limits.maximumTotalBytes, "pilot knowledge-base maximum total bytes");
+  if (files.length > limits.maximumDocuments) {
+    throw new Error(`pilot knowledge-base has ${files.length} documents and exceeds the ${limits.maximumDocuments}-document maximum`);
+  }
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  if (!Number.isSafeInteger(totalBytes)) throw new Error("pilot knowledge-base total UTF-8 bytes exceed the safe integer range");
+  if (totalBytes > limits.maximumTotalBytes) {
+    throw new Error(`pilot knowledge-base has ${totalBytes} UTF-8 bytes and exceeds the ${limits.maximumTotalBytes}-byte maximum`);
+  }
+}
+
+function logicalDocumentMap(documents: UserDocument[]): Map<string, UserDocument> {
+  const selected = new Map<string, { document: UserDocument; canonicalSource: boolean }>();
+  for (const document of documents) {
+    const path = canonicalDocumentPath(document.path);
+    const canonicalSource = document.path === path;
+    const existing = selected.get(path);
+    if (existing?.canonicalSource || (existing && !canonicalSource)) continue;
+    selected.set(path, { document: { ...document, path }, canonicalSource });
+  }
+  return new Map([...selected].map(([path, { document }]) => [path, document]));
 }
 
 function validateCoreDocumentContents(input: {
@@ -354,6 +418,10 @@ export function pilotUserIdFromEnv(env: NodeJS.ProcessEnv): string {
   const userId = env.PILOT_USER_ID?.trim();
   if (!userId) throw new Error("PILOT_USER_ID is required");
   return assertUserId(userId);
+}
+
+function assertPositiveSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive safe integer`);
 }
 
 function relativePath(root: string, path: string): string {

@@ -9,7 +9,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { renderAssistantContextSection, renderedAssistantContextDocumentCharacters } from "../../../src/application/assistant-context-renderer.js";
 import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase, migrateLegacyPilotKnowledgeBase, pilotUserIdFromEnv } from "../../../src/application/pilot-knowledge-base-import.js";
-import { knowledgeBaseRootFromEnv, runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
+import { knowledgeBaseRootFromEnv, pilotKnowledgeBaseLimitsFromEnv, runPilotKnowledgeBaseImport } from "../../../src/runtime/import-pilot-knowledge-base.js";
 import { createSyntheticPilotKnowledgeBase } from "../support/pilot-knowledge-base-fixture.js";
 
 const roots: string[] = [];
@@ -142,8 +142,8 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const first = await importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService });
     const retry = await importPilotKnowledgeBase({ userId: "pilot", files, documentStore, ingestionService });
 
-    expect(first).toMatchObject({ imported: 3, updated: 0, skipped: 0 });
-    expect(retry).toMatchObject({ imported: 0, updated: 0, skipped: 3 });
+    expect(first).toMatchObject({ imported: 3, skipped: 0 });
+    expect(retry).toMatchObject({ imported: 0, skipped: 3 });
     expect(retry.files.map(({ path, status }) => ({ path, status }))).toEqual([
       { path: "context/10_user_memory/01_goals.md", status: "skipped" },
       { path: "context/40_projects/project-a/README.MD", status: "skipped" },
@@ -151,6 +151,33 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     ]);
     expect(await documentStore.list("pilot", "context/")).toHaveLength(3);
     expect(await documentStore.list("other-owner", "context/")).toEqual([]);
+  });
+
+  it("fails the complete import plan on a canonical conflict before the first write", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "10_user_memory", "01_goals.md"), "# Workspace goals\n");
+    writeFileSync(join(root, "40_projects", "project-a", "new.md"), "# New document\n");
+    const files = await discoverPilotKnowledgeBase(root);
+    const clock = { now: () => "2026-07-16T00:00:00.000Z" };
+    const documentStore = createInMemoryDocumentStore(clock, [
+      { userId: "pilot", path: "context/10_user_memory/01_goals.md", content: "# Canonical MinIO goals\n" },
+    ]);
+    const ensureContextDocument = vi.fn(createIngestionService({
+      documentStore,
+      blobStore: createInMemoryBlobStore(clock),
+    }).ensureContextDocument);
+
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService: { ensureContextDocument },
+    })).rejects.toThrow("knowledge-base import conflict: context/10_user_memory/01_goals.md");
+
+    expect(ensureContextDocument).not.toHaveBeenCalled();
+    await expect(documentStore.getExact("pilot", "context/40_projects/project-a/new.md")).resolves.toBeNull();
+    await expect(documentStore.getExact("pilot", "context/10_user_memory/01_goals.md"))
+      .resolves.toMatchObject({ content: "# Canonical MinIO goals\n" });
   });
 
   it("reads legacy aliases, migrates them idempotently, and fails closed on collisions", async () => {
@@ -463,10 +490,10 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const documentStore = createInMemoryDocumentStore(clock, [
       { userId: "pilot", path: existingPath, content: existingContent },
     ]);
-    const saveContextDocument = vi.fn(createIngestionService({
+    const ensureContextDocument = vi.fn(createIngestionService({
       documentStore,
       blobStore: createInMemoryBlobStore(clock),
-    }).saveContextDocument);
+    }).ensureContextDocument);
     const contextPriorities = {
       version: 1 as const,
       rules: [
@@ -494,12 +521,12 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
       userId: "pilot",
       files,
       documentStore,
-      ingestionService: { saveContextDocument },
+      ingestionService: { ensureContextDocument },
       contextBudget,
       contextPriorities,
     })).rejects.toThrow("rendered context ceiling");
 
-    expect(saveContextDocument).not.toHaveBeenCalled();
+    expect(ensureContextDocument).not.toHaveBeenCalled();
     await expect(documentStore.getExact("pilot", "context/10_user_memory/02_Goals.md")).resolves.toBeNull();
     await expect(documentStore.getExact("pilot", existingPath)).resolves.toMatchObject({ content: existingContent });
   });
@@ -596,6 +623,76 @@ describe("SPEC-PILOT-KNOWLEDGE-BASE-IMPORT-001: safe owner-scoped migration", ()
     const root = fixture();
     writeFileSync(join(root, "secret.env"), "TOKEN=secret");
     await expect(discoverPilotKnowledgeBase(root)).rejects.toThrow("not allow-listed");
+  });
+
+  it.each(["note.txt", "transcript.vtt", "paper.pdf", "image.png", "audio.ogg", "video.mp4", "unknown.bin"])(
+    "rejects non-Markdown file %s with a relative path before MinIO is prepared",
+    async (fileName) => {
+      const root = fixture();
+      mkdirSync(join(root, "00_inbox"), { recursive: true });
+      writeFileSync(join(root, "00_inbox", fileName), "private owner content");
+      const prepareDocumentStore = vi.fn();
+
+      await expect(runPilotKnowledgeBaseImport({
+        env: { PILOT_USER_ID: "private-owner-id" },
+        sourceRoot: root,
+        dependencies: { prepareDocumentStore },
+      })).rejects.toThrow(`knowledge-base file type is not allow-listed: 00_inbox/${fileName}`);
+
+      expect(prepareDocumentStore).not.toHaveBeenCalled();
+      try {
+        await discoverPilotKnowledgeBase(root);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        expect(message).not.toContain("private owner content");
+        expect(message).not.toContain("private-owner-id");
+      }
+    },
+  );
+
+  it("rejects aggregate document count and UTF-8 bytes before the first write", async () => {
+    const root = fixture();
+    const files = await discoverPilotKnowledgeBase(root, {
+      limits: { maximumDocuments: 3, maximumTotalBytes: 1_000 },
+    });
+    const { documentStore } = setup();
+    const ensureContextDocument = vi.fn();
+
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService: { ensureContextDocument },
+      limits: { maximumDocuments: 2, maximumTotalBytes: 1_000 },
+    })).rejects.toThrow("exceeds the 2-document maximum");
+    expect(ensureContextDocument).not.toHaveBeenCalled();
+
+    await expect(importPilotKnowledgeBase({
+      userId: "pilot",
+      files,
+      documentStore,
+      ingestionService: { ensureContextDocument },
+      limits: { maximumDocuments: 3, maximumTotalBytes: 10 },
+    })).rejects.toThrow("UTF-8 bytes and exceeds the 10-byte maximum");
+    expect(ensureContextDocument).not.toHaveBeenCalled();
+
+    await expect(discoverPilotKnowledgeBase(root, {
+      limits: { maximumDocuments: 2, maximumTotalBytes: 1_000 },
+    })).rejects.toThrow("exceeds the 2-document maximum");
+    await expect(discoverPilotKnowledgeBase(root, {
+      limits: { maximumDocuments: 3, maximumTotalBytes: 10 },
+    })).rejects.toThrow("UTF-8 bytes and exceeds the 10-byte maximum");
+  });
+
+  it("loads configurable aggregate limits from the import environment", () => {
+    expect(pilotKnowledgeBaseLimitsFromEnv({
+      PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS: " 42 ",
+      PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES: " 4096 ",
+    })).toEqual({ maximumDocuments: 42, maximumTotalBytes: 4096 });
+    expect(() => pilotKnowledgeBaseLimitsFromEnv({ PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS: "0" }))
+      .toThrow("PILOT_KNOWLEDGE_BASE_MAX_DOCUMENTS must be a positive safe integer");
+    expect(() => pilotKnowledgeBaseLimitsFromEnv({ PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES: "many" }))
+      .toThrow("PILOT_KNOWLEDGE_BASE_MAX_TOTAL_BYTES must be a positive integer");
   });
 
   it("allows root Git metadata and a root symlink to a directory", async () => {
