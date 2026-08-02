@@ -80,6 +80,7 @@ export type ContextBudgetResult = {
   used: number;
   available: number;
   omittedSourceIds: ContextSourceId[];
+  contextSourceCharacters: Partial<Record<ContextSourceId, number>>;
 };
 
 /** Static allowance for section headings, fences, separators, and other renderer markup. */
@@ -270,6 +271,7 @@ export function applyContextBudget(input: {
 
   const selected: string[] = [];
   const omittedSourceIds: ContextSourceId[] = [];
+  const contextSourceCharacters: Partial<Record<ContextSourceId, number>> = {};
   let used = 0;
   let lowerPrioritySectionsOmitted = false;
   for (const section of input.sections
@@ -302,9 +304,10 @@ export function applyContextBudget(input: {
       continue;
     }
     selected.push(section.content);
+    contextSourceCharacters[section.sourceId] = (contextSourceCharacters[section.sourceId] ?? 0) + contentCharacters;
     used += separatorCharacters + contentCharacters;
   }
-  return { text: selected.join("\n\n"), used, available, omittedSourceIds };
+  return { text: selected.join("\n\n"), used, available, omittedSourceIds, contextSourceCharacters };
 }
 
 export function sourceCharacterCeiling(config: ContextBudgetConfig, id: ContextSourceId): number {

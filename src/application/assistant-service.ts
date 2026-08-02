@@ -69,7 +69,7 @@ export type AssistantAgentRunner = (input: AssistantChatInput, context: Assistan
 type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning =
   | (Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & { type: "context_budget_overflow" })
-  | ({ type: "assistant_turn_usage"; userId: string; requestId: string } & ModelTokenUsage)
+  | ({ type: "assistant_turn_usage"; userId: string; requestId: string; contextSourceCharacters: ContextBudgetResult["contextSourceCharacters"] } & ModelTokenUsage)
   | { type: "usage_soft_limit_exceeded"; userId: string; month: string; estimatedCostUsdMicros: number; softLimitUsdMicros: number };
 export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
@@ -360,6 +360,7 @@ export class AssistantService {
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
     let usage: ModelTokenUsage | undefined;
+    let usageContextSourceCharacters = systemContextBudget.contextSourceCharacters;
     try {
       const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext, applicationSignal));
       response = run.text;
@@ -412,6 +413,7 @@ export class AssistantService {
           response = retryRun.text;
           executionTrace = retryRun.executionTrace;
           usage = retryRun.usage;
+          usageContextSourceCharacters = reduced.contextSourceCharacters;
         } catch (retryError) {
           const retryEffectState = currentChatEffectState();
           if (!classifyProviderContextOverflow(retryError)) {
@@ -465,7 +467,14 @@ export class AssistantService {
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
-    const usageWarning = usage ? await this.recordUsageSafely({ userId, requestId, threadId, messageId, usage }) : undefined;
+    const usageWarning = usage ? await this.recordUsageSafely({
+      userId,
+      requestId,
+      threadId,
+      messageId,
+      usage,
+      contextSourceCharacters: usageContextSourceCharacters,
+    }) : undefined;
     if (usageWarning) response = appendUsageSoftLimitWarning(response);
     try {
       const appendTurn = this.deps.conversationStore.appendTurn({
@@ -505,8 +514,21 @@ export class AssistantService {
     };
   }
 
-  private async recordUsageSafely(input: { userId: string; requestId: string; threadId: string; messageId: string; usage: ModelTokenUsage }): Promise<boolean> {
-    this.warnOperationally({ type: "assistant_turn_usage", userId: input.userId, requestId: input.requestId, ...input.usage });
+  private async recordUsageSafely(input: {
+    userId: string;
+    requestId: string;
+    threadId: string;
+    messageId: string;
+    usage: ModelTokenUsage;
+    contextSourceCharacters: ContextBudgetResult["contextSourceCharacters"];
+  }): Promise<boolean> {
+    this.warnOperationally({
+      type: "assistant_turn_usage",
+      userId: input.userId,
+      requestId: input.requestId,
+      contextSourceCharacters: input.contextSourceCharacters,
+      ...input.usage,
+    });
     const store = this.deps.usageStore;
     const policy = this.deps.usageCostPolicy;
     if (!store || !policy) return false;

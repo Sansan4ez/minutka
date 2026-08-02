@@ -93,6 +93,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(exact.text).toBe("A\n\n🙂🙂🙂");
     expect(exact.used).toBe(6);
     expect(exact.available).toBe(34);
+    expect(exact.contextSourceCharacters).toEqual({ base_instructions: 1, agent_manual: 3 });
     expect(() => applyContextBudget({ ...exactInput(config), userInput: "🙂".repeat(maxChatInputCharacters + 1) })).toThrow("exceeds the 4096-character maximum");
   });
 
@@ -166,6 +167,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     });
     expect(result.text).toContain("index");
     expect(result.omittedSourceIds).toEqual(["records"]);
+    expect(result.contextSourceCharacters).toEqual({
+      base_instructions: 2_000,
+      agent_manual: 24_000,
+      profile: 4_000,
+      context: 24_000,
+      context_index: 6_000,
+    });
+    expect(result.contextSourceCharacters).not.toHaveProperty("records");
   });
 
   it("fails fast instead of omitting guaranteed owner sections", () => {

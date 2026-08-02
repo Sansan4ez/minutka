@@ -17,7 +17,7 @@
 
 **Исторический baseline снят по колонке с токенами последнего LLM-шага и как per-turn baseline недействителен.** Начиная с `prs-ip0.10`, runtime выбирает один согласованный источник за весь ход: `result.totalUsage`, затем сумму `steps[].usage`, затем одношаговый `result.usage`. Таблица выше остаётся только исторической нижней границей неизвестного размера; для решений о ceiling'ах и ставках нужен новый post-deployment срез по процедуре ниже.
 
-Срез 31.07–02.08 показывает две группы ходов: обычные ответы около 15–18k input и tool-loop ходы до 71–77k. Поэтому после deployment основной operational signal — `assistant_turn_usage`: одна metadata-only строка на chat turn с `inputTokens`, `outputTokens`, `llmSteps` и, если провайдер сообщил, `cachedInputTokens`.
+Срез 31.07–02.08 показывает две группы ходов: обычные ответы около 15–18k input и tool-loop ходы до 71–77k. Поэтому после deployment основной operational signal — `assistant_turn_usage`: одна metadata-only строка на chat turn с `inputTokens`, `outputTokens`, `llmSteps`, фактическими Unicode-размерами включённых секций в `contextSourceCharacters` и, если провайдер сообщил, `cachedInputTokens`.
 
 После сокращения manual ceiling живой продуктовый post-change замер выполняется по процедуре ниже: для полного live owner turn нужны transport credentials и он намеренно не генерируется автоматически из задачи. До deployment зафиксирован воспроизводимый provider/Mastra probe: 10 316 input tokens на одношаговый вызов, из них 9 984 cached на повторе. Цель первого живого прогона — среднее `<= 16 000` входных токенов на ход при сохранённом продуктовом сценарии. Это не hard cap; если цель не достигнута, soft limit не блокирует запросы, а оператор повторяет разбор по шагам.
 
@@ -56,11 +56,12 @@ ASSISTANT_USAGE_OUTPUT_USD_PER_MILLION_TOKENS=30
 ```
 
 2. Перезапустить runtime и выполнить не менее 10 репрезентативных ходов: короткий ответ, чтение документа, один tool call и один multi-step tool loop.
-3. Собрать строки `assistant_turn_usage` из сохранённого runtime-журнала. Не прикладывать owner text; достаточно числовых полей и request id.
+3. Собрать строки `assistant_turn_usage` из сохранённого runtime-журнала, включая `contextSourceCharacters`. Не прикладывать owner text; достаточно числовых полей, идентификаторов источников и request id.
 4. Посчитать:
    - среднее и максимум `inputTokens` на ход;
    - распределение `llmSteps` (1/2/3/4);
-   - cache hit rate: доля ходов с `cachedInputTokens > 0` и отношение `sum(cachedInputTokens) / sum(inputTokens)`.
+   - cache hit rate: доля ходов с `cachedInputTokens > 0` и отношение `sum(cachedInputTokens) / sum(inputTokens)`;
+   - для каждого `sourceId`: `sum(contextSourceCharacters[sourceId]) / sum(всех contextSourceCharacters)` — долю источника в фактически собранном input-контексте; отдельно сложить стабильный префикс (`base_instructions`, `agent_manual`, `profile`) и сравнить его с остальными секциями.
 5. Записать post-change выборку рядом с baseline. Если среднее выше 16k, сначала разбирать ходы с `llmSteps > 1`; не увеличивать soft limit вместо устранения повторной пересылки префикса.
 
 SQL для агрегата по durable chat usage (без текстов):
