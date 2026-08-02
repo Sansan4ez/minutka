@@ -4,6 +4,10 @@ export type ModelTokenUsage = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Number of provider LLM steps aggregated into this owner turn. */
+  llmSteps?: number;
+  /** Input tokens served from the provider prompt cache, when reported. */
+  cachedInputTokens?: number;
 };
 
 /** Metadata-only usage entry. Raw prompts and model responses are not part of this boundary. */
@@ -43,7 +47,16 @@ export function normalizeModelTokenUsage(usage: ModelTokenUsage): ModelTokenUsag
   const inputTokens = tokenCount(usage.inputTokens, "input tokens");
   const outputTokens = tokenCount(usage.outputTokens, "output tokens");
   const totalTokens = tokenCount(usage.totalTokens, "total tokens");
-  return { inputTokens, outputTokens, totalTokens };
+  const llmSteps = usage.llmSteps === undefined ? undefined : positiveSafeInteger(usage.llmSteps, "LLM steps");
+  const cachedInputTokens = usage.cachedInputTokens === undefined ? undefined : tokenCount(usage.cachedInputTokens, "cached input tokens");
+  if (cachedInputTokens !== undefined && cachedInputTokens > inputTokens) throw new Error("cached input tokens must not exceed input tokens");
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    ...(llmSteps === undefined ? {} : { llmSteps }),
+    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+  };
 }
 
 export function estimateUsageCostUsdMicros(usage: ModelTokenUsage, policy: UsageCostPolicy): number {
@@ -97,6 +110,11 @@ function roundedMillionth(tokens: number, usdMicrosPerMillionTokens: number): nu
 
 function tokenCount(value: number, field: string): number {
   return nonNegativeSafeInteger(value, field);
+}
+
+function positiveSafeInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${field} must be a positive safe integer`);
+  return value;
 }
 
 function nonNegativeSafeInteger(value: number, field: string): number {

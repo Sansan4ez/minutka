@@ -69,6 +69,7 @@ export type AssistantAgentRunner = (input: AssistantChatInput, context: Assistan
 type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning =
   | (Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & { type: "context_budget_overflow" })
+  | ({ type: "assistant_turn_usage"; userId: string; requestId: string } & ModelTokenUsage)
   | { type: "usage_soft_limit_exceeded"; userId: string; month: string; estimatedCostUsdMicros: number; softLimitUsdMicros: number };
 export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
@@ -504,6 +505,7 @@ export class AssistantService {
   }
 
   private async recordUsageSafely(input: { userId: string; requestId: string; threadId: string; messageId: string; usage: ModelTokenUsage }): Promise<boolean> {
+    this.warnOperationally({ type: "assistant_turn_usage", userId: input.userId, requestId: input.requestId, ...input.usage });
     const store = this.deps.usageStore;
     const policy = this.deps.usageCostPolicy;
     if (!store || !policy) return false;

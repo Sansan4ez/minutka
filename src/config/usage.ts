@@ -4,11 +4,15 @@ export const usageMonthlySoftLimitEnvName = "ASSISTANT_USAGE_MONTHLY_SOFT_LIMIT_
 export const usageInputPriceEnvName = "ASSISTANT_USAGE_INPUT_USD_PER_MILLION_TOKENS";
 export const usageOutputPriceEnvName = "ASSISTANT_USAGE_OUTPUT_USD_PER_MILLION_TOKENS";
 
-/** Pilot defaults for openai/gpt-5.5; deployments can pin updated provider pricing. */
+/**
+ * Conservative pilot defaults for the current local subscription gateway.
+ * The gateway exposes token usage but no metered per-token invoice, so the
+ * rates remain an explicit budgeting estimate rather than provider billing.
+ */
 export const defaultUsageCostPolicy: UsageCostPolicy = {
-  monthlySoftLimitUsdMicros: 20_000_000,
-  inputUsdMicrosPerMillionTokens: 2_500_000,
-  outputUsdMicrosPerMillionTokens: 15_000_000,
+  monthlySoftLimitUsdMicros: 30_000_000,
+  inputUsdMicrosPerMillionTokens: 5_000_000,
+  outputUsdMicrosPerMillionTokens: 30_000_000,
 };
 
 export function usageCostPolicyFromEnv(env: NodeJS.ProcessEnv): UsageCostPolicy {

@@ -79,7 +79,12 @@ describe("LLM runtime configuration", () => {
   });
 
   it("keeps the accepted stateless OpenAI reasoning configuration explicit", async () => {
-    expect(llmProviderOptions).toEqual({ openai: { reasoningEffort: "high", store: false } });
+    expect(llmProviderOptions).toEqual({ openai: {
+      reasoningEffort: "high",
+      promptCacheKey: "personal-assistant-v1",
+      promptCacheRetention: "24h",
+      store: false,
+    } });
     expect(llmAgentConfig).toEqual({ model: llmModel, defaultOptions: { providerOptions: llmProviderOptions } });
     for (const agent of [personalAssistantAgent, onboardingProfileExtractorAgent, requestIntegrityAgent]) {
       expect(await agent.getDefaultOptions()).toMatchObject({ providerOptions: llmProviderOptions });

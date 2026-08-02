@@ -131,13 +131,13 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
-    const config = createContextBudgetConfig({ total: 88_000 });
+    const config = createContextBudgetConfig({ total: 74_096 });
     const result = applyContextBudget({
       config,
       userInput: "request",
       sections: [
         { sourceId: "base_instructions", content: "B".repeat(2_000) },
-        { sourceId: "agent_manual", content: "M".repeat(33_000) },
+        { sourceId: "agent_manual", content: "M".repeat(24_000) },
         { sourceId: "profile", content: "P".repeat(4_000) },
         { sourceId: "context", content: "C".repeat(24_000) },
         { sourceId: "context_index", content: `index${"I".repeat(5_995)}` },

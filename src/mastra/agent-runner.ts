@@ -25,11 +25,21 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
+type MastraTokenUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+};
+
 type MastraGenerateResult = {
   text?: string;
   toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
   toolResults?: Array<{ payload?: { toolCallId?: string; toolName?: string; isError?: boolean } }>;
-  usage?: { promptTokens?: number; completionTokens?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  usage?: MastraTokenUsage;
+  steps?: Array<{ usage?: MastraTokenUsage }>;
 };
 
 export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
@@ -55,7 +65,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
       maxSteps: 4,
       ...(signal ? { abortSignal: signal } : {}),
     });
-    const usage = normalizedUsage(result.usage);
+    const usage = normalizedUsage(result);
     return {
       text: result.text ?? "",
       executionTrace: successfulToolNames(result).map((toolName) => ({ kind: "tool" as const, toolName })),
@@ -64,12 +74,26 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
   };
 }
 
-function normalizedUsage(usage: MastraGenerateResult["usage"]): { inputTokens: number; outputTokens: number; totalTokens: number } | undefined {
+function normalizedUsage(result: Pick<MastraGenerateResult, "usage" | "steps">): { inputTokens: number; outputTokens: number; totalTokens: number; llmSteps: number; cachedInputTokens?: number } | undefined {
+  const usage = result.usage;
   if (!usage) return undefined;
   const inputTokens = usage.inputTokens ?? usage.promptTokens;
   const outputTokens = usage.outputTokens ?? usage.completionTokens;
   if (inputTokens === undefined || outputTokens === undefined) return undefined;
-  return { inputTokens, outputTokens, totalTokens: usage.totalTokens ?? inputTokens + outputTokens };
+  const steps = result.steps ?? [];
+  const cachedInputTokens = usage.cachedInputTokens ?? sumReportedCachedInputTokens(steps);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: usage.totalTokens ?? inputTokens + outputTokens,
+    llmSteps: Math.max(1, steps.length),
+    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+  };
+}
+
+function sumReportedCachedInputTokens(steps: Array<{ usage?: MastraTokenUsage }>): number | undefined {
+  const reported = steps.map((step) => step.usage?.cachedInputTokens).filter((tokens): tokens is number => tokens !== undefined);
+  return reported.length === 0 ? undefined : reported.reduce((total, tokens) => total + tokens, 0);
 }
 
 function successfulToolNames(result: Awaited<ReturnType<MastraAgentLike["generate"]>>): string[] {

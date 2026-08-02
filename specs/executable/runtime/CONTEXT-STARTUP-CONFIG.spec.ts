@@ -46,6 +46,11 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
       inputUsdMicrosPerMillionTokens: 1_250_000,
       outputUsdMicrosPerMillionTokens: 7_000_000,
     });
+    expect(defaultUsageCostPolicy).toEqual({
+      monthlySoftLimitUsdMicros: 30_000_000,
+      inputUsdMicrosPerMillionTokens: 5_000_000,
+      outputUsdMicrosPerMillionTokens: 30_000_000,
+    });
     expect(() => usageCostPolicyFromEnv({ [usageMonthlySoftLimitEnvName]: "0" })).toThrow("positive safe USD amount");
     expect(() => usageCostPolicyFromEnv({ [usageInputPriceEnvName]: "1.0000001" })).toThrow("up to 6 decimal places");
   });

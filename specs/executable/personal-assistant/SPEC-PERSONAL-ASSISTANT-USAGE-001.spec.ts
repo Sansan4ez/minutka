@@ -26,7 +26,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage and soft limit"
     const service = new AssistantService(async () => ({
       text: "Готово.",
       executionTrace: [],
-      usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 },
+      usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300, llmSteps: 2, cachedInputTokens: 120 },
     }), {
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
@@ -51,9 +51,12 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage and soft limit"
       userId: "owner-a", month: "2026-07", inputTokens: 400, outputTokens: 200, totalTokens: 600, estimatedCostUsdMicros: 600,
     });
     expect(await usageStore.getMonthly("owner-b", "2026-07")).toMatchObject({ totalTokens: 300, estimatedCostUsdMicros: 300 });
-    expect(operationalWarnings).toEqual([{
-      type: "usage_soft_limit_exceeded", userId: "owner-a", month: "2026-07", estimatedCostUsdMicros: 600, softLimitUsdMicros: 500,
-    }]);
+    expect(operationalWarnings).toEqual([
+      { type: "assistant_turn_usage", userId: "owner-a", requestId: expect.any(String), inputTokens: 200, outputTokens: 100, totalTokens: 300, llmSteps: 2, cachedInputTokens: 120 },
+      { type: "assistant_turn_usage", userId: "owner-a", requestId: expect.any(String), inputTokens: 200, outputTokens: 100, totalTokens: 300, llmSteps: 2, cachedInputTokens: 120 },
+      { type: "usage_soft_limit_exceeded", userId: "owner-a", month: "2026-07", estimatedCostUsdMicros: 600, softLimitUsdMicros: 500 },
+      { type: "assistant_turn_usage", userId: "owner-b", requestId: expect.any(String), inputTokens: 200, outputTokens: 100, totalTokens: 300, llmSteps: 2, cachedInputTokens: 120 },
+    ]);
     expect(world.auditEvents.filter((event) => event.type === "usage_soft_limit_exceeded")).toEqual([
       expect.objectContaining({
         employeeId: "owner-a",
@@ -61,6 +64,9 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage and soft limit"
       }),
     ]);
 
+    expect(await usageStore.listRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ llmSteps: 2, cachedInputTokens: 120 }),
+    ]));
     const serializedUsage = JSON.stringify(await usageStore.listRecords());
     expect(serializedUsage).not.toContain("Первый запрос");
     expect(serializedUsage).not.toContain("Второй приватный запрос");

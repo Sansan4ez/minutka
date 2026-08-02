@@ -100,7 +100,7 @@ export const defaultContextBudget: ContextBudgetConfig = {
   responseReserve: 8_000,
   sources: [
     { id: "base_instructions", priority: 1, ceiling: 2_000 },
-    { id: "agent_manual", priority: 2, ceiling: 33_000 },
+    { id: "agent_manual", priority: 2, ceiling: 24_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
     { id: "context", priority: 4, ceiling: 24_000 },
     { id: "context_index", priority: 5, ceiling: 6_000 },

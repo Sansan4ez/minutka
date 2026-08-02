@@ -6,6 +6,10 @@ export const defaultLlmModel = "openai/gpt-5.5";
 export const llmProviderOptions = {
   openai: {
     reasoningEffort: "high",
+    // Keep a stable cache namespace across owner turns. The owner-specific
+    // prefix itself remains the provider's exact-match cache boundary.
+    promptCacheKey: "personal-assistant-v1",
+    promptCacheRetention: "24h",
     // The local OpenAI-compatible gateway is stateless. This must be explicit
     // so AI SDK resends tool/reasoning content instead of referencing fc_/rs_
     // response items that the gateway did not persist.

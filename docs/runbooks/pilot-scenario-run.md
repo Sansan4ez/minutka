@@ -34,6 +34,7 @@
 
 Для этого прогона обязательно:
 
+- usage pricing и soft limit проверены по [runbook калибровки стоимости](./usage-cost-calibration.md); после изменения prompt/context выполнен post-change замер `assistant_turn_usage`;
 - `TELEGRAM_MODE=polling`;
 - непустой `TELEGRAM_BOT_TOKEN`;
 - непустой `MINUTKA_SERVICE_TOKEN`, через который Telegram shell вызывает application API;
