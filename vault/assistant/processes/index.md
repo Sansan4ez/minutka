@@ -1,25 +1,15 @@
 # Personal Assistant process index
 
-This is the bounded process catalog for the product-facing personal assistant. The assistant reads this index and the registered process files in the same model turn, chooses the applicable process by meaning, and uses only the request-scoped typed tools supplied by the application.
-
-The index is guidance, not a separate authority or decision artifact. It does not preselect a process, permit a side effect, or replace tool validation. Only scenarios that require semantic interpretation and agent-led sequencing belong here; deterministic callbacks such as feedback rating persistence remain transport → typed use-case flows.
+Choose the applicable registered process by meaning in the main answer turn; there is no pre-flight LLM router. The catalog guides semantic sequencing but grants no capability: only application-wired typed tools authorize effects.
 
 | Process id | When it applies | Allowed effect |
 |---|---|---|
-| `inbox_capture` | The owner asks to retain an idea, note, link, voice memo, photo, or another inbound record. | Call the owner-scoped `captureIdea` typed tool before claiming that the item was saved. |
-| `day_focus` | The owner asks what to focus on today or now, requests a short plan, or wants to reprioritize goals, ideas, and tasks. | Return no more than three priorities and exactly one concrete next action; task changes still require proposal and explicit confirmation. |
-| `evening_reflection` | The owner reflects on the workday, blockers, meetings, fatigue, missed priorities, or asks for an end-of-day review. It may also be invoked by a trusted scheduled evening trigger. | Offer a concise, non-judgmental reflection and one small step for tomorrow; do not score productivity or mutate tasks without proposal and confirmation. |
+| `inbox_capture` | Retain an idea, note, link, voice memo, photo, or other inbound record. | Call owner-scoped `captureIdea` before claiming it was saved. |
+| `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; task changes remain proposals requiring confirmation. |
+| `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
 
-## Routing principles
+If no process applies, answer from `/AGENTS.md` and bounded owner projections. Prefer the narrowest matching set. `day_focus` is internal-first: do not require calendar integration. `evening_reflection` may use recent history but must not invent work, blockers, meetings, or emotional state. Deterministic transport gates may select a runtime path but do not decide answer semantics. Process ids are diagnostics reconstructed from actual execution, not authority.
 
-- Choose processes yourself during the main answer turn; there is no pre-flight LLM router.
-- Route by meaning, not by language-specific keywords.
-- Prefer the narrowest process set that explains the request. If no process applies, answer from `/AGENTS.md` and the bounded owner projections.
-- A process may describe when a tool is useful, but only the application-wired tool handler can authorize and perform a mutation.
-- Process ids are diagnostic labels reconstructed from actual typed-tool execution when needed. They are not an application-supplied authority source.
-- Deterministic transport gates may choose a runtime path, such as file ingestion, but they do not decide the semantic content of the assistant's answer.
-- Read/list/search and task proposal/confirmation remain typed tools because their inputs and effects are mechanical; `inbox_capture` is a process because the agent interprets the item before invoking `captureIdea`.
-- For task requests, use `listTasks` as needed and prepare at most one create/update/complete/cancel with `proposeTaskMutation` (or one idea provenance proposal with `proposeIdeaToTask`). For “mark X completed”, explicitly call `listTasks` to resolve the current task id and revision, then call `proposeTaskMutation({ kind: "complete", taskId, expectedRevision })`. Do not repeat the receipt, task id, confirmation id, or confirmation instructions in prose: the application renders the owner-visible proposal. Authenticated confirm/reject commands run outside the agent tool loop. Never claim mutation from a proposal alone.
-- For requests to show or change the assistant's daily check-in times, use `listSchedules`, then `setDailySchedule` or `disableSchedule`. Supported process ids are closed by the tool; never invent one. After a successful write, state the saved time, timezone, and enabled state explicitly.
-- `day_focus` is internal-first: use bounded `/proc/context` and `/proc/records`, state missing data or conflicts explicitly, and do not require calendar integration.
-- `evening_reflection` may use bounded recent history to connect the evening review with the morning focus, but it must not invent completed work, blockers, meetings, or emotional state when the owner has not supplied them.
+For task requests, use `listTasks` as needed and prepare at most one mutation proposal. For “mark X completed”, resolve id/revision with `listTasks`, then call `proposeTaskMutation({ kind: "complete", taskId, expectedRevision })`. Do not repeat proposal identifiers or confirmation instructions in prose, and never claim mutation before authenticated confirmation outside the agent tool loop.
+
+For daily check-in times, use `listSchedules`, then `setDailySchedule` or `disableSchedule`; supported process ids are closed by the tool. After a saved write, state its time, timezone, and enabled state.

@@ -37,14 +37,12 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * `vault/assistant`. Pinning the measured size moves the same failure into
  * `npm run verify` and makes any growth deliberate.
  *
- * Measured 2026-08-02: 22 545 of 24 000 characters, i.e. 1 455 left — roughly
- * half of one vault process body, while rfc-pilot-quality-bar §4 plans to
- * reactivate processes from the legacy registry. Do not raise this pin merely to
- * make a red spec green: the growth policy is decided in prs-7ohk, which
- * measures the prompt-cache hit rate before choosing between a higher ceiling
- * and splitting the manual.
+ * Measured 2026-08-02 after removing duplicated authority, privacy, mutation,
+ * and routing rules: 17 204 of 24 000 characters. Do not raise this pin merely
+ * to make a red spec green: the growth policy remains a separate decision in
+ * prs-7ohk.
  */
-const pinnedAgentManualCharacters = 22_545;
+const pinnedAgentManualCharacters = 17_204;
 
 const projection = {
   schemaVersion: 1 as const,
