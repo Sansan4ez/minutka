@@ -29,6 +29,7 @@ export function createSpecHttpApplication(
 ): HttpApplicationService {
   return {
     issueInvite: (input) => service.issueInvite(input),
+    listParticipants: () => service.listParticipants(),
     openInvite: (input) => service.openInvite(input),
     getProfile: (input) => service.getProfile(input),
     acceptConsent: (input) => service.acceptConsent(input),

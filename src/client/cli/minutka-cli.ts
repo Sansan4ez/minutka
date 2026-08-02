@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Command } from "commander";
 import type { AdminMinutkaClient, EmployeeMinutkaClient } from "../sdk/minutka-client.js";
 
@@ -10,7 +11,7 @@ const parseResponseLength = (value: string) => parseChoice(value, ["short", "bal
 const parseInsightKind = (value: string) => parseChoice(value, ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"] as const, "kind");
 
 /** Presentation-only CLI. Identity is supplied by the configured transport token. */
-export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutkaClient, argv: string[]): Promise<CliResult> {
+export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutkaClient, argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<CliResult> {
   const employeeClient = client as EmployeeMinutkaClient;
   const adminClient = client as AdminMinutkaClient;
   const stdout: string[] = []; const stderr: string[] = [];
@@ -26,6 +27,24 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
   program.addCommand(employee);
   const admin = new Command("admin").description("Operator commands");
   admin.addCommand(new Command("issue-invite").requiredOption("--employee <employeeId>").requiredOption("--invite <inviteCode>").action(async (o: { employee: string; invite: string }) => { stdout.push(JSON.stringify(await adminClient.issueInvite({ employeeId: o.employee, inviteCode: o.invite }))); }));
+  admin.addCommand(new Command("invite")
+    .requiredOption("--employee <employeeId>")
+    .option("--bot <username>", "Telegram bot username; defaults to TELEGRAM_BOT_USERNAME")
+    .action(async (o: { employee: string; bot?: string }) => {
+      const botUsername = (o.bot ?? env.TELEGRAM_BOT_USERNAME ?? "").trim().replace(/^@/, "");
+      if (!botUsername) throw new Error("--bot or TELEGRAM_BOT_USERNAME is required");
+      if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) throw new Error("Telegram bot username must contain 5-32 letters, digits, or underscores");
+      if ((await adminClient.listParticipants()).some(({ employeeId }) => employeeId === o.employee)) {
+        throw new Error("employee already has a participant; delete the unused participant before issuing a replacement");
+      }
+      const inviteCode = randomBytes(32).toString("base64url");
+      const result = await adminClient.issueInvite({ employeeId: o.employee, inviteCode });
+      if (!result.created) throw new Error("employee already has an invite; delete the unused participant before issuing a replacement");
+      stdout.push(JSON.stringify({ employeeId: result.employeeId, status: result.status, created: result.created }));
+      stdout.push(`https://t.me/${botUsername}?start=${inviteCode}`);
+      stdout.push("Invite link shown once; the code is stored only as a digest and cannot be recovered. If lost, issue a new invite.");
+    }));
+  admin.addCommand(new Command("list-participants").action(async () => { stdout.push(JSON.stringify(await adminClient.listParticipants())); }));
   program.addCommand(admin);
   try { await program.parseAsync(argv, { from: "user" }); return { exitCode: 0, stdout, stderr }; }
   catch (error) { stderr.push(error instanceof Error ? error.message : String(error)); return { exitCode: 1, stdout, stderr }; }

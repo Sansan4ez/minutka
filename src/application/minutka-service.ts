@@ -1,4 +1,4 @@
-import type { AddressForm, AiLevel, Consent, OnboardingStatus, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import type { AddressForm, AiLevel, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
@@ -46,6 +46,7 @@ export type AgentRunContext = {
 export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promise<string>;
 export type IssueInviteInput = { employeeId: string; inviteCode: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; status: OnboardingStatus; created: boolean };
+export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "createdAt" | "updatedAt">;
 export type OpenInviteInput = { inviteCode: string };
 export type RecordPrivacyExplanationShownInput = { employeeId: string };
 export type RedeemTelegramInviteInput = {
@@ -155,6 +156,11 @@ export class MinutkaService {
     if (result.participant.employeeId !== employeeId) throw new Error("invite already belongs to another employee");
     if (!result.created && !result.inviteMatches) throw new Error("employee already has an active invite");
     return { employeeId, inviteCode, status: result.participant.status, created: result.created };
+  }
+
+  async listParticipants(): Promise<ParticipantSummary[]> {
+    const participants = await this.stores.profileStore.listParticipants(100);
+    return participants.map(({ employeeId, status, createdAt, updatedAt }) => ({ employeeId, status, createdAt, updatedAt }));
   }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {

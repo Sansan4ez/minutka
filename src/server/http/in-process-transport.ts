@@ -54,6 +54,7 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
 export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
   constructor(private readonly application: InProcessApplication, private readonly principal: AuthenticatedPrincipal) {}
   issueInvite(input: IssueInviteRequest) { operator(this.principal); return this.application.issueInvite(input); }
+  listParticipants() { operator(this.principal); return this.application.listParticipants(); }
 }
 
 /** Service-plane adapter used by the Telegram shell after it resolves an employee privately. */

@@ -57,6 +57,7 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
 
 export class HttpAdminMinutkaTransport extends HttpTransportBase implements AdminMinutkaTransport {
   issueInvite(input: IssueInviteRequest) { return this.request("POST", "/v1/admin/invites", input); }
+  listParticipants() { return this.request("GET", "/v1/admin/participants"); }
 }
 
 export class HttpServiceMinutkaTransport extends HttpTransportBase implements ServiceMinutkaTransport {

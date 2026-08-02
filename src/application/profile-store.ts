@@ -32,6 +32,8 @@ export type ProfileStore = {
     deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
+  /** Bounded operator inventory; callers must not project private profile or Telegram data. */
+  listParticipants(limit: number): Promise<Participant[]>;
   /** Private lookup used only by the atomic Telegram invite-redemption adapter. */
   getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;

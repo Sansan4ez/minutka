@@ -1,4 +1,4 @@
-import type { Consent, Participant, UserProfile } from "../domain/employee.js";
+import type { Participant } from "../domain/employee.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
 import type { ProfileStore } from "./profile-store.js";
 import { PersistenceError } from "./persistence-error.js";
@@ -124,6 +124,11 @@ export function createInMemoryProfileStore(
     },
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);
+    },
+    async listParticipants(limit) {
+      return [...world.participants]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.employeeId.localeCompare(right.employeeId))
+        .slice(0, limit);
     },
     async getParticipantByInviteCode(inviteCode) {
       const employeeId = employeeByInviteCode.get(inviteCode);

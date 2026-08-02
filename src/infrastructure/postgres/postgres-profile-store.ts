@@ -236,6 +236,20 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
+    async listParticipants(limit) {
+      try {
+        const result = await pool.query<ParticipantRow>(
+          `SELECT employee_id, status, privacy_explanation_shown_at, created_at, updated_at
+           FROM minutka_private.participants
+           ORDER BY created_at ASC, employee_id ASC
+           LIMIT $1`,
+          [limit],
+        );
+        return result.rows.map(toParticipant);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
     async getParticipantByInviteCode(inviteCode) {
       try {
         const result = await pool.query<ParticipantRow>(

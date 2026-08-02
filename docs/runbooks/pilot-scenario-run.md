@@ -126,27 +126,22 @@ TELEGRAM_MODE=polling npm run serve
 ```bash
 export MINUTKA_API_URL=http://127.0.0.1:8787
 export MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN"
-export PILOT_EMPLOYEE_ID=<id>
-export PILOT_INVITE_CODE="$(openssl rand -hex 24)"
+export TELEGRAM_BOT_USERNAME=<bot_username_without_at>
 
-npm run cli -- admin issue-invite \
-  --employee "$PILOT_EMPLOYEE_ID" \
-  --invite "$PILOT_INVITE_CODE"
+npm run cli -- admin invite --employee <id>
 ```
 
-Каноническая форма команды:
+Команда сама генерирует 32 случайных байта, выдаёт инвайт через operator API и печатает готовую deep-link. Передать тестировщику строку `https://t.me/...` из вывода. Код показывается ровно один раз и восстановлению не подлежит: в PostgreSQL хранится только HMAC digest. Если ссылка потеряна, удалить данные ещё не начавшего работу участника штатным owner-delete путём и выдать новый инвайт; не сохранять код в протокол, лог или issue.
+
+Правка `TELEGRAM_INVITES` или других значений `.env` для нового тестировщика не требуется; рестарт runtime после выдачи инвайта тоже не требуется. `TELEGRAM_INVITES` остаётся только dev-bootstrap удобством и в пилотном `.env` должна быть пустой.
+
+Проверить переходы участников без просмотра имени, таймзоны или Telegram identity:
 
 ```bash
-npm run cli -- admin issue-invite --employee <id> --invite <code>
+npm run cli -- admin list-participants
 ```
 
-Правка `TELEGRAM_INVITES` или других значений `.env` для нового тестировщика не требуется; рестарт runtime после выдачи инвайта тоже не требуется. Код одноразовый: не писать его в протокол, логи или issue и не переиспользовать.
-
-Передать тестировщику индивидуальную ссылку:
-
-```text
-https://t.me/<BOT_USERNAME>?start=<code>
-```
+Вывод содержит только `employeeId`, статус онбординга и даты `createdAt`/`updatedAt`.
 
 ## Чек-лист гейта D.0
 

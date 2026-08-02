@@ -141,8 +141,11 @@ export const structuredInsightSchema = z.discriminatedUnion("kind", [
 ]);
 export const listInsightsRequestSchema = z.strictObject({ threadId: threadIdSchema.optional(), kind: insightKindSchema.optional() });
 
+const onboardingStatusSchema = z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]);
 export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512) });
-export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]), created: z.boolean() });
+export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
+export const participantSummarySchema = z.strictObject({ employeeId: employeeIdSchema, status: onboardingStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
+export const listParticipantsResponseSchema = z.array(participantSummarySchema).max(100);
 export const openInviteRequestSchema = z.strictObject({ inviteCode: z.string().min(1).max(512) });
 export const openInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]), privacyVersion: z.literal(currentPrivacyVersion), privacyExplanation: z.string().min(1) });
 export const telegramIdentitySchema = z.strictObject({ chatId: z.string().min(1), userId: z.string().min(1).optional() });
@@ -189,6 +192,8 @@ export type ListInsightsRequest = z.infer<typeof listInsightsRequestSchema>;
 export type StructuredInsight = z.infer<typeof structuredInsightSchema>;
 export type IssueInviteRequest = z.infer<typeof issueInviteRequestSchema>;
 export type IssueInviteResponse = z.infer<typeof issueInviteResponseSchema>;
+export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema>;
+export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
 export type OpenInviteRequest = z.infer<typeof openInviteRequestSchema>;
 export type OpenInviteResponse = z.infer<typeof openInviteResponseSchema>;
 export type RedeemTelegramInviteRequest = z.infer<typeof redeemTelegramInviteRequestSchema>;

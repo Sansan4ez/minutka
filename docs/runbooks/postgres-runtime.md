@@ -112,22 +112,7 @@ npm run verify:persistence
 therefore always empty after a successful migration run. `db:status` is the
 command that reports migrations still awaiting application.
 
-## Start Telegram and issue a local invite
-
-`TELEGRAM_INVITES` is a local bootstrap mechanism, not a production invite
-management API. Add one or more unique `employeeId:inviteCode` pairs to the
-uncommitted `.env` before starting the bot:
-
-```dotenv
-TELEGRAM_INVITES=emp_001:replace-with-a-long-random-code
-```
-
-Generate a code without punctuation that could be altered by a messenger:
-
-```bash
-INVITE_CODE="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
-printf 'TELEGRAM_INVITES=emp_001:%s\n' "$INVITE_CODE"
-```
+## Start Telegram and issue an invite
 
 Start the bot:
 
@@ -135,23 +120,29 @@ Start the bot:
 npm run telegram:dev
 ```
 
-Then send the employee this deep link, replacing `<BOT_USERNAME>` with the
-bot username configured in BotFather:
+For pilot participants, issue an invite through the running operator API. This
+path requires no `.env` edit and no runtime restart:
 
-```text
-https://t.me/<BOT_USERNAME>?start=<INVITE_CODE>
+```bash
+export MINUTKA_API_URL=http://127.0.0.1:8787
+export MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN"
+export TELEGRAM_BOT_USERNAME=<bot_username_without_at>
+npm run cli -- admin invite --employee emp_001
+npm run cli -- admin list-participants
 ```
 
-For the concrete example above:
+`admin invite` generates a 32-byte base64url code and prints the ready Telegram
+deep-link. The link is shown once and cannot be recovered: PostgreSQL stores
+only `participants.invite_code_digest`. If it is lost, delete the unused
+participant with the normal owner-delete procedure and issue a new invite.
+`list-participants` exposes only employee ID, onboarding status, and timestamps;
+it does not expose profile names, timezones, chat IDs, or Telegram identities.
 
-```text
-https://t.me/<BOT_USERNAME>?start=replace-with-a-long-random-code
-```
-
-On startup the bot stores only an HMAC digest of the invite code in PostgreSQL.
-Do not commit `TELEGRAM_INVITES`, expose it in logs, or reuse codes. Restarting
-the bot with the same seed is safe: issuing the same employee/code pair is
-idempotent.
+`TELEGRAM_INVITES` remains a dev-only bootstrap convenience. Keep it empty in
+pilot environments. The env path holds plaintext codes, reissues seeds on every
+startup, has no inventory or expiry, and requires an edit plus restart for each
+participant. If used for isolated local development, keep the populated `.env`
+uncommitted and never expose or reuse its codes.
 
 The migrator uses a PostgreSQL advisory lock, immutable ordered SQL files, and
 SHA-256 checksums in `minutka_meta.schema_migrations`. Startup checks both DB

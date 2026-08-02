@@ -9,6 +9,7 @@ import type {
   IssueInviteInput,
   IssueInviteResult,
   ListInsightsInput,
+  ParticipantSummary,
   MinutkaService,
   MinutkaServiceDeps,
   OpenInviteInput,
@@ -49,6 +50,7 @@ export class PersonalAssistantService {
   constructor(
     private readonly identityService: Pick<MinutkaService,
       | "issueInvite"
+      | "listParticipants"
       | "openInvite"
       | "recordPrivacyExplanationShown"
       | "redeemTelegramInvite"
@@ -70,6 +72,7 @@ export class PersonalAssistantService {
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
+  listParticipants(): Promise<ParticipantSummary[]> { return this.identityService.listParticipants(); }
   openInvite(input: OpenInviteInput): Promise<OpenInviteResult> { return this.identityService.openInvite(input); }
   recordPrivacyExplanationShown(input: RecordPrivacyExplanationShownInput): Promise<void> { return this.identityService.recordPrivacyExplanationShown(input); }
   redeemTelegramInvite(input: RedeemTelegramInviteInput): Promise<RedeemTelegramInviteResult> { return this.identityService.redeemTelegramInvite(input); }
