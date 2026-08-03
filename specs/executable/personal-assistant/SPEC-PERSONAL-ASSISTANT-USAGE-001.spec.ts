@@ -57,6 +57,31 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       .toThrow("cached input tokens must not exceed input tokens");
   });
 
+  it("keeps the first usage row when the same owner request and source are replayed", async () => {
+    const usageStore = createInMemoryUsageStore();
+    const first = {
+      id: "usage-first", userId: "owner", requestId: "request-replayed", source: "chat" as const, month: "2026-07",
+      inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 40,
+      estimatedCostUsdMicros: 80, occurredAt: "2026-07-15T10:00:00.000Z",
+    };
+
+    expect(await usageStore.record(first)).toMatchObject({ inserted: true });
+    expect(await usageStore.record({
+      ...first,
+      id: "usage-conflicting-replay",
+      inputTokens: 900,
+      outputTokens: 100,
+      totalTokens: 1_000,
+      cachedInputTokens: 0,
+      estimatedCostUsdMicros: 700,
+      occurredAt: "2026-07-15T10:01:00.000Z",
+    })).toMatchObject({
+      inserted: false,
+      monthly: { records: 1, inputTokens: 100, outputTokens: 20, totalTokens: 120, estimatedCostUsdMicros: 80 },
+    });
+    expect(await usageStore.listRecords()).toEqual([first]);
+  });
+
   it("aggregates metadata-only usage by owner and UTC month, warns without blocking", async () => {
     let now = "2026-07-31T23:59:00.000Z";
     const world = createInMemoryWorld(() => now);

@@ -103,6 +103,19 @@ describe("PostgreSQL storage contracts", () => {
       inputTokens: 20, outputTokens: 10, totalTokens: 30, estimatedCostUsdMicros: 65, occurredAt: "2026-07-31T23:45:00.000Z",
     });
     expect(await usage.record(first)).toMatchObject({ inserted: false });
+    expect(await usage.record({
+      ...first,
+      id: "usage_pg_conflicting_replay",
+      inputTokens: 900,
+      outputTokens: 100,
+      totalTokens: 1_000,
+      cachedInputTokens: 0,
+      estimatedCostUsdMicros: 700,
+      occurredAt: "2026-07-31T23:10:00.000Z",
+    })).toMatchObject({
+      inserted: false,
+      monthly: { records: 3, inputTokens: 330, outputTokens: 155, totalTokens: 485, estimatedCostUsdMicros: 1000 },
+    });
 
     expect(await usage.getMonthly("usage_owner", "2026-07")).toEqual({
       userId: "usage_owner", month: "2026-07", inputTokens: 330, outputTokens: 155, totalTokens: 485,

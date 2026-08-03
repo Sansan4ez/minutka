@@ -72,6 +72,10 @@ export type UsageCostPolicy = {
 };
 
 export interface UsageStore {
+  /**
+   * Stores the first row for `(userId, requestId, source)`. Replaying that key
+   * never overwrites the row and returns `inserted: false`.
+   */
   record(input: UsageRecord): Promise<UsageRecordResult>;
   getMonthly(userId: string, month: string): Promise<MonthlyUsage>;
 }

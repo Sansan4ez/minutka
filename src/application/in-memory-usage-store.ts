@@ -21,7 +21,6 @@ export function createInMemoryUsageStore(): UsageStore & { listRecords(): Promis
       // The key mirrors the durable primary key: one row per (turn, source).
       const key = `${normalized.userId}\u0000${normalized.requestId}\u0000${normalized.source}`;
       const existing = records.get(key);
-      if (existing && !sameRecord(existing, normalized)) throw new Error("usage request conflict");
       if (!existing) records.set(key, normalized);
       return {
         monthly: aggregate([...records.values()], normalized.userId, normalized.month),
@@ -47,10 +46,6 @@ function aggregate(records: UsageRecord[], userId: string, month: string): Month
     ...owned.reduce(addUsageRecordToTotals, emptyUsageTotals()),
     bySource,
   };
-}
-
-function sameRecord(left: UsageRecord, right: UsageRecord): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function copyRecord(record: UsageRecord): UsageRecord { return { ...record }; }
