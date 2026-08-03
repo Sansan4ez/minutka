@@ -603,8 +603,8 @@ export function buildAssistantSystemContextBudget(
     userInput,
     config: contextBudget,
     sections: [
-      { sourceId: "base_instructions", content: renderAssistantBaseInstructions(requiredProcessId) },
-      { sourceId: "agent_manual", content: renderAssistantAgentManual(agentInstructions, responsePolicy) },
+      { sourceId: "base_instructions", content: renderAssistantBaseInstructions() },
+      { sourceId: "agent_manual", content: renderAssistantAgentManual(agentInstructions, responsePolicy, requiredProcessId) },
       { sourceId: "profile", content: profileSection },
       { sourceId: "context", content: renderAssistantContextProjection(personalContext) },
       { sourceId: "context_index", content: renderAssistantContextIndex(personalContext) },

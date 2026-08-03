@@ -20,17 +20,17 @@ export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig
   const generatedSections: ReadonlyArray<{ sourceId: ContextSourceId; content: string }> = [
     {
       sourceId: "base_instructions",
-      content: assistantDiagnosticProcessIds.reduce(
-        (longest, processId) => {
-          const rendered = renderAssistantBaseInstructions(processId);
-          return countUnicodeCharacters(rendered) > countUnicodeCharacters(longest) ? rendered : longest;
-        },
-        renderAssistantBaseInstructions(),
-      ),
+      content: renderAssistantBaseInstructions(),
     },
     {
       sourceId: "agent_manual",
-      content: renderAssistantAgentManual(agentInstructions, renderMaximumResponsePolicy()),
+      content: assistantDiagnosticProcessIds.reduce(
+        (longest, processId) => {
+          const rendered = renderAssistantAgentManual(agentInstructions, renderMaximumResponsePolicy(), processId);
+          return countUnicodeCharacters(rendered) > countUnicodeCharacters(longest) ? rendered : longest;
+        },
+        renderAssistantAgentManual(agentInstructions, renderMaximumResponsePolicy()),
+      ),
     },
     { sourceId: "context", content: renderEmptyAssistantContextSection() },
     { sourceId: "context_index", content: renderEmptyContextTreeIndex(config.projectionLimits.contextIndexDepth) },

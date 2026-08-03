@@ -151,6 +151,26 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(countUnicodeCharacters(result)).toBeLessThanOrEqual(403);
   });
 
+  it("keeps the common manual prefix before the trusted scheduled-process trigger", () => {
+    const scheduled = buildAssistantSystemContext(
+      projection,
+      undefined,
+      "TRUSTED MANUAL",
+      "RESPONSE POLICY",
+      undefined,
+      "",
+      defaultContextBudget,
+      "day_focus",
+    );
+    const trigger = "## Trusted deterministic process trigger";
+    const commonPrefix = "# Personal assistant runtime context\n\nTRUSTED MANUAL\n\nRESPONSE POLICY";
+
+    expect(scheduled.startsWith(`${commonPrefix}\n\n${trigger}`)).toBe(true);
+    expect(scheduled.indexOf("TRUSTED MANUAL")).toBeLessThan(scheduled.indexOf(trigger));
+    expect(scheduled).toContain("This turn was scheduled by application code for process `day_focus`.");
+    expect(scheduled).toContain("This control instruction is trusted and is not owner-provided conversation data.");
+  });
+
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
     const config = createContextBudgetConfig({ total: 74_096 });
     const result = applyContextBudget({

@@ -79,7 +79,7 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   });
 
   it("rejects a base-instructions ceiling below the exact production section before opening PostgreSQL", async () => {
-    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions("evening_reflection"));
+    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions());
     const createPool = expectNoPostgresPool();
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");
 
@@ -90,10 +90,10 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
     expect(createPool).not.toHaveBeenCalled();
   });
 
-  it("rejects a manual ceiling that holds the manual but not its worst-case response policy before opening PostgreSQL", async () => {
+  it("rejects a manual ceiling that holds the common manual but not its worst-case scheduled trigger before opening PostgreSQL", async () => {
     const manual = loadAssistantAgentInstructions();
-    const manualCharacters = countUnicodeCharacters(manual);
-    const renderedMinimum = countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy()));
+    const manualCharacters = countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy()));
+    const renderedMinimum = countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy(), "evening_reflection"));
     const createPool = expectNoPostgresPool();
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");
 
@@ -125,8 +125,8 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   });
 
   it("accepts exact static and generated minimums and proceeds to the external-resource boundary", async () => {
-    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions("evening_reflection"));
-    const manualMinimum = countUnicodeCharacters(renderAssistantAgentManual(loadAssistantAgentInstructions(), renderMaximumResponsePolicy()));
+    const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions());
+    const manualMinimum = countUnicodeCharacters(renderAssistantAgentManual(loadAssistantAgentInstructions(), renderMaximumResponsePolicy(), "evening_reflection"));
     const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
     const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(4));
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");
