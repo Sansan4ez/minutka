@@ -32,10 +32,10 @@ export type ContextDocumentMutationProposal =
   | { kind: "delete"; path: string; expectedVersion: string };
 
 export type ContextDocumentMutationOutcome =
-  | { outcome: "updated"; path: string; version: string }
-  | { outcome: "moved"; sourcePath: string; destinationPath: string; version: string; sourceVersion: string }
-  | { outcome: "deleted"; path: string; restoreVersion: string }
-  | { outcome: "not_found" | "conflict" | "destination_conflict"; path: string; currentVersion?: string };
+  | { outcome: "updated"; path: `/proc/context/${string}`; version: string }
+  | { outcome: "moved"; sourcePath: `/proc/context/${string}`; destinationPath: `/proc/context/${string}`; version: string; sourceVersion: string }
+  | { outcome: "deleted"; path: `/proc/context/${string}`; restoreVersion: string }
+  | { outcome: "not_found" | "conflict" | "destination_conflict"; path: `/proc/context/${string}`; currentVersion?: string };
 
 export type PendingContextDocumentMutation = {
   confirmationId: string;
@@ -243,7 +243,7 @@ export class ContextDocumentService {
         const result = await this.documents.putIfVersion(ownerId, proposal.path, proposal.expectedVersion, proposal.content);
         if (result.outcome === "conflict") {
           const current = await this.documents.get(ownerId, proposal.path);
-          if (current?.content === proposal.content) return { outcome: "updated", path: proposal.path, version: current.version };
+          if (current?.content === proposal.content) return { outcome: "updated", path: contextDocumentHandle(proposal.path), version: current.version };
         }
         return updateOutcome(proposal.path, result);
       }
@@ -251,7 +251,7 @@ export class ContextDocumentService {
         const result = await this.documents.moveIfVersion(ownerId, proposal.sourcePath, proposal.destinationPath, proposal.expectedVersion);
         if (result.outcome === "not_found") {
           const destination = await this.documents.get(ownerId, proposal.destinationPath);
-          if (destination) return { outcome: "moved", sourcePath: proposal.sourcePath, destinationPath: proposal.destinationPath, version: destination.version, sourceVersion: proposal.expectedVersion };
+          if (destination) return { outcome: "moved", sourcePath: contextDocumentHandle(proposal.sourcePath), destinationPath: contextDocumentHandle(proposal.destinationPath), version: destination.version, sourceVersion: proposal.expectedVersion };
         }
         return moveOutcome(proposal, result);
       }
@@ -387,20 +387,28 @@ function boundedChangePreview(before: string, after: string): NonNullable<Pendin
 }
 
 function updateOutcome(path: string, result: DocumentUpdateResult): ContextDocumentMutationOutcome {
-  if (result.outcome === "updated") return { outcome: "updated", path, version: result.document.version };
-  return { outcome: result.outcome, path, ...("current" in result && result.current ? { currentVersion: result.current.version } : {}) };
+  const handle = contextDocumentHandle(path);
+  if (result.outcome === "updated") return { outcome: "updated", path: handle, version: result.document.version };
+  return { outcome: result.outcome, path: handle, ...("current" in result && result.current ? { currentVersion: result.current.version } : {}) };
 }
 
 function moveOutcome(proposal: Extract<ContextDocumentMutationProposal, { kind: "move" }>, result: DocumentMoveResult): ContextDocumentMutationOutcome {
-  if (result.outcome === "moved") return { outcome: "moved", sourcePath: proposal.sourcePath, destinationPath: proposal.destinationPath, version: result.document.version, sourceVersion: result.sourceVersion };
+  if (result.outcome === "moved") return {
+    outcome: "moved",
+    sourcePath: contextDocumentHandle(proposal.sourcePath),
+    destinationPath: contextDocumentHandle(proposal.destinationPath),
+    version: result.document.version,
+    sourceVersion: result.sourceVersion,
+  };
   const path = result.outcome === "destination_conflict" ? proposal.destinationPath : proposal.sourcePath;
-  return { outcome: result.outcome, path, ...("current" in result && result.current ? { currentVersion: result.current.version } : {}) };
+  return { outcome: result.outcome, path: contextDocumentHandle(path), ...("current" in result && result.current ? { currentVersion: result.current.version } : {}) };
 }
 
 function deleteOutcome(path: string, expectedVersion: string, result: DocumentDeleteResult): ContextDocumentMutationOutcome {
-  if (result.outcome === "deleted") return { outcome: "deleted", path, restoreVersion: result.version };
-  if (result.outcome === "not_found") return { outcome: "deleted", path, restoreVersion: expectedVersion };
-  return { outcome: "conflict", path, ...(result.current ? { currentVersion: result.current.version } : {}) };
+  const handle = contextDocumentHandle(path);
+  if (result.outcome === "deleted") return { outcome: "deleted", path: handle, restoreVersion: result.version };
+  if (result.outcome === "not_found") return { outcome: "deleted", path: handle, restoreVersion: expectedVersion };
+  return { outcome: "conflict", path: handle, ...(result.current ? { currentVersion: result.current.version } : {}) };
 }
 
 function outcomeVersion(outcome: ContextDocumentMutationOutcome): string | undefined {

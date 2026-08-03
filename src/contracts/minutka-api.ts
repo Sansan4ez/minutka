@@ -145,10 +145,10 @@ export const ideaDeletionDecisionResponseSchema = z.discriminatedUnion("status",
   z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "expired", "invalid_payload"]) }),
 ]);
 const contextDocumentMutationOutcomeSchema = z.discriminatedUnion("outcome", [
-  z.strictObject({ outcome: z.literal("updated"), path: z.string().min(1), version: z.string().min(1) }),
-  z.strictObject({ outcome: z.literal("moved"), sourcePath: z.string().min(1), destinationPath: z.string().min(1), version: z.string().min(1), sourceVersion: z.string().min(1) }),
-  z.strictObject({ outcome: z.literal("deleted"), path: z.string().min(1), restoreVersion: z.string().min(1) }),
-  z.strictObject({ outcome: z.enum(["not_found", "conflict", "destination_conflict"]), path: z.string().min(1), currentVersion: z.string().min(1).optional() }),
+  z.strictObject({ outcome: z.literal("updated"), path: contextDocumentHandleSchema, version: z.string().min(1) }),
+  z.strictObject({ outcome: z.literal("moved"), sourcePath: contextDocumentHandleSchema, destinationPath: contextDocumentHandleSchema, version: z.string().min(1), sourceVersion: z.string().min(1) }),
+  z.strictObject({ outcome: z.literal("deleted"), path: contextDocumentHandleSchema, restoreVersion: z.string().min(1) }),
+  z.strictObject({ outcome: z.enum(["not_found", "conflict", "destination_conflict"]), path: contextDocumentHandleSchema, currentVersion: z.string().min(1).optional() }),
 ]);
 export const contextDocumentDecisionResponseSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: contextDocumentMutationOutcomeSchema }),

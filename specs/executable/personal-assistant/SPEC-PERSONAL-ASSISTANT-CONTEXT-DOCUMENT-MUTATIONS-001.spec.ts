@@ -10,6 +10,7 @@ import { createInMemoryContextDocumentConfirmationStore } from "../../../src/app
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
+import { contextDocumentDecisionResponseSchema } from "../../../src/contracts/minutka-api.js";
 
 function harness() {
   let now = "2026-08-02T10:00:00.000Z";
@@ -59,7 +60,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     expect(proposed.status).toBe("needs_confirmation");
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
     await expect(service.confirm("owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
-      status: "confirmed", outcome: { outcome: "updated" },
+      status: "confirmed", outcome: { outcome: "updated", path: "/proc/context/00_inbox/source.md" },
     });
     await expect(documents.get("owner", original.path)).resolves.toMatchObject({ content: replacement });
   });
@@ -198,7 +199,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
     const external = await h.documents.put("owner", original.path, "newer");
     await expect(h.service.confirm("owner", proposed.confirmation.confirmationId)).resolves.toEqual({
-      status: "confirmed", outcome: { outcome: "conflict", path: original.path, currentVersion: external.version },
+      status: "confirmed", outcome: { outcome: "conflict", path: "/proc/context/00_inbox/source.md", currentVersion: external.version },
     });
     await expect(h.documents.get("owner", original.path)).resolves.toMatchObject({ content: "newer", version: external.version });
 
@@ -215,14 +216,56 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     const update = await h.service.proposeUpdate("owner", { path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement: "replacement" });
     if (update.status !== "needs_confirmation") throw new Error("expected confirmation");
     await h.documents.put("owner", original.path, "replacement");
-    await expect(h.service.confirm("owner", update.confirmation.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "updated" } });
+    await expect(h.service.confirm("owner", update.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed", outcome: { outcome: "updated", path: "/proc/context/00_inbox/source.md" },
+    });
 
     const source = await h.documents.put("owner", "context/00_inbox/move-source.md", "move body");
     const move = await h.service.proposeMove("owner", { path: "/proc/context/00_inbox/move-source.md", destination: "/proc/context/00_inbox/move-destination.md", expectedVersion: source.version });
     if (move.status !== "needs_confirmation") throw new Error("expected confirmation");
     await h.documents.put("owner", "context/00_inbox/move-destination.md", source.content);
     await h.documents.delete("owner", source.path);
-    await expect(h.service.confirm("owner", move.confirmation.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "moved" } });
+    await expect(h.service.confirm("owner", move.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed",
+      outcome: {
+        outcome: "moved",
+        sourcePath: "/proc/context/00_inbox/move-source.md",
+        destinationPath: "/proc/context/00_inbox/move-destination.md",
+      },
+    });
+  });
+
+  it("returns handles for not-found and destination-conflict outcomes", async () => {
+    const h = harness();
+    const updateSource = await seed(h, "owner", "context/00_inbox/missing-before-confirm.md");
+    const update = await h.service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/missing-before-confirm.md",
+      expectedVersion: updateSource.version,
+      replacement: "replacement",
+    });
+    if (update.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await h.documents.delete("owner", updateSource.path);
+    await expect(h.service.confirm("owner", update.confirmation.confirmationId)).resolves.toEqual({
+      status: "confirmed",
+      outcome: { outcome: "not_found", path: "/proc/context/00_inbox/missing-before-confirm.md" },
+    });
+
+    const moveSource = await seed(h, "owner", "context/00_inbox/racing-move.md");
+    const move = await h.service.proposeMove("owner", {
+      path: "/proc/context/00_inbox/racing-move.md",
+      destination: "/proc/context/10_user_memory/racing-destination.md",
+      expectedVersion: moveSource.version,
+    });
+    if (move.status !== "needs_confirmation") throw new Error("expected confirmation");
+    const occupied = await h.documents.put("owner", "context/10_user_memory/racing-destination.md", "occupied");
+    await expect(h.service.confirm("owner", move.confirmation.confirmationId)).resolves.toEqual({
+      status: "confirmed",
+      outcome: {
+        outcome: "destination_conflict",
+        path: "/proc/context/10_user_memory/racing-destination.md",
+        currentVersion: occupied.version,
+      },
+    });
   });
 
   it("moves without two canonical copies and rejects occupied destinations", async () => {
@@ -236,7 +279,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
       path: "/proc/context/00_inbox/source.md", destination: "/proc/context/10_user_memory/moved.md", expectedVersion: original.version,
     });
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
-    await h.service.confirm("owner", proposed.confirmation.confirmationId);
+    await expect(h.service.confirm("owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed",
+      outcome: {
+        outcome: "moved",
+        sourcePath: "/proc/context/00_inbox/source.md",
+        destinationPath: "/proc/context/10_user_memory/moved.md",
+      },
+    });
     await expect(h.documents.get("owner", original.path)).resolves.toBeNull();
     await expect(h.documents.get("owner", "context/10_user_memory/moved.md")).resolves.toMatchObject({ content: original.content });
   });
@@ -248,12 +298,27 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     const proposed = await h.service.proposeDelete("owner", { path: "/proc/context/00_inbox/source.md", expectedVersion: owner.version });
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
     const deleted = await h.service.confirm("owner", proposed.confirmation.confirmationId);
-    expect(deleted).toEqual({ status: "confirmed", outcome: { outcome: "deleted", path: owner.path, restoreVersion: owner.version } });
+    expect(deleted).toEqual({ status: "confirmed", outcome: { outcome: "deleted", path: "/proc/context/00_inbox/source.md", restoreVersion: owner.version } });
     await expect(h.documents.get("owner", owner.path)).resolves.toBeNull();
     await expect(h.documents.get("other", owner.path)).resolves.toMatchObject({ content: "other private body" });
     await expect(h.service.restoreVersion("other", { path: "/proc/context/00_inbox/source.md", version: owner.version })).resolves.toMatchObject({ outcome: "not_found" });
     await expect(h.service.restoreVersion("owner", { path: "/proc/context/00_inbox/source.md", version: owner.version })).resolves.toMatchObject({ outcome: "restored" });
     await expect(h.documents.get("owner", owner.path)).resolves.toMatchObject({ content: owner.content });
+  });
+
+  it("rejects storage paths in every mutation outcome contract shape", () => {
+    const invalidOutcomes = [
+      { outcome: "updated", path: "context/source.md", version: "v1" },
+      { outcome: "moved", sourcePath: "context/source.md", destinationPath: "/proc/context/destination.md", version: "v2", sourceVersion: "v1" },
+      { outcome: "deleted", path: "context/source.md", restoreVersion: "v1" },
+      { outcome: "not_found", path: "context/source.md" },
+      { outcome: "conflict", path: "context/source.md", currentVersion: "v2" },
+      { outcome: "destination_conflict", path: "context/destination.md", currentVersion: "v2" },
+    ];
+
+    for (const outcome of invalidOutcomes) {
+      expect(contextDocumentDecisionResponseSchema.safeParse({ status: "confirmed", outcome }).success).toBe(false);
+    }
   });
 
   it("accepts only /proc/context Markdown handles and writes metadata-only audit records", async () => {
