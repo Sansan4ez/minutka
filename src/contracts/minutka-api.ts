@@ -53,7 +53,8 @@ export const serviceChatRequestSchema = chatRequestSchema.extend({ responseChann
 export const recordTypeSchema = z.enum(["money", "development", "content", "people", "operations", "knowledge", "personal"]);
 export const taskStatusSchema = z.enum(["open", "in_progress", "done", "cancelled"]);
 export const pendingTaskActionKindSchema = z.enum(["create", "update", "complete", "cancel", "idea_to_task"]);
-export const pendingActionKindSchema = z.union([pendingTaskActionKindSchema, z.literal("delete_idea")]);
+export const pendingContextDocumentActionKindSchema = z.enum(["update", "move", "delete"]);
+export const pendingActionKindSchema = z.union([pendingTaskActionKindSchema, z.literal("delete_idea"), pendingContextDocumentActionKindSchema]);
 const pendingTaskPreviewTextSchema = z.strictObject({
   value: z.string().refine((value) => countUnicodeCodePoints(value) <= 280, "Preview value must have at most 280 Unicode code points"),
   truncated: z.boolean(),
@@ -82,7 +83,16 @@ const pendingIdeaDeletionActionSchema = z.strictObject({
   confirmationId: z.string().min(1), actionKind: z.literal("delete_idea"), summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime(),
   preview: z.strictObject({ kind: z.literal("delete_idea"), ideaId: pendingTaskPreviewTextSchema, summary: pendingTaskPreviewTextSchema, revision: z.number().int().positive() }),
 });
-export const pendingActionSchema = z.union([pendingTaskActionSchema, pendingIdeaDeletionActionSchema]);
+const contextDocumentHandleSchema = z.custom<`/proc/context/${string}`>((value) => typeof value === "string" && value.startsWith("/proc/context/") && value.endsWith(".md"));
+const pendingContextDocumentActionSchema = z.strictObject({
+  confirmationId: z.string().min(1), actionKind: pendingContextDocumentActionKindSchema, summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime(),
+  preview: z.strictObject({
+    path: contextDocumentHandleSchema,
+    destination: contextDocumentHandleSchema.optional(),
+    change: pendingTaskPreviewTextSchema.optional(),
+  }),
+});
+export const pendingActionSchema = z.union([pendingTaskActionSchema, pendingIdeaDeletionActionSchema, pendingContextDocumentActionSchema]);
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
 const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
 const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingActionSchema.optional(), effect: assistantChatEffectSchema });
@@ -110,6 +120,7 @@ export const taskPatchSchema = z.strictObject({
 }).refine((patch) => Object.keys(patch).length > 0, "Task patch must not be empty");
 export const taskMutationDecisionRequestSchema = z.strictObject({});
 export const ideaDeletionDecisionRequestSchema = z.strictObject({});
+export const contextDocumentDecisionRequestSchema = z.strictObject({});
 const taskSchema = classifiedSchema.extend({ id: z.string().min(1), userId: employeeIdSchema, title: z.string().min(1), status: taskStatusSchema, dueDate: z.iso.date().optional(), originIdeaId: z.string().min(1).optional(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: z.number().int().positive() });
 const taskMutationOutcomeSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.enum(["created", "updated", "unchanged"]), task: taskSchema }),
@@ -130,6 +141,17 @@ export const ideaDeletionDecisionResponseSchema = z.discriminatedUnion("status",
   z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: ideaMutationOutcomeSchema }),
   z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "expired", "invalid_payload"]) }),
 ]);
+const contextDocumentMutationOutcomeSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({ outcome: z.literal("updated"), path: z.string().min(1), version: z.string().min(1) }),
+  z.strictObject({ outcome: z.literal("moved"), sourcePath: z.string().min(1), destinationPath: z.string().min(1), version: z.string().min(1), sourceVersion: z.string().min(1) }),
+  z.strictObject({ outcome: z.literal("deleted"), path: z.string().min(1), restoreVersion: z.string().min(1) }),
+  z.strictObject({ outcome: z.enum(["not_found", "conflict", "destination_conflict"]), path: z.string().min(1), currentVersion: z.string().min(1).optional() }),
+]);
+export const contextDocumentDecisionResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.enum(["confirmed", "already_confirmed"]), outcome: contextDocumentMutationOutcomeSchema }),
+  z.strictObject({ status: z.enum(["rejected", "already_rejected", "not_found", "owner_mismatch", "expired", "invalid_payload"]) }),
+]);
+export type ContextDocumentDecisionRequest = z.infer<typeof contextDocumentDecisionRequestSchema>;
 export type IdeaDeletionDecisionRequest = z.infer<typeof ideaDeletionDecisionRequestSchema>;
 export const insightConfidenceSchema = z.enum(["low", "medium", "high"]);
 const insightBaseSchema = z.object({ id: z.string().min(1), employeeId: employeeIdSchema, threadId: threadIdSchema, sourceMessageId: z.string().min(1), label: z.string().min(1), confidence: insightConfidenceSchema, createdAt: z.string().min(1) });
@@ -205,6 +227,7 @@ export type ResponseChannel = z.infer<typeof responseChannelSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ServiceChatRequest = z.infer<typeof serviceChatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
+export type PendingActionResponse = z.infer<typeof pendingActionSchema>;
 export type SubmitFeedbackRequest = z.infer<typeof submitFeedbackRequestSchema>;
 export type SubmitFeedbackResponse = z.infer<typeof submitFeedbackResponseSchema>;
 export type ListInsightsRequest = z.infer<typeof listInsightsRequestSchema>;

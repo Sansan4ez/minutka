@@ -19,7 +19,7 @@ Logical paths are application API handles, not arbitrary filesystem paths.
 | `/bin/*` | Application-wired typed capabilities, never shell access; invocations are owner-scoped | Validated use cases and required confirmation |
 | `/proc/profile` | Current owner's structured profile | Profile/onboarding use case |
 | `/proc/consent` | Current owner's consent state | Authenticated consent use case |
-| `/proc/context` | Current owner's personal knowledge base and bounded context documents | `IngestionService.saveContextDocument` |
+| `/proc/context` | Current owner's personal knowledge base and bounded context documents; projection is read-only | Owner-bound `ContextDocumentService`: explicit new note, or confirmed update/move/delete |
 | `/proc/records` | Current owner's bounded typed records | Typed record use cases |
 | `/proc/thread` | Current owner's bounded thread summary and recent turns | Conversation use cases; summary compaction is application-owned |
 | `/proc/insights` | Current owner's bounded structured insights | Typed insight extraction use case |
@@ -31,6 +31,8 @@ Logical paths are application API handles, not arbitrary filesystem paths.
 ## Storage and profile details
 
 - Logical handles belong to one application read model/component; physical document keys, artifact CAS references, database rows, and retired prefixes are adapter details and never agent-facing paths.
+- Authority files are immutable to the product agent, `/proc` is a read-only view, and `/bin` capabilities execute typed owner-bound use cases. Context mutation tools cannot target `/AGENTS.md`, `/processes`, `/docs`, `/bin`, `/run`, or arbitrary new top-level namespaces.
+- Uploaded/generated artifacts remain artifacts unless the owner explicitly asks to save a note; there is no automatic promotion into the knowledge base.
 - `/proc/profile` is authoritative for confirmed operational fields such as role, timezone, response length, and selected persona identifier.
 - `/proc/context/90_agent_memory/soul.md` may refine style but not override structured fields, policy, or capabilities. A legacy `persona.md` and `/proc/context/99_system/*` remain ordinary untrusted context.
 - Repository `docs/` and `vault/user/**` are never loaded into the product-agent prompt implicitly. Production owner data comes from scoped stores and projections.

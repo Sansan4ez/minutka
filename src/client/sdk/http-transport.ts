@@ -2,7 +2,7 @@ import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest,
   type CompleteOnboardingRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ListParticipantsRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -50,6 +50,8 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `/v1/me/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
+  confirmContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest) { return this.request("POST", `/v1/me/context-document-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  rejectContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest) { return this.request("POST", `/v1/me/context-document-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
   confirmIdeaDeletion(confirmationId: string) { return this.request("POST", `/v1/me/idea-deletions/${encodeURIComponent(confirmationId)}/confirm`, {}); }
   rejectIdeaDeletion(confirmationId: string) { return this.request("POST", `/v1/me/idea-deletions/${encodeURIComponent(confirmationId)}/reject`, {}); }
   undoIdeaDeletion(ideaId?: string) { return this.request("POST", ideaId ? `/v1/me/ideas/${encodeURIComponent(ideaId)}/undo` : "/v1/me/ideas/undo", {}); }
@@ -86,6 +88,8 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `${this.prefix}/task-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
+  confirmContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest) { return this.request("POST", `${this.prefix}/context-document-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
+  rejectContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest) { return this.request("POST", `${this.prefix}/context-document-mutations/${encodeURIComponent(confirmationId)}/reject`, input); }
   confirmIdeaDeletion(confirmationId: string) { return this.request("POST", `${this.prefix}/idea-deletions/${encodeURIComponent(confirmationId)}/confirm`, {}); }
   rejectIdeaDeletion(confirmationId: string) { return this.request("POST", `${this.prefix}/idea-deletions/${encodeURIComponent(confirmationId)}/reject`, {}); }
   undoIdeaDeletion(ideaId?: string) { return this.request("POST", ideaId ? `${this.prefix}/ideas/${encodeURIComponent(ideaId)}/undo` : `${this.prefix}/ideas/undo`, {}); }

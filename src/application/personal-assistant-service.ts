@@ -34,6 +34,7 @@ import type { IdeaDeletionAuditContext, IdeaDeletionService } from "./idea-delet
 import type { ProcessSchedule } from "../domain/schedule.js";
 import type { SaveDailyScheduleInput, ScheduleManagementService } from "./schedule-management-service.js";
 import type { MonthlyUsage, UsageStore } from "./usage-store.js";
+import type { ContextDocumentAuditContext, ContextDocumentService } from "./context-document-service.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -73,6 +74,7 @@ export class PersonalAssistantService {
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
     private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
     private readonly usage?: Pick<UsageStore, "getMonthly">,
+    private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -130,6 +132,16 @@ export class PersonalAssistantService {
   rejectTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
     return this.taskMutations.reject(ownerId, confirmationId, audit);
+  }
+
+  confirmContextDocumentMutation(ownerId: string, confirmationId: string, audit?: ContextDocumentAuditContext) {
+    if (!this.contextDocuments) throw new Error("context document mutation confirmation is not configured");
+    return this.contextDocuments.confirm(ownerId, confirmationId, audit);
+  }
+
+  rejectContextDocumentMutation(ownerId: string, confirmationId: string, audit?: ContextDocumentAuditContext) {
+    if (!this.contextDocuments) throw new Error("context document mutation confirmation is not configured");
+    return this.contextDocuments.reject(ownerId, confirmationId, audit);
   }
 
   confirmIdeaDeletion(ownerId: string, confirmationId: string, audit?: IdeaDeletionAuditContext) {

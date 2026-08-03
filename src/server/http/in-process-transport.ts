@@ -3,7 +3,7 @@ import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
   AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompleteOnboardingRequest, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
-  SubmitFeedbackRequest, TaskMutationDecisionRequest,
+  SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -46,6 +46,8 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: employeeId(this.principal) }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(employeeId(this.principal), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(employeeId(this.principal), confirmationId); }
+  confirmContextDocumentMutation(confirmationId: string, _input: ContextDocumentDecisionRequest) { return personal(this.application).confirmContextDocumentMutation(employeeId(this.principal), confirmationId); }
+  rejectContextDocumentMutation(confirmationId: string, _input: ContextDocumentDecisionRequest) { return personal(this.application).rejectContextDocumentMutation(employeeId(this.principal), confirmationId); }
   confirmIdeaDeletion(confirmationId: string) { return personal(this.application).confirmIdeaDeletion(employeeId(this.principal), confirmationId); }
   rejectIdeaDeletion(confirmationId: string) { return personal(this.application).rejectIdeaDeletion(employeeId(this.principal), confirmationId); }
   undoIdeaDeletion(ideaId?: string) { return personal(this.application).undoIdeaDeletion(employeeId(this.principal), ideaId); }
@@ -81,6 +83,8 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(this.employeeId(), confirmationId); }
   rejectTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).rejectTaskMutation(this.employeeId(), confirmationId); }
+  confirmContextDocumentMutation(confirmationId: string, _input: ContextDocumentDecisionRequest) { return personal(this.application).confirmContextDocumentMutation(this.employeeId(), confirmationId); }
+  rejectContextDocumentMutation(confirmationId: string, _input: ContextDocumentDecisionRequest) { return personal(this.application).rejectContextDocumentMutation(this.employeeId(), confirmationId); }
   confirmIdeaDeletion(confirmationId: string) { return personal(this.application).confirmIdeaDeletion(this.employeeId(), confirmationId); }
   rejectIdeaDeletion(confirmationId: string) { return personal(this.application).rejectIdeaDeletion(this.employeeId(), confirmationId); }
   undoIdeaDeletion(ideaId?: string) { return personal(this.application).undoIdeaDeletion(this.employeeId(), ideaId); }

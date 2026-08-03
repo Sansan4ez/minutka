@@ -5,7 +5,7 @@ import type { PersonalAssistantService } from "../../application/personal-assist
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
-  taskMutationDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
+  taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
 } from "../../contracts/minutka-api.js";
 import { authenticateBearer, type ApiAuthConfig, type AuthenticatedPrincipal } from "./auth.js";
@@ -47,6 +47,8 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "chat"
   | "confirmTaskMutation"
   | "rejectTaskMutation"
+  | "confirmContextDocumentMutation"
+  | "rejectContextDocumentMutation"
   | "confirmIdeaDeletion"
   | "rejectIdeaDeletion"
   | "undoIdeaDeletion"
@@ -167,6 +169,18 @@ export function createHttpServer(options: HttpServerOptions): Server {
           ? options.application.confirmTaskMutation(employee.employeeId, confirmationId)
           : options.application.rejectTaskMutation(employee.employeeId, confirmationId)), id);
       }
+      const meContextDocumentDecision = url.pathname.match(/^\/v1\/me\/context-document-mutations\/([^/]+)\/(confirm|reject)$/);
+      if (req.method === "POST" && meContextDocumentDecision) {
+        const employee = requireKind(principal, "employee");
+        parse(contextDocumentDecisionRequestSchema, await body(req));
+        const confirmationId = decodeURIComponent(meContextDocumentDecision[1]);
+        const decision = meContextDocumentDecision[2];
+        template = `/v1/me/context-document-mutations/:confirmationId/${decision}`;
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
+          ? options.application.confirmContextDocumentMutation(employee.employeeId, confirmationId)
+          : options.application.rejectContextDocumentMutation(employee.employeeId, confirmationId)), id);
+      }
       const meIdeaDeletionDecision = url.pathname.match(/^\/v1\/me\/idea-deletions\/([^/]+)\/(confirm|reject)$/);
       if (req.method === "POST" && meIdeaDeletionDecision) {
         const employee = requireKind(principal, "employee");
@@ -223,6 +237,19 @@ export function createHttpServer(options: HttpServerOptions): Server {
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
           ? options.application.confirmTaskMutation(employeeId, confirmationId)
           : options.application.rejectTaskMutation(employeeId, confirmationId)), id);
+      }
+      const serviceContextDocumentDecision = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/context-document-mutations\/([^/]+)\/(confirm|reject)$/);
+      if (req.method === "POST" && serviceContextDocumentDecision) {
+        requireKind(principal, "service");
+        parse(contextDocumentDecisionRequestSchema, await body(req));
+        const employeeId = parse(employeeIdSchema, decodeURIComponent(serviceContextDocumentDecision[1]));
+        const confirmationId = decodeURIComponent(serviceContextDocumentDecision[2]);
+        const decision = serviceContextDocumentDecision[3];
+        template = `/v1/service/employees/:employeeId/context-document-mutations/:confirmationId/${decision}`;
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => decision === "confirm"
+          ? options.application.confirmContextDocumentMutation(employeeId, confirmationId)
+          : options.application.rejectContextDocumentMutation(employeeId, confirmationId)), id);
       }
       const serviceIdeaDeletionDecision = url.pathname.match(/^\/v1\/service\/employees\/([^/]+)\/idea-deletions\/([^/]+)\/(confirm|reject)$/);
       if (req.method === "POST" && serviceIdeaDeletionDecision) {

@@ -18,6 +18,10 @@ import { safeConfirmationDisplayText, type PendingTaskPreviewText } from "./task
 export const contextDocumentConfirmationTtlMilliseconds = 15 * 60_000;
 export const contextDocumentConfirmationPurgeBatchSize = 500;
 export const contextDocumentPreviewMaximumCharacters = 1_200;
+export const writableContextDocumentSections = [
+  "00_inbox", "07_rfcs", "08_entities", "10_user_memory", "20_work",
+  "30_knowledge", "40_projects", "50_finance", "60_outbox", "90_agent_memory",
+] as const;
 
 const requiredText = z.string().refine((value) => value.trim().length > 0, "Required text");
 const versionSchema = requiredText.max(512);
@@ -343,7 +347,9 @@ function requiredContent(content: string, maximumBytes: number): string {
 
 function normalizeDestination(value: string): string {
   const destination = requiredText.parse(value).trim();
-  if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u.test(destination) || destination.toLocaleLowerCase().endsWith(".md")) throw new Error("destination must be one context directory segment");
+  if (!writableContextDocumentSections.includes(destination as typeof writableContextDocumentSections[number])) {
+    throw new Error("destination must be an allow-listed context section");
+  }
   return destination;
 }
 

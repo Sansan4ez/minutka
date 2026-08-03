@@ -7,10 +7,12 @@ import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/proc
 import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
+import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
   documents: assistantDocumentToolNames,
+  contextDocuments: assistantContextDocumentMutationToolNames,
   ideas: assistantIdeaToolNames,
   tasks: assistantTaskToolNames,
   schedules: assistantScheduleToolNames,
@@ -20,6 +22,7 @@ export const assistantRuntimeToolsets = {
 export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.inbox,
   ...assistantRuntimeToolsets.documents,
+  ...assistantRuntimeToolsets.contextDocuments,
   ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
   ...assistantRuntimeToolsets.schedules,
@@ -46,6 +49,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
       toolsets: {
         inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
         documents: createDocumentTools(context.documents),
+        contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
         ideas: createIdeaTools(context.ideas),
         tasks: createTaskTools(context.tasks),
         schedules: createScheduleTools(context.schedules),

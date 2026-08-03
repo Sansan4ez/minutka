@@ -8,12 +8,14 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryIdeaDeletionConfirmationStore } from "../../../src/application/in-memory-idea-deletion-confirmation-store.js";
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
+import { createInMemoryContextDocumentConfirmationStore } from "../../../src/application/in-memory-context-document-confirmation-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { IdeaDeletionService } from "../../../src/application/idea-deletion.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { ContextDocumentService } from "../../../src/application/context-document-service.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { taskDecisionText } from "../../../src/telegram/telegram-shell.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
@@ -32,6 +34,10 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   const documents = createInMemoryDocumentStore(clock);
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);
+  const contextDocuments = new ContextDocumentService(
+    documents, createInMemoryContextDocumentConfirmationStore(), clock,
+    { confirmationId: (() => { let id = 0; return () => `telegram-context-document-${++id}`; })() },
+  );
   const taskMutations = new TaskMutationConfirmationService(
     createInMemoryTaskMutationConfirmationStore(tasks), clock,
     { confirmationId: (() => { let id = 0; return () => `telegram-confirmation-${++id}`; })() },
@@ -44,13 +50,13 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(legacy.world),
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
-    ideaStore: ideas, ideaDeletions, taskStore: tasks, taskMutations,
+    ideaStore: ideas, ideaDeletions, contextDocuments, taskStore: tasks, taskMutations,
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
   });
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
-  const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations, undefined, ideaDeletions);
+  const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations, undefined, ideaDeletions, undefined, undefined, contextDocuments);
   const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade }, { saveArtifact: (input) => facade.saveArtifact(input) });
-  return { telegram, ideas, tasks, facade, setNow(value: string) { now = value; } };
+  return { telegram, ideas, tasks, documents, contextDocuments, facade, setNow(value: string) { now = value; } };
 }
 
 function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number], text: string): string {
@@ -223,6 +229,64 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: "tm:c:telegram-confirmation-1", callbackQueryId: "confirm-after-uncertain-reject" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Uncertain rejection" }]);
+  });
+
+  it("creates an explicitly requested context note and reports the logical path without a confirmation card", async () => {
+    const { telegram, documents } = await harness(async (_input, context) => {
+      const saved = await context.contextDocuments.createNote({ title: "Meeting Notes", content: "# Meeting\n\nDecision" });
+      return saved.outcome === "created" ? `Сохранено: ${saved.path}` : "Заметка уже существует.";
+    });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "сохрани это как заметку" });
+
+    expect(telegram.sentMessages().at(-1)?.text).toContain("/proc/context/00_inbox/meeting-notes.md");
+    expect(telegram.sentMessages().some((message) => message.text.includes("Предложение:"))).toBe(false);
+    await expect(documents.get(owner.employeeId, "context/00_inbox/meeting-notes.md")).resolves.toMatchObject({ content: "# Meeting\n\nDecision" });
+  });
+
+  it("renders a bounded context-document diff and confirms it exactly once", async () => {
+    let originalVersion = "";
+    const { telegram, documents } = await harness(async (_input, context) => {
+      const current = await context.documents.readDocument({ path: "/proc/context/00_inbox/source.md" });
+      originalVersion = current.version;
+      await context.contextDocuments.proposeUpdate({
+        path: current.path,
+        expectedVersion: current.version,
+        patch: { search: "old text", replacement: "new text" },
+      });
+      return "Предложение подготовлено.";
+    });
+    await documents.put(owner.employeeId, "context/00_inbox/source.md", "# Source\n\nold text");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "замени раздел" });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toContain("Действие: изменить документ\nДокумент: /proc/context/00_inbox/source.md\nИзменения:\n- old text + new text");
+    expect(taskButton(proposal, "✅ Подтвердить")).toBe("cd:c:telegram-context-document-1");
+    await expect(documents.get(owner.employeeId, "context/00_inbox/source.md")).resolves.toMatchObject({ content: "# Source\n\nold text", version: originalVersion });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-context" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение документа сохранено.");
+    await expect(documents.get(owner.employeeId, "context/00_inbox/source.md")).resolves.toMatchObject({ content: "# Source\n\nnew text" });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-context-again" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
+  });
+
+  it("terminally rejects an undeliverable context-document proposal", async () => {
+    const { telegram, documents } = await harness(async (_input, context) => {
+      const current = await context.documents.readDocument({ path: "/proc/context/00_inbox/source.md" });
+      await context.contextDocuments.proposeDelete({ path: current.path, expectedVersion: current.version });
+      return "Предложение подготовлено.";
+    });
+    await documents.put(owner.employeeId, "context/00_inbox/source.md", "keep me");
+    telegram.setMessageDeliverySequence("fail", "fail");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "удали документ" });
+
+    expect(telegram.taskMutationRejectCalls()).toEqual(["telegram-context-document-1"]);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.");
+    await expect(documents.get(owner.employeeId, "context/00_inbox/source.md")).resolves.toMatchObject({ content: "keep me" });
   });
 
   it("renders an idea deletion without its opaque id and confirms it exactly once", async () => {

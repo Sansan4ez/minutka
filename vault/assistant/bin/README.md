@@ -17,6 +17,10 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/list-documents.md` | `listDocuments` | No | No | Authenticated owner's `/proc/context` only | List bounded logical document metadata. |
 | `/bin/read-document.md` | `readDocument` | No | No | Authenticated owner's `/proc/context` only | Read a bounded document range or Markdown section. |
 | `/bin/search-documents.md` | `searchDocuments` | No | No | Authenticated owner's `/proc/context` only | Search owner document paths/content with bounded snippets. |
+| `/bin/create-context-note.md` | `createContextNote` | Yes, reversible internal write | Explicit owner save/add request | Owner bound by `AssistantService`; destination from a closed section catalog | Create one new Markdown note and return its `/proc/context/*` path/version. |
+| `/bin/propose-context-document-update.md` | `proposeContextDocumentUpdate` | No durable document mutation | Returns safe pending-action receipt | Owner bound privately; exact version comes from `readDocument` | Prepare one bounded update preview. |
+| `/bin/propose-context-document-move.md` | `proposeContextDocumentMove` | No durable document mutation | Returns safe pending-action receipt | Owner bound privately; source/destination stay under `/proc/context` | Prepare one rename/move. |
+| `/bin/propose-context-document-delete.md` | `proposeContextDocumentDelete` | No durable document mutation | Returns safe pending-action receipt | Owner bound privately; exact version comes from `readDocument` | Prepare one deletion. |
 | `/bin/list-tasks.md` | `listTasks` | No | No | Authenticated owner's tasks only | List bounded tasks and current revisions. |
 | `/bin/propose-task-mutation.md` | `proposeTaskMutation` | No durable task mutation | Returns safe pending-action receipt | Owner bound by `AssistantService`; task id is application-generated and private | Propose one create/update/complete/cancel per turn. |
 | `/bin/propose-idea-to-task.md` | `proposeIdeaToTask` | No durable task mutation | Returns owner-free status/task id or a safe pending-action receipt | Owner and idea/task provenance bound privately by application use-case | Propose one idempotent idea-to-task conversion per turn. |
@@ -25,7 +29,7 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible internal write | No | Authenticated owner and exact schedule id | Disable a schedule without deleting its fire history. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
 
-Task and idea-deletion confirmation/rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.
+Task, idea-deletion, and context-document confirmation/rejection are authenticated application/transport commands, not agent tools. They accept only the opaque confirmation id, load and validate the canonical stored proposal server-side, persist terminal rejection, and execute at most once under the confirmation-store lock.
 
 Read, list, and search are tools because they are deterministic typed operations over an owner-scoped namespace. `inbox_capture` is a business process because the agent must interpret the inbound item, choose its project and record type, decide whether clarification is needed, and then invoke `captureIdea`.
 

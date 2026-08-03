@@ -57,10 +57,12 @@ export class TelegramDriver {
             };
             if (property === "resetConversation") return () => (runtime.service as PersonalAssistantService).resetConversation({ userId: employeeId });
             if (property === "listSchedules") return async () => ({ schedules: (await (runtime.service as PersonalAssistantService).listSchedules(employeeId)).map(({ id, processId, timeOfDay, timezone, enabled, nextFireAt }) => ({ id, processId, timeOfDay, timezone, enabled, nextFireAt })) });
-            if (property === "rejectTaskMutation") return async (confirmationId: string, input: Parameters<typeof scoped.rejectTaskMutation>[1]) => {
+            if (property === "rejectTaskMutation" || property === "rejectContextDocumentMutation") return async (confirmationId: string, input: {}) => {
               self.taskRejects.push(confirmationId);
               if (self.failNextTaskReject) { self.failNextTaskReject = false; throw new Error("simulated task rejection failure"); }
-              return scoped.rejectTaskMutation(confirmationId, input);
+              return property === "rejectTaskMutation"
+                ? scoped.rejectTaskMutation(confirmationId, input)
+                : scoped.rejectContextDocumentMutation(confirmationId, input);
             };
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;

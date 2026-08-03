@@ -33,6 +33,8 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     await h.documents.put("owner", "context/imported-knowledge-base/00_inbox/legacy.md", "legacy");
     await expect(h.service.createNote("owner", { title: "Legacy", content: "replacement" })).resolves.toMatchObject({ outcome: "conflict" });
     await expect(h.service.createNote("other", { title: "Meeting Notes", content: "other" })).resolves.toMatchObject({ outcome: "created" });
+    await expect(h.service.createNote("owner", { title: "Unsafe", content: "body", destination: "99_system" })).rejects.toThrow("allow-listed context section");
+    await expect(h.service.createNote("owner", { title: "Unsafe", content: "body", destination: "new_namespace" })).rejects.toThrow("allow-listed context section");
     await expect(h.documents.get("owner", "context/00_inbox/meeting-notes.md")).resolves.toMatchObject({ content: "first" });
   });
 

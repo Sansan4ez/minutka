@@ -81,6 +81,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         const tool = options.toolsets?.inbox?.captureIdea as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
+        expect(Object.keys(options.toolsets?.contextDocuments ?? {})).toEqual(["createContextNote", "proposeContextDocumentUpdate", "proposeContextDocumentMove", "proposeContextDocumentDelete"]);
         expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
         expect(Object.keys(options.toolsets?.schedules ?? {})).toEqual(["listSchedules", "setDailySchedule", "disableSchedule"]);
         const taskTools = options.toolsets?.tasks as Record<string, { execute?: (input: unknown, context: unknown) => Promise<unknown> }>;
@@ -153,6 +154,12 @@ describe("A2.6: legacy Minutka agent removal", () => {
             confirmation: { confirmationId: "confirmation-2", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Trace-safe idea", expiresAt: "2026-07-16T09:15:00.000Z" },
           };
         },
+      },
+      contextDocuments: {
+        async createNote() { return { outcome: "created", path: "/proc/context/00_inbox/safe.md", version: "version-1" }; },
+        async proposeUpdate() { return { status: "not_found" }; },
+        async proposeMove() { return { status: "not_found" }; },
+        async proposeDelete() { return { status: "not_found" }; },
       },
       documents: {
         limits: {
@@ -229,6 +236,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets ?? {})).toEqual(Object.keys(assistantRuntimeToolsets));
     expect(Object.keys(generateOptions?.toolsets?.inbox ?? {})).toEqual([...assistantRuntimeToolsets.inbox]);
     expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
+    expect(Object.keys(generateOptions?.toolsets?.contextDocuments ?? {})).toEqual([...assistantRuntimeToolsets.contextDocuments]);
     expect(Object.keys(generateOptions?.toolsets?.ideas ?? {})).toEqual([...assistantRuntimeToolsets.ideas]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
@@ -300,6 +308,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     records: {} as never,
     source: { kind: "text", text: "usage" },
     captureIdea: async () => { throw new Error("not used"); },
+    contextDocuments: {} as never,
     documents: {
       limits: {
         listDefault: 20,

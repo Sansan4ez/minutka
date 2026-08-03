@@ -35,6 +35,8 @@ import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDia
 import type { ModelTokenUsage, UsageCostPolicy, UsageStore } from "./usage-store.js";
 import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder } from "./usage-recorder.js";
 import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
+import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
+import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -48,6 +50,8 @@ export type AssistantAgentContext = {
   captureIdea(input: Omit<CaptureIdeaInput, "id" | "userId" | "source">): Promise<CaptureIdeaResult>;
   /** Read-only personal document capabilities bound to the authenticated owner. */
   documents: ReturnType<typeof createOwnerDocumentReader>;
+  /** Owner-bound note creation and proposal-only Markdown mutations. */
+  contextDocuments: AssistantContextDocumentCapabilities;
   /** Owner-bound task reads and proposals. Execution is an authenticated application command. */
   tasks: AssistantTaskCapabilities;
   /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
@@ -82,7 +86,7 @@ export type AssistantChatResult = {
   /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
-  pendingAction?: PendingTaskAction | PendingIdeaDeletionAction;
+  pendingAction?: PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt;
   /** Explicit recovery state: a proposal is durable but is not a business mutation. */
   effect: AssistantChatEffectState;
 };
@@ -106,7 +110,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -277,10 +281,13 @@ export class AssistantService {
     let pendingTaskMutation: PendingTaskMutation | undefined;
     let pendingTaskTitle: string | undefined;
     let pendingIdeaDeletion: { record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] } | undefined;
+    let pendingContextDocumentMutation: PendingContextDocumentMutationReceipt | undefined;
+    let contextDocumentProposalReserved = false;
     const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
     const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
       throwAssistantAbortReason(applicationSignal);
       if (taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
+      if (pendingIdeaDeletion || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
       pendingTaskMutation = pending;
       taskProposalState.persistence = "attempted";
     };
@@ -291,7 +298,7 @@ export class AssistantService {
       },
       propose: async (input: { ideaId: string; expectedRevision: number; reason?: string }) => {
         if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
-        if (pendingIdeaDeletion || pendingTaskMutation) throw new Error("only one pending action is allowed per assistant turn");
+        if (pendingIdeaDeletion || pendingTaskMutation || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
         const result = await this.deps.ideaDeletions.propose(userId, input, {
           audit: { requestId, threadId, messageId },
         });
@@ -309,6 +316,25 @@ export class AssistantService {
         return result;
       },
     };
+    const contextDocuments = createAssistantContextDocumentCapabilities({
+      ownerId: userId,
+      service: this.deps.contextDocuments,
+      audit: { requestId, threadId, messageId },
+      reserveProposal() {
+        if (pendingIdeaDeletion || pendingTaskMutation || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
+        contextDocumentProposalReserved = true;
+      },
+      releaseProposal() { contextDocumentProposalReserved = false; },
+      onProposal(confirmation) {
+        pendingContextDocumentMutation = confirmation;
+        contextDocumentProposalReserved = false;
+        chatEffect.pendingActionCreated = true;
+      },
+      onCreate(outcome) {
+        observedExecutionTrace.push({ kind: "tool", toolName: "createContextNote" });
+        if (outcome.outcome === "created" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      },
+    });
     const schedules: OwnerScheduleCapabilities = {
       listSchedules: () => {
         if (!this.deps.scheduleManagement) throw new Error("schedule management is not configured");
@@ -371,6 +397,7 @@ export class AssistantService {
       systemContext: systemContextBudget.text,
       captureIdea,
       documents,
+      contextDocuments,
       tasks,
       ideas,
       schedules,
@@ -471,7 +498,7 @@ export class AssistantService {
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (currentChatEffectState() === "none" && !captureResult && !pendingTaskMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (currentChatEffectState() === "none" && !captureResult && !pendingTaskMutation && !pendingContextDocumentMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -527,7 +554,9 @@ export class AssistantService {
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
       ...(pendingIdeaDeletion
         ? { pendingAction: pendingIdeaDeletionAction(pendingIdeaDeletion.record, pendingIdeaDeletion.idea) }
-        : pendingTaskMutation ? { pendingAction: pendingTaskAction(pendingTaskMutation, pendingTaskTitle) } : {}),
+        : pendingTaskMutation
+          ? { pendingAction: pendingTaskAction(pendingTaskMutation, pendingTaskTitle) }
+          : pendingContextDocumentMutation ? { pendingAction: pendingContextDocumentMutation } : {}),
       effect: currentChatEffectState(),
     };
   }

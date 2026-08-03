@@ -11,6 +11,8 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 If no process applies, answer from `/AGENTS.md` and bounded owner projections. Prefer the narrowest matching set. `day_focus` is internal-first: do not require calendar integration. `evening_reflection` may use recent history but must not invent work, blockers, meetings, or emotional state. Deterministic transport gates may select a runtime path but do not decide answer semantics. Process ids are diagnostics reconstructed from actual execution, not authority.
 
+For knowledge-base writes, `createContextNote` is allowed only after an explicit save/add request. For existing Markdown, call `readDocument` first, pass its exact version to one proposal tool, and leave execution to the application confirmation buttons. A proposal is not a document change; on a stale version, stop and ask to reread rather than overwriting. Artifacts are never promoted automatically.
+
 For task requests, use `listTasks` as needed and prepare at most one mutation proposal. For “mark X completed”, resolve id/revision with `listTasks`, then call `proposeTaskMutation({ kind: "complete", taskId, expectedRevision })`. Do not repeat proposal identifiers or confirmation instructions in prose, and never claim mutation before authenticated confirmation outside the agent tool loop.
 
 For daily check-in times, use `listSchedules`, then `setDailySchedule` or `disableSchedule`; supported process ids are closed by the tool. After a saved write, state its time, timezone, and enabled state.

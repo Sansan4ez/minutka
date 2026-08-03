@@ -4,10 +4,10 @@ import {
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
-  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, monthlyUsageResponseSchema, scheduleListResponseSchema, userProfileSchema,
+  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, contextDocumentDecisionRequestSchema, contextDocumentDecisionResponseSchema, monthlyUsageResponseSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest,
   type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
 
@@ -22,6 +22,8 @@ export type EmployeeMinutkaTransport = {
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
+  confirmContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest): Promise<unknown>;
+  rejectContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest): Promise<unknown>;
   confirmIdeaDeletion(confirmationId: string): Promise<unknown>;
   rejectIdeaDeletion(confirmationId: string): Promise<unknown>;
   undoIdeaDeletion(ideaId?: string): Promise<unknown>;
@@ -41,6 +43,8 @@ export type ServiceEmployeeMinutkaTransport = {
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
   rejectTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
+  confirmContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest): Promise<unknown>;
+  rejectContextDocumentMutation(confirmationId: string, input: ContextDocumentDecisionRequest): Promise<unknown>;
   confirmIdeaDeletion(confirmationId: string): Promise<unknown>;
   rejectIdeaDeletion(confirmationId: string): Promise<unknown>;
   undoIdeaDeletion(ideaId?: string): Promise<unknown>;
@@ -68,6 +72,8 @@ export class EmployeeMinutkaClient {
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
   async rejectTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.rejectTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "rejectTaskMutation request")), "rejectTaskMutation response"); }
+  async confirmContextDocumentMutation(confirmationId: string, input: unknown = {}) { return validate(contextDocumentDecisionResponseSchema, await this.transport.confirmContextDocumentMutation(confirmationId, validate(contextDocumentDecisionRequestSchema, input, "confirmContextDocumentMutation request")), "confirmContextDocumentMutation response"); }
+  async rejectContextDocumentMutation(confirmationId: string, input: unknown = {}) { return validate(contextDocumentDecisionResponseSchema, await this.transport.rejectContextDocumentMutation(confirmationId, validate(contextDocumentDecisionRequestSchema, input, "rejectContextDocumentMutation request")), "rejectContextDocumentMutation response"); }
   async confirmIdeaDeletion(confirmationId: string) { validate(ideaDeletionDecisionRequestSchema, {}, "confirmIdeaDeletion request"); return validate(ideaDeletionDecisionResponseSchema, await this.transport.confirmIdeaDeletion(confirmationId), "confirmIdeaDeletion response"); }
   async rejectIdeaDeletion(confirmationId: string) { validate(ideaDeletionDecisionRequestSchema, {}, "rejectIdeaDeletion request"); return validate(ideaDeletionDecisionResponseSchema, await this.transport.rejectIdeaDeletion(confirmationId), "rejectIdeaDeletion response"); }
   async undoIdeaDeletion(ideaId?: string) { return validate(ideaMutationOutcomeSchema, await this.transport.undoIdeaDeletion(ideaId), "undoIdeaDeletion response"); }
@@ -97,6 +103,8 @@ export class ServiceEmployeeMinutkaClient {
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
   async rejectTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.rejectTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "rejectTaskMutation request")), "rejectTaskMutation response"); }
+  async confirmContextDocumentMutation(confirmationId: string, input: unknown = {}) { return validate(contextDocumentDecisionResponseSchema, await this.transport.confirmContextDocumentMutation(confirmationId, validate(contextDocumentDecisionRequestSchema, input, "confirmContextDocumentMutation request")), "confirmContextDocumentMutation response"); }
+  async rejectContextDocumentMutation(confirmationId: string, input: unknown = {}) { return validate(contextDocumentDecisionResponseSchema, await this.transport.rejectContextDocumentMutation(confirmationId, validate(contextDocumentDecisionRequestSchema, input, "rejectContextDocumentMutation request")), "rejectContextDocumentMutation response"); }
   async confirmIdeaDeletion(confirmationId: string) { return validate(ideaDeletionDecisionResponseSchema, await this.transport.confirmIdeaDeletion(confirmationId), "confirmIdeaDeletion response"); }
   async rejectIdeaDeletion(confirmationId: string) { return validate(ideaDeletionDecisionResponseSchema, await this.transport.rejectIdeaDeletion(confirmationId), "rejectIdeaDeletion response"); }
   async undoIdeaDeletion(ideaId?: string) { return validate(ideaMutationOutcomeSchema, await this.transport.undoIdeaDeletion(ideaId), "undoIdeaDeletion response"); }

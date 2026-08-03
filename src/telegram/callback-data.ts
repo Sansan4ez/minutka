@@ -54,11 +54,25 @@ export function encodeTaskMutationCallbackData(action: TaskMutationCallbackActio
   return payload;
 }
 
+export function encodeContextDocumentMutationCallbackData(action: TaskMutationCallbackAction, confirmationId: string): string {
+  if (!/^[\x21-\x7E]+$/.test(confirmationId) || confirmationId.includes(":")) throw new Error("confirmationId must be ASCII non-whitespace without ':'");
+  const payload = `cd:${action === "confirm" ? "c" : "r"}:${confirmationId}`;
+  if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Callback payload exceeds 64 bytes");
+  return payload;
+}
+
 export function encodeIdeaDeletionCallbackData(action: TaskMutationCallbackAction, confirmationId: string): string {
   if (!/^[\x21-\x7E]+$/.test(confirmationId) || confirmationId.includes(":")) throw new Error("confirmationId must be ASCII non-whitespace without ':'");
   const payload = `id:${action === "confirm" ? "c" : "r"}:${confirmationId}`;
   if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Callback payload exceeds 64 bytes");
   return payload;
+}
+
+export function decodeContextDocumentMutationCallbackData(data: string): DecodedTaskMutation | undefined {
+  if (Buffer.byteLength(data, "utf8") > 64) return undefined;
+  const match = /^cd:([cr]):([^:]+)$/.exec(data);
+  if (!match || !/^[\x21-\x7E]+$/.test(match[2]!)) return undefined;
+  return { action: match[1] === "c" ? "confirm" : "reject", confirmationId: match[2]! };
 }
 
 export function decodeIdeaDeletionCallbackData(data: string): DecodedTaskMutation | undefined {

@@ -1,13 +1,17 @@
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
 import type { AssistantChatResult } from "../application/assistant-service.js";
+import type { PendingTaskAction } from "../application/task-mutation-confirmation.js";
+import type { PendingIdeaDeletionAction } from "../application/idea-deletion.js";
+import type { PendingContextDocumentMutationReceipt } from "../application/context-document-service.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import type { TaskMutationDecisionResult } from "../application/task-mutation-confirmation.js";
+import type { ContextDocumentDecisionResult } from "../application/context-document-service.js";
 import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, type TelegramSessionStore } from "./telegram-session-store.js";
 import type { TelegramReplyPort, TelegramSentMessage } from "./telegram-types.js";
 import { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
 import { renderTelegramMarkdown, renderTelegramPlainText, type TelegramRenderedChunk } from "./telegram-renderer.js";
-import { decodeFeedbackCallbackData, decodeIdeaDeletionCallbackData, decodeTaskMutationCallbackData, encodeFeedbackCallbackData, encodeIdeaDeletionCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
+import { decodeContextDocumentMutationCallbackData, decodeFeedbackCallbackData, decodeIdeaDeletionCallbackData, decodeTaskMutationCallbackData, encodeContextDocumentMutationCallbackData, encodeFeedbackCallbackData, encodeIdeaDeletionCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
@@ -153,7 +157,7 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
 function currentTimeInTimezone(timezone: string): string {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
 }
-type TelegramChatDeliveryResult = Pick<AssistantChatResult, "messageId" | "response" | "pendingAction">;
+type TelegramChatDeliveryResult = { messageId: string; response: string; pendingAction?: PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt };
 
 function taskPendingAction(chat: TelegramChatDeliveryResult) {
   return "pendingAction" in chat ? chat.pendingAction : undefined;
@@ -161,7 +165,11 @@ function taskPendingAction(chat: TelegramChatDeliveryResult) {
 function pendingActionReplyMarkup(chat: TelegramChatDeliveryResult) {
   const pendingAction = taskPendingAction(chat);
   if (!pendingAction) return undefined;
-  const encode = pendingAction.actionKind === "delete_idea" ? encodeIdeaDeletionCallbackData : encodeTaskMutationCallbackData;
+  const encode = pendingAction.actionKind === "delete_idea"
+    ? encodeIdeaDeletionCallbackData
+    : pendingAction.actionKind === "update" || pendingAction.actionKind === "move" || pendingAction.actionKind === "delete"
+      ? encodeContextDocumentMutationCallbackData
+      : encodeTaskMutationCallbackData;
   return { inlineKeyboard: [[
     { text: "✅ Подтвердить", callbackData: encode("confirm", pendingAction.confirmationId) },
     { text: "❌ Отклонить", callbackData: encode("reject", pendingAction.confirmationId) },
@@ -185,6 +193,15 @@ function ideaSummaryPreviewText(value: { value: string; truncated: boolean }): s
   return visibleText ? previewText(value) : "Идея без описания";
 }
 function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPendingAction>>["preview"]): string[] {
+  if (!("kind" in preview)) {
+    const action = preview.destination ? "переименовать/переместить документ" : preview.change ? "изменить документ" : "удалить документ";
+    return [
+      `Действие: ${action}`,
+      `Документ: ${preview.path}`,
+      ...(preview.destination ? [`Новое расположение: ${preview.destination}`] : []),
+      ...(preview.change ? ["Изменения:", previewText(preview.change)] : []),
+    ];
+  }
   if (preview.kind === "delete_idea") return [`Действие: удалить идею`, `Идея: ${ideaSummaryPreviewText(preview.summary)}`];
   if (preview.kind === "create" || preview.kind === "idea_to_task") {
     return [
@@ -215,6 +232,20 @@ function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPend
       ];
     }
   }
+}
+export function contextDocumentDecisionText(result: ContextDocumentDecisionResult): string {
+  if (result.status === "confirmed" || result.status === "already_confirmed") {
+    if (result.outcome.outcome === "conflict") return "Документ изменился после предложения. Перечитайте его и подготовьте новое предложение.";
+    if (result.outcome.outcome === "destination_conflict") return "Документ по новому пути уже существует. Изменение не выполнено.";
+    if (result.outcome.outcome === "not_found") return "Документ не найден. Изменение не выполнено.";
+    return result.status === "already_confirmed" ? "Изменение документа уже сохранено." : "Изменение документа сохранено.";
+  }
+  if (result.status === "rejected") return "Изменение документа отклонено.";
+  if (result.status === "already_rejected") return "Изменение документа уже отклонено.";
+  if (result.status === "expired") return "Срок подтверждения истёк. Документ не изменён.";
+  if (result.status === "owner_mismatch") return "Предложение принадлежит другому владельцу. Документ не изменён.";
+  if (result.status === "invalid_payload") return "Предложение повреждено или устарело. Документ не изменён.";
+  return "Предложение не найдено. Документ не изменён.";
 }
 export function taskDecisionText(result: TaskMutationDecisionResult): string {
   if (result.status === "confirmed" || result.status === "already_confirmed") {
@@ -441,7 +472,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     try {
       rejected = pendingAction.actionKind === "delete_idea"
         ? await employeeClient(employeeId).rejectIdeaDeletion(pendingAction.confirmationId)
-        : await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
+        : pendingAction.actionKind === "update" || pendingAction.actionKind === "move" || pendingAction.actionKind === "delete"
+          ? await employeeClient(employeeId).rejectContextDocumentMutation(pendingAction.confirmationId)
+          : await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
     } catch (error) {
       logShellError("task proposal terminal rejection", error);
       throw new TaskProposalTerminalizationUnknownError();
@@ -661,9 +694,12 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
-        if (data.startsWith("tm:") || data.startsWith("id:")) {
+        if (data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:")) {
           const ideaDeletion = data.startsWith("id:");
-          const decoded = ideaDeletion ? decodeIdeaDeletionCallbackData(data) : decodeTaskMutationCallbackData(data);
+          const contextDocumentMutation = data.startsWith("cd:");
+          const decoded = ideaDeletion
+            ? decodeIdeaDeletionCallbackData(data)
+            : contextDocumentMutation ? decodeContextDocumentMutationCallbackData(data) : decodeTaskMutationCallbackData(data);
           if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат действия.");
           if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
           if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
@@ -671,9 +707,13 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             ? () => decoded.action === "confirm"
               ? employeeClient(session.employeeId).confirmIdeaDeletion(decoded.confirmationId)
               : employeeClient(session.employeeId).rejectIdeaDeletion(decoded.confirmationId)
-            : () => decoded.action === "confirm"
-              ? employeeClient(session.employeeId).confirmTaskMutation(decoded.confirmationId)
-              : employeeClient(session.employeeId).rejectTaskMutation(decoded.confirmationId);
+            : contextDocumentMutation
+              ? () => decoded.action === "confirm"
+                ? employeeClient(session.employeeId).confirmContextDocumentMutation(decoded.confirmationId)
+                : employeeClient(session.employeeId).rejectContextDocumentMutation(decoded.confirmationId)
+              : () => decoded.action === "confirm"
+                ? employeeClient(session.employeeId).confirmTaskMutation(decoded.confirmationId)
+                : employeeClient(session.employeeId).rejectTaskMutation(decoded.confirmationId);
           const handled = await runCallbackAction({
             chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
             action: action as () => Promise<{ status: string }>,
@@ -685,7 +725,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
               : handled.result.status === "already_confirmed" ? "Идея уже удалена."
                 : handled.result.status === "rejected" || handled.result.status === "already_rejected" ? "Удаление отменено."
                   : handled.result.status === "expired" ? "Время подтверждения истекло." : "Идея не найдена."
-            : taskDecisionText(handled.result as TaskMutationDecisionResult);
+            : contextDocumentMutation
+              ? contextDocumentDecisionText(handled.result as ContextDocumentDecisionResult)
+              : taskDecisionText(handled.result as TaskMutationDecisionResult);
           try { await replyPort.answerCallbackQuery(callbackQueryId, text); }
           catch (error) { logShellError("task decision callback answer", error); }
           if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
@@ -699,7 +741,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
         if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
-        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") || data.startsWith("id:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
+        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       } finally {
         const remaining = leaveChat(chatId);
         if (remaining === 0 && actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);

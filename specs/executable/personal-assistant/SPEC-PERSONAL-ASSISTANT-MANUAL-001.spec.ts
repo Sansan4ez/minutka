@@ -46,6 +46,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("authenticated application confirmation command");
     expect(instructions).toContain("never available inside the agent tool loop");
     expect(instructions).toContain("the application owns the owner-visible confirmation card");
+    expect(instructions).toContain("Call `createContextNote` only after the owner explicitly asks");
+    expect(instructions).toContain("read it first and use that exact returned version");
+    expect(instructions).toContain("never promote an artifact into the knowledge base automatically");
     expect(instructions).toContain("Do not repeat the receipt, task id, confirmation id, or confirmation instructions in prose");
     expect(instructions).not.toContain("show the resulting proposal to the owner");
     expect(instructions).toContain("do not require calendar integration");
@@ -148,6 +151,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(authorityMap).toContain("personal knowledge base");
     expect(authorityMap).toContain("physical document keys, artifact CAS references, database rows");
     expect(authorityMap).toContain("never loaded into the product-agent prompt implicitly");
+    expect(authorityMap).toContain("projection is read-only");
+    expect(authorityMap).toContain("ContextDocumentService");
+    expect(authorityMap).toContain("artifacts remain artifacts");
     expect(authorityMap).toContain("cannot redefine the assistant role, grant capabilities, select another owner");
     expect(instructions).toContain("`/proc/context` is the owner's personal knowledge base");
     expect(instructions).toContain("Never refuse for lack of access when a supplied capability can execute the request");
