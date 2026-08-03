@@ -87,6 +87,40 @@ Scheduled `evening_reflection` успешно доставлен, fire заве�
 
 Цель `<= 16 000` в среднем не достигнута. Soft limit не повышается: следующий разбор начинается с 2–4-шаговых ходов и повторной пересылки `context`/`context_index` на каждом шаге.
 
+### Повтор после очистки canonical KB (`prs-ubeb`)
+
+Первый post-deployment срез выше использовал старый MinIO owner scope: 169 документов, 818 721 UTF-8 bytes, включая `.vtt` и `.txt`. После подтверждения резервной копии prefix `pilot-admin/` очищен вместе со всеми 170 object versions, затем импортирован Git snapshot `ebfcfa6` из `/home/admin/user_knowledge_base`: 13 Markdown-документов, 66 571 bytes. Повторный import вернул `13 skipped`; чужие owner prefixes не затрагивались.
+
+Очищенное дерево дало полный file index без `folder_rollup`: `context_index` уменьшился с 1 923 до 841 characters на ход. Однако при прежнем `ASSISTANT_CONTEXT_DOCUMENTS=12` projection продолжал заполнять `context` почти до ceiling: 23 752 characters вместо 22 129 в старом срезе. После пяти priority-документов аллокатор добавлял non-core Markdown до лимита. Поэтому очистка дерева без калибровки push policy снизила input только на 1.81% по 10 ходам с одинаковым `llmSteps`.
+
+Измеренный priority-набор состоит из пяти полных документов: Persona, Goals and priorities, Projects, Soul и Tags/Classifications. Вместе с section wrapper и degradation marker он занимает 19 602 characters. Для pilot deployment установлен:
+
+```dotenv
+ASSISTANT_CONTEXT_DOCUMENTS=5
+```
+
+Остальные восемь документов остаются discoverable через полный file index и owner-bound `searchDocuments`/`readDocument`; `context` ceiling 24 000 и `context_index` ceiling 6 000 не менялись. Projection с этим лимитом содержит ровно пять full priority documents и один осознанный `document_limit` audit для восьми pull-only документов. `document_too_large`, `folder_rollup` и non-Markdown в canonical KB отсутствуют.
+
+Финальный срез с `documents=5` снова содержит 10 успешных CLI-ходов и один scheduled `evening_reflection`:
+
+| метрика | старая KB, `documents=12` | очищенная KB, `documents=5` |
+|---|---:|---:|
+| ходы | 11 | 11 |
+| входные токены | 417 790 | 390 733 |
+| выходные токены | 4 624 | 4 131 |
+| средний input на ход | 37 981 | 35 521 |
+| максимум input | 82 436 | 77 486 |
+| cached share | 86.27% | 82.81% |
+| оценочная стоимость выборки | $0.605654 | $0.621467 |
+| `context` characters на обычный ход | 22 129 | 19 602 |
+| `context_index` characters на ход | 1 923 | 841 |
+
+Стоимость полной небольшой выборки не является A/B-оценкой сама по себе: число model-selected шагов изменилось. На 10 сценариях с одинаковым `llmSteps` средний input снизился с 38 468 до 34 685, то есть на **9.83%**. В прямом сравнении очищенной KB до и после ограничения push девять сценариев сохранили одинаковый `llmSteps`; их средний input снизился с 35 892 до 33 350 (**−7.08%**). Одношаговый ход после калибровки получил 14 328 input tokens и укладывается в цель 16 000; 2–4-шаговые loops по-прежнему пересылают системный контекст повторно.
+
+Финальное распределение `llmSteps`: `1 → 1 ход`, `2 → 7`, `3 → 2`, `4 → 1`. Scheduled chat получил 16 384 cached из 31 917 input tokens (51.33%), поэтому вывод о его отдельной cache line сохраняется.
+
+Проверка двойной отправки подтвердила проблему для core-документов: явный `readDocument` для Goals/Persona отправляет документ второй раз как tool result, хотя полное содержимое уже находится в push-проекции. Для non-core `04_Продукты_и_услуги.md` дублирования нет: документ отсутствует в push и читается только pull-инструментом. Выбран гибридный режим: пять небольших core-документов остаются push для одношаговой персонализации; полный отказ от push не принят, потому что каждый pull добавляет LLM-шаг и по живому срезу это дороже сохранённых 19.6k characters. Следующая дешёвая оптимизация — не вызывать `readDocument` для уже полностью включённого core path.
+
 Срез 31.07–02.08 показывал две группы ходов: обычные ответы около 15–18k input и tool-loop ходы до 71–77k. Поэтому после deployment основной operational signal — `assistant_turn_usage`: одна metadata-only строка на каждый LLM-вызов с `source`, `inputTokens`, `outputTokens`, `llmSteps`, `requestId` и, если провайдер сообщил, `cachedInputTokens`. У строки `source='chat'` дополнительно есть фактические Unicode-размеры включённых секций в `contextSourceCharacters`.
 
 До deployment был зафиксирован воспроизводимый provider/Mastra probe: 10 316 input tokens на одношаговый вызов, из них 9 984 cached на повторе. Живой post-change срез выше показывает, что одношаговый ход укладывается в цель `<= 16 000`, но среднее по репрезентативной выборке превышает её из-за 2–4-шаговых tool loops. Это не hard cap: soft limit не блокирует запросы, а оператор разбирает повторную пересылку контекста по шагам.
