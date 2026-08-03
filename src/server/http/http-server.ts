@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -28,6 +28,7 @@ type ErrorLogEntry = { method: string; path: string; requestId: string; error: {
 export type HttpApplicationService = Pick<PersonalAssistantService,
   | "issueInvite"
   | "listParticipants"
+  | "getMonthlyUsage"
   | "openInvite"
   | "getProfile"
   | "acceptConsent"
@@ -132,6 +133,14 @@ export function createHttpServer(options: HttpServerOptions): Server {
 
       if (req.method === "POST" && url.pathname === "/v1/admin/invites") { template = "/v1/admin/invites"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.issueInvite(parse(issueInviteRequestSchema, await body(req)))), id); }
       if (req.method === "GET" && url.pathname === "/v1/admin/participants") { template = "/v1/admin/participants"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listParticipants()), id); }
+      const adminUsage = url.pathname.match(/^\/v1\/admin\/employees\/([^/]+)\/usage$/);
+      if (req.method === "GET" && adminUsage) {
+        template = "/v1/admin/employees/:employeeId/usage";
+        requireKind(principal, "operator");
+        const input = parse(adminUsageRequestSchema, { employeeId: decodeURIComponent(adminUsage[1]), month: url.searchParams.get("month") });
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getMonthlyUsage(input.employeeId, input.month)), id);
+      }
       if (req.method === "POST" && url.pathname === "/v1/onboarding/invites/open") { template = "/v1/onboarding/invites/open"; if (!inviteLimiter.allow(clientIp(req, options.trustProxy === true))) throw httpError(429, "rate_limited", "Too many requests."); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.openInvite(parse(openInviteRequestSchema, await body(req)))), id); }
 
       if (req.method === "GET" && url.pathname === "/v1/me/profile") { template = "/v1/me/profile"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: employee.employeeId })), id); }

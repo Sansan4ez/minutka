@@ -32,6 +32,7 @@ import type { ConversationThreadService } from "./conversation-thread-service.js
 import type { IdeaDeletionAuditContext, IdeaDeletionService } from "./idea-deletion.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
 import type { SaveDailyScheduleInput, ScheduleManagementService } from "./schedule-management-service.js";
+import type { MonthlyUsage, UsageStore } from "./usage-store.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -70,10 +71,15 @@ export class PersonalAssistantService {
     private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
     private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
+    private readonly usage?: Pick<UsageStore, "getMonthly">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
   listParticipants(): Promise<ParticipantSummary[]> { return this.identityService.listParticipants(); }
+  getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
+    if (!this.usage) throw new Error("usage reporting is not configured");
+    return this.usage.getMonthly(userId, month);
+  }
   openInvite(input: OpenInviteInput): Promise<OpenInviteResult> { return this.identityService.openInvite(input); }
   recordPrivacyExplanationShown(input: RecordPrivacyExplanationShownInput): Promise<void> { return this.identityService.recordPrivacyExplanationShown(input); }
   redeemTelegramInvite(input: RedeemTelegramInviteInput): Promise<RedeemTelegramInviteResult> { return this.identityService.redeemTelegramInvite(input); }

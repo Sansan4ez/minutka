@@ -1,11 +1,11 @@
 import {
-  acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema,
+  acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema,
   chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
-  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, scheduleListResponseSchema, userProfileSchema,
-  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type ChatRequest,
+  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, monthlyUsageResponseSchema, scheduleListResponseSchema, userProfileSchema,
+  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest,
   type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
 } from "../../contracts/minutka-api.js";
@@ -26,7 +26,7 @@ export type EmployeeMinutkaTransport = {
   rejectIdeaDeletion(confirmationId: string): Promise<unknown>;
   undoIdeaDeletion(ideaId?: string): Promise<unknown>;
 };
-export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown>; listParticipants(): Promise<unknown> };
+export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown>; listParticipants(): Promise<unknown>; getMonthlyUsage(input: AdminUsageRequest): Promise<unknown> };
 export type ServiceEmployeeMinutkaTransport = {
   chat(input: ServiceChatRequest): Promise<unknown>;
   recordPrivacyExplanationShown(): Promise<unknown>;
@@ -78,6 +78,7 @@ export class AdminMinutkaClient {
   constructor(private readonly transport: AdminMinutkaTransport) {}
   async issueInvite(input: unknown) { return validate(issueInviteResponseSchema, await this.transport.issueInvite(validate(issueInviteRequestSchema, input, "issueInvite request")), "issueInvite response"); }
   async listParticipants() { return validate(listParticipantsResponseSchema, await this.transport.listParticipants(), "listParticipants response"); }
+  async getMonthlyUsage(input: unknown) { return validate(monthlyUsageResponseSchema, await this.transport.getMonthlyUsage(validate(adminUsageRequestSchema, input, "getMonthlyUsage request")), "getMonthlyUsage response"); }
 }
 
 /** Service-only per-employee surface used after Telegram's private identity lookup. */
@@ -114,6 +115,7 @@ export class ServiceMinutkaClient {
 export type MinutkaCliClient = EmployeeMinutkaClient | AdminMinutkaClient;
 export type IssueInviteResult = z.infer<typeof issueInviteResponseSchema>;
 export type ListParticipantsResult = z.infer<typeof listParticipantsResponseSchema>;
+export type MonthlyUsageResult = z.infer<typeof monthlyUsageResponseSchema>;
 export type OpenInviteResult = z.infer<typeof openInviteResponseSchema>;
 export type RedeemTelegramInviteResult = z.infer<typeof redeemTelegramInviteResponseSchema>;
 export type AcceptConsentResult = z.infer<typeof acceptConsentResponseSchema>;

@@ -6,6 +6,7 @@ import { createInMemoryArtifactStore } from "../../../src/application/in-memory-
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryUsageStore } from "../../../src/application/in-memory-usage-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { AdminMinutkaClient, EmployeeMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
@@ -14,6 +15,7 @@ import { createInProcessEmployeeTransport } from "../../../src/server/http/in-pr
 import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
+import type { UsageStore } from "../../../src/application/usage-store.js";
 
 const employeeToken = "a".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64); const running: RunningHttpServer[] = []; const silent = () => undefined;
 afterEach(async () => { await Promise.all(running.splice(0).map((server) => server.close())); });
@@ -59,6 +61,49 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(repeated.exitCode).toBe(1); expect(repeated.stderr.at(-1)).toContain("already has a participant"); expect(repeated.stdout).toEqual([]);
   });
 
+  it("reports one employee's monthly usage with source and cache breakdown for the operator", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
+    const usageStore = createInMemoryUsageStore();
+    await usageStore.record({
+      id: "usage_chat", userId: "emp_usage", requestId: "req_chat", source: "chat", month: "2026-07",
+      inputTokens: 1_200, cachedInputTokens: 800, outputTokens: 300, totalTokens: 1_500,
+      estimatedCostUsdMicros: 12_345, occurredAt: "2026-07-10T00:00:00.000Z",
+    });
+    await usageStore.record({
+      id: "usage_guard", userId: "emp_usage", requestId: "req_guard", source: "guard", month: "2026-07",
+      inputTokens: 100, outputTokens: 20, totalTokens: 120,
+      estimatedCostUsdMicros: 655, occurredAt: "2026-07-10T00:00:01.000Z",
+    });
+    const application = createApplication(runtime, "unused", usageStore);
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_usage", employeeToken]]) } }); running.push(server);
+
+    for (const token of [employeeToken, serviceToken]) {
+      const forbidden = await fetch(`${server.url}/v1/admin/employees/emp_usage/usage?month=2026-07`, { headers: { authorization: `Bearer ${token}` } });
+      expect(forbidden.status).toBe(403);
+    }
+    const result = await runMinutkaCli(
+      new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken })),
+      ["admin", "usage", "--employee", "emp_usage", "--month", "2026-07"],
+    );
+    expect(result).toMatchObject({ exitCode: 0, stderr: [] });
+    expect(result.stdout).toEqual([
+      "Employee: emp_usage",
+      "Month (UTC): 2026-07",
+      "Tokens: input 1,300, cached input 800, output 320, total 1,620",
+      "Estimated cost: $0.013000 USD",
+      "Records: 2; cache breakdown unknown for 1 record(s)",
+      "  chat: 1,500 tokens (800 cached input), $0.012345 USD, 1 record(s), 0 cache-unknown",
+      "  guard: 120 tokens (0 cached input), $0.000655 USD, 1 record(s), 1 cache-unknown",
+    ]);
+
+    const invalid = await runMinutkaCli(
+      new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken })),
+      ["admin", "usage", "--employee", "emp_usage", "--month", "2026-13"],
+    );
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.stderr.at(-1)).toContain("month must use YYYY-MM");
+  });
+
   it("lists only bounded non-personal participant fields for operator credentials", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
     const application = createApplication(runtime, "unused");
@@ -88,7 +133,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
   });
 });
 
-function createApplication(runtime: ReturnType<typeof createInMemoryRuntime>, response: string): PersonalAssistantService {
+function createApplication(runtime: ReturnType<typeof createInMemoryRuntime>, response: string, usageStore?: Pick<UsageStore, "getMonthly">): PersonalAssistantService {
   const clock = { now: runtime.world.now };
   const documentStore = createInMemoryDocumentStore(clock);
   const ingestionService = createIngestionService({ documentStore, blobStore: createInMemoryBlobStore(clock) });
@@ -105,5 +150,5 @@ function createApplication(runtime: ReturnType<typeof createInMemoryRuntime>, re
     clock,
     limits: { maximumBytes: 1024, timeoutMs: 1_000 },
   });
-  return new PersonalAssistantService(runtime.service, assistant, artifactStore);
+  return new PersonalAssistantService(runtime.service, assistant, artifactStore, undefined, undefined, undefined, undefined, usageStore);
 }

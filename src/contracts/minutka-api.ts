@@ -146,6 +146,18 @@ export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdS
 export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
 export const participantSummarySchema = z.strictObject({ employeeId: employeeIdSchema, status: onboardingStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
 export const listParticipantsResponseSchema = z.array(participantSummarySchema).max(100);
+export const usageMonthSchema = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u, "month must use YYYY-MM");
+export const adminUsageRequestSchema = z.strictObject({ employeeId: employeeIdSchema, month: usageMonthSchema });
+const usageTotalsResponseSchema = z.strictObject({
+  inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), totalTokens: z.number().int().nonnegative(),
+  estimatedCostUsdMicros: z.number().int().nonnegative(), records: z.number().int().nonnegative(), cachedInputTokens: z.number().int().nonnegative(),
+  cachedInputUnknownRecords: z.number().int().nonnegative(),
+});
+export const monthlyUsageResponseSchema = usageTotalsResponseSchema.extend({
+  userId: employeeIdSchema,
+  month: usageMonthSchema,
+  bySource: z.array(usageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
+});
 export const openInviteRequestSchema = z.strictObject({ inviteCode: z.string().min(1).max(512) });
 export const openInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]), privacyVersion: z.literal(currentPrivacyVersion), privacyExplanation: z.string().min(1) });
 export const telegramIdentitySchema = z.strictObject({ chatId: z.string().min(1), userId: z.string().min(1).optional() });
@@ -194,6 +206,8 @@ export type IssueInviteRequest = z.infer<typeof issueInviteRequestSchema>;
 export type IssueInviteResponse = z.infer<typeof issueInviteResponseSchema>;
 export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema>;
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
+export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
+export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;
 export type OpenInviteRequest = z.infer<typeof openInviteRequestSchema>;
 export type OpenInviteResponse = z.infer<typeof openInviteResponseSchema>;
 export type RedeemTelegramInviteRequest = z.infer<typeof redeemTelegramInviteRequestSchema>;

@@ -5,6 +5,7 @@ import type { AdminMinutkaClient, EmployeeMinutkaClient } from "../sdk/minutka-c
 export type CliResult = { exitCode: number; stdout: string[]; stderr: string[] };
 function collect(value: string, previous: string[]) { return [...previous, value]; }
 function parseChoice<const T extends readonly string[]>(value: string, choices: T, label: string): T[number] { if (choices.includes(value)) return value; throw new Error(`${label} must be one of: ${choices.join(", ")}`); }
+function currentUsageMonth(): string { return new Date().toISOString().slice(0, 7); }
 const parsePersona = (value: string) => parseChoice(value, ["support", "efficiency"] as const, "persona");
 const parseAiLevel = (value: string) => parseChoice(value, ["beginner", "intermediate", "advanced"] as const, "ai-level");
 const parseResponseLength = (value: string) => parseChoice(value, ["short", "balanced", "detailed"] as const, "response-length");
@@ -45,6 +46,21 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       stdout.push("Invite link shown once; the code is stored only as a digest and cannot be recovered. If lost, issue a new invite.");
     }));
   admin.addCommand(new Command("list-participants").action(async () => { stdout.push(JSON.stringify(await adminClient.listParticipants())); }));
+  admin.addCommand(new Command("usage")
+    .requiredOption("--employee <employeeId>")
+    .option("--month <YYYY-MM>", "Usage month in UTC", currentUsageMonth())
+    .action(async (o: { employee: string; month: string }) => {
+      const usage = await adminClient.getMonthlyUsage({ employeeId: o.employee, month: o.month });
+      const format = (value: number) => value.toLocaleString("en-US");
+      stdout.push(`Employee: ${usage.userId}`);
+      stdout.push(`Month (UTC): ${usage.month}`);
+      stdout.push(`Tokens: input ${format(usage.inputTokens)}, cached input ${format(usage.cachedInputTokens)}, output ${format(usage.outputTokens)}, total ${format(usage.totalTokens)}`);
+      stdout.push(`Estimated cost: $${(usage.estimatedCostUsdMicros / 1_000_000).toFixed(6)} USD`);
+      stdout.push(`Records: ${format(usage.records)}; cache breakdown unknown for ${format(usage.cachedInputUnknownRecords)} record(s)`);
+      for (const source of usage.bySource) {
+        stdout.push(`  ${source.source}: ${format(source.totalTokens)} tokens (${format(source.cachedInputTokens)} cached input), $${(source.estimatedCostUsdMicros / 1_000_000).toFixed(6)} USD, ${format(source.records)} record(s), ${format(source.cachedInputUnknownRecords)} cache-unknown`);
+      }
+    }));
   program.addCommand(admin);
   try { await program.parseAsync(argv, { from: "user" }); return { exitCode: 0, stdout, stderr }; }
   catch (error) { stderr.push(error instanceof Error ? error.message : String(error)); return { exitCode: 1, stdout, stderr }; }

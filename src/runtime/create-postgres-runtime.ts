@@ -232,7 +232,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore);
     const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
       if (!input.telegramShell) throw new TelegramDeliveryNotConfiguredError();
       const delivery = requireTelegramDeliverySession(await telegramSessionStore.getDeliveryByEmployee(fire.userId));
