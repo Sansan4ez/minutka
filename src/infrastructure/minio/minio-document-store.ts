@@ -206,8 +206,6 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       const current = await readLogical(safeUserId, canonicalPath);
       if (!current) return { outcome: "not_found" };
       if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
-      const latest = await readLogical(safeUserId, canonicalPath);
-      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalPath) } : { outcome: "not_found" };
       return { outcome: "updated", document: await writeCanonical(safeUserId, canonicalPath, content) };
     },
     async moveIfVersion(userId, sourcePath, destinationPath, expectedVersion): Promise<DocumentMoveResult> {
@@ -219,13 +217,11 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       if (source.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(source, canonicalSource) };
       const destination = await readLogical(safeUserId, canonicalDestination);
       if (destination) return { outcome: "destination_conflict", current: metadataOf(destination, canonicalDestination) };
-      const latest = await readLogical(safeUserId, canonicalSource);
-      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalSource) } : { outcome: "not_found" };
-      const moved = await writeCanonical(safeUserId, canonicalDestination, latest.content);
+      const moved = await writeCanonical(safeUserId, canonicalDestination, source.content);
       await Promise.all([canonicalSource, legacyDocumentPath(canonicalSource)]
         .filter((item): item is string => item !== null)
         .map((documentPath) => options.client.removeObject(options.bucket, objectKey(safeUserId, documentPath))));
-      return { outcome: "moved", document: moved, sourceVersion: latest.version };
+      return { outcome: "moved", document: moved, sourceVersion: source.version };
     },
     async deleteIfVersion(userId, path, expectedVersion): Promise<DocumentDeleteResult> {
       const safeUserId = assertUserId(userId);
@@ -233,12 +229,10 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       const current = await readLogical(safeUserId, canonicalPath);
       if (!current) return { outcome: "not_found" };
       if (current.version !== expectedVersion) return { outcome: "conflict", current: metadataOf(current, canonicalPath) };
-      const latest = await readLogical(safeUserId, canonicalPath);
-      if (!latest || latest.version !== expectedVersion) return latest ? { outcome: "conflict", current: metadataOf(latest, canonicalPath) } : { outcome: "not_found" };
       await Promise.all([canonicalPath, legacyDocumentPath(canonicalPath)]
         .filter((item): item is string => item !== null)
         .map((documentPath) => options.client.removeObject(options.bucket, objectKey(safeUserId, documentPath))));
-      return { outcome: "deleted", path: canonicalPath, version: latest.version };
+      return { outcome: "deleted", path: canonicalPath, version: current.version };
     },
     async restoreVersion(userId, path, requestedVersion) {
       const safeUserId = assertUserId(userId);
