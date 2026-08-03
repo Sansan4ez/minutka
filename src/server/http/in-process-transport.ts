@@ -2,7 +2,7 @@ import { PersonalAssistantService } from "../../application/personal-assistant-s
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
   AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompleteOnboardingRequest, ServiceChatRequest,
-  IssueInviteRequest, ListInsightsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
+  IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   SubmitFeedbackRequest, TaskMutationDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import type {
@@ -54,7 +54,7 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
 export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
   constructor(private readonly application: InProcessApplication, private readonly principal: AuthenticatedPrincipal) {}
   issueInvite(input: IssueInviteRequest) { operator(this.principal); return this.application.issueInvite(input); }
-  listParticipants() { operator(this.principal); return this.application.listParticipants(); }
+  listParticipants(input: ListParticipantsRequest) { operator(this.principal); return this.application.listParticipants(input); }
   getMonthlyUsage(input: AdminUsageRequest) { operator(this.principal); return personal(this.application).getMonthlyUsage(input.employeeId, input.month); }
 }
 

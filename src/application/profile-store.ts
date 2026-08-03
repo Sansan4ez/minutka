@@ -1,4 +1,5 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
+import type { ParticipantPageCursor } from "./participant-pagination.js";
 
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
@@ -32,8 +33,8 @@ export type ProfileStore = {
     deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
-  /** Bounded operator inventory; callers must not project private profile or Telegram data. */
-  listParticipants(limit: number): Promise<Participant[]>;
+  /** Cursor-paginated operator inventory; callers must not project private profile or Telegram data. */
+  listParticipants(input: { limit: number; after?: ParticipantPageCursor }): Promise<Participant[]>;
   /** Private lookup used only by the atomic Telegram invite-redemption adapter. */
   getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;

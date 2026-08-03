@@ -34,6 +34,8 @@ import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-pr
 import type { ChatInputModality, ResponseChannel } from "../contracts/minutka-api.js";
 import { createResponsePolicy, renderResponsePolicy } from "../domain/response-policy.js";
 import type { DefaultScheduleProvisioner } from "./default-schedules.js";
+import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipantsInput } from "./participant-pagination.js";
+import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; effect: "none" };
@@ -48,6 +50,7 @@ export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promi
 export type IssueInviteInput = { employeeId: string; inviteCode: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; status: OnboardingStatus; created: boolean };
 export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "createdAt" | "updatedAt">;
+export type ParticipantPage = { participants: ParticipantSummary[]; nextCursor?: string };
 export type OpenInviteInput = { inviteCode: string };
 export type RecordPrivacyExplanationShownInput = { employeeId: string };
 export type RedeemTelegramInviteInput = {
@@ -156,13 +159,20 @@ export class MinutkaService {
     if (!inviteCode) throw new Error("inviteCode is required");
     const result = await this.stores.profileStore.issueInvite({ employeeId, inviteCode, issuedAt: this.clock.now() });
     if (result.participant.employeeId !== employeeId) throw new Error("invite already belongs to another employee");
-    if (!result.created && !result.inviteMatches) throw new Error("employee already has an active invite");
+    if (!result.created && !result.inviteMatches) throw new ParticipantInviteExistsError();
     return { employeeId, inviteCode, status: result.participant.status, created: result.created };
   }
 
-  async listParticipants(): Promise<ParticipantSummary[]> {
-    const participants = await this.stores.profileStore.listParticipants(100);
-    return participants.map(({ employeeId, status, createdAt, updatedAt }) => ({ employeeId, status, createdAt, updatedAt }));
+  async listParticipants(input: ListParticipantsInput = {}): Promise<ParticipantPage> {
+    const limit = input.limit ?? 20;
+    const after = input.after === undefined ? undefined : decodeParticipantCursor(input.after);
+    const page = await this.stores.profileStore.listParticipants({ limit: limit + 1, after });
+    const participants = page.slice(0, limit);
+    const last = participants.at(-1);
+    return {
+      participants: participants.map(({ employeeId, status, createdAt, updatedAt }) => ({ employeeId, status, createdAt, updatedAt })),
+      ...(page.length > limit && last ? { nextCursor: encodeParticipantCursor({ createdAt: last.createdAt, employeeId: last.employeeId }) } : {}),
+    };
   }
 
   async openInvite(input: OpenInviteInput): Promise<OpenInviteResult> {

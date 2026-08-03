@@ -35,9 +35,6 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       const botUsername = (o.bot ?? env.TELEGRAM_BOT_USERNAME ?? "").trim().replace(/^@/, "");
       if (!botUsername) throw new Error("--bot or TELEGRAM_BOT_USERNAME is required");
       if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) throw new Error("Telegram bot username must contain 5-32 letters, digits, or underscores");
-      if ((await adminClient.listParticipants()).some(({ employeeId }) => employeeId === o.employee)) {
-        throw new Error("employee already has a participant; delete the unused participant before issuing a replacement");
-      }
       const inviteCode = randomBytes(32).toString("base64url");
       const result = await adminClient.issueInvite({ employeeId: o.employee, inviteCode });
       if (!result.created) throw new Error("employee already has an invite; delete the unused participant before issuing a replacement");
@@ -45,7 +42,14 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       stdout.push(`https://t.me/${botUsername}?start=${inviteCode}`);
       stdout.push("Invite link shown once; the code is stored only as a digest and cannot be recovered. If lost, issue a new invite.");
     }));
-  admin.addCommand(new Command("list-participants").action(async () => { stdout.push(JSON.stringify(await adminClient.listParticipants())); }));
+  admin.addCommand(new Command("list-participants")
+    .option("--limit <n>", "Participants per page", (value: string) => Number(value))
+    .option("--after <cursor>", "Opaque cursor from the previous page")
+    .action(async (o: { limit?: number; after?: string }) => {
+      const page = await adminClient.listParticipants({ limit: o.limit, after: o.after });
+      stdout.push(JSON.stringify(page));
+      if (page.nextCursor) stdout.push(`Next page: npm run cli -- admin list-participants${o.limit === undefined ? "" : ` --limit ${o.limit}`} --after ${page.nextCursor}`);
+    }));
   admin.addCommand(new Command("usage")
     .requiredOption("--employee <employeeId>")
     .option("--month <YYYY-MM>", "Usage month in UTC", currentUsageMonth())

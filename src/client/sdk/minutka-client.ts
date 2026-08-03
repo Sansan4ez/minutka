@@ -1,12 +1,12 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema,
   chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, serviceChatRequestSchema,
-  issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
+  issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
   ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, monthlyUsageResponseSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest,
-  type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest,
+  type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
@@ -26,7 +26,7 @@ export type EmployeeMinutkaTransport = {
   rejectIdeaDeletion(confirmationId: string): Promise<unknown>;
   undoIdeaDeletion(ideaId?: string): Promise<unknown>;
 };
-export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown>; listParticipants(): Promise<unknown>; getMonthlyUsage(input: AdminUsageRequest): Promise<unknown> };
+export type AdminMinutkaTransport = { issueInvite(input: IssueInviteRequest): Promise<unknown>; listParticipants(input: ListParticipantsRequest): Promise<unknown>; getMonthlyUsage(input: AdminUsageRequest): Promise<unknown> };
 export type ServiceEmployeeMinutkaTransport = {
   chat(input: ServiceChatRequest): Promise<unknown>;
   recordPrivacyExplanationShown(): Promise<unknown>;
@@ -77,7 +77,7 @@ export class EmployeeMinutkaClient {
 export class AdminMinutkaClient {
   constructor(private readonly transport: AdminMinutkaTransport) {}
   async issueInvite(input: unknown) { return validate(issueInviteResponseSchema, await this.transport.issueInvite(validate(issueInviteRequestSchema, input, "issueInvite request")), "issueInvite response"); }
-  async listParticipants() { return validate(listParticipantsResponseSchema, await this.transport.listParticipants(), "listParticipants response"); }
+  async listParticipants(input: unknown = {}) { const request = validate(listParticipantsRequestSchema, input, "listParticipants request"); return validate(listParticipantsResponseSchema, await this.transport.listParticipants(request), "listParticipants response"); }
   async getMonthlyUsage(input: unknown) { return validate(monthlyUsageResponseSchema, await this.transport.getMonthlyUsage(validate(adminUsageRequestSchema, input, "getMonthlyUsage request")), "getMonthlyUsage response"); }
 }
 

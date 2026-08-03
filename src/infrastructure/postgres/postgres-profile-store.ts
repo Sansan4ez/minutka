@@ -236,14 +236,15 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
-    async listParticipants(limit) {
+    async listParticipants({ limit, after }) {
       try {
         const result = await pool.query<ParticipantRow>(
           `SELECT employee_id, status, privacy_explanation_shown_at, created_at, updated_at
            FROM minutka_private.participants
+           WHERE ($2::timestamptz IS NULL OR (created_at, employee_id) > ($2::timestamptz, $3::text))
            ORDER BY created_at ASC, employee_id ASC
            LIMIT $1`,
-          [limit],
+          [limit, after?.createdAt ?? null, after?.employeeId ?? null],
         );
         return result.rows.map(toParticipant);
       } catch (error) {

@@ -10,7 +10,7 @@ import type {
   IssueInviteInput,
   IssueInviteResult,
   ListInsightsInput,
-  ParticipantSummary,
+  ParticipantPage,
   MinutkaService,
   MinutkaServiceDeps,
   OpenInviteInput,
@@ -23,6 +23,7 @@ import type {
   SubmitFeedbackResult,
   SubmitOnboardingAnswerInput,
 } from "./minutka-service.js";
+import type { ListParticipantsInput } from "./participant-pagination.js";
 import type { OnboardingProgress } from "./onboarding-types.js";
 import type { TaskMutationAuditContext, TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import type { StructuredInsight } from "../domain/insights.js";
@@ -75,7 +76,7 @@ export class PersonalAssistantService {
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
-  listParticipants(): Promise<ParticipantSummary[]> { return this.identityService.listParticipants(); }
+  listParticipants(input: ListParticipantsInput = {}): Promise<ParticipantPage> { return this.identityService.listParticipants(input); }
   getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
     if (!this.usage) throw new Error("usage reporting is not configured");
     return this.usage.getMonthly(userId, month);

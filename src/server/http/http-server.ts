@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
   acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
-  issueInviteRequestSchema, listInsightsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
+  issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
 } from "../../contracts/minutka-api.js";
@@ -13,6 +13,8 @@ import { RequestError, httpError, mapError, requestId } from "./error-mapping.js
 import { PersistenceError } from "../../application/persistence-error.js";
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
+import { InvalidParticipantCursorError } from "../../application/participant-pagination.js";
+import { ParticipantInviteExistsError } from "../../application/participant-invite-error.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../config/assistant-timeout-budgets.js";
 import { toScheduleView } from "../../application/schedule-view.js";
@@ -108,7 +110,7 @@ function serializeError(error: unknown): ErrorLogEntry["error"] {
   }
   return { name: "UnknownError", message: "[redacted]" };
 }
-function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError; }
+function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError || error instanceof InvalidParticipantCursorError || error instanceof ParticipantInviteExistsError; }
 
 export function createHttpServer(options: HttpServerOptions): Server {
   const timeoutBudgets = assertAssistantTimeoutBudgets(options.timeoutBudgets ?? productionAssistantTimeoutBudgets);
@@ -132,7 +134,13 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (mutationKey && !mutationLimiter.allow(mutationKey)) throw httpError(429, "rate_limited", "Too many requests.");
 
       if (req.method === "POST" && url.pathname === "/v1/admin/invites") { template = "/v1/admin/invites"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.issueInvite(parse(issueInviteRequestSchema, await body(req)))), id); }
-      if (req.method === "GET" && url.pathname === "/v1/admin/participants") { template = "/v1/admin/participants"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listParticipants()), id); }
+      if (req.method === "GET" && url.pathname === "/v1/admin/participants") {
+        template = "/v1/admin/participants";
+        requireKind(principal, "operator");
+        const input = parse(listParticipantsRequestSchema, query(url));
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listParticipants(input)), id);
+      }
       const adminUsage = url.pathname.match(/^\/v1\/admin\/employees\/([^/]+)\/usage$/);
       if (req.method === "GET" && adminUsage) {
         template = "/v1/admin/employees/:employeeId/usage";

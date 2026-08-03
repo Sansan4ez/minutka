@@ -145,7 +145,14 @@ const onboardingStatusSchema = z.enum(["invite_issued", "invite_opened", "consen
 export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512) });
 export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
 export const participantSummarySchema = z.strictObject({ employeeId: employeeIdSchema, status: onboardingStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
-export const listParticipantsResponseSchema = z.array(participantSummarySchema).max(100);
+export const listParticipantsRequestSchema = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  after: z.string().min(1).max(2_048).optional(),
+});
+export const listParticipantsResponseSchema = z.strictObject({
+  participants: z.array(participantSummarySchema).max(100),
+  nextCursor: z.string().min(1).max(2_048).optional(),
+});
 export const usageMonthSchema = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u, "month must use YYYY-MM");
 export const adminUsageRequestSchema = z.strictObject({ employeeId: employeeIdSchema, month: usageMonthSchema });
 const usageTotalsResponseSchema = z.strictObject({
@@ -205,6 +212,7 @@ export type StructuredInsight = z.infer<typeof structuredInsightSchema>;
 export type IssueInviteRequest = z.infer<typeof issueInviteRequestSchema>;
 export type IssueInviteResponse = z.infer<typeof issueInviteResponseSchema>;
 export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema>;
+export type ListParticipantsRequest = z.infer<typeof listParticipantsRequestSchema>;
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
 export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
 export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;

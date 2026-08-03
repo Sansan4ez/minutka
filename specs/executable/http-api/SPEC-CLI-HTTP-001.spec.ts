@@ -10,10 +10,11 @@ import { createInMemoryUsageStore } from "../../../src/application/in-memory-usa
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { AdminMinutkaClient, EmployeeMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { HttpAdminMinutkaTransport, HttpEmployeeMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
+import { HttpAdminMinutkaTransport, HttpEmployeeMinutkaTransport, MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
 import { createInProcessEmployeeTransport } from "../../../src/server/http/in-process-transport.js";
 import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import type { UsageStore } from "../../../src/application/usage-store.js";
 
@@ -57,8 +58,13 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(first.stdout[2]).toContain("cannot be recovered");
     expect(JSON.stringify(runtime.world)).not.toContain(firstCode);
 
+    let listCalls = 0;
+    const originalListParticipants = client.listParticipants.bind(client);
+    client.listParticipants = async (...args) => { listCalls += 1; return originalListParticipants(...args); };
     const repeated = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--bot", "pilot_test_bot"]);
-    expect(repeated.exitCode).toBe(1); expect(repeated.stderr.at(-1)).toContain("already has a participant"); expect(repeated.stdout).toEqual([]);
+    expect(repeated.exitCode).toBe(1); expect(repeated.stderr.at(-1)).toContain("employee already has an active invite"); expect(repeated.stdout).toEqual([]);
+    expect(listCalls).toBe(0);
+    expect((await client.listParticipants()).participants.find(({ employeeId }) => employeeId === "emp_first")).toBeDefined();
   });
 
   it("reports one employee's monthly usage with source and cache breakdown for the operator", async () => {
@@ -104,32 +110,55 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(invalid.stderr.at(-1)).toContain("month must use YYYY-MM");
   });
 
-  it("lists only bounded non-personal participant fields for operator credentials", async () => {
-    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
+  it("paginates bounded non-personal participant fields for operator credentials", async () => {
+    let instant = 0;
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => new Date(Date.UTC(2026, 0, 1, 0, 0, instant++)).toISOString()) });
     const application = createApplication(runtime, "unused");
-    await application.issueInvite({ employeeId: "emp_private", inviteCode: "invite_private" });
-    await application.openInvite({ inviteCode: "invite_private" });
-    await application.acceptConsent({ employeeId: "emp_private", accepted: true, source: "cli" });
-    await application.completeOnboarding({ employeeId: "emp_private", preferredName: "Private Name", assistantName: "Spark", addressForm: "informal", timezone: "Europe/Moscow", persona: "support" });
-    runtime.world.participants[0].createdAt = "2020-01-01T00:00:00.000Z";
-    for (let index = 0; index < 105; index += 1) await application.issueInvite({ employeeId: `emp_${String(index).padStart(3, "0")}`, inviteCode: `invite_${index}` });
-    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_private", employeeToken]]) } }); running.push(server);
+    for (let index = 0; index < 25; index += 1) await application.issueInvite({ employeeId: `emp_${String(index).padStart(3, "0")}`, inviteCode: `invite_${index}` });
+    await application.openInvite({ inviteCode: "invite_0" });
+    await application.acceptConsent({ employeeId: "emp_000", accepted: true, source: "cli" });
+    await application.completeOnboarding({ employeeId: "emp_000", preferredName: "Private Name", assistantName: "Spark", addressForm: "informal", timezone: "Europe/Moscow", persona: "support" });
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_000", employeeToken]]) } }); running.push(server);
 
     for (const token of [employeeToken, serviceToken]) {
       const forbidden = await fetch(`${server.url}/v1/admin/participants`, { headers: { authorization: `Bearer ${token}` } });
       expect(forbidden.status).toBe(403);
     }
-    const listed = await runMinutkaCli(new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken })), ["admin", "list-participants"]);
-    expect(listed.exitCode).toBe(0);
-    const participants = JSON.parse(listed.stdout.at(-1) ?? "[]");
-    expect(participants).toHaveLength(100);
-    expect(participants).toContainEqual({ employeeId: "emp_000", status: "invite_issued", createdAt: expect.any(String), updatedAt: expect.any(String) });
-    expect(participants).toContainEqual({ employeeId: "emp_private", status: "profile_completed", createdAt: expect.any(String), updatedAt: expect.any(String) });
-    expect(Object.keys(participants[0]).sort()).toEqual(["createdAt", "employeeId", "status", "updatedAt"]);
+    const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+    const first = await runMinutkaCli(client, ["admin", "list-participants"]);
+    expect(first).toMatchObject({ exitCode: 0, stderr: [] });
+    const firstPage = JSON.parse(first.stdout[0] ?? "{}");
+    expect(firstPage.participants).toHaveLength(20);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(first.stdout[1]).toBe(`Next page: npm run cli -- admin list-participants --after ${firstPage.nextCursor}`);
+
+    const second = await runMinutkaCli(client, ["admin", "list-participants", "--after", firstPage.nextCursor]);
+    expect(second).toMatchObject({ exitCode: 0, stderr: [] });
+    const secondPage = JSON.parse(second.stdout[0] ?? "{}");
+    expect(secondPage.participants).toHaveLength(5);
+    expect(secondPage.nextCursor).toBeUndefined();
+    expect(second.stdout).toHaveLength(1);
+    const originalCombined = [...firstPage.participants, ...secondPage.participants];
+    expect(new Set(originalCombined.map((participant: { employeeId: string }) => participant.employeeId)).size).toBe(25);
+
+    await application.issueInvite({ employeeId: "emp_new", inviteCode: "invite_new" });
+    const stableSecondPage = await client.listParticipants({ after: firstPage.nextCursor });
+    const combined = [...firstPage.participants, ...stableSecondPage.participants];
+    expect(stableSecondPage.participants).toHaveLength(6);
+    expect(new Set(combined.map((participant: { employeeId: string }) => participant.employeeId)).size).toBe(26);
+    expect(combined.map((participant: { employeeId: string }) => participant.employeeId)).toContain("emp_new");
+    expect(Object.keys(combined[0]).sort()).toEqual(["createdAt", "employeeId", "status", "updatedAt"]);
     expect(JSON.stringify(runtime.world.profiles)).toContain("Private Name");
-    expect(listed.stdout.join("\n")).not.toContain("Private Name");
-    expect(listed.stdout.join("\n")).not.toContain("Europe/Moscow");
-    expect(listed.stdout.join("\n")).not.toContain("chatId");
+    expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("Private Name");
+    expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("Europe/Moscow");
+    expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("chatId");
+
+    for (const limit of ["0", "101", "not-a-number"]) {
+      const invalid = await fetch(`${server.url}/v1/admin/participants?limit=${limit}`, { headers: { authorization: `Bearer ${adminToken}` } });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ error: { code: "invalid_request", message: "Request validation failed." } });
+    }
+    await expect(client.listParticipants({ after: "not-a-participant-cursor" })).rejects.toMatchObject({ code: "invalid_request", message: "Invalid participant cursor." } satisfies Partial<MinutkaApiError>);
   });
 });
 

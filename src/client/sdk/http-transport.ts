@@ -2,7 +2,7 @@ import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest,
   type CompleteOnboardingRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
-  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest,
+  type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -57,7 +57,11 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
 
 export class HttpAdminMinutkaTransport extends HttpTransportBase implements AdminMinutkaTransport {
   issueInvite(input: IssueInviteRequest) { return this.request("POST", "/v1/admin/invites", input); }
-  listParticipants() { return this.request("GET", "/v1/admin/participants"); }
+  listParticipants(input: ListParticipantsRequest) {
+    const query = new URLSearchParams({ limit: String(input.limit) });
+    if (input.after) query.set("after", input.after);
+    return this.request("GET", `/v1/admin/participants?${query}`);
+  }
   getMonthlyUsage(input: AdminUsageRequest) { return this.request("GET", `/v1/admin/employees/${encodeURIComponent(input.employeeId)}/usage?month=${encodeURIComponent(input.month)}`); }
 }
 

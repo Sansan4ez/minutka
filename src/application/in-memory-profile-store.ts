@@ -125,9 +125,12 @@ export function createInMemoryProfileStore(
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);
     },
-    async listParticipants(limit) {
+    async listParticipants({ limit, after }) {
       return [...world.participants]
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.employeeId.localeCompare(right.employeeId))
+        .filter((participant) => !after
+          || participant.createdAt > after.createdAt
+          || (participant.createdAt === after.createdAt && participant.employeeId > after.employeeId))
         .slice(0, limit);
     },
     async getParticipantByInviteCode(inviteCode) {

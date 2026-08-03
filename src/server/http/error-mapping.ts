@@ -3,6 +3,8 @@ import { PersistenceError, type PersistenceErrorCode } from "../../application/p
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import type { ApiErrorCode } from "../../contracts/minutka-api.js";
+import { InvalidParticipantCursorError } from "../../application/participant-pagination.js";
+import { ParticipantInviteExistsError } from "../../application/participant-invite-error.js";
 
 export type HttpError = { status: number; code: ApiErrorCode; message: string };
 const persistenceStatuses: Record<PersistenceErrorCode, number> = {
@@ -18,6 +20,8 @@ export function mapError(error: unknown): HttpError {
   if (error instanceof PersistenceError) return { status: persistenceStatuses[error.code], code: error.code, message: safeMessage(error.code) };
   if (error instanceof AssistantContextOverflowError) return { status: 413, code: error.code, message: error.message };
   if (error instanceof AssistantMutationOutcomeUnknownError) return { status: 503, code: error.code, message: error.message };
+  if (error instanceof InvalidParticipantCursorError) return { status: 400, code: "invalid_request", message: error.message };
+  if (error instanceof ParticipantInviteExistsError) return { status: 409, code: "persistence_conflict", message: error.message };
   return { status: 500, code: "internal_error", message: "Internal server error." };
 }
 function safeMessage(code: ApiErrorCode): string {
