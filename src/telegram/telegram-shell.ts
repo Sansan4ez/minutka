@@ -180,8 +180,12 @@ function renderScheduleList(schedules: Awaited<ReturnType<ReturnType<ServiceMinu
 function previewText(value: { value: string; truncated: boolean }): string {
   return `${value.value}${value.truncated ? "… [сокращено]" : ""}`;
 }
+function ideaSummaryPreviewText(value: { value: string; truncated: boolean }): string {
+  const visibleText = value.value.replace(/<U\+[0-9A-F]{4,6}>/gu, "").trim();
+  return visibleText ? previewText(value) : "Идея без описания";
+}
 function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPendingAction>>["preview"]): string[] {
-  if (preview.kind === "delete_idea") return [`Действие: удалить идею`, `Идея: ${previewText(preview.summary)}`, `ID: ${previewText(preview.ideaId)}`];
+  if (preview.kind === "delete_idea") return [`Действие: удалить идею`, `Идея: ${ideaSummaryPreviewText(preview.summary)}`];
   if (preview.kind === "create" || preview.kind === "idea_to_task") {
     return [
       `Действие: ${preview.kind === "idea_to_task" ? "создать задачу из идеи" : "создать задачу"}`,

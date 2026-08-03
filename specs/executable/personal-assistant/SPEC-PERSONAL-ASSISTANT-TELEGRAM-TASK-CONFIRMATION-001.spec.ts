@@ -6,9 +6,11 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryIdeaDeletionConfirmationStore } from "../../../src/application/in-memory-idea-deletion-confirmation-store.js";
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { IdeaDeletionService } from "../../../src/application/idea-deletion.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
@@ -34,17 +36,21 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
     createInMemoryTaskMutationConfirmationStore(tasks), clock,
     { confirmationId: (() => { let id = 0; return () => `telegram-confirmation-${++id}`; })() },
   );
+  const ideaDeletions = new IdeaDeletionService(
+    ideas, createInMemoryIdeaDeletionConfirmationStore(ideas), clock,
+    { confirmationId: (() => { let id = 0; return () => `telegram-idea-deletion-${++id}`; })() },
+  );
   const assistant = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(legacy.world),
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
-    ideaStore: ideas, taskStore: tasks, taskMutations,
+    ideaStore: ideas, ideaDeletions, taskStore: tasks, taskMutations,
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
   });
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
-  const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations);
+  const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations, undefined, ideaDeletions);
   const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade }, { saveArtifact: (input) => facade.saveArtifact(input) });
-  return { telegram, tasks, facade, setNow(value: string) { now = value; } };
+  return { telegram, ideas, tasks, facade, setNow(value: string) { now = value; } };
 }
 
 function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number], text: string): string {
@@ -217,6 +223,61 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: "tm:c:telegram-confirmation-1", callbackQueryId: "confirm-after-uncertain-reject" });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Uncertain rejection" }]);
+  });
+
+  it("renders an idea deletion without its opaque id and confirms it exactly once", async () => {
+    const ideaId = "idea_fd7e2e5f-04e9-4b1f-bddb-a795628033d0";
+    const summary = "Черновик партнёрского предложения";
+    const { telegram, ideas, facade } = await harness(async (_input, context) => {
+      const idea = await ideas.get(owner.employeeId, ideaId);
+      if (!idea) throw new Error("expected idea");
+      await context.ideas.propose({ ideaId: idea.id, expectedRevision: idea.revision });
+      return `Подготовил удаление ${ideaId}`;
+    });
+    await ideas.add({ id: ideaId, userId: owner.employeeId, project: "ASSISTANT", type: "knowledge", summary, status: "raw" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "delete idea" });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toContain(`Действие: удалить идею\nИдея: ${summary}`);
+    expect(proposal.text).not.toContain(ideaId);
+    expect(proposal.text).not.toContain("ID:");
+    expect(taskButton(proposal, "✅ Подтвердить")).toBe("id:c:telegram-idea-deletion-1");
+    expect(taskButton(proposal, "❌ Отклонить")).toBe("id:r:telegram-idea-deletion-1");
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-idea" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Идея удалена. Можно отменить удаление командой «верни последнюю идею».");
+    await expect(ideas.get(owner.employeeId, ideaId)).resolves.toBeNull();
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-idea-again" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
+    await expect(facade.undoIdeaDeletion(owner.employeeId)).resolves.toMatchObject({ outcome: "restored", idea: { id: ideaId } });
+    await expect(facade.undoIdeaDeletion(owner.employeeId, ideaId)).resolves.toMatchObject({ outcome: "unchanged", idea: { id: ideaId } });
+  });
+
+  it("uses a neutral fallback for an invisible idea summary and rejects it exactly once", async () => {
+    const ideaId = "idea_hidden_summary_42";
+    const { telegram, ideas } = await harness(async (_input, context) => {
+      const idea = await ideas.get(owner.employeeId, ideaId);
+      if (!idea) throw new Error("expected idea");
+      await context.ideas.propose({ ideaId: idea.id, expectedRevision: idea.revision });
+      return "Предложение подготовлено.";
+    });
+    await ideas.add({ id: ideaId, userId: owner.employeeId, project: "ASSISTANT", type: "knowledge", summary: "\u2066\u2069", status: "raw" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "delete invisible idea" });
+
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
+    expect(proposal.text).toContain("Действие: удалить идею\nИдея: Идея без описания");
+    expect(proposal.text).not.toContain(ideaId);
+    expect(proposal.text).not.toContain("U+2066");
+    expect(proposal.text).not.toContain("U+2069");
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "❌ Отклонить"), messageId: proposal.messageId, callbackQueryId: "reject-idea" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Удаление отменено.");
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "❌ Отклонить"), messageId: proposal.messageId, callbackQueryId: "reject-idea-again" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
+    await expect(ideas.get(owner.employeeId, ideaId)).resolves.toMatchObject({ revision: 1 });
   });
 
   it("renders unsafe task text as inert tokens without allowing labels or field boundaries to be reordered", async () => {

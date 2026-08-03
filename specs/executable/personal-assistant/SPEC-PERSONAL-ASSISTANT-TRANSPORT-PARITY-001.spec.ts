@@ -194,7 +194,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const ideas = createInMemoryIdeaStore(clock);
     const captured = await ideas.add({ id: "transport-delete-idea", userId: "owner-a", project: "ASSISTANT", type: "knowledge", summary: "Delete through transport", status: "raw" });
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
-    const deletions = new IdeaDeletionService(ideas, createInMemoryIdeaDeletionConfirmationStore(ideas), clock, { confirmationId: () => "transport-idea-deletion" });
+    let deletionConfirmationNumber = 0;
+    const deletions = new IdeaDeletionService(ideas, createInMemoryIdeaDeletionConfirmationStore(ideas), clock, { confirmationId: () => `transport-idea-deletion-${++deletionConfirmationNumber}` });
     const assistant = new AssistantService(async (_input, context) => {
       await context.ideas.propose({ ideaId: captured.id, expectedRevision: captured.revision });
       return "Подтвердите удаление.";
@@ -214,8 +215,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const proposed = await employee.chat({ threadId: "idea-delete", text: "delete it" });
     if (!("pendingAction" in proposed) || proposed.pendingAction?.actionKind !== "delete_idea") throw new Error("expected idea deletion pending action");
     await expect(telegram.confirmIdeaDeletion(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "deleted" } });
+    await expect(telegram.confirmIdeaDeletion(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed", outcome: { outcome: "deleted" } });
     await expect(ideas.get("owner-a", captured.id)).resolves.toBeNull();
     await expect(employee.undoIdeaDeletion()).resolves.toMatchObject({ outcome: "restored", idea: { id: captured.id } });
+    await expect(ideas.get("owner-a", captured.id)).resolves.toMatchObject({ revision: 3 });
+
+    const restored = await ideas.get("owner-a", captured.id);
+    if (!restored) throw new Error("expected restored idea");
+    const rejectionProposal = await deletions.propose("owner-a", { ideaId: restored.id, expectedRevision: restored.revision });
+    if (rejectionProposal.status !== "needs_confirmation") throw new Error("expected idea deletion confirmation");
+    await expect(telegram.rejectIdeaDeletion(rejectionProposal.confirmation.confirmationId)).resolves.toEqual({ status: "rejected" });
+    await expect(telegram.rejectIdeaDeletion(rejectionProposal.confirmation.confirmationId)).resolves.toEqual({ status: "already_rejected" });
     await expect(ideas.get("owner-a", captured.id)).resolves.toMatchObject({ revision: 3 });
   });
 
