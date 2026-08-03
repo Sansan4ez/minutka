@@ -89,7 +89,10 @@ const pendingContextDocumentActionSchema = z.strictObject({
   preview: z.strictObject({
     path: contextDocumentHandleSchema,
     destination: contextDocumentHandleSchema.optional(),
-    change: pendingTaskPreviewTextSchema.optional(),
+    change: z.strictObject({
+      removed: pendingTaskPreviewTextSchema,
+      added: pendingTaskPreviewTextSchema,
+    }).optional(),
   }),
 });
 export const pendingActionSchema = z.union([pendingTaskActionSchema, pendingIdeaDeletionActionSchema, pendingContextDocumentActionSchema]);

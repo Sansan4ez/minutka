@@ -17,7 +17,6 @@ import { safeConfirmationDisplayText, type PendingTaskPreviewText } from "./task
 
 export const contextDocumentConfirmationTtlMilliseconds = 15 * 60_000;
 export const contextDocumentConfirmationPurgeBatchSize = 500;
-export const contextDocumentPreviewMaximumCharacters = 1_200;
 export const writableContextDocumentSections = [
   "00_inbox", "07_rfcs", "08_entities", "10_user_memory", "20_work",
   "30_knowledge", "40_projects", "50_finance", "60_outbox", "90_agent_memory",
@@ -61,7 +60,10 @@ export type PendingContextDocumentMutationReceipt = {
   preview: {
     path: `/proc/context/${string}`;
     destination?: `/proc/context/${string}`;
-    change?: PendingTaskPreviewText;
+    change?: {
+      removed: PendingTaskPreviewText;
+      added: PendingTaskPreviewText;
+    };
   };
 };
 
@@ -197,7 +199,7 @@ export class ContextDocumentService {
     });
   }
 
-  private async saveProposal(ownerId: string, proposal: ContextDocumentMutationProposal, change: PendingTaskPreviewText | undefined, audit?: ContextDocumentAuditContext): Promise<ProposalResult> {
+  private async saveProposal(ownerId: string, proposal: ContextDocumentMutationProposal, change: PendingContextDocumentMutationReceipt["preview"]["change"], audit?: ContextDocumentAuditContext): Promise<ProposalResult> {
     const createdAt = timestamp(this.clock.now());
     const ttl = positiveSafeInteger(this.options.confirmationTtlMilliseconds ?? contextDocumentConfirmationTtlMilliseconds, "confirmation ttl");
     const record: PendingContextDocumentMutation = {
@@ -287,7 +289,7 @@ export type ProposalResult =
   | { status: "not_found" }
   | { status: "conflict" | "destination_conflict"; currentVersion: string };
 
-export function pendingContextDocumentMutationReceipt(record: PendingContextDocumentMutation, change?: PendingTaskPreviewText): PendingContextDocumentMutationReceipt {
+export function pendingContextDocumentMutationReceipt(record: PendingContextDocumentMutation, change?: PendingContextDocumentMutationReceipt["preview"]["change"]): PendingContextDocumentMutationReceipt {
   const proposal = record.proposal;
   const path = proposalPath(proposal);
   return {
@@ -368,7 +370,7 @@ function noteFileName(title: string): string {
   return `${base}.md`;
 }
 
-function boundedChangePreview(before: string, after: string): PendingTaskPreviewText {
+function boundedChangePreview(before: string, after: string): NonNullable<PendingContextDocumentMutationReceipt["preview"]["change"]> {
   const beforeLines = before.split("\n");
   const afterLines = after.split("\n");
   let prefix = 0;
@@ -376,11 +378,12 @@ function boundedChangePreview(before: string, after: string): PendingTaskPreview
   let suffix = 0;
   while (suffix < beforeLines.length - prefix && suffix < afterLines.length - prefix
     && beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]) suffix += 1;
-  const removed = beforeLines.slice(prefix, beforeLines.length - suffix).map((line) => `- ${line}`);
-  const added = afterLines.slice(prefix, afterLines.length - suffix).map((line) => `+ ${line}`);
-  const raw = [...removed, ...added].join("\n") || "Без текстовых изменений";
-  const safelyBounded = safeConfirmationDisplayText([...raw].slice(0, contextDocumentPreviewMaximumCharacters).join(""));
-  return { value: safelyBounded.value, truncated: safelyBounded.truncated || [...raw].length > contextDocumentPreviewMaximumCharacters };
+  const removed = beforeLines.slice(prefix, beforeLines.length - suffix).map((line) => `- ${line}`).join("\n");
+  const added = afterLines.slice(prefix, afterLines.length - suffix).map((line) => `+ ${line}`).join("\n");
+  return {
+    removed: safeConfirmationDisplayText(removed),
+    added: safeConfirmationDisplayText(added),
+  };
 }
 
 function updateOutcome(path: string, result: DocumentUpdateResult): ContextDocumentMutationOutcome {

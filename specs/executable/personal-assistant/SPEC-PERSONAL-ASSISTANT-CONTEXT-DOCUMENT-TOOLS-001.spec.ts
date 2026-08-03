@@ -44,7 +44,15 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-TOOLS-001: owner-bound model 
     }, {} as never);
     expect(modelVisible).toMatchObject({ status: "needs_confirmation", confirmation: { actionKind: "update" } });
     expect(JSON.stringify(modelVisible)).not.toMatch(/preview|new text|ownerId|payloadDigest|physical/);
-    expect(h.pending()).toMatchObject({ preview: { path: "/proc/context/00_inbox/source.md", change: { value: expect.stringContaining("new text") } } });
+    expect(h.pending()).toMatchObject({
+      preview: {
+        path: "/proc/context/00_inbox/source.md",
+        change: {
+          removed: { value: expect.stringContaining("old text") },
+          added: { value: expect.stringContaining("new text") },
+        },
+      },
+    });
     await expect(h.documents.get("owner", seeded.path)).resolves.toMatchObject({ content: "old text" });
 
     await expect(h.tools.proposeContextDocumentDelete.execute?.({ path: "/AGENTS.md", expectedVersion: seeded.version } as never, {} as never)).resolves.toMatchObject({ error: true, message: expect.stringContaining("/proc/context/") });

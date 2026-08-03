@@ -6,7 +6,7 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { pendingTaskAction, pendingTaskPreviewValueMaximumCharacters, pendingTaskReceipt, safeConfirmationDisplayText, TaskMutationConfirmationService, type TaskMutationProposal } from "../../../src/application/task-mutation-confirmation.js";
 import { EmployeeMinutkaClient, type EmployeeMinutkaTransport } from "../../../src/client/sdk/minutka-client.js";
-import { chatResponseSchema, pendingTaskReceiptSchema } from "../../../src/contracts/minutka-api.js";
+import { chatResponseSchema, pendingActionSchema, pendingTaskReceiptSchema } from "../../../src/contracts/minutka-api.js";
 import { countUnicodeCodePoints, pendingTaskSummaryMaximumCodePoints } from "../../../src/shared/chat-limits.js";
 
 const createProposal: TaskMutationProposal = {
@@ -135,6 +135,34 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
 
     const transport = { chat: async () => response } as unknown as EmployeeMinutkaTransport;
     await expect(new EmployeeMinutkaClient(transport).chat({ threadId: "thread", text: "hello" })).resolves.toEqual(response);
+  });
+
+  it("keeps task, idea, and context-document pending action contracts distinct", () => {
+    const common = { confirmationId: "confirmation-1", summary: "Предложение", expiresAt: "2026-07-28T09:15:00.000Z" };
+    const contextAction = {
+      ...common,
+      actionKind: "update",
+      preview: {
+        path: "/proc/context/00_inbox/source.md",
+        change: {
+          removed: { value: "- old", truncated: false },
+          added: { value: "+ new", truncated: false },
+        },
+      },
+    };
+
+    expect(pendingActionSchema.safeParse(contextAction).success).toBe(true);
+    expect(pendingActionSchema.safeParse({ ...contextAction, actionKind: "create" }).success).toBe(false);
+    expect(pendingActionSchema.safeParse({
+      ...common,
+      actionKind: "delete_idea",
+      preview: { kind: "delete_idea", ideaId: { value: "idea-1", truncated: false }, summary: { value: "idea", truncated: false }, revision: 1 },
+    }).success).toBe(true);
+    expect(pendingActionSchema.safeParse({
+      ...common,
+      actionKind: "create",
+      preview: { kind: "create", title: { value: "Task", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "operations", dueDate: null },
+    }).success).toBe(true);
   });
 
   it("fails closed for another owner and expiration without a client payload", async () => {

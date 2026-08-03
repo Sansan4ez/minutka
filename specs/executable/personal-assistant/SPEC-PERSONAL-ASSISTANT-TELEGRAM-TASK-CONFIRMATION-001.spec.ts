@@ -261,7 +261,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "замени раздел" });
 
     const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
-    expect(proposal.text).toContain("Действие: изменить документ\nДокумент: /proc/context/00_inbox/source.md\nИзменения:\n- old text + new text");
+    expect(proposal.text).toContain("Действие: изменить документ\nДокумент: /proc/context/00_inbox/source.md\nУдаляется: - old text\nДобавляется: + new text");
     expect(taskButton(proposal, "✅ Подтвердить")).toBe("cd:c:telegram-context-document-1");
     await expect(documents.get(owner.employeeId, "context/00_inbox/source.md")).resolves.toMatchObject({ content: "# Source\n\nold text", version: originalVersion });
 

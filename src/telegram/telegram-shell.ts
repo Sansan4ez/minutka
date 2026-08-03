@@ -199,7 +199,8 @@ function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPend
       `Действие: ${action}`,
       `Документ: ${preview.path}`,
       ...(preview.destination ? [`Новое расположение: ${preview.destination}`] : []),
-      ...(preview.change ? ["Изменения:", previewText(preview.change)] : []),
+      ...(preview.change?.removed.value ? [`Удаляется: ${previewText(preview.change.removed)}`] : []),
+      ...(preview.change?.added.value ? [`Добавляется: ${previewText(preview.change.added)}`] : []),
     ];
   }
   if (preview.kind === "delete_idea") return [`Действие: удалить идею`, `Идея: ${ideaSummaryPreviewText(preview.summary)}`];

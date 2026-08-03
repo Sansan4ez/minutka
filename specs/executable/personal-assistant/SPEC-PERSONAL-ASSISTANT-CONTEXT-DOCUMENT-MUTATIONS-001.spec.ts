@@ -130,7 +130,10 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     });
     expect(proposed.status).toBe("needs_confirmation");
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
-    expect(proposed.confirmation.preview.change).toMatchObject({ value: expect.stringContaining("new text") });
+    expect(proposed.confirmation.preview.change).toMatchObject({
+      removed: { value: "- old text", truncated: false },
+      added: { value: "+ new text", truncated: false },
+    });
     await expect(h.documents.get("owner", original.path)).resolves.toMatchObject({ content: "# Source\n\nold text" });
     await expect(h.service.confirm("other", proposed.confirmation.confirmationId)).resolves.toEqual({ status: "owner_mismatch" });
     const [first, second] = await Promise.all([
@@ -140,6 +143,50 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     expect(first.status === "confirmed" || second.status === "confirmed").toBe(true);
     expect(first.status === "already_confirmed" || second.status === "already_confirmed").toBe(true);
     await expect(h.documents.get("owner", original.path)).resolves.toMatchObject({ content: "# Source\n\nnew text" });
+  });
+
+  it("bounds removed and added preview text independently for large rewrites", async () => {
+    const h = harness();
+    const originalContent = Array.from({ length: 300 }, (_, index) => `old line ${index}`).join("\n");
+    const replacementContent = Array.from({ length: 300 }, (_, index) => `new line ${index}`).join("\n");
+    const original = await seed(h, "owner", "context/00_inbox/source.md", originalContent);
+
+    const proposed = await h.service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement: replacementContent,
+    });
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+    const change = proposed.confirmation.preview.change;
+    if (!change) throw new Error("expected change preview");
+
+    expect(change.removed.value).toContain("old line");
+    expect(change.added.value).toContain("new line");
+    expect([...change.removed.value]).toHaveLength(280);
+    expect([...change.added.value]).toHaveLength(280);
+    expect(change.removed.truncated).toBe(true);
+    expect(change.added.truncated).toBe(true);
+  });
+
+  it("represents pure additions and removals without borrowing the other side's preview budget", async () => {
+    const h = harness();
+    const additionSource = await seed(h, "owner", "context/00_inbox/addition.md", "kept");
+    const addition = await h.service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/addition.md", expectedVersion: additionSource.version, replacement: "kept\nadded",
+    });
+    if (addition.status !== "needs_confirmation") throw new Error("expected confirmation");
+    expect(addition.confirmation.preview.change).toEqual({
+      removed: { value: "", truncated: false },
+      added: { value: "+ added", truncated: false },
+    });
+
+    const removalSource = await seed(h, "owner", "context/00_inbox/removal.md", "kept\nremoved");
+    const removal = await h.service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/removal.md", expectedVersion: removalSource.version, replacement: "kept",
+    });
+    if (removal.status !== "needs_confirmation") throw new Error("expected confirmation");
+    expect(removal.confirmation.preview.change).toEqual({
+      removed: { value: "- removed", truncated: false },
+      added: { value: "", truncated: false },
+    });
   });
 
   it("returns a stale-version conflict without writing and keeps rejection final", async () => {
