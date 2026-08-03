@@ -203,8 +203,8 @@ export class ContextDocumentService {
     const record: PendingContextDocumentMutation = {
       confirmationId: requiredText.parse((this.options.confirmationId ?? (() => `context-document-${randomUUID()}`))()),
       ownerId,
-      proposal: normalizeContextDocumentProposal(proposal, this.maximumDocumentBytes),
-      payloadDigest: contextDocumentPayloadDigest(proposal, this.maximumDocumentBytes),
+      proposal: normalizeContextDocumentProposal(proposal),
+      payloadDigest: contextDocumentPayloadDigest(proposal),
       createdAt,
       expiresAt: new Date(Date.parse(createdAt) + ttl).toISOString(),
     };
@@ -303,12 +303,12 @@ export function pendingContextDocumentMutationReceipt(record: PendingContextDocu
   };
 }
 
-export function normalizeContextDocumentProposal(proposal: ContextDocumentMutationProposal, maximumDocumentBytes = defaultContextBudget.documentTools.maximumDocumentBytes): ContextDocumentMutationProposal {
+export function normalizeContextDocumentProposal(proposal: ContextDocumentMutationProposal): ContextDocumentMutationProposal {
   if (proposal.kind === "update") return {
     kind: "update",
     path: contextDocumentPath(contextDocumentHandle(proposal.path)),
     expectedVersion: versionSchema.parse(proposal.expectedVersion),
-    content: requiredContent(proposal.content, maximumDocumentBytes),
+    content: requiredProposalContent(proposal.content),
   };
   if (proposal.kind === "move") {
     const sourcePath = contextDocumentPath(contextDocumentHandle(proposal.sourcePath));
@@ -319,8 +319,8 @@ export function normalizeContextDocumentProposal(proposal: ContextDocumentMutati
   return { kind: "delete", path: contextDocumentPath(contextDocumentHandle(proposal.path)), expectedVersion: versionSchema.parse(proposal.expectedVersion) };
 }
 
-export function contextDocumentPayloadDigest(proposal: ContextDocumentMutationProposal, maximumDocumentBytes = defaultContextBudget.documentTools.maximumDocumentBytes): string {
-  return createHash("sha256").update(stableJson(normalizeContextDocumentProposal(proposal, maximumDocumentBytes))).digest("hex");
+export function contextDocumentPayloadDigest(proposal: ContextDocumentMutationProposal): string {
+  return createHash("sha256").update(stableJson(normalizeContextDocumentProposal(proposal))).digest("hex");
 }
 
 export function copyContextDocumentOutcome(outcome: ContextDocumentMutationOutcome): ContextDocumentMutationOutcome {
@@ -340,8 +340,13 @@ function replacementContent(current: string, input: { replacement?: string; patc
 }
 
 function requiredContent(content: string, maximumBytes: number): string {
+  const required = requiredProposalContent(content);
+  assertContextDocumentWithinMaximumBytes({ content: required, maximumBytes, description: "context document" });
+  return required;
+}
+
+function requiredProposalContent(content: string): string {
   if (!content.trim()) throw new Error("context document content is required");
-  assertContextDocumentWithinMaximumBytes({ content, maximumBytes, description: "context document" });
   return content;
 }
 

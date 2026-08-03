@@ -27,6 +27,9 @@ import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-
 import { IdeaDeletionService } from "../../src/application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../../src/infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 import { createSecretBox } from "../../src/infrastructure/postgres/secret-box.js";
+import { ContextDocumentService } from "../../src/application/context-document-service.js";
+import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
+import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -603,6 +606,48 @@ describe("PostgreSQL storage contracts", () => {
     const rejectedAfterRestart = new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), { now: () => currentTime });
     await expect(rejectedAfterRestart.confirm("emp_task_confirmation", rejected.confirmationId)).resolves.toEqual({ status: "already_rejected" });
     await expect(createPostgresTaskStore(pool).get("emp_task_confirmation", "task-rejected-pg")).resolves.toBeNull();
+  });
+
+  it("confirms large context document updates and rejects payload tampering", async () => {
+    await issueProfileReadyParticipant(pool, "context_document_owner", "invite_context_document_owner");
+    const clock = { now: () => "2026-08-03T10:00:00.000Z" };
+    const documents = createInMemoryDocumentStore(clock);
+    const service = new ContextDocumentService(
+      documents,
+      createPostgresContextDocumentConfirmationStore(pool),
+      clock,
+      {
+        maximumDocumentBytes: 512 * 1024,
+        confirmationId: (() => {
+          let sequence = 0;
+          return () => `context-document-pg-${++sequence}`;
+        })(),
+      },
+    );
+    const original = await documents.put("context_document_owner", "context/00_inbox/source.md", "old text");
+    const replacement = "x".repeat(300 * 1024);
+    const proposed = await service.proposeUpdate("context_document_owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement,
+    });
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+
+    await expect(service.confirm("context_document_owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed", outcome: { outcome: "updated" },
+    });
+    await expect(documents.get("context_document_owner", original.path)).resolves.toMatchObject({ content: replacement });
+
+    const current = await documents.get("context_document_owner", original.path);
+    if (!current) throw new Error("expected updated document");
+    const tampered = await service.proposeUpdate("context_document_owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: current.version, replacement: "safe replacement",
+    });
+    if (tampered.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await pool.query(
+      "UPDATE minutka_private.context_document_confirmations SET payload=jsonb_set(payload, '{content}', to_jsonb('tampered replacement'::text)) WHERE confirmation_id=$1",
+      [tampered.confirmation.confirmationId],
+    );
+    await expect(service.confirm("context_document_owner", tampered.confirmation.confirmationId)).resolves.toEqual({ status: "invalid_payload" });
+    await expect(documents.get("context_document_owner", original.path)).resolves.toMatchObject({ content: replacement });
   });
 
   it("purges task confirmations by pending/completed retention, stays bounded, uses purge indexes and preserves owner cascade", async () => {

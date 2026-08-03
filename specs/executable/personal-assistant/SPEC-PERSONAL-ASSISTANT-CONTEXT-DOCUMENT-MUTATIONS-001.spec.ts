@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { ContextDocumentService } from "../../../src/application/context-document-service.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  contextDocumentPayloadDigest,
+  ContextDocumentService,
+  type ContextDocumentConfirmationStore,
+  type PendingContextDocumentMutation,
+} from "../../../src/application/context-document-service.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryContextDocumentConfirmationStore } from "../../../src/application/in-memory-context-document-confirmation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
@@ -36,6 +41,83 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     await expect(h.service.createNote("owner", { title: "Unsafe", content: "body", destination: "99_system" })).rejects.toThrow("allow-listed context section");
     await expect(h.service.createNote("owner", { title: "Unsafe", content: "body", destination: "new_namespace" })).rejects.toThrow("allow-listed context section");
     await expect(h.documents.get("owner", "context/00_inbox/meeting-notes.md")).resolves.toMatchObject({ content: "first" });
+  });
+
+  it("confirms updates accepted under a configured limit above the default", async () => {
+    const clock = { now: () => "2026-08-02T10:00:00.000Z" };
+    const documents = createInMemoryDocumentStore(clock);
+    const service = new ContextDocumentService(documents, createInMemoryContextDocumentConfirmationStore(), clock, {
+      maximumDocumentBytes: 512 * 1024,
+      confirmationId: () => "context-confirmation-large",
+    });
+    const original = await documents.put("owner", "context/00_inbox/source.md", "old text");
+    const replacement = "x".repeat(300 * 1024);
+
+    const proposed = await service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement,
+    });
+    expect(proposed.status).toBe("needs_confirmation");
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await expect(service.confirm("owner", proposed.confirmation.confirmationId)).resolves.toMatchObject({
+      status: "confirmed", outcome: { outcome: "updated" },
+    });
+    await expect(documents.get("owner", original.path)).resolves.toMatchObject({ content: replacement });
+  });
+
+  it("rejects content above the configured limit before proposal storage", async () => {
+    const clock = { now: () => "2026-08-02T10:00:00.000Z" };
+    const documents = createInMemoryDocumentStore(clock);
+    const confirmations = createInMemoryContextDocumentConfirmationStore();
+    const save = vi.spyOn(confirmations, "save");
+    const service = new ContextDocumentService(documents, confirmations, clock, {
+      maximumDocumentBytes: 16,
+      confirmationId: () => "context-confirmation-too-large",
+    });
+    const original = await documents.put("owner", "context/00_inbox/source.md", "old text");
+    const oversized = "x".repeat(17);
+
+    await expect(service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement: oversized,
+    })).rejects.toThrow("exceeds the 16-byte context document maximum");
+    await expect(service.createNote("owner", { title: "Oversized", content: oversized })).rejects.toThrow(
+      "exceeds the 16-byte context document maximum",
+    );
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("still rejects a tampered stored proposal with an unchanged digest", async () => {
+    let stored: PendingContextDocumentMutation | undefined;
+    const confirmations: ContextDocumentConfirmationStore = {
+      async save(record) {
+        stored = {
+          ...record,
+          proposal: record.proposal.kind === "update"
+            ? { ...record.proposal, content: `${record.proposal.content} tampered` }
+            : record.proposal,
+        };
+      },
+      async decide(_input, effect) {
+        if (!stored) return { result: { status: "not_found" } };
+        if (contextDocumentPayloadDigest(stored.proposal) !== stored.payloadDigest) {
+          return { result: { status: "invalid_payload" }, proposal: stored.proposal };
+        }
+        return { result: { status: "confirmed", outcome: await effect(stored.proposal) }, proposal: stored.proposal };
+      },
+      async purge() { return 0; },
+    };
+    const clock = { now: () => "2026-08-02T10:00:00.000Z" };
+    const documents = createInMemoryDocumentStore(clock);
+    const service = new ContextDocumentService(documents, confirmations, clock, {
+      confirmationId: () => "context-confirmation-tampered",
+    });
+    const original = await documents.put("owner", "context/00_inbox/source.md", "old text");
+    const proposed = await service.proposeUpdate("owner", {
+      path: "/proc/context/00_inbox/source.md", expectedVersion: original.version, replacement: "new text",
+    });
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+
+    await expect(service.confirm("owner", proposed.confirmation.confirmationId)).resolves.toEqual({ status: "invalid_payload" });
+    await expect(documents.get("owner", original.path)).resolves.toMatchObject({ content: "old text" });
   });
 
   it("does not mutate before confirmation and enforces owner-bound exact-once decisions", async () => {
