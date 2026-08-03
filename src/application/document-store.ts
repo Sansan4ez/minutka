@@ -12,6 +12,8 @@ export type UserDocumentMetadata = Pick<UserDocument, "userId" | "path" | "versi
   size: number;
 };
 
+export type UserDocumentVersion = Pick<UserDocumentMetadata, "version" | "updatedAt" | "size">;
+
 export type DocumentVersionConflict = { outcome: "conflict"; current?: UserDocumentMetadata };
 export type DocumentVersionNotFound = { outcome: "not_found" };
 export type DocumentUpdateResult =
@@ -87,6 +89,8 @@ export type DocumentStore = {
   deleteIfVersion(userId: string, path: string, expectedVersion: string): Promise<DocumentDeleteResult>;
   /** Restores one historical owner/path version as the new current version. */
   restoreVersion(userId: string, path: string, version: string): Promise<UserDocument | null>;
+  /** Bounded history of one logical owner document, newest first. Delete markers are not versions. */
+  listVersions(userId: string, path: string, limit?: number): Promise<UserDocumentVersion[]>;
   /** Lists logical metadata without reading document bodies. */
   listMetadata(userId: string, prefix?: string): Promise<UserDocumentMetadata[]>;
   /** Lazily iterates logical documents in stable path order, reading one body at a time. */

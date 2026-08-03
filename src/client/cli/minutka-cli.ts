@@ -65,6 +65,26 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
         stdout.push(`  ${source.source}: ${format(source.totalTokens)} tokens (${format(source.cachedInputTokens)} cached input), $${(source.estimatedCostUsdMicros / 1_000_000).toFixed(6)} USD, ${format(source.records)} record(s), ${format(source.cachedInputUnknownRecords)} cache-unknown`);
       }
     }));
+  admin.addCommand(new Command("context-document-versions")
+    .requiredOption("--employee <employeeId>")
+    .requiredOption("--path <handle>")
+    .option("--limit <n>", "Versions to show", (value: string) => Number(value))
+    .action(async (o: { employee: string; path: string; limit?: number }) => {
+      const result = await adminClient.listContextDocumentVersions({ employeeId: o.employee, path: o.path, limit: o.limit });
+      stdout.push(`Document: ${result.path}`);
+      stdout.push("UPDATED_AT\tSIZE_BYTES\tVERSION");
+      for (const item of result.versions) stdout.push(`${item.updatedAt}\t${item.size.toLocaleString("en-US")}\t${item.version}`);
+    }));
+  admin.addCommand(new Command("restore-context-document")
+    .requiredOption("--employee <employeeId>")
+    .requiredOption("--path <handle>")
+    .requiredOption("--version <version>")
+    .action(async (o: { employee: string; path: string; version: string }) => {
+      const result = await adminClient.restoreContextDocumentVersion({ employeeId: o.employee, path: o.path, version: o.version });
+      stdout.push(result.outcome === "restored"
+        ? `Restored ${result.path} as version ${result.version}`
+        : `Version not found for ${result.path}`);
+    }));
   program.addCommand(admin);
   try { await program.parseAsync(argv, { from: "user" }); return { exitCode: 0, stdout, stderr }; }
   catch (error) { stderr.push(error instanceof Error ? error.message : String(error)); return { exitCode: 1, stdout, stderr }; }

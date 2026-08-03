@@ -176,6 +176,19 @@ export function createInMemoryDocumentStore(
       const restored: UserDocument = { userId: safeUserId, path: canonicalPath, content: historical.content, version: `memory-${++version}`, updatedAt: clock.now() };
       return saveVersion(restored);
     },
+    async listVersions(userId, path, limit = 20) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      for (const storagePath of [canonicalPath, legacyDocumentPath(canonicalPath)].filter((item): item is string => item !== null)) {
+        const history = versions.get(key(safeUserId, storagePath));
+        if (!history?.size) continue;
+        return [...history.values()]
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.version.localeCompare(left.version))
+          .slice(0, limit)
+          .map((document) => ({ version: document.version, updatedAt: document.updatedAt, size: Buffer.byteLength(document.content, "utf8") }));
+      }
+      return [];
+    },
     async listMetadata(userId, prefix) {
       const safeUserId = assertUserId(userId);
       const safePrefix = prefix === undefined ? undefined : `${canonicalDocumentPath(prefix.replace(/\/+$/, ""))}/`;

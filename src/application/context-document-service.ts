@@ -10,6 +10,7 @@ import {
   type DocumentMoveResult,
   type DocumentStore,
   type DocumentUpdateResult,
+  type UserDocumentVersion,
 } from "./document-store.js";
 import { defaultContextBudget } from "./context-budget.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
@@ -24,6 +25,7 @@ export const writableContextDocumentSections = [
 
 const requiredText = z.string().refine((value) => value.trim().length > 0, "Required text");
 const versionSchema = requiredText.max(512);
+const versionHistoryLimitSchema = z.number().int().min(1).max(100).default(20);
 
 export type ContextDocumentPatch = { search: string; replacement: string };
 export type ContextDocumentMutationProposal =
@@ -170,6 +172,16 @@ export class ContextDocumentService {
 
   reject(ownerId: string, confirmationId: string, audit?: ContextDocumentAuditContext): Promise<ContextDocumentDecisionResult> {
     return this.decide(ownerId, confirmationId, "reject", audit);
+  }
+
+  async listVersions(ownerId: string, input: { path: string; limit?: number }): Promise<{
+    path: `/proc/context/${string}`;
+    versions: UserDocumentVersion[];
+  }> {
+    const safeOwnerId = assertUserId(ownerId);
+    const path = contextDocumentPath(input.path);
+    const limit = versionHistoryLimitSchema.parse(input.limit);
+    return { path: contextDocumentHandle(path), versions: await this.documents.listVersions(safeOwnerId, path, limit) };
   }
 
   async restoreVersion(ownerId: string, input: { path: string; version: string }, audit?: ContextDocumentAuditContext): Promise<

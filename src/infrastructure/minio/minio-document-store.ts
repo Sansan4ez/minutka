@@ -249,6 +249,21 @@ export function createMinioDocumentStore(options: MinioDocumentStoreOptions): Do
       }
       return null;
     },
+    async listVersions(userId, path, limit = 20) {
+      const safeUserId = assertUserId(userId);
+      const canonicalPath = canonicalDocumentPath(path);
+      for (const storagePath of [canonicalPath, legacyDocumentPath(canonicalPath)].filter((item): item is string => item !== null)) {
+        const key = objectKey(safeUserId, storagePath);
+        const historical = await collectHistoricalObjects(options.client.listObjects(options.bucket, key, false, { IncludeVersion: true }));
+        const versions = historical
+          .filter((object): object is HistoricalObject & { versionId: string; lastModified: Date } => object.name === key && object.isDeleteMarker !== true && Boolean(object.versionId) && object.lastModified instanceof Date)
+          .sort((left, right) => right.lastModified.getTime() - left.lastModified.getTime() || right.versionId.localeCompare(left.versionId))
+          .slice(0, limit)
+          .map((object) => ({ version: object.versionId, updatedAt: object.lastModified.toISOString(), size: object.size ?? 0 }));
+        if (versions.length) return versions;
+      }
+      return [];
+    },
     listMetadata,
     async *iterate(userId, prefix) {
       const safeUserId = assertUserId(userId);
@@ -295,6 +310,22 @@ function collectObjects(stream: NodeJS.ReadableStream): Promise<Minio.BucketItem
   return new Promise((resolve, reject) => {
     const objects: Minio.BucketItem[] = [];
     stream.on("data", (object: Minio.BucketItem) => objects.push(object));
+    stream.once("error", reject);
+    stream.once("end", () => resolve(objects));
+  });
+}
+
+type HistoricalObject = {
+  name?: string;
+  lastModified?: Date;
+  size?: number;
+  versionId?: string;
+  isDeleteMarker?: boolean;
+};
+function collectHistoricalObjects(stream: NodeJS.ReadableStream): Promise<HistoricalObject[]> {
+  return new Promise((resolve, reject) => {
+    const objects: HistoricalObject[] = [];
+    stream.on("data", (object: HistoricalObject) => objects.push(object));
     stream.once("error", reject);
     stream.once("end", () => resolve(objects));
   });

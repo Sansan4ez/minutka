@@ -111,7 +111,7 @@ describeMinio("MinIO personal-vault contracts", () => {
     await expect(documents.getExact(owner, legacyPath)).resolves.toBeNull();
   });
 
-  it("updates, deletes and restores selected owner document versions", async () => {
+  it("updates, deletes, lists and restores selected owner document versions", async () => {
     const path = "context/version-restore.md";
     const first = await documents.put(owner, path, "first version");
     const updated = await documents.putIfVersion(owner, path, first.version, "second version");
@@ -120,6 +120,12 @@ describeMinio("MinIO personal-vault contracts", () => {
     await expect(documents.putIfVersion(owner, path, first.version, "stale overwrite")).resolves.toMatchObject({ outcome: "conflict" });
     const deleted = await documents.deleteIfVersion(owner, path, updated.document.version);
     expect(deleted).toMatchObject({ outcome: "deleted", version: updated.document.version });
+    const rawVersions = await collectObjects(client.listObjects(config.bucket, `${owner}/${path}`, false, { IncludeVersion: true }));
+    const deleteMarkerVersions = rawVersions.filter((object) => object.isDeleteMarker === true).flatMap((object) => object.versionId ? [object.versionId] : []);
+    const versions = await documents.listVersions(owner, path);
+    expect(versions.map(({ version }) => version)).toContain(updated.document.version);
+    expect(versions.map(({ version }) => version)).not.toEqual(expect.arrayContaining(deleteMarkerVersions));
+    await expect(documents.listVersions(otherOwner, path)).resolves.toEqual([]);
     await expect(documents.restoreVersion(otherOwner, path, first.version)).resolves.toBeNull();
     await expect(documents.restoreVersion(owner, path, first.version)).resolves.toMatchObject({ path, content: "first version" });
   });

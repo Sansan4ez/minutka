@@ -173,6 +173,29 @@ describe("SPEC-MINIO-DOCUMENT-STORE-001: atomic context creation and metadata li
     await expect(documents.restoreVersion("owner", "context/versioned.md", first.version)).resolves.toMatchObject({ content: "first", path: "context/versioned.md" });
   });
 
+  it("lists bounded version metadata newest first without delete markers or body reads", async () => {
+    let now = "2026-01-01T00:00:00.000Z";
+    const client = createFakeMinioClient({ honorsConditionalCreate: true });
+    const documents = createMinioDocumentStore({ client, bucket, now: () => now });
+    const first = await documents.put("owner", "context/history.md", "first");
+    now = "2026-01-02T00:00:00.000Z";
+    const second = await documents.put("owner", "context/history.md", "second body");
+    await documents.deleteIfVersion("owner", "context/history.md", second.version);
+    const readsBeforeList = client.getObjectCalls();
+
+    const versions = await documents.listVersions("owner", "context/history.md", 1);
+
+    expect(versions).toEqual([{ version: second.version, updatedAt: "2026-01-01T00:00:00.000Z", size: Buffer.byteLength("second body") }]);
+    expect(versions[0]?.version).not.toBe(first.version);
+    expect(client.getObjectCalls()).toBe(readsBeforeList);
+    expect(await documents.listVersions("other", "context/history.md")).toEqual([]);
+
+    await client.putObject(bucket, "legacy/context/imported-knowledge-base/history.md", Buffer.from("legacy history"));
+    await expect(documents.listVersions("legacy", "context/history.md")).resolves.toEqual([
+      expect.objectContaining({ size: Buffer.byteLength("legacy history") }),
+    ]);
+  });
+
   it("keeps concurrent and repeated putIfAbsent writes on one stored version", async () => {
     const client = createFakeMinioClient({ honorsConditionalCreate: true });
     const documents = createMinioDocumentStore({ client, bucket, now: () => "2026-01-01T00:00:00.000Z" });
@@ -263,6 +286,15 @@ function createFakeMinioClient(input: { honorsConditionalCreate: boolean; cleanu
       return Readable.from([...objects.keys()]
         .filter((name) => name.startsWith(prefix))
         .map((name) => ({ name })));
+    },
+    listObjects(_bucket: string, prefix: string) {
+      const listed = [...histories.entries()]
+        .filter(([name]) => name.startsWith(prefix))
+        .flatMap(([name, history]) => [
+          ...[...history.values()].map((stored) => ({ name, size: stored.body.byteLength, lastModified: stored.lastModified, versionId: stored.versionId, isDeleteMarker: false })),
+          ...(!objects.has(name) ? [{ name, size: 0, lastModified: new Date("2026-01-03T00:00:00.000Z"), versionId: `delete-${name}`, isDeleteMarker: true }] : []),
+        ]);
+      return Readable.from(listed);
     },
     async removeObject(_bucket: string, objectName: string, options?: Minio.RemoveOptions) {
       removeCount += 1;

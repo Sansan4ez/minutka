@@ -1,9 +1,9 @@
 import { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompleteOnboardingRequest, ServiceChatRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
-  SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
+  RestoreContextDocumentVersionRequest, SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import type {
   AdminMinutkaTransport, EmployeeMinutkaTransport, ServiceEmployeeMinutkaTransport,
@@ -58,6 +58,8 @@ export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
   issueInvite(input: IssueInviteRequest) { operator(this.principal); return this.application.issueInvite(input); }
   listParticipants(input: ListParticipantsRequest) { operator(this.principal); return this.application.listParticipants(input); }
   getMonthlyUsage(input: AdminUsageRequest) { operator(this.principal); return personal(this.application).getMonthlyUsage(input.employeeId, input.month); }
+  listContextDocumentVersions(input: ContextDocumentVersionsRequest) { operator(this.principal); return personal(this.application).listContextDocumentVersions(input.employeeId, { path: input.path, limit: input.limit }); }
+  restoreContextDocumentVersion(input: RestoreContextDocumentVersionRequest) { operator(this.principal); return personal(this.application).restoreContextDocumentVersion(input.employeeId, { path: input.path, version: input.version }); }
 }
 
 /** Service-plane adapter used by the Telegram shell after it resolves an employee privately. */

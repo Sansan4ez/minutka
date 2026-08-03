@@ -7,6 +7,9 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryUsageStore } from "../../../src/application/in-memory-usage-store.js";
+import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
+import { createInMemoryContextDocumentConfirmationStore } from "../../../src/application/in-memory-context-document-confirmation-store.js";
+import { ContextDocumentService } from "../../../src/application/context-document-service.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { AdminMinutkaClient, EmployeeMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
@@ -110,6 +113,61 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(invalid.stderr.at(-1)).toContain("month must use YYYY-MM");
   });
 
+  it("lists and restores context document versions only for operator credentials", async () => {
+    let now = "2026-08-03T10:00:00.000Z";
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => now) });
+    const clock = { now: () => now };
+    const documentStore = createInMemoryDocumentStore(clock);
+    const contextDocuments = new ContextDocumentService(documentStore, createInMemoryContextDocumentConfirmationStore(), clock, {
+      auditEventStore: createInMemoryAuditEventStore(runtime.world), idGenerator: createDeterministicIdGenerator(),
+    });
+    const first = await documentStore.put("emp_docs", "context/00_inbox/recover.md", "first body");
+    now = "2026-08-03T11:00:00.000Z";
+    const second = await documentStore.put("emp_docs", "context/00_inbox/recover.md", "second body");
+    await documentStore.deleteIfVersion("emp_docs", "context/00_inbox/recover.md", second.version);
+    await documentStore.put("other", "context/00_inbox/recover.md", "private body");
+    const application = createApplication(runtime, "unused", undefined, contextDocuments, documentStore);
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_docs", employeeToken]]) } }); running.push(server);
+    const versionsUrl = `${server.url}/v1/admin/employees/emp_docs/context-documents/versions?path=${encodeURIComponent("/proc/context/00_inbox/recover.md")}`;
+    const restoreUrl = `${server.url}/v1/admin/employees/emp_docs/context-documents/restore`;
+
+    for (const token of [employeeToken, serviceToken]) {
+      expect((await fetch(versionsUrl, { headers: { authorization: `Bearer ${token}` } })).status).toBe(403);
+      expect((await fetch(restoreUrl, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ path: "/proc/context/00_inbox/recover.md", version: first.version }) })).status).toBe(403);
+    }
+
+    const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+    const listed = await runMinutkaCli(client, ["admin", "context-document-versions", "--employee", "emp_docs", "--path", "/proc/context/00_inbox/recover.md", "--limit", "1"]);
+    expect(listed).toMatchObject({ exitCode: 0, stderr: [] });
+    expect(listed.stdout).toEqual([
+      "Document: /proc/context/00_inbox/recover.md",
+      "UPDATED_AT\tSIZE_BYTES\tVERSION",
+      `2026-08-03T11:00:00.000Z\t11\t${second.version}`,
+    ]);
+    const restored = await runMinutkaCli(client, ["admin", "restore-context-document", "--employee", "emp_docs", "--path", "/proc/context/00_inbox/recover.md", "--version", first.version]);
+    expect(restored).toMatchObject({ exitCode: 0, stderr: [] });
+    expect(restored.stdout).toEqual([expect.stringContaining("Restored /proc/context/00_inbox/recover.md as version")]);
+    await expect(documentStore.get("emp_docs", "context/00_inbox/recover.md")).resolves.toMatchObject({ content: "first body" });
+    await expect(documentStore.get("other", "context/00_inbox/recover.md")).resolves.toMatchObject({ content: "private body" });
+
+    for (const invalidPath of ["context/00_inbox/recover.md", "emp_docs/context/00_inbox/recover.md"]) {
+      const invalid = await fetch(`${server.url}/v1/admin/employees/emp_docs/context-documents/versions?path=${encodeURIComponent(invalidPath)}`, { headers: { authorization: `Bearer ${adminToken}` } });
+      expect(invalid.status).toBe(400);
+    }
+    for (const limit of ["0", "101", "not-a-number"]) {
+      const invalid = await fetch(`${versionsUrl}&limit=${limit}`, { headers: { authorization: `Bearer ${adminToken}` } });
+      expect(invalid.status).toBe(400);
+    }
+    const foreignVersions = await client.listContextDocumentVersions({ employeeId: "missing-owner", path: "/proc/context/00_inbox/recover.md" });
+    expect(foreignVersions).toEqual({ path: "/proc/context/00_inbox/recover.md", versions: [] });
+    const foreignRestore = await client.restoreContextDocumentVersion({ employeeId: "other", path: "/proc/context/00_inbox/recover.md", version: first.version });
+    expect(foreignRestore).toEqual({ outcome: "not_found", path: "/proc/context/00_inbox/recover.md" });
+    await expect(documentStore.get("other", "context/00_inbox/recover.md")).resolves.toMatchObject({ content: "private body" });
+    expect(runtime.world.auditEvents).toContainEqual(expect.objectContaining({
+      type: "context_document_mutated", employeeId: "emp_docs", metadata: expect.objectContaining({ operation: "restore", path: "/proc/context/00_inbox/recover.md", outcome: "restored" }),
+    }));
+  });
+
   it("paginates bounded non-personal participant fields for operator credentials", async () => {
     let instant = 0;
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => new Date(Date.UTC(2026, 0, 1, 0, 0, instant++)).toISOString()) });
@@ -162,9 +220,15 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
   });
 });
 
-function createApplication(runtime: ReturnType<typeof createInMemoryRuntime>, response: string, usageStore?: Pick<UsageStore, "getMonthly">): PersonalAssistantService {
+function createApplication(
+  runtime: ReturnType<typeof createInMemoryRuntime>,
+  response: string,
+  usageStore?: Pick<UsageStore, "getMonthly">,
+  contextDocuments?: ContextDocumentService,
+  providedDocumentStore?: ReturnType<typeof createInMemoryDocumentStore>,
+): PersonalAssistantService {
   const clock = { now: runtime.world.now };
-  const documentStore = createInMemoryDocumentStore(clock);
+  const documentStore = providedDocumentStore ?? createInMemoryDocumentStore(clock);
   const ingestionService = createIngestionService({ documentStore, blobStore: createInMemoryBlobStore(clock) });
   const assistant = new AssistantService(async () => response, {
     documentStore,
@@ -179,5 +243,5 @@ function createApplication(runtime: ReturnType<typeof createInMemoryRuntime>, re
     clock,
     limits: { maximumBytes: 1024, timeoutMs: 1_000 },
   });
-  return new PersonalAssistantService(runtime.service, assistant, artifactStore, undefined, undefined, undefined, undefined, usageStore);
+  return new PersonalAssistantService(runtime.service, assistant, artifactStore, undefined, undefined, undefined, undefined, usageStore, contextDocuments);
 }

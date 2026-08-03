@@ -74,7 +74,7 @@ export class PersonalAssistantService {
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
     private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
     private readonly usage?: Pick<UsageStore, "getMonthly">,
-    private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject">,
+    private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject" | "listVersions" | "restoreVersion">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -142,6 +142,16 @@ export class PersonalAssistantService {
   rejectContextDocumentMutation(ownerId: string, confirmationId: string, audit?: ContextDocumentAuditContext) {
     if (!this.contextDocuments) throw new Error("context document mutation confirmation is not configured");
     return this.contextDocuments.reject(ownerId, confirmationId, audit);
+  }
+
+  listContextDocumentVersions(ownerId: string, input: { path: string; limit?: number }) {
+    if (!this.contextDocuments) throw new Error("context document management is not configured");
+    return this.contextDocuments.listVersions(ownerId, input);
+  }
+
+  restoreContextDocumentVersion(ownerId: string, input: { path: string; version: string }, audit?: ContextDocumentAuditContext) {
+    if (!this.contextDocuments) throw new Error("context document management is not configured");
+    return this.contextDocuments.restoreVersion(ownerId, input, audit);
   }
 
   confirmIdeaDeletion(ownerId: string, confirmationId: string, audit?: IdeaDeletionAuditContext) {

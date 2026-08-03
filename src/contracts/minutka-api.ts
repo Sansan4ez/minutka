@@ -83,7 +83,7 @@ const pendingIdeaDeletionActionSchema = z.strictObject({
   confirmationId: z.string().min(1), actionKind: z.literal("delete_idea"), summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime(),
   preview: z.strictObject({ kind: z.literal("delete_idea"), ideaId: pendingTaskPreviewTextSchema, summary: pendingTaskPreviewTextSchema, revision: z.number().int().positive() }),
 });
-const contextDocumentHandleSchema = z.custom<`/proc/context/${string}`>((value) => typeof value === "string" && value.startsWith("/proc/context/") && value.endsWith(".md"));
+export const contextDocumentHandleSchema = z.custom<`/proc/context/${string}`>((value) => typeof value === "string" && value.startsWith("/proc/context/") && value.endsWith(".md"));
 const pendingContextDocumentActionSchema = z.strictObject({
   confirmationId: z.string().min(1), actionKind: pendingContextDocumentActionKindSchema, summary: pendingTaskSummarySchema, expiresAt: z.iso.datetime(),
   preview: z.strictObject({
@@ -190,6 +190,25 @@ export const monthlyUsageResponseSchema = usageTotalsResponseSchema.extend({
   month: usageMonthSchema,
   bySource: z.array(usageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
 });
+export const contextDocumentVersionsRequestSchema = z.strictObject({
+  employeeId: employeeIdSchema,
+  path: contextDocumentHandleSchema,
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+export const contextDocumentVersionSchema = z.strictObject({
+  version: z.string().min(1).max(512), updatedAt: z.iso.datetime(), size: z.number().int().nonnegative(),
+});
+export const contextDocumentVersionsResponseSchema = z.strictObject({
+  path: contextDocumentHandleSchema, versions: z.array(contextDocumentVersionSchema).max(100),
+});
+export const restoreContextDocumentVersionRequestSchema = z.strictObject({
+  employeeId: employeeIdSchema, path: contextDocumentHandleSchema, version: z.string().min(1).max(512),
+});
+export const restoreContextDocumentVersionBodySchema = restoreContextDocumentVersionRequestSchema.omit({ employeeId: true });
+export const restoreContextDocumentVersionResponseSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({ outcome: z.literal("restored"), path: contextDocumentHandleSchema, version: z.string().min(1).max(512) }),
+  z.strictObject({ outcome: z.literal("not_found"), path: contextDocumentHandleSchema }),
+]);
 export const openInviteRequestSchema = z.strictObject({ inviteCode: z.string().min(1).max(512) });
 export const openInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: z.enum(["invite_opened", "consent_accepted", "profile_completed"]), privacyVersion: z.literal(currentPrivacyVersion), privacyExplanation: z.string().min(1) });
 export const telegramIdentitySchema = z.strictObject({ chatId: z.string().min(1), userId: z.string().min(1).optional() });
@@ -242,6 +261,9 @@ export type ListParticipantsRequest = z.infer<typeof listParticipantsRequestSche
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
 export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
 export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;
+export type ContextDocumentVersionsRequest = z.infer<typeof contextDocumentVersionsRequestSchema>;
+export type ContextDocumentVersionsResponse = z.infer<typeof contextDocumentVersionsResponseSchema>;
+export type RestoreContextDocumentVersionRequest = z.infer<typeof restoreContextDocumentVersionRequestSchema>;
 export type OpenInviteRequest = z.infer<typeof openInviteRequestSchema>;
 export type OpenInviteResponse = z.infer<typeof openInviteResponseSchema>;
 export type RedeemTelegramInviteRequest = z.infer<typeof redeemTelegramInviteRequestSchema>;

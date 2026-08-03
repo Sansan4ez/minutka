@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, employeeIdSchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -31,6 +31,8 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "issueInvite"
   | "listParticipants"
   | "getMonthlyUsage"
+  | "listContextDocumentVersions"
+  | "restoreContextDocumentVersion"
   | "openInvite"
   | "getProfile"
   | "acceptConsent"
@@ -150,6 +152,22 @@ export function createHttpServer(options: HttpServerOptions): Server {
         const input = parse(adminUsageRequestSchema, { employeeId: decodeURIComponent(adminUsage[1]), month: url.searchParams.get("month") });
         status = 200;
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getMonthlyUsage(input.employeeId, input.month)), id);
+      }
+      const adminContextDocumentVersions = url.pathname.match(/^\/v1\/admin\/employees\/([^/]+)\/context-documents\/versions$/);
+      if (req.method === "GET" && adminContextDocumentVersions) {
+        template = "/v1/admin/employees/:employeeId/context-documents/versions";
+        requireKind(principal, "operator");
+        const input = parse(contextDocumentVersionsRequestSchema, { ...query(url), employeeId: decodeURIComponent(adminContextDocumentVersions[1]) });
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listContextDocumentVersions(input.employeeId, { path: input.path, limit: input.limit })), id);
+      }
+      const adminContextDocumentRestore = url.pathname.match(/^\/v1\/admin\/employees\/([^/]+)\/context-documents\/restore$/);
+      if (req.method === "POST" && adminContextDocumentRestore) {
+        template = "/v1/admin/employees/:employeeId/context-documents/restore";
+        requireKind(principal, "operator");
+        const input = parse(restoreContextDocumentVersionBodySchema, await body(req));
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.restoreContextDocumentVersion(parse(employeeIdSchema, decodeURIComponent(adminContextDocumentRestore[1])), input, { requestId: id })), id);
       }
       if (req.method === "POST" && url.pathname === "/v1/onboarding/invites/open") { template = "/v1/onboarding/invites/open"; if (!inviteLimiter.allow(clientIp(req, options.trustProxy === true))) throw httpError(429, "rate_limited", "Too many requests."); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.openInvite(parse(openInviteRequestSchema, await body(req)))), id); }
 

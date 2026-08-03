@@ -291,19 +291,37 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-MUTATIONS-001: safe typed Mar
     await expect(h.documents.get("owner", "context/10_user_memory/moved.md")).resolves.toMatchObject({ content: original.content });
   });
 
-  it("deletes and restores a selected version only inside the authenticated owner scope", async () => {
+  it("lists and restores selected versions only inside the authenticated owner scope", async () => {
     const h = harness();
     const owner = await seed(h);
+    h.setNow("2026-08-02T11:00:00.000Z");
+    const newer = await h.documents.put("owner", owner.path, "newer owner body");
     await seed(h, "other", owner.path, "other private body");
-    const proposed = await h.service.proposeDelete("owner", { path: "/proc/context/00_inbox/source.md", expectedVersion: owner.version });
+    const proposed = await h.service.proposeDelete("owner", { path: "/proc/context/00_inbox/source.md", expectedVersion: newer.version });
     if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
     const deleted = await h.service.confirm("owner", proposed.confirmation.confirmationId);
-    expect(deleted).toEqual({ status: "confirmed", outcome: { outcome: "deleted", path: "/proc/context/00_inbox/source.md", restoreVersion: owner.version } });
+    expect(deleted).toEqual({ status: "confirmed", outcome: { outcome: "deleted", path: "/proc/context/00_inbox/source.md", restoreVersion: newer.version } });
     await expect(h.documents.get("owner", owner.path)).resolves.toBeNull();
     await expect(h.documents.get("other", owner.path)).resolves.toMatchObject({ content: "other private body" });
+    await expect(h.service.listVersions("owner", { path: "/proc/context/00_inbox/source.md", limit: 1 })).resolves.toEqual({
+      path: "/proc/context/00_inbox/source.md",
+      versions: [{ version: newer.version, updatedAt: "2026-08-02T11:00:00.000Z", size: Buffer.byteLength("newer owner body") }],
+    });
+    await expect(h.service.listVersions("other", { path: "/proc/context/00_inbox/source.md" })).resolves.toMatchObject({ versions: [expect.objectContaining({ size: Buffer.byteLength("other private body") })] });
     await expect(h.service.restoreVersion("other", { path: "/proc/context/00_inbox/source.md", version: owner.version })).resolves.toMatchObject({ outcome: "not_found" });
-    await expect(h.service.restoreVersion("owner", { path: "/proc/context/00_inbox/source.md", version: owner.version })).resolves.toMatchObject({ outcome: "restored" });
+    await expect(h.service.restoreVersion("owner", { path: "/proc/context/00_inbox/source.md", version: owner.version }, { requestId: "req-restore" })).resolves.toMatchObject({ outcome: "restored" });
     await expect(h.documents.get("owner", owner.path)).resolves.toMatchObject({ content: owner.content });
+    const restoreAudit = h.world.auditEvents.find((event) => event.requestId === "req-restore");
+    expect(restoreAudit).toMatchObject({ type: "context_document_mutated", metadata: { operation: "restore", path: "/proc/context/00_inbox/source.md", outcome: "restored" } });
+    expect(JSON.stringify(restoreAudit)).not.toContain(owner.content);
+  });
+
+  it("validates version-list paths and bounded limits", async () => {
+    const h = harness();
+    await expect(h.service.listVersions("owner", { path: "context/source.md" })).rejects.toThrow("/proc/context/");
+    await expect(h.service.listVersions("owner", { path: "/proc/context/source.txt" })).rejects.toThrow("Markdown");
+    await expect(h.service.listVersions("owner", { path: "/proc/context/source.md", limit: 0 })).rejects.toThrow();
+    await expect(h.service.listVersions("owner", { path: "/proc/context/source.md", limit: 101 })).rejects.toThrow();
   });
 
   it("rejects storage paths in every mutation outcome contract shape", () => {
