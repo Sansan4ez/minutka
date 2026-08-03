@@ -40,7 +40,13 @@ export function createAssistantContextDocumentCapabilities(input: {
   };
   const proposal = async (action: () => Promise<ProposalResult>): Promise<AssistantContextDocumentProposalResult> => {
     input.reserveProposal();
-    const result = await action();
+    let result: ProposalResult;
+    try {
+      result = await action();
+    } catch (error) {
+      input.releaseProposal();
+      throw error;
+    }
     if (result.status !== "needs_confirmation") {
       input.releaseProposal();
       return result;

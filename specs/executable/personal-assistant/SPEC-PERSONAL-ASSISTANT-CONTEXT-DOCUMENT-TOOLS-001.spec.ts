@@ -14,12 +14,12 @@ function harness() {
   const capabilities = createAssistantContextDocumentCapabilities({
     ownerId: "owner",
     service,
-    reserveProposal() { if (reserved) throw new Error("only one pending action"); reserved = true; },
+    reserveProposal() { if (reserved || pending) throw new Error("only one pending action"); reserved = true; },
     releaseProposal() { reserved = false; },
     onProposal(confirmation) { pending = confirmation; reserved = false; },
     onCreate() {},
   });
-  return { documents, service, tools: createContextDocumentMutationTools(capabilities), pending: () => pending };
+  return { capabilities, documents, service, tools: createContextDocumentMutationTools(capabilities), pending: () => pending };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-TOOLS-001: owner-bound model schemas", () => {
@@ -51,6 +51,46 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-TOOLS-001: owner-bound model 
     await expect(h.tools.proposeContextDocumentMove.execute?.({
       path: "/proc/context/00_inbox/source.md", destination: "/proc/context/99_system/AGENTS.md", expectedVersion: seeded.version,
     }, {} as never)).rejects.toThrow("allow-listed context section");
+  });
+
+  it("releases the proposal slot after a patch miss so another proposal can succeed", async () => {
+    const h = harness();
+    const seeded = await h.documents.put("owner", "context/00_inbox/source.md", "old text");
+
+    await expect(h.capabilities.proposeUpdate({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version,
+      patch: { search: "missing text", replacement: "new text" },
+    })).rejects.toThrow("patch search text was not found");
+    await expect(h.capabilities.proposeDelete({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version,
+    })).resolves.toMatchObject({ status: "needs_confirmation" });
+    expect(h.pending()).toMatchObject({ actionKind: "delete" });
+  });
+
+  it("releases the proposal slot after invalid update input so another proposal can succeed", async () => {
+    const h = harness();
+    const seeded = await h.documents.put("owner", "context/00_inbox/source.md", "old text");
+
+    await expect(h.capabilities.proposeUpdate({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version,
+      replacement: "replacement", patch: { search: "old text", replacement: "new text" },
+    })).rejects.toThrow("provide exactly one replacement or patch");
+    await expect(h.capabilities.proposeDelete({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version,
+    })).resolves.toMatchObject({ status: "needs_confirmation" });
+    expect(h.pending()).toMatchObject({ actionKind: "delete" });
+  });
+
+  it("keeps the proposal slot after a successful proposal", async () => {
+    const h = harness();
+    const seeded = await h.documents.put("owner", "context/00_inbox/source.md", "old text");
+
+    await expect(h.capabilities.proposeDelete({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version,
+    })).resolves.toMatchObject({ status: "needs_confirmation" });
+    await expect(h.capabilities.proposeUpdate({
+      path: "/proc/context/00_inbox/source.md", expectedVersion: seeded.version, replacement: "new text",
+    })).rejects.toThrow("only one pending action");
   });
 
   it("returns stale conflicts without creating a hidden pending action", async () => {
