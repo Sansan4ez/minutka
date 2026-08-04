@@ -23,6 +23,10 @@ Yes: creates an owner-scoped idea record.
 - owner-facing response
 - project-clarification flag
 
+## Confirmation level
+
+Level 0: this is a reversible internal owner-scoped write. Do not ask for prior confirmation; after a successful capture, report the result and name the available deletion/undo path in words.
+
 ## Rules
 
 - Owner and source provenance are bound by `AssistantService`, never accepted from model input.

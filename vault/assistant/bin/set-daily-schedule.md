@@ -12,6 +12,10 @@ A closed supported `processId`, `timeOfDay` in 24-hour `HH:mm`, and optional IAN
 
 A saved owner-free schedule projection, or a clear unsupported-process result.
 
+## Confirmation level
+
+Level 0: this is a reversible internal owner-scoped write. No prior confirmation is required; after success, report the saved schedule and name disabling or changing it as the reversal path.
+
 ## Boundary
 
-Reversible internal owner-scoped write. No external action or confirmation is required. The application binds the authenticated owner and rejects arbitrary process ids.
+The application binds the authenticated owner and rejects arbitrary process ids. This action does not execute an external action.

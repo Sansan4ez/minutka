@@ -12,6 +12,10 @@ Source and destination `/proc/context/*.md` handles plus the exact version retur
 
 A safe pending-action receipt only; the owner-visible card is rendered by the transport.
 
+## Confirmation level
+
+Level 1: moving a document has ambiguous consequences but is recoverable. Ask in normal prose; a short explicit owner agreement and the parallel button path resolve the same authenticated confirmation outside the agent loop.
+
 ## Boundary
 
-Proposal only. No source or destination changes before authenticated confirmation. Trusted control-plane and arbitrary namespaces cannot be targeted.
+No source or destination changes before authenticated confirmation. Trusted control-plane and arbitrary namespaces cannot be targeted. Never simulate an unwired verbal-confirmation path.

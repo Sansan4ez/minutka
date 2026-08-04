@@ -12,6 +12,10 @@ A `/proc/context/*.md` handle, the exact version returned by `readDocument`, and
 
 A safe pending-action receipt only; the application privately retains the bounded diff preview and canonical proposal.
 
+## Confirmation level
+
+Level 0: updating an existing versioned document is a reversible internal owner-scoped write. When the application returns an applied result, report it in normal prose and name version restoration as the undo path; do not ask for prior confirmation.
+
 ## Boundary
 
-Proposal only. The document is unchanged until authenticated confirmation outside the agent loop. A stale-version conflict must not be retried as an overwrite.
+The current typed result is authoritative: while it remains a proposal, the document is unchanged until authenticated confirmation outside the agent loop. Never simulate an unwired level-0 path. A stale-version conflict must not be retried as an overwrite.

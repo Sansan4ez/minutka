@@ -12,6 +12,10 @@ Title, Markdown content, and an optional destination from the closed context-sec
 
 A safe receipt with outcome, `/proc/context/*` path, and version/current version. No physical storage identifier is exposed.
 
+## Confirmation level
+
+Level 0: this is a reversible internal owner-scoped write. Do not ask for prior confirmation after the owner explicitly requests the save; report the created logical path and the available restoration path in words.
+
 ## Boundary
 
-This is a reversible internal write through `ContextDocumentService`, not filesystem access. It never promotes an artifact automatically and never overwrites an existing note.
+This write goes through `ContextDocumentService`, not filesystem access. It never promotes an artifact automatically and never overwrites an existing note.
