@@ -1,0 +1,24 @@
+# Phase 1: installable base
+
+Минимальная первая установка NixOS на VPS personal-assistant. Phase 1 должна
+оставаться лёгкой, чтобы `nixos-anywhere` не тащил лишний closure.
+
+Содержит `disko`, boot/network/SSH модули, host bootstrap и install scripts с
+логированием в `./logs/`.
+
+Перед использованием заполни `site.nix`. Полный порядок установки и параметры
+скриптов описаны в [`../README.md`](../README.md).
+
+```bash
+./scripts/install-vm-test.sh
+./scripts/install-server.sh
+```
+
+Ключевые параметры:
+
+```bash
+BUILD_ON=remote ./scripts/install-server.sh
+NO_DISKO_DEPS=1 ./scripts/install-server.sh
+NIXOS_ANYWHERE_FLAKE=github:nix-community/nixos-anywhere ./scripts/install-server.sh
+LOG_DIR=/tmp/personal-assistant-install-logs ./scripts/install-server.sh
+```
