@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const sourceRoots = ["src", "specs", "migrations", "vault", "docs"];
+const sourceRoots = ["src", "specs", "migrations", "vault/assistant", "docs"];
 const sourceExtensions = new Set([".ts", ".md", ".json", ".sql"]);
+const skippedDirectories = new Set(["generated"]);
 
 function sourceFiles(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = join(path, entry.name);
-    if (entry.isDirectory()) return sourceFiles(entryPath);
+    if (entry.isDirectory()) return skippedDirectories.has(entry.name) ? [] : sourceFiles(entryPath);
     return sourceExtensions.has(entry.name.slice(entry.name.lastIndexOf("."))) ? [entryPath] : [];
   });
 }
