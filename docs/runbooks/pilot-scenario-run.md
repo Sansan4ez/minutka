@@ -110,6 +110,8 @@ npm run pilot:knowledge-base:import
 npm run pilot:knowledge-base:import  # ожидаются только skipped
 ```
 
+Если во время прогона владелец подтвердил удаление не того документа, восстановление версии описано в [runbook восстановления версии контекстного документа](./context-document-version-recovery.md).
+
 ### 4. Runtime с живым Telegram
 
 Запустить shared runtime в polling-режиме под процесс-менеджером, который сохраняет stdout/stderr до завершения прогона:
