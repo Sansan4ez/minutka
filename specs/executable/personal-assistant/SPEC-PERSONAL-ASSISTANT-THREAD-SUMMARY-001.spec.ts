@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { countUnicodeCharacters, createContextBudgetConfig } from "../../../src/application/context-budget.js";
@@ -17,7 +20,7 @@ import { createDeterministicIdGenerator } from "../../../src/application/runtime
 import { createThreadCompactionService } from "../../../src/application/thread-compaction-service.js";
 import { minimumThreadSummaryCharacters, threadSummaryReductionMarker, type ThreadSummarizer } from "../../../src/application/thread-summarizer.js";
 import { summarizeThreadWithAgent } from "../../../src/mastra/thread-summarizer.js";
-import { threadSummarizerAgent } from "../../../src/mastra/agents/thread-summarizer-agent.js";
+import { threadSummarizerAgent, threadSummarizerInstructions } from "../../../src/mastra/agents/thread-summarizer-agent.js";
 
 const structured = (body: string) => [
   "## Факты",
@@ -84,6 +87,25 @@ function createCompaction(
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history", () => {
+  it("imports the summarizer from a cwd without repository files", async () => {
+    const cwd = process.cwd();
+    const emptyDirectory = mkdtempSync(join(tmpdir(), "thread-summarizer-import-"));
+    try {
+      process.chdir(emptyDirectory);
+      const moduleUrl = new URL(
+        `../../../src/mastra/agents/thread-summarizer-agent.js?cwd-independent=${Date.now()}`,
+        import.meta.url,
+      );
+      const imported = await import(moduleUrl.href) as typeof import("../../../src/mastra/agents/thread-summarizer-agent.js");
+
+      expect(imported.threadSummarizerAgent.id).toBe("personal-assistant-thread-summarizer");
+      expect(await imported.threadSummarizerAgent.getInstructions()).toBe(threadSummarizerInstructions);
+    } finally {
+      process.chdir(cwd);
+      rmSync(emptyDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("summarizes the oldest pending bounded batch and advances the watermark incrementally", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);

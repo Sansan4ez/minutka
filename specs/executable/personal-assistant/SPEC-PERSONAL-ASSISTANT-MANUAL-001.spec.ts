@@ -62,6 +62,13 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
 
+  it("keeps the internal thread summarizer prompt outside the assistant registry", () => {
+    const processRegistry = readFileSync("vault/assistant/processes/registry.json", "utf8");
+
+    expect(processRegistry).not.toContain("thread-summary-prompt");
+    expect(() => readFileSync("vault/assistant/thread-summary-prompt.md", "utf8")).toThrow();
+  });
+
   it("keeps manifests, runtime toolsets, active tools, and process references in sync", () => {
     const registry = JSON.parse(readFileSync("vault/assistant/bin/registry.json", "utf8")) as {
       personalAssistant: Array<{ id: string; manifest: string }>;

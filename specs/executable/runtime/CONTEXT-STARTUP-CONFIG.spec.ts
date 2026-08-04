@@ -1,8 +1,11 @@
-import { readFileSync } from "node:fs";
+import { cpSync, chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssistantAgentRunner } from "../../../src/application/assistant-service.js";
 import { assertGeneratedContextSourceMinimums } from "../../../src/application/generated-context-startup-validator.js";
 import { contextBudgetConfigFromEnv, countUnicodeCharacters } from "../../../src/application/context-budget.js";
+import { loadContextPriorityManifest } from "../../../src/application/context-priority-manifest.js";
 import { renderEmptyAssistantContextSection } from "../../../src/application/assistant-context-renderer.js";
 import { renderEmptyContextTreeIndex } from "../../../src/application/context-tree-index.js";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
@@ -64,6 +67,29 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   function expectNoPostgresPool(): ReturnType<typeof vi.spyOn> {
     return vi.spyOn(postgresPoolModule, "createPostgresPool");
   }
+
+  it("loads packaged runtime assets from a read-only application root", async () => {
+    const packageRoot = mkdtempSync(join(tmpdir(), "personal-assistant-package-"));
+    try {
+      mkdirSync(join(packageRoot, "vault"), { recursive: true });
+      cpSync("package.json", join(packageRoot, "package.json"));
+      cpSync("vault/assistant", join(packageRoot, "vault/assistant"), { recursive: true });
+      cpSync("migrations", join(packageRoot, "migrations"), { recursive: true });
+      chmodSync(packageRoot, 0o555);
+
+      const manual = loadAssistantAgentInstructions({ repoRoot: packageRoot });
+      const contextPriorities = loadContextPriorityManifest({ repoRoot: packageRoot });
+      const { threadSummarizerAgent } = await import("../../../src/mastra/agents/thread-summarizer-agent.js");
+
+      expect(manual).toContain("Personal Assistant runtime instructions");
+      expect(contextPriorities.rules.map(({ id }) => id)).toContain("personal-constitution");
+      expect(readFileSync(join(packageRoot, "migrations/0001_create_schemas.sql"), "utf8")).toContain("CREATE SCHEMA");
+      expect(threadSummarizerAgent.id).toBe("personal-assistant-thread-summarizer");
+    } finally {
+      chmodSync(packageRoot, 0o755);
+      rmSync(packageRoot, { recursive: true, force: true });
+    }
+  });
 
   it("keeps the documented environment example compatible with startup minimums", () => {
     const exampleEnv: NodeJS.ProcessEnv = {};
