@@ -1,34 +1,34 @@
 {
   system = "x86_64-linux";
   hostName = "personal-assistant-1";
-  timeZone = "Europe/Amsterdam";
+  timeZone = "Etc/UTC";
   locale = "en_US.UTF-8";
 
   bootMode = "bios"; # or "efi"
-  disk = "/dev/vda";
+  disk = "/dev/sda";
 
-  publicIPv4 = "REPLACE_ME_SERVER_IP";
+  publicIPv4 = "169.58.116.31";
 
   deploy = {
     sshUser = "admin";
-    sshHost = "REPLACE_ME_SERVER_IP";
-    sshTarget = "admin@REPLACE_ME_SERVER_IP";
+    sshHost = "169.58.116.31";
+    sshTarget = "admin@169.58.116.31";
     sshIdentityFile = "/home/admin/.ssh/id_ed25519";
   };
 
   adminUser = "admin";
 
   adminAuthorizedKeys = [
-    "REPLACE_ME_SSH_PUBLIC_KEY"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILtxITw5sdJKdp5x+uzAcXVHHFn74yBREgZCazjm0mOC"
   ];
 
   network = {
     # Keep this in sync with phase1-installable-base/site.nix.
     useDHCP = true;
-    interface = "REPLACE_ME_INTERFACE";
-    address = "REPLACE_ME_SERVER_IP";
+    interface = "eth0";
+    address = "169.58.116.31";
     prefixLength = 24;
-    gateway = "REPLACE_ME_GATEWAY";
+    gateway = "169.58.0.1";
     nameservers = [ "1.1.1.1" "8.8.8.8" ];
   };
 }
