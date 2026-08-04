@@ -1,8 +1,10 @@
 # Phase 2: operational baseline
 
-Второй этап после первой установки NixOS. Он добавляет admin-пользователя,
-passwordless wheel sudo с `execWheelOnly`, ops packages, zram, fail2ban и
-firewall с открытым только `22/tcp`.
+Второй этап после первой установки NixOS. Phase 1 уже создаёт bootstrap
+admin-пользователя для первого подключения; Phase 2 закрепляет его operational
+конфигурацию, запрещает root SSH и добавляет passwordless wheel sudo с
+`execWheelOnly`, ops packages, zram, fail2ban и firewall с открытым только
+`22/tcp`.
 
 Перед deploy:
 
@@ -16,7 +18,8 @@ cp \
   ./hosts/personal-assistant-1/hardware-configuration.nix
 ```
 
-4. Примени baseline через deploy-rs:
+4. Убедись, что на сервере уже применена актуальная Phase 1 с bootstrap
+admin-пользователем, затем примени baseline:
 
 ```bash
 ./scripts/deploy.sh

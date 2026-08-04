@@ -8,6 +8,7 @@
   disk = "/dev/sda";
 
   publicIPv4 = "169.58.116.31";
+  adminUser = "admin";
 
   deploy = {
     sshUser = "root";

@@ -1,5 +1,8 @@
 { lib, pkgs, site, ... }:
 
+let
+  adminUser = if site ? adminUser then site.adminUser else "admin";
+in
 {
   time.timeZone = site.timeZone;
   i18n.defaultLocale = site.locale;
@@ -14,9 +17,25 @@
   nix.settings = {
     experimental-features = [ "nix-command" "flakes" ];
     auto-optimise-store = true;
+    trusted-users = [ "root" adminUser ];
   };
 
-  users.users.root.openssh.authorizedKeys.keys = site.rootAuthorizedKeys;
+  users.users = {
+    root.openssh.authorizedKeys.keys = site.rootAuthorizedKeys;
+
+    ${adminUser} = {
+      isNormalUser = true;
+      description = "Administrative deployment user";
+      extraGroups = [ "wheel" ];
+      openssh.authorizedKeys.keys = site.rootAuthorizedKeys;
+    };
+  };
+
+  security.sudo = {
+    enable = true;
+    wheelNeedsPassword = false;
+    execWheelOnly = true;
+  };
 
   environment.systemPackages = with pkgs; [
     curl

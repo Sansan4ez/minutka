@@ -32,9 +32,10 @@ polling, а HTTP API приложения должен оставаться на
 ломают evaluation там, где параметр уже должен быть реальным; это защищает от
 установки без ключа или адреса deploy target.
 
-Phase 1 входит как `root`, потому что rescue-окружение VPS обычно предоставляет
-именно root SSH. После Phase 2 root login запрещён и дальнейшие deploy идут как
-`admin`.
+Phase 1 входит в rescue как `root`, но устанавливаемая bootstrap-конфигурация
+сразу декларативно создаёт `admin` с тем же ключом и passwordless `sudo`. Поэтому
+первый Phase 2 deploy уже выполняется обычной командой как `admin`. После Phase 2
+root login запрещён, дальнейшие deploy также идут как `admin`.
 
 ## 2. Проверить Phase 1 в VM
 
@@ -76,10 +77,12 @@ NIXOS_ANYWHERE_FLAKE=github:nix-community/nixos-anywhere ./scripts/install-serve
 LOG_DIR=/tmp/personal-assistant-install-logs ./scripts/install-server.sh
 ```
 
-После reboot проверь вход root только по ключу:
+После reboot проверь входы по ключу: `root` остаётся аварийным доступом до
+Phase 2, а `admin` уже готов для первого Phase 2 deploy:
 
 ```bash
 ssh -i /path/to/id_ed25519 root@SERVER_IP
+ssh -i /path/to/id_ed25519 admin@SERVER_IP
 ```
 
 ## 4. Применить ops baseline через deploy-rs
@@ -98,6 +101,10 @@ cp \
 ```bash
 ./scripts/deploy.sh
 ```
+
+Phase 2 предполагает, что актуальная Phase 1 уже применена и `admin` доступен по
+SSH. Если Phase 1 менялась после установки, сначала повторно примени её через
+`nixos/phase1-installable-base/scripts/rebuild-linux.sh`, а затем запускай Phase 2.
 
 Дополнительные аргументы передаются `deploy-rs`, например:
 

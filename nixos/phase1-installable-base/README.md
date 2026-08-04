@@ -4,7 +4,9 @@
 оставаться лёгкой, чтобы `nixos-anywhere` не тащил лишний closure.
 
 Содержит `disko`, boot/network/SSH модули, host bootstrap и install scripts с
-логированием в `./logs/`.
+логированием в `./logs/`. Bootstrap также декларативно создаёт admin-пользователя
+с тем же SSH-ключом и passwordless `sudo`, чтобы первый Phase 2 deploy сразу мог
+подключаться как `admin`; root SSH остаётся доступен до активации Phase 2.
 
 Перед использованием заполни `site.nix`. Полный порядок установки и параметры
 скриптов описаны в [`../README.md`](../README.md).
