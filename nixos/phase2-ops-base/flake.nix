@@ -3,7 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    disko.url = "github:nix-community/disko";
+    # Keep this aligned with phase 1 while nixos-25.11 requires Disko 1.12.
+    disko.url = "github:nix-community/disko/v1.12.0";
     disko.inputs.nixpkgs.follows = "nixpkgs";
 
     deploy-rs.url = "github:serokell/deploy-rs";

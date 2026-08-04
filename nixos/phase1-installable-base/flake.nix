@@ -3,7 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    disko.url = "github:nix-community/disko";
+    # Disko >= 1.13 is incompatible with nixos-25.11 VM tests
+    # (https://github.com/nix-community/disko/issues/1203).
+    disko.url = "github:nix-community/disko/v1.12.0";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 

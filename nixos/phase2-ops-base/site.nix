@@ -24,10 +24,10 @@
 
   network = {
     # Keep this in sync with phase1-installable-base/site.nix.
-    useDHCP = true;
+    useDHCP = false;
     interface = "eth0";
     address = "169.58.116.31";
-    prefixLength = 24;
+    prefixLength = 17;
     gateway = "169.58.0.1";
     nameservers = [ "1.1.1.1" "8.8.8.8" ];
   };

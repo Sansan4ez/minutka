@@ -10,6 +10,14 @@ mkdir -p "$LOG_DIR"
 
 echo "[phase1] vm-test log: $LOG_FILE"
 
+# NixOS tests require the kvm system feature even though QEMU can fall back to
+# software emulation when /dev/kvm is unavailable (for example in containers).
+if [[ ! -e /dev/kvm ]]; then
+  export NIX_CONFIG="${NIX_CONFIG:+${NIX_CONFIG}
+}extra-system-features = kvm"
+  echo "[phase1] /dev/kvm is unavailable; using QEMU software emulation"
+fi
+
 nix --extra-experimental-features 'nix-command flakes' run "$NIXOS_ANYWHERE_FLAKE" -- \
   --debug \
   --print-build-logs \
