@@ -96,6 +96,109 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(1);
   });
 
+  it("confirms a level-1 cancellation by explicit text, removes the keyboard, and keeps a later button press idempotent", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      const [task] = await context.tasks.list();
+      await context.tasks.propose({ kind: "cancel", taskId: task!.id });
+      return "Отменить задачу?";
+    });
+    await tasks.create(owner.employeeId, { id: "task-to-cancel", title: "Отменить меня", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени задачу" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Действие: отменить задачу"))!;
+    const confirmButton = taskButton(proposal, "✅ Подтвердить");
+    expect(proposal.text).toContain("Скажите «да» или нажмите кнопку.");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "ДА!" });
+    expect(turns).toBe(1);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Изменение сохранено.");
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(tasks.get(owner.employeeId, "task-to-cancel")).resolves.toMatchObject({ status: "cancelled" });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: confirmButton, messageId: proposal.messageId, callbackQueryId: "confirm-after-text" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение уже сохранено.");
+    await expect(tasks.get(owner.employeeId, "task-to-cancel")).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("rejects a level-1 cancellation by explicit text", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      const [task] = await context.tasks.list();
+      await context.tasks.propose({ kind: "cancel", taskId: task!.id });
+      return "Отменить задачу?";
+    });
+    await tasks.create(owner.employeeId, { id: "task-to-keep", title: "Оставить меня", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени задачу" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Действие: отменить задачу"))!;
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "нет" });
+
+    expect(turns).toBe(1);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Предложение отклонено.");
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(tasks.get(owner.employeeId, "task-to-keep")).resolves.toMatchObject({ status: "open" });
+  });
+
+  it("sends an ambiguous reply to the agent and keeps the pending action available", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (input, context) => {
+      turns += 1;
+      if (turns === 1) {
+        const [task] = await context.tasks.list();
+        await context.tasks.propose({ kind: "cancel", taskId: task!.id });
+        return "Отменить задачу?";
+      }
+      return `Обычный ответ: ${input.text}`;
+    });
+    await tasks.create(owner.employeeId, { id: "task-still-pending", title: "Пока оставить", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени задачу" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Действие: отменить задачу"))!;
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да, но сначала проверь проект" });
+
+    expect(turns).toBe(2);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Обычный ответ: да, но сначала проверь проект");
+    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(tasks.get(owner.employeeId, "task-still-pending")).resolves.toMatchObject({ status: "open" });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-after-ambiguous" });
+    await expect(tasks.get(owner.employeeId, "task-still-pending")).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("never treats decision text as confirmation without an active pending action", async () => {
+    let turns = 0;
+    const { telegram } = await harness(async (input) => {
+      turns += 1;
+      return `Обычный ответ: ${input.text}`;
+    });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+
+    expect(turns).toBe(1);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Обычный ответ: да");
+  });
+
+  it("does not resolve a pending action from an unlinked account", async () => {
+    let turns = 0;
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      turns += 1;
+      const [task] = await context.tasks.list();
+      await context.tasks.propose({ kind: "cancel", taskId: task!.id });
+      return "Отменить задачу?";
+    });
+    await tasks.create(owner.employeeId, { id: "task-owner-only", title: "Только владелец", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени задачу" });
+    await telegram.sendText({ chatId: owner.chatId, userId: "foreign-user", text: "да" });
+
+    expect(turns).toBe(1);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Этот аккаунт не связан с данным чатом.");
+    await expect(tasks.get(owner.employeeId, "task-owner-only")).resolves.toMatchObject({ status: "open" });
+  });
+
   it("delivers a scheduled pending action with confirmation buttons and applies it through the normal callback path", async () => {
     const { telegram, tasks, facade } = await harness(async (_input, context) => {
       await context.tasks.propose({ kind: "create", title: "Scheduled task", project: "ASSISTANT", type: "operations" });
@@ -274,6 +377,28 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
   });
 
+  it("confirms a level-1 context-document move by explicit text", async () => {
+    const { telegram, documents } = await harness(async (_input, context) => {
+      const current = await context.documents.readDocument({ path: "/proc/context/00_inbox/move-source.md" });
+      await context.contextDocuments.proposeMove({
+        path: current.path,
+        destination: "/proc/context/00_inbox/move-destination.md",
+        expectedVersion: current.version,
+      });
+      return "Переместить документ?";
+    });
+    await documents.put(owner.employeeId, "context/00_inbox/move-source.md", "move me");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "перемести документ" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Действие: переименовать/переместить документ"))!;
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Изменение документа сохранено.");
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(documents.get(owner.employeeId, "context/00_inbox/move-source.md")).resolves.toBeNull();
+    await expect(documents.get(owner.employeeId, "context/00_inbox/move-destination.md")).resolves.toMatchObject({ content: "move me" });
+  });
+
   it("terminally rejects an undeliverable context-document proposal", async () => {
     const { telegram, documents } = await harness(async (_input, context) => {
       const current = await context.documents.readDocument({ path: "/proc/context/00_inbox/source.md" });
@@ -318,6 +443,25 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
     await expect(facade.undoIdeaDeletion(owner.employeeId)).resolves.toMatchObject({ outcome: "restored", idea: { id: ideaId } });
     await expect(facade.undoIdeaDeletion(owner.employeeId, ideaId)).resolves.toMatchObject({ outcome: "unchanged", idea: { id: ideaId } });
+  });
+
+  it("confirms an idea deletion by explicit text", async () => {
+    const ideaId = "idea_text_confirmation";
+    const { telegram, ideas } = await harness(async (_input, context) => {
+      const idea = await ideas.get(owner.employeeId, ideaId);
+      if (!idea) throw new Error("expected idea");
+      await context.ideas.propose({ ideaId: idea.id, expectedRevision: idea.revision });
+      return "Удалить идею?";
+    });
+    await ideas.add({ id: ideaId, userId: owner.employeeId, project: "ASSISTANT", type: "knowledge", summary: "Удалить словами", status: "raw" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "удали идею" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Идея: Удалить словами"))!;
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "подтверждаю" });
+
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Идея удалена. Можно отменить удаление командой «верни последнюю идею».");
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: owner.chatId, messageId: proposal.messageId, replyMarkup: undefined });
+    await expect(ideas.get(owner.employeeId, ideaId)).resolves.toBeNull();
   });
 
   it("uses a neutral fallback for an invisible idea summary and rejects it exactly once", async () => {

@@ -14,8 +14,8 @@ A safe pending-action receipt only; the application privately retains the canoni
 
 ## Confirmation level
 
-Level 1: deleting one versioned document is destructive but recoverable. Ask in normal prose; a short explicit owner agreement and the parallel button path resolve the same authenticated confirmation outside the agent loop.
+Level 1: deleting one versioned document is destructive but recoverable. Ask once in normal prose and explicitly say the owner can answer «да» or press the button; both paths resolve the same authenticated confirmation outside the agent loop.
 
 ## Boundary
 
-Deletion happens at most once after authenticated confirmation outside the agent loop and remains restorable through the typed application use case. Never simulate an unwired verbal-confirmation path.
+Deletion happens at most once after authenticated confirmation outside the agent loop and remains restorable through the typed application use case. The transport, not the model, deterministically resolves short verbal confirmation.

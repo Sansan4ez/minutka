@@ -6,8 +6,8 @@ Prepare deletion of one exact authenticated-owner idea id at an expected revisio
 
 ## Confirmation level
 
-Level 1: deleting one idea is destructive but recoverable. Ask in normal prose; a short explicit owner agreement and the parallel button path resolve the same authenticated confirmation outside the agent loop.
+Level 1: deleting one idea is destructive but recoverable. Ask once in normal prose and explicitly say the owner can answer «да» or press the button; both paths resolve the same authenticated confirmation outside the agent loop.
 
 ## Boundary
 
-The tool does not delete the idea. Owner scope is request-bound, unknown and foreign ids are indistinguishable, and execution requires the authenticated application confirmation. Ambiguous references must be resolved before calling this tool. Never simulate an unwired verbal-confirmation path.
+The tool does not delete the idea. Owner scope is request-bound, unknown and foreign ids are indistinguishable, and execution requires the authenticated application confirmation. Ambiguous references must be resolved before calling this tool. The transport, not the model, deterministically resolves short verbal confirmation.

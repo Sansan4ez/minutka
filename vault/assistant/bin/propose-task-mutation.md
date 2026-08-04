@@ -15,7 +15,7 @@ For `create`, `update`, and `complete`, the model receives `status: applied`, th
 ## Confirmation level
 
 - `create`, `update`, and `complete` are level 0: reversible internal owner-scoped writes. When the application returns an applied result, report it in normal prose and name the worded undo path; do not ask for prior confirmation.
-- `cancel` is level 1: destructive but recoverable. Ask in normal prose; a short explicit owner agreement and the parallel button path resolve the same authenticated confirmation outside the agent loop.
+- `cancel` is level 1: destructive but recoverable. Ask once in normal prose and explicitly say the owner can answer «да» or press the button; both paths resolve the same authenticated confirmation outside the agent loop.
 
 ## Boundary
 
