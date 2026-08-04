@@ -79,10 +79,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
 
     const result = await service.chat({ userId: "owner", threadId: "telegram:owner", text: "complete task" });
-    expect(result.pendingAction).toMatchObject({ actionKind: "complete", preview: { kind: "complete", taskTitle: { value: "Записаться в бассейн", truncated: false } } });
+    expect(result.pendingActions[0]).toMatchObject({ actionKind: "complete", preview: { kind: "complete", taskTitle: { value: "Записаться в бассейн", truncated: false } } });
 
     await tasks.update("owner", "existing-task", { expectedRevision: 1, patch: { status: "in_progress" } });
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({
       status: "confirmed",
       outcome: { outcome: "conflict", current: { revision: 2, status: "in_progress" } },
     });
@@ -99,7 +99,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     const result = await service.chat({ userId: "owner", threadId: "telegram:owner", text: "create task" });
     expect(result).toMatchObject({
       response: "Предложение готово",
-      pendingAction: {
+      pendingActions: [{
         confirmationId: "tool-confirmation-1",
         actionKind: "create",
         summary: "Создать задачу: Prepare launch",
@@ -111,17 +111,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
           type: "operations",
           dueDate: "2026-07-30",
         },
-      },
+      }],
     });
-    expect(result.pendingAction).not.toHaveProperty("ownerId");
-    expect(result.pendingAction).not.toHaveProperty("proposal");
-    expect(result.pendingAction).not.toHaveProperty("payloadDigest");
+    expect(result.pendingActions[0]).not.toHaveProperty("ownerId");
+    expect(result.pendingActions[0]).not.toHaveProperty("proposal");
+    expect(result.pendingActions[0]).not.toHaveProperty("payloadDigest");
     await expect(tasks.list("owner")).resolves.toEqual([]);
     expect(modelVisible).not.toHaveProperty("preview");
-    expect(modelVisible).toMatchObject({ confirmationId: result.pendingAction!.confirmationId, actionKind: "create", summary: "Создать задачу: Prepare launch" });
+    expect(modelVisible).toMatchObject({ confirmationId: result.pendingActions[0]!.confirmationId, actionKind: "create", summary: "Создать задачу: Prepare launch" });
     expect(JSON.stringify(modelVisible)).not.toMatch(/ownerId|proposal|payloadDigest|task_1|createdAt|preview|dueDate/);
 
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ id: "task_1", title: "Prepare launch", userId: "owner", status: "open" }]);
   });
 
@@ -135,7 +135,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "create safely" })).resolves.toMatchObject({
       response: overflowAfterPendingActionUserMessage,
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Overflow proposal" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: Overflow proposal" }],
       effect: "pending_action_created",
     });
     expect(calls).toBe(1);
@@ -172,7 +172,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result).toMatchObject({
       response: overflowAfterDurableWriteAndPendingActionUserMessage,
       effect: "business_write_committed",
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: `Создать задачу: Proposal ${order}` },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: `Создать задачу: Proposal ${order}` }],
     });
     expect(calls).toBe(1);
     await expect(ideas.list("owner")).resolves.toMatchObject([{ summary: `Compound ${order}` }]);
@@ -209,55 +209,61 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result).toMatchObject({
       response: mutationOutcomeUnknownWithPendingActionUserMessage,
       effect: "outcome_unknown",
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal before uncertainty" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal before uncertainty" }],
     });
     expect(calls).toBe(1);
     await expect(ideas.list("owner")).resolves.toMatchObject([{ summary: "Committed before result was lost" }]);
     await expect(tasks.list("owner")).resolves.toEqual([]);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Proposal before uncertainty" }]);
     expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"/);
   });
 
-  it.each([
-    ["task→task", "task", "task"],
-    ["task→idea-to-task", "task", "idea"],
-    ["idea-to-task→task", "idea", "task"],
-  ] as const)("reserves one durable proposal slot for %s", async (_label, firstKind, secondKind) => {
+  it("returns up to five independently durable pending actions in one turn", async () => {
     let saveCount = 0;
-    let firstConfirmationId: string | undefined;
-    let secondReceipt: unknown;
-    const { service, confirmations, tasks, ideas, world } = setup(async (_input, context) => {
-      const propose = async (kind: "task" | "idea", suffix: string) => kind === "task"
-        ? context.tasks.propose({ kind: "create", title: `Task ${suffix}`, project: "ASSISTANT", type: "operations" })
-        : context.tasks.proposeIdeaToTask("idea-owner");
-      const first = await propose(firstKind, "first");
-      firstConfirmationId = "confirmationId" in first ? first.confirmationId : undefined;
-      secondReceipt = await propose(secondKind, "second");
-      return "unreachable";
+    const { service, confirmations, tasks, world } = setup(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "task-one" });
+      await context.tasks.propose({ kind: "cancel", taskId: "task-two" });
+      return "Два предложения.";
     }, {
       wrapConfirmationStore: (store) => ({
         ...store,
-        async save(record) {
-          saveCount += 1;
-          await store.save(record);
-        },
+        async save(record) { saveCount += 1; await store.save(record); },
       }),
     });
-    await ideas.add({ id: "idea-owner", userId: "owner", project: "ASSISTANT", type: "development", summary: "Convert me", status: "raw" });
+    await tasks.create("owner", { id: "task-one", title: "One", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create("owner", { id: "task-two", title: "Two", project: "ASSISTANT", type: "operations", status: "open" });
 
-    await expect(service.chat({ userId: "owner", threadId: "thread", text: "two proposals" })).resolves.toMatchObject({
-      response: expect.stringMatching(/предложение задачи сохранено/i),
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "two proposals" });
+
+    expect(result).toMatchObject({
+      response: "Два предложения.",
       effect: "pending_action_created",
-      pendingAction: { confirmationId: "tool-confirmation-1" },
+      pendingActions: [
+        { confirmationId: "tool-confirmation-1", actionKind: "cancel" },
+        { confirmationId: "tool-confirmation-2", actionKind: "cancel" },
+      ],
     });
-    if (firstKind === "task") expect(firstConfirmationId).toBe("tool-confirmation-1");
-    expect(secondReceipt).toBeUndefined();
-    expect(saveCount).toBe(1);
-    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(1);
-    await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
-    await expect(confirmations.confirm("owner", firstConfirmationId ?? "tool-confirmation-1")).resolves.toMatchObject({ status: "confirmed" });
-    await expect(tasks.list("owner")).resolves.toHaveLength(1);
+    expect(saveCount).toBe(2);
+    expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(2);
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[1]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tasks.get("owner", "task-one")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get("owner", "task-two")).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("stops at the group limit and explicitly tells the owner that only part was shown", async () => {
+    const { service, tasks } = setup(async (_input, context) => {
+      for (let index = 1; index <= 6; index += 1) await context.tasks.propose({ kind: "cancel", taskId: `bounded-${index}` });
+      return "unreachable";
+    });
+    for (let index = 1; index <= 6; index += 1) await tasks.create("owner", { id: `bounded-${index}`, title: `Task ${index}`, project: "ASSISTANT", type: "operations", status: "open" });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "cancel six" });
+
+    expect(result.pendingActions).toHaveLength(5);
+    expect(result.response).toContain("Показал только эту часть");
+    await expect(tasks.get("owner", "bounded-6")).resolves.toMatchObject({ status: "open" });
   });
 
   it.each(["not_found", "already_converted"] as const)("does not reserve the proposal slot for idea-to-task %s", async (preflightStatus) => {
@@ -283,7 +289,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "preflight then proposal" })).resolves.toMatchObject({
       response: "ok",
-      pendingAction: { confirmationId: "tool-confirmation-1" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1" }],
     });
     expect(preflightResult).toMatchObject({ status: preflightStatus });
     expect(saveCount).toBe(1);
@@ -321,13 +327,13 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result).toMatchObject({
       response: expect.stringMatching(/не удалось подтвердить, сохранено ли предложение задачи/i),
       effect: "outcome_unknown",
-      pendingAction: { confirmationId: "tool-confirmation-1", actionKind: "create", summary: "Создать задачу: Uncertain" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", actionKind: "create", summary: "Создать задачу: Uncertain" }],
     });
     expect(calls).toBe(1);
     expect(saveCount).toBe(1);
     expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(0);
     await expect(ideas.list("owner")).resolves.toEqual([]);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject(
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject(
       commits ? { status: "confirmed" } : { status: "not_found" },
     );
     await expect(tasks.list("owner")).resolves.toHaveLength(commits ? 1 : 0);
@@ -346,11 +352,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     expect(result).toMatchObject({
       effect: "pending_action_created",
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Deadline recovery" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: Deadline recovery" }],
       response: expect.stringMatching(/предложение задачи сохранено/i),
     });
     expect(agentCalls).toBe(1);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Deadline recovery" }]);
   });
 
@@ -400,11 +406,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "retry after uncertain save" });
 
-    expect(result).toMatchObject({ effect: "outcome_unknown", pendingAction: { confirmationId: "tool-confirmation-1" } });
-    expect(secondError).toEqual(new Error("only one task proposal is allowed per assistant turn"));
+    expect(result).toMatchObject({ effect: "outcome_unknown", pendingActions: [{ confirmationId: "tool-confirmation-1" }] });
+    expect(secondError).toEqual(new Error("a task proposal with unknown persistence keeps its pending action slot reserved"));
     expect(saveCount).toBe(1);
     await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Uncertain" }]);
   });
 
@@ -433,11 +439,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result).toMatchObject({
       response: expect.stringMatching(captureFirst ? /изменение уже сохранено/i : /предложение задачи сохранено/i),
       effect: captureFirst ? "business_write_committed" : "pending_action_created",
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Persisted before failure" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: Persisted before failure" }],
     });
     expect(calls).toBe(1);
     await expect(ideas.list("owner")).resolves.toHaveLength(captureFirst ? 1 : 0);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Persisted before failure" }]);
   });
 
@@ -476,16 +482,16 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
       expect(result).toMatchObject({
         effect: expectedEffect,
-        pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: PRIVATE_PROPOSAL_PAYLOAD" },
+        pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: PRIVATE_PROPOSAL_PAYLOAD" }],
       });
       expect(result.response).toMatch(uncertainSave ? /не удалось подтвердить, сохранено ли предложение задачи/i : /готово к подтверждению/i);
       expect(agentCalls).toBe(1);
       expect(proposalSaves).toBe(1);
       expect(conversationAppends).toBe(1);
       await expect(ideas.list("PRIVATE_OWNER")).resolves.toEqual([]);
-      await expect(confirmations.confirm("other-owner", result.pendingAction!.confirmationId)).resolves.toEqual({ status: "owner_mismatch" });
-      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
-      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
+      await expect(confirmations.confirm("other-owner", result.pendingActions[0]!.confirmationId)).resolves.toEqual({ status: "owner_mismatch" });
+      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      await expect(confirmations.confirm("PRIVATE_OWNER", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
       await expect(tasks.list("PRIVATE_OWNER")).resolves.toMatchObject([{ title: "PRIVATE_PROPOSAL_PAYLOAD" }]);
       await expect(tasks.list("PRIVATE_OWNER")).resolves.toHaveLength(1);
       expect(JSON.stringify(warning.mock.calls)).not.toMatch(/PRIVATE_USER_TEXT|PRIVATE_PROPOSAL_PAYLOAD|PRIVATE_OWNER|owner-secret/);
@@ -534,10 +540,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result).toMatchObject({
       response: mutationOutcomeUnknownWithPendingActionUserMessage,
       effect: "outcome_unknown",
-      pendingAction: { confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal after unknown write" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", summary: "Создать задачу: Proposal after unknown write" }],
     });
     await expect(ideas.list("owner")).resolves.toHaveLength(1);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Proposal after unknown write" }]);
   });
 
@@ -564,10 +570,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     expect(result).toMatchObject({
       effect: "outcome_unknown",
-      pendingAction: { confirmationId: "tool-confirmation-1", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Convert uncertainly" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Convert uncertainly" }],
     });
     await expect(ideas.list("owner")).resolves.toHaveLength(1);
-    await expect(confirmations.confirm("owner", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.getByOriginIdeaId("owner", "idea-owner")).resolves.toMatchObject({ title: "Convert uncertainly" });
     expect(JSON.stringify(result)).not.toMatch(/ownerId|payloadDigest|createdAt|\"proposal\"|task_idea_/);
   });
@@ -582,7 +588,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     });
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "propose and confirm" })).resolves.toMatchObject({
-      pendingAction: { confirmationId: "tool-confirmation-1" },
+      pendingActions: [{ confirmationId: "tool-confirmation-1" }],
     });
     expect(exposedKeys).toEqual(["list", "propose", "proposeIdeaToTask", "undoLast"]);
     await expect(tasks.list("owner")).resolves.toEqual([]);
@@ -701,7 +707,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
       originIdeaId: "PRIVATE_ALREADY_CONVERTED_IDEA",
     });
     await expect(tasks.getByOriginIdeaId("PRIVATE_OWNER_ID", "idea-pending")).resolves.toBeNull();
-    expect(result.pendingAction).toMatchObject({
+    expect(result.pendingActions[0]).toMatchObject({
       confirmationId: "tool-confirmation-1",
       preview: {
         kind: "idea_to_task",
@@ -734,7 +740,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(parsed.conversion).not.toHaveProperty("originIdeaId");
     expect(JSON.stringify(parsed.conversion)).not.toMatch(/ownerId|proposal|payloadDigest|task_idea_|createdAt/);
     expect(parsed.conversion.confirmation).not.toHaveProperty("preview");
-    expect(result.pendingAction).toMatchObject({ ...parsed.conversion.confirmation, preview: { kind: "idea_to_task", title: { value: "Convert me", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "development", dueDate: null } });
+    expect(result.pendingActions[0]).toMatchObject({ ...parsed.conversion.confirmation, preview: { kind: "idea_to_task", title: { value: "Convert me", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "development", dueDate: null } });
     await expect(tasks.getByOriginIdeaId("owner", "idea-owner")).resolves.toBeNull();
   });
 });

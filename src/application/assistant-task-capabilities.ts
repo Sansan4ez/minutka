@@ -34,7 +34,7 @@ export type AssistantIdeaToTaskProposalResult =
 export type AssistantTaskCapabilityCallbacks = {
   beforePersist: TaskMutationBeforePersist;
   onProposal: (pending: PendingTaskMutation, taskTitle?: string) => void;
-  onApplied: (result?: AppliedTaskMutation) => void;
+  onApplied: (result: AppliedTaskMutation | undefined, pending: PendingTaskMutation) => void;
 };
 
 export type AssistantTaskCapabilities = {
@@ -82,7 +82,7 @@ export function createAssistantTaskCapabilities(input: {
       input.onProposal(pending, taskTitle);
       if (proposal.kind === "cancel" || !input.mutations.autoApply) return pendingTaskReceipt(pending);
       const applied = appliedTaskMutation(proposal.kind, await input.mutations.autoApply(input.ownerId, pending.confirmationId, input.audit));
-      input.onApplied(applied);
+      input.onApplied(applied, pending);
       return applied;
     },
     async proposeIdeaToTask(ideaId) {
@@ -93,14 +93,12 @@ export function createAssistantTaskCapabilities(input: {
       input.onProposal(result.confirmation);
       if (!input.mutations?.autoApply) return { status: "needs_confirmation", confirmation: pendingTaskReceipt(result.confirmation) } as never;
       const applied = appliedTaskMutation("idea_to_task", await input.mutations.autoApply(input.ownerId, result.confirmation.confirmationId, input.audit));
-      input.onApplied(applied);
+      input.onApplied(applied, result.confirmation);
       return applied;
     },
     async undoLast() {
       if (!input.mutations?.undo) throw new Error("task mutation undo is not configured");
-      const result = toAssistantTaskUndoResult(await input.mutations.undo(input.ownerId, input.audit));
-      if (result.status === "undone") input.onApplied();
-      return result;
+      return toAssistantTaskUndoResult(await input.mutations.undo(input.ownerId, input.audit));
     },
   };
 }

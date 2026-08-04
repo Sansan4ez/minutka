@@ -46,6 +46,21 @@ export type DecodedFeedback = {
 
 export type TaskMutationCallbackAction = "confirm" | "reject";
 export type DecodedTaskMutation = { action: TaskMutationCallbackAction; confirmationId: string };
+export type DecodedPendingActionGroup = { action: TaskMutationCallbackAction; groupId: string };
+
+export function encodePendingActionGroupCallbackData(action: TaskMutationCallbackAction, groupId: string): string {
+  if (!/^[\x21-\x7E]+$/.test(groupId) || groupId.includes(":")) throw new Error("groupId must be ASCII non-whitespace without ':'");
+  const payload = `gp:${action === "confirm" ? "c" : "r"}:${groupId}`;
+  if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Callback payload exceeds 64 bytes");
+  return payload;
+}
+
+export function decodePendingActionGroupCallbackData(data: string): DecodedPendingActionGroup | undefined {
+  if (Buffer.byteLength(data, "utf8") > 64) return undefined;
+  const match = /^gp:([cr]):([^:]+)$/.exec(data);
+  if (!match || !/^[\x21-\x7E]+$/.test(match[2]!)) return undefined;
+  return { action: match[1] === "c" ? "confirm" : "reject", groupId: match[2]! };
+}
 
 export function encodeTaskMutationCallbackData(action: TaskMutationCallbackAction, confirmationId: string): string {
   if (!/^[\x21-\x7E]+$/.test(confirmationId) || confirmationId.includes(":")) throw new Error("confirmationId must be ASCII non-whitespace without ':'");

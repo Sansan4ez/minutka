@@ -97,8 +97,8 @@ const pendingContextDocumentActionSchema = z.strictObject({
 });
 export const pendingActionSchema = z.union([pendingTaskActionSchema, pendingIdeaDeletionActionSchema, pendingContextDocumentActionSchema]);
 export const assistantChatEffectSchema = z.enum(["none", "pending_action_created", "business_write_committed", "outcome_unknown"]);
-const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), effect: z.literal("none") });
-const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingAction: pendingActionSchema.optional(), effect: assistantChatEffectSchema });
+const legacyChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(agentManualProcessIdSchema), pendingActions: z.tuple([]), effect: z.literal("none") });
+const assistantChatResponseSchema = z.strictObject({ messageId: z.string().min(1), response: z.string(), selectedProcessIds: z.array(assistantProcessIdSchema), pendingActions: z.array(pendingActionSchema).max(5), effect: assistantChatEffectSchema });
 export const chatResponseSchema = z.union([legacyChatResponseSchema, assistantChatResponseSchema]);
 export const feedbackRatingSchema = z.enum(["positive", "neutral", "negative"]);
 export const feedbackSourceSchema = z.enum(["telegram", "cli", "test"]);

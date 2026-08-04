@@ -48,7 +48,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
 
     const result = await env.service.chat({ userId: "owner", threadId: "telegram:owner", text: "заведи задачу купить корм на пятницу" });
     expect(result).toMatchObject({ effect: "business_write_committed", response: expect.stringContaining("отмени") });
-    expect(result.pendingAction).toBeUndefined();
+    expect(result.pendingActions[0]).toBeUndefined();
     expect(JSON.stringify(result)).not.toMatch(/level-zero-|task_1/);
     expect(applied).toMatchObject({ status: "applied", actionKind: "create", undoAvailable: true, task: { title: "Купить корм" } });
     expect(JSON.stringify(applied)).not.toMatch(/confirmationId|payloadDigest|ownerId|proposal/);
@@ -107,7 +107,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
     });
     await env.tasks.create("owner", { id: "task-cancel", title: "Не удалять сразу", project: "дом", type: "personal", status: "open" });
     const pending = await env.service.chat({ userId: "owner", threadId: "thread", text: "отмени задачу" });
-    expect(pending).toMatchObject({ effect: "pending_action_created", pendingAction: { actionKind: "cancel" } });
+    expect(pending).toMatchObject({ effect: "pending_action_created", pendingActions: [{ actionKind: "cancel" }] });
     await expect(env.tasks.get("owner", "task-cancel")).resolves.toMatchObject({ status: "open" });
 
     const createEnv = setup(async (_input, context) => {

@@ -123,7 +123,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     });
     const receipt = pendingTaskReceipt(pending);
     const action = pendingTaskAction(pending);
-    const response = { messageId: "msg", response: "proposal", selectedProcessIds: ["core", "inbox_capture"] as const, pendingAction: action, effect: "pending_action_created" as const };
+    const response = { messageId: "msg", response: "proposal", selectedProcessIds: ["core", "inbox_capture"] as const, pendingActions: [action], effect: "pending_action_created" as const };
 
     expect(countUnicodeCodePoints(receipt.summary)).toBe(pendingTaskSummaryMaximumCodePoints);
     expect(pendingTaskReceiptSchema.safeParse(receipt).success).toBe(true);

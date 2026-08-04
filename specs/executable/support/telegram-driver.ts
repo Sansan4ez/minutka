@@ -53,7 +53,7 @@ export class TelegramDriver {
           get(target, property, receiver) {
             if (property === "chat") return async (input: Parameters<typeof scoped.chat>[0]) => {
               const result = await (runtime.service as PersonalAssistantService).chat({ userId: employeeId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel });
-              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, ...(result.pendingAction ? { pendingAction: result.pendingAction } : {}), effect: result.effect };
+              return { messageId: result.messageId, response: result.response, selectedProcessIds: result.selectedProcessIds, pendingActions: result.pendingActions, effect: result.effect };
             };
             if (property === "resetConversation") return () => (runtime.service as PersonalAssistantService).resetConversation({ userId: employeeId });
             if (property === "listSchedules") return async () => ({ schedules: (await (runtime.service as PersonalAssistantService).listSchedules(employeeId)).map(({ id, processId, timeOfDay, timezone, enabled, nextFireAt }) => ({ id, processId, timeOfDay, timezone, enabled, nextFireAt })) });

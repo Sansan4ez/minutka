@@ -79,6 +79,9 @@ export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) 
 export type AssistantChatOutcome =
   | { status: "completed" }
   | { status: "denied"; reason: RequestIntegrityDenialReason };
+export type AssistantPendingAction = PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt;
+export const maximumPendingActionsPerTurn = 5;
+
 export type AssistantChatResult = {
   messageId: string;
   response: string;
@@ -86,8 +89,8 @@ export type AssistantChatResult = {
   /** Internal typed outcome for application/audit consumers; transports remain backward-compatible. */
   outcome: AssistantChatOutcome;
   personalContextDocuments?: string[];
-  pendingAction?: PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt;
-  /** Explicit recovery state: a proposal is durable but is not a business mutation. */
+  pendingActions: AssistantPendingAction[];
+  /** Explicit recovery state: proposals are durable but are not business mutations. */
   effect: AssistantChatEffectState;
 };
 
@@ -196,6 +199,7 @@ export class AssistantService {
         response,
         selectedProcessIds: ["core"],
         outcome: { status: "denied", reason: integrityOutcome.reason },
+        pendingActions: [],
         effect: "none",
       };
     }
@@ -207,6 +211,27 @@ export class AssistantService {
     };
     const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
     const records = await this.recordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
+    type PendingActionSlot =
+      | { sequence: number; kind: "task"; pending: PendingTaskMutation; title?: string; persistence: "attempted" | "persisted" }
+      | { sequence: number; kind: "idea"; record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] }
+      | { sequence: number; kind: "context"; confirmation: PendingContextDocumentMutationReceipt };
+    const pendingActionSlots: PendingActionSlot[] = [];
+    let pendingActionSequence = 0;
+    let reservedPendingActionSlots = 0;
+    let pendingActionLimitReached = false;
+    const pendingActionCount = () => pendingActionSlots.length + reservedPendingActionSlots;
+    const reservePendingActionSlot = () => {
+      throwAssistantAbortReason(applicationSignal);
+      if (pendingActionSlots.some((slot) => slot.kind === "task" && slot.persistence === "attempted")) {
+        throw new Error("a task proposal with unknown persistence keeps its pending action slot reserved");
+      }
+      if (pendingActionCount() >= maximumPendingActionsPerTurn) {
+        pendingActionLimitReached = true;
+        throw new PendingActionGroupLimitError();
+      }
+      reservedPendingActionSlots += 1;
+    };
+    const releasePendingActionSlot = () => { reservedPendingActionSlots = Math.max(0, reservedPendingActionSlots - 1); };
     let captureResult: CaptureIdeaResult | undefined;
     const observedExecutionTrace: AssistantExecutionTraceEvent[] = [];
     const markProcessUsed = (id: AssistantDiagnosticProcessId) => {
@@ -278,20 +303,10 @@ export class AssistantService {
       }, "document tool audit");
     };
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
-    let pendingTaskMutation: PendingTaskMutation | undefined;
-    let pendingTaskTitle: string | undefined;
-    let taskOperationUsed = false;
-    let pendingIdeaDeletion: { record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] } | undefined;
-    let pendingContextDocumentMutation: PendingContextDocumentMutationReceipt | undefined;
-    let contextDocumentProposalReserved = false;
-    const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
     const reserveTaskProposalSlot: AssistantTaskCapabilityCallbacks["beforePersist"] = (pending) => {
-      throwAssistantAbortReason(applicationSignal);
-      if (taskOperationUsed || taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
-      taskOperationUsed = true;
-      if (pendingIdeaDeletion || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
-      pendingTaskMutation = pending;
-      taskProposalState.persistence = "attempted";
+      reservePendingActionSlot();
+      releasePendingActionSlot();
+      pendingActionSlots.push({ sequence: pendingActionSequence++, kind: "task", pending, persistence: "attempted" });
     };
     const ideas = {
       search: (input: { query?: string; limit?: number }) => {
@@ -300,12 +315,19 @@ export class AssistantService {
       },
       propose: async (input: { ideaId: string; expectedRevision: number; reason?: string }) => {
         if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
-        if (pendingIdeaDeletion || pendingTaskMutation || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
-        const result = await this.deps.ideaDeletions.propose(userId, input, {
-          audit: { requestId, threadId, messageId },
-        });
+        reservePendingActionSlot();
+        let result: Awaited<ReturnType<IdeaDeletionService["propose"]>>;
+        try {
+          result = await this.deps.ideaDeletions.propose(userId, input, {
+            audit: { requestId, threadId, messageId },
+          });
+        } catch (error) {
+          releasePendingActionSlot();
+          throw error;
+        }
+        releasePendingActionSlot();
         if (result.status === "needs_confirmation") {
-          pendingIdeaDeletion = { record: result.confirmation, idea: result.idea };
+          pendingActionSlots.push({ sequence: pendingActionSequence++, kind: "idea", record: result.confirmation, idea: result.idea });
           chatEffect.pendingActionCreated = true;
         }
         return result;
@@ -322,14 +344,11 @@ export class AssistantService {
       ownerId: userId,
       service: this.deps.contextDocuments,
       audit: { requestId, threadId, messageId },
-      reserveProposal() {
-        if (pendingIdeaDeletion || pendingTaskMutation || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
-        contextDocumentProposalReserved = true;
-      },
-      releaseProposal() { contextDocumentProposalReserved = false; },
+      reserveProposal() { reservePendingActionSlot(); },
+      releaseProposal() { releasePendingActionSlot(); },
       onProposal(confirmation) {
-        pendingContextDocumentMutation = confirmation;
-        contextDocumentProposalReserved = false;
+        releasePendingActionSlot();
+        pendingActionSlots.push({ sequence: pendingActionSequence++, kind: "context", confirmation });
         chatEffect.pendingActionCreated = true;
       },
       onCreate(outcome) {
@@ -374,15 +393,17 @@ export class AssistantService {
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
-      onProposal: ((_pending, taskTitle) => {
-        pendingTaskTitle = taskTitle;
-        taskProposalState.persistence = "persisted";
+      onProposal: ((pending, taskTitle) => {
+        const slot = pendingActionSlots.find((candidate) => candidate.kind === "task" && candidate.pending.confirmationId === pending.confirmationId);
+        if (!slot || slot.kind !== "task") throw new Error("reserved task proposal slot is missing");
+        slot.title = taskTitle;
+        slot.persistence = "persisted";
         chatEffect.pendingActionCreated = true;
       }) satisfies AssistantTaskCapabilityCallbacks["onProposal"],
-      onApplied: (() => {
-        pendingTaskMutation = undefined;
-        taskProposalState.persistence = "none";
-        chatEffect.pendingActionCreated = false;
+      onApplied: ((_result, pending) => {
+        const index = pendingActionSlots.findIndex((candidate) => candidate.kind === "task" && candidate.pending.confirmationId === pending.confirmationId);
+        if (index >= 0) pendingActionSlots.splice(index, 1);
+        chatEffect.pendingActionCreated = pendingActionSlots.length > 0;
         if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
       }) satisfies AssistantTaskCapabilityCallbacks["onApplied"],
     });
@@ -481,32 +502,40 @@ export class AssistantService {
         }
       }
     }
-    if (taskProposalState.persistence === "attempted") {
+    const attemptedTaskProposal = pendingActionSlots.some((slot) => slot.kind === "task" && slot.persistence === "attempted");
+    const persistedTaskProposal = pendingActionSlots.some((slot) => slot.kind === "task" && slot.persistence === "persisted");
+    if (attemptedTaskProposal) {
       response = uncertainTaskProposalResponse(chatEffect.businessWrite);
       chatEffect.businessWrite = "outcome_unknown";
+      chatEffect.pendingActionCreated = true;
       agentError = undefined;
-    } else if (taskProposalState.persistence === "persisted" && agentError !== undefined) {
+    } else if (agentError instanceof PendingActionGroupLimitError) {
+      response = pendingActionGroupLimitUserMessage;
       agentError = undefined;
-      response = downstreamErrorAfterTaskProposal(chatEffect.businessWrite);
+    } else if (agentError !== undefined && pendingActionSlots.length > 0) {
+      agentError = undefined;
+      response = persistedTaskProposal
+        ? downstreamErrorAfterTaskProposal(chatEffect.businessWrite)
+        : "Не удалось сформировать итоговый ответ, но предложения сохранены и готовы к подтверждению или отклонению.";
     }
     if (chatEffect.businessWrite === "outcome_unknown") {
       if (chatEffect.pendingActionCreated) {
         agentError = undefined;
-        response = mutationOutcomeUnknownWithPendingActionUserMessage;
-      } else if (taskProposalState.persistence === "none") {
+        if (!attemptedTaskProposal) response = mutationOutcomeUnknownWithPendingActionUserMessage;
+      } else if (!attemptedTaskProposal && !persistedTaskProposal) {
         agentError = agentError instanceof AssistantMutationOutcomeUnknownError
           ? agentError
           : new AssistantMutationOutcomeUnknownError({ cause: agentError });
         response = undefined;
       }
     }
-    if (applicationSignal.aborted && taskProposalState.persistence === "none" && currentChatEffectState() === "none") {
+    if (applicationSignal.aborted && !attemptedTaskProposal && !persistedTaskProposal && currentChatEffectState() === "none") {
       throwAssistantAbortReason(applicationSignal);
     }
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
     // turns remains the agent's responsibility.
-    if (currentChatEffectState() === "none" && !captureResult && !pendingTaskMutation && !pendingContextDocumentMutation && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -518,6 +547,9 @@ export class AssistantService {
     }
     if (response !== undefined && !response.trim()) response = undefined;
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
+    if (response !== undefined && pendingActionLimitReached && !response.includes(pendingActionGroupLimitUserMessage)) {
+      response = `${response.trimEnd()}\n\n${pendingActionGroupLimitUserMessage}`;
+    }
     if (agentError !== undefined && response === undefined) throw agentError;
     if (response === undefined) throw new Error("Agent returned no response");
     const usageWarning = usage ? await this.recordUsageSafely({
@@ -542,7 +574,7 @@ export class AssistantService {
       });
       await boundedRecovery(appendTurn, computeRecoveryRemainingMs(chatStartedAt, this.deps.applicationTimeoutMs, this.deps.recoveryReserveMs));
     } catch (error) {
-      if (taskProposalState.persistence === "none" && !isRecoveryTimeoutError(error)) throw error;
+      if (!attemptedTaskProposal && !persistedTaskProposal && !isRecoveryTimeoutError(error)) throw error;
       logAssistantOperationalError("conversation history persistence after task proposal", error);
     }
     await this.auditSafely({
@@ -554,17 +586,21 @@ export class AssistantService {
       ...(requiredProcessId ? [{ kind: "process" as const, processId: requiredProcessId }] : []),
       ...observedExecutionTrace,
     ]));
+    const pendingActions = pendingActionSlots
+      .slice()
+      .sort((left, right) => left.sequence - right.sequence)
+      .map((slot): AssistantPendingAction => slot.kind === "task"
+        ? pendingTaskAction(slot.pending, slot.title)
+        : slot.kind === "idea"
+          ? pendingIdeaDeletionAction(slot.record, slot.idea)
+          : slot.confirmation);
     return {
       messageId,
       response,
       selectedProcessIds,
       outcome: { status: "completed" },
       personalContextDocuments: personalContext.data.documents.map((document) => document.path),
-      ...(pendingIdeaDeletion
-        ? { pendingAction: pendingIdeaDeletionAction(pendingIdeaDeletion.record, pendingIdeaDeletion.idea) }
-        : pendingTaskMutation
-          ? { pendingAction: pendingTaskAction(pendingTaskMutation, pendingTaskTitle) }
-          : pendingContextDocumentMutation ? { pendingAction: pendingContextDocumentMutation } : {}),
+      pendingActions,
       effect: currentChatEffectState(),
     };
   }
@@ -663,6 +699,12 @@ const downstreamTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ, но предложение задачи сохранено и готово к подтверждению или отклонению.";
 const downstreamWriteAndTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ. Изменение уже сохранено; предложение задачи готово к подтверждению или отклонению. Повторно отправлять запрос не нужно.";
+export const pendingActionGroupLimitUserMessage =
+  `За один ответ можно показать не больше ${maximumPendingActionsPerTurn} подтверждений. Показал только эту часть; оставшиеся действия можно запросить следующим сообщением.`;
+
+class PendingActionGroupLimitError extends Error {
+  constructor() { super(`pending action group limit of ${maximumPendingActionsPerTurn} reached`); this.name = "PendingActionGroupLimitError"; }
+}
 
 function uncertainTaskProposalResponse(businessWrite: "none" | "committed" | "outcome_unknown"): string {
   if (businessWrite === "outcome_unknown") return uncertainTaskProposalAndWriteUserMessage;

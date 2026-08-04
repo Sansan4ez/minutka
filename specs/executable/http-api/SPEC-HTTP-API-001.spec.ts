@@ -85,13 +85,13 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("serializes AssistantService results and binds both chat planes to their trusted identity", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
     const calls: unknown[] = [];
-    const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], outcome: { status: "completed" } as const, personalContextDocuments: ["context/private.md"], effect: "business_write_committed" as const }; } };
+    const assistant = { async chat(input: unknown) { calls.push(input); return { messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"] as ["core", "inbox_capture"], outcome: { status: "completed" } as const, personalContextDocuments: ["context/private.md"], pendingActions: [], effect: "business_write_committed" as const }; } };
     const server = await listenHttpServer({ application: createSpecHttpApplication(runtime.service, assistant), port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map([["emp_a", employeeToken]]) } });
     running.push(server);
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken }));
 
     await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "hello", inputModality: "voice" })).resolves.toEqual({
-      messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"], effect: "business_write_committed",
+      messageId: "msg_assistant", response: "assistant", selectedProcessIds: ["core", "inbox_capture"], pendingActions: [], effect: "business_write_committed",
     });
     const employeeResponse = await request(server.url, "/v1/me/threads/me-thread/messages", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "private", inputModality: "text" }) });
     expect(employeeResponse.status).toBe(200);
@@ -100,9 +100,9 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
       expect.objectContaining({ userId: "emp_a", threadId: "me-thread", text: "private", inputModality: "text", signal: expect.any(AbortSignal) }),
     ]);
     expect(chatResponseSchema.safeParse(await (await request(server.url, "/v1/service/employees/emp_a/threads/thread/messages", serviceToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) })).json()).success).toBe(true);
-    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "focus", selectedProcessIds: ["core", "day_focus"], effect: "none" }).success).toBe(true);
-    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "unsafe", selectedProcessIds: ["core", "unknown"], effect: "none" }).success).toBe(false);
-    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "legacy", selectedProcessIds: ["core", "workday_guardrails"], effect: "none" }).success).toBe(true);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "focus", selectedProcessIds: ["core", "day_focus"], pendingActions: [], effect: "none" }).success).toBe(true);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "unsafe", selectedProcessIds: ["core", "unknown"], pendingActions: [], effect: "none" }).success).toBe(false);
+    expect(chatResponseSchema.safeParse({ messageId: "msg", response: "legacy", selectedProcessIds: ["core", "workday_guardrails"], pendingActions: [], effect: "none" }).success).toBe(true);
   });
 
   it("rejects assistant capture for an unknown service employee before invoking the agent", async () => {
@@ -131,10 +131,10 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
         return {
           messageId: "msg_deadline", response: "Предложение сохранено после остановки agent loop.", selectedProcessIds: ["core"] as Array<"core" | "inbox_capture" | "day_focus">,
           outcome: { status: "completed" } as const, effect: "pending_action_created" as const,
-          pendingAction: {
+          pendingActions: [{
             confirmationId, actionKind: "create" as const, summary: "Создать задачу: HTTP deadline", expiresAt: "2026-07-29T09:15:00.000Z",
             preview: { kind: "create" as const, title: { value: "HTTP deadline", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "operations" as const, dueDate: null },
-          },
+          }],
         };
       },
     };
@@ -143,7 +143,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken, timeoutMs: budgets.sdkTransportMs }));
 
     await expect(client.forEmployee("emp_a").chat({ threadId: "thread", text: "create", responseChannel: "telegram" })).resolves.toMatchObject({
-      messageId: "msg_deadline", effect: "pending_action_created", pendingAction: { confirmationId: "http-deadline-confirmation" },
+      messageId: "msg_deadline", effect: "pending_action_created", pendingActions: [{ confirmationId: "http-deadline-confirmation" }],
     });
     expect(agentCalls).toBe(1);
     expect(proposalSaves).toBe(1);

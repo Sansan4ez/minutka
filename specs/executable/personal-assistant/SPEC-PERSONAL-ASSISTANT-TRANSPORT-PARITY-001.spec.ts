@@ -170,19 +170,21 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const taskTelegram = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: taskServer.url, token: serviceToken })).forEmployee("owner-a");
 
     const proposed = await taskEmployee.chat({ threadId: "http-task", text: "create" });
-    if (!("pendingAction" in proposed) || !proposed.pendingAction) throw new Error("expected pending action");
-    expect(proposed.pendingAction).toMatchObject({
+    if (!proposed.pendingActions[0]) throw new Error("expected pending action");
+    const proposedAction = proposed.pendingActions[0];
+    expect(proposedAction).toMatchObject({
       actionKind: "create",
       summary: "Создать задачу: HTTP task",
       preview: { kind: "create", title: { value: "HTTP task", truncated: false }, project: { value: "ASSISTANT", truncated: false }, type: "operations", dueDate: null },
     });
     await expect(tasks.list("owner-a")).resolves.toEqual([]);
-    await expect(taskTelegram.confirmTaskMutation(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "created" } });
+    await expect(taskTelegram.confirmTaskMutation(proposedAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "created" } });
 
     const rejected = await taskEmployee.chat({ threadId: "http-task-2", text: "create another" });
-    if (!("pendingAction" in rejected) || !rejected.pendingAction) throw new Error("expected pending action");
-    await expect(taskEmployee.rejectTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "rejected" });
-    await expect(taskTelegram.confirmTaskMutation(rejected.pendingAction.confirmationId)).resolves.toEqual({ status: "already_rejected" });
+    if (!rejected.pendingActions[0]) throw new Error("expected pending action");
+    const rejectedAction = rejected.pendingActions[0];
+    await expect(taskEmployee.rejectTaskMutation(rejectedAction.confirmationId)).resolves.toEqual({ status: "rejected" });
+    await expect(taskTelegram.confirmTaskMutation(rejectedAction.confirmationId)).resolves.toEqual({ status: "already_rejected" });
     await expect(tasks.list("owner-a")).resolves.toHaveLength(1);
   });
 
@@ -213,9 +215,10 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     const telegram = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: server.url, token: serviceToken })).forEmployee("owner-a");
 
     const proposed = await employee.chat({ threadId: "idea-delete", text: "delete it" });
-    if (!("pendingAction" in proposed) || proposed.pendingAction?.actionKind !== "delete_idea") throw new Error("expected idea deletion pending action");
-    await expect(telegram.confirmIdeaDeletion(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "deleted" } });
-    await expect(telegram.confirmIdeaDeletion(proposed.pendingAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed", outcome: { outcome: "deleted" } });
+    if (proposed.pendingActions[0]?.actionKind !== "delete_idea") throw new Error("expected idea deletion pending action");
+    const deletionAction = proposed.pendingActions[0];
+    await expect(telegram.confirmIdeaDeletion(deletionAction.confirmationId)).resolves.toMatchObject({ status: "confirmed", outcome: { outcome: "deleted" } });
+    await expect(telegram.confirmIdeaDeletion(deletionAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed", outcome: { outcome: "deleted" } });
     await expect(ideas.get("owner-a", captured.id)).resolves.toBeNull();
     await expect(employee.undoIdeaDeletion()).resolves.toMatchObject({ outcome: "restored", idea: { id: captured.id } });
     await expect(ideas.get("owner-a", captured.id)).resolves.toMatchObject({ revision: 3 });
@@ -276,10 +279,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
 
     const employee = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: ownerToken }));
     const httpProposal = await employee.chat({ threadId: "http-history-failure", text: "create over HTTP" });
-    if (!("pendingAction" in httpProposal) || !httpProposal.pendingAction) throw new Error("expected HTTP pending action");
+    if (!httpProposal.pendingActions[0]) throw new Error("expected HTTP pending action");
+    const httpAction = httpProposal.pendingActions[0];
     expect(httpProposal).toMatchObject({ response: "Предложение подготовлено.", effect: "pending_action_created" });
-    await expect(employee.confirmTaskMutation(httpProposal.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
-    await expect(employee.confirmTaskMutation(httpProposal.pendingAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
+    await expect(employee.confirmTaskMutation(httpAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(employee.confirmTaskMutation(httpAction.confirmationId)).resolves.toMatchObject({ status: "already_confirmed" });
 
     const sent: Array<{ messageId: number; text: string; replyMarkup?: { inlineKeyboard: Array<Array<{ text: string; callbackData: string }>> } }> = [];
     const callbackAnswers: string[] = [];

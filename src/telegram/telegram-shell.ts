@@ -1,8 +1,6 @@
 import type { ServiceMinutkaClient } from "../client/sdk/minutka-client.js";
-import type { AssistantChatResult } from "../application/assistant-service.js";
-import type { PendingTaskAction } from "../application/task-mutation-confirmation.js";
-import type { IdeaDeletionDecisionResult, PendingIdeaDeletionAction } from "../application/idea-deletion.js";
-import type { PendingContextDocumentMutationReceipt } from "../application/context-document-service.js";
+import type { AssistantChatResult, AssistantPendingAction } from "../application/assistant-service.js";
+import type { IdeaDeletionDecisionResult } from "../application/idea-deletion.js";
 import { MinutkaApiError } from "../client/sdk/http-transport.js";
 import type { OnboardingProgressResult } from "../client/sdk/minutka-client.js";
 import type { TaskMutationDecisionResult } from "../application/task-mutation-confirmation.js";
@@ -11,7 +9,7 @@ import { telegramActionMessageClaimLeaseMilliseconds, type TelegramIdentity, typ
 import type { TelegramReplyPort, TelegramSentMessage } from "./telegram-types.js";
 import { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
 import { renderTelegramMarkdown, renderTelegramPlainText, type TelegramRenderedChunk } from "./telegram-renderer.js";
-import { decodeContextDocumentMutationCallbackData, decodeFeedbackCallbackData, decodeIdeaDeletionCallbackData, decodeTaskMutationCallbackData, encodeContextDocumentMutationCallbackData, encodeFeedbackCallbackData, encodeIdeaDeletionCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
+import { decodeContextDocumentMutationCallbackData, decodeFeedbackCallbackData, decodeIdeaDeletionCallbackData, decodePendingActionGroupCallbackData, decodeTaskMutationCallbackData, encodeContextDocumentMutationCallbackData, encodeFeedbackCallbackData, encodeIdeaDeletionCallbackData, encodePendingActionGroupCallbackData, encodeTaskMutationCallbackData } from "./callback-data.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { PersistenceError } from "../application/persistence-error.js";
 import { contextOverflowUserMessage } from "../application/assistant-overflow-recovery.js";
@@ -25,7 +23,7 @@ import type { TelegramFileGateway } from "./telegram-file-gateway.js";
 import { randomUUID } from "node:crypto";
 import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { pipeline, Transform } from "node:stream";
-import { classifyTextConfirmation, type TextConfirmationDecision } from "./text-confirmation.js";
+import { classifyTextConfirmation, classifyTextConfirmationSelection, type TextConfirmationDecision, type TextConfirmationSelection } from "./text-confirmation.js";
 
 export { maxTelegramMessageCharacters, telegramMessageLength } from "./telegram-message-limits.js";
 const telegramPreferredSplitBoundaries = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "] as const;
@@ -158,27 +156,25 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
 function currentTimeInTimezone(timezone: string): string {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
 }
-type TelegramChatDeliveryResult = { messageId: string; response: string; pendingAction?: PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt };
+type TelegramChatDeliveryResult = { messageId: string; response: string; pendingActions: AssistantPendingAction[] };
+type ActivePendingAction = { action: AssistantPendingAction; messageId: number };
+type ActivePendingActionGroup = { groupId: string; actions: AssistantPendingAction[]; messageId: number };
 
-function taskPendingAction(chat: TelegramChatDeliveryResult) {
-  return "pendingAction" in chat ? chat.pendingAction : undefined;
-}
-type ActivePendingAction = {
-  action: PendingTaskAction | PendingIdeaDeletionAction | PendingContextDocumentMutationReceipt;
-  messageId: number;
-};
-
-function pendingActionReplyMarkup(chat: TelegramChatDeliveryResult) {
-  const pendingAction = taskPendingAction(chat);
-  if (!pendingAction) return undefined;
-  const encode = pendingAction.actionKind === "delete_idea"
+function pendingActionReplyMarkup(action: AssistantPendingAction) {
+  const encode = action.actionKind === "delete_idea"
     ? encodeIdeaDeletionCallbackData
-    : pendingAction.actionKind === "update" || pendingAction.actionKind === "move" || pendingAction.actionKind === "delete"
+    : action.actionKind === "update" || action.actionKind === "move" || action.actionKind === "delete"
       ? encodeContextDocumentMutationCallbackData
       : encodeTaskMutationCallbackData;
   return { inlineKeyboard: [[
-    { text: "✅ Подтвердить", callbackData: encode("confirm", pendingAction.confirmationId) },
-    { text: "❌ Отклонить", callbackData: encode("reject", pendingAction.confirmationId) },
+    { text: "✅ Подтвердить", callbackData: encode("confirm", action.confirmationId) },
+    { text: "❌ Отклонить", callbackData: encode("reject", action.confirmationId) },
+  ]] };
+}
+function pendingActionGroupReplyMarkup(groupId: string) {
+  return { inlineKeyboard: [[
+    { text: "✅ Подтвердить всё", callbackData: encodePendingActionGroupCallbackData("confirm", groupId) },
+    { text: "❌ Отклонить всё", callbackData: encodePendingActionGroupCallbackData("reject", groupId) },
   ]] };
 }
 function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean {
@@ -201,7 +197,7 @@ function ideaSummaryPreviewText(value: { value: string; truncated: boolean }): s
   const visibleText = value.value.replace(/<U\+[0-9A-F]{4,6}>/gu, "").trim();
   return visibleText ? previewText(value) : "Идея без описания";
 }
-function renderTaskActionPreview(preview: NonNullable<ReturnType<typeof taskPendingAction>>["preview"]): string[] {
+function renderTaskActionPreview(preview: AssistantPendingAction["preview"]): string[] {
   if (!("kind" in preview)) {
     const action = preview.destination ? "переименовать/переместить документ" : preview.change ? "изменить документ" : "удалить документ";
     return [
@@ -345,6 +341,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   const inFlightChatCounts = new Map<string, number>();
   const activeActionMessageIds = new Map<string, number>();
   const activePendingActions = new Map<string, ActivePendingAction>();
+  const activePendingActionGroups = new Map<string, ActivePendingActionGroup>();
   const inFlightActionMessages = new Map<string, Promise<boolean>>();
   const callbackActionKeys = new Map<string, string>();
   const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
@@ -361,6 +358,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await rawReplyPort.editReplyMarkup(chatId, messageId);
       if (activeActionMessageIds.get(chatId) === messageId) activeActionMessageIds.delete(chatId);
       if (activePendingActions.get(chatId)?.messageId === messageId) activePendingActions.delete(chatId);
+      if (activePendingActionGroups.get(chatId)?.messageId === messageId) activePendingActionGroups.delete(chatId);
     } catch (error) {
       logShellError("reply markup cleanup", error);
     }
@@ -465,69 +463,75 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       async release(deliveryKey: string, claimedAt: string) { await sessionStore.releaseOnboardingConfirmationDelivery({ identity: telegramIdentity, employeeId, deliveryKey, claimedAt }); },
     };
   }
-  async function sendTaskProposal(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<"delivered" | "cancelled"> {
-    const pendingAction = taskPendingAction(chat);
-    if (!pendingAction) return "delivered";
-    const trackForTextDecision = isLevelOnePendingAction(pendingAction);
-    const question = trackForTextDecision
-      ? "Подтвердить действие? Скажите «да» или нажмите кнопку."
-      : "Подтвердить изменение?";
-    const text = ["Предложение:", ...renderTaskActionPreview(pendingAction.preview), "", question].join("\n");
-    const options = { replyMarkup: pendingActionReplyMarkup(chat) };
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const rendered = renderTelegramPlainText(text);
-        if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
-        const sent = await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { ...options, parseMode: rendered[0]!.parseMode });
-        if (trackForTextDecision) {
-          activeActionMessageIds.set(chatId, sent.messageId);
-          activePendingActions.set(chatId, { action: pendingAction, messageId: sent.messageId });
-        }
-        return "delivered";
-      } catch (error) {
-        logShellError("task proposal delivery", error);
-      }
-    }
-    let rejected: { status: string };
-    try {
-      rejected = pendingAction.actionKind === "delete_idea"
-        ? await employeeClient(employeeId).rejectIdeaDeletion(pendingAction.confirmationId)
-        : pendingAction.actionKind === "update" || pendingAction.actionKind === "move" || pendingAction.actionKind === "delete"
-          ? await employeeClient(employeeId).rejectContextDocumentMutation(pendingAction.confirmationId)
-          : await employeeClient(employeeId).rejectTaskMutation(pendingAction.confirmationId);
-    } catch (error) {
-      logShellError("task proposal terminal rejection", error);
-      throw new TaskProposalTerminalizationUnknownError();
-    }
-    if (rejected.status === "rejected" || rejected.status === "already_rejected" || rejected.status === "not_found") return "cancelled";
-    logShellError("task proposal terminal rejection", new TaskProposalTerminalizationUnknownError());
-    throw new TaskProposalTerminalizationUnknownError();
-  }
-  async function deliverChatResult(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<void> {
-    if (!chat.response.trim()) throw new Error("Agent returned an empty response");
-    const pendingAction = taskPendingAction(chat);
-    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
-    if (pendingAction) {
-      await removeActiveReplyMarkup(chatId);
-      if (await sendTaskProposal(chatId, chat, employeeId) === "cancelled") {
-        await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
-      }
-      return;
-    }
-    if (activePendingActions.has(chatId)) await sendMarkdown(chatId, chat.response);
-    else await sendMarkdown(chatId, chat.response, { replyMarkup: feedbackMarkup });
-  }
-  async function textDecisionAction(employeeId: string, pending: ActivePendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {
-    const action = pending.action;
+  async function decidePendingAction(employeeId: string, action: AssistantPendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {
     if (action.actionKind === "delete_idea") return await (decision === "confirm"
       ? employeeClient(employeeId).confirmIdeaDeletion(action.confirmationId)
       : employeeClient(employeeId).rejectIdeaDeletion(action.confirmationId)) as IdeaDeletionDecisionResult;
-    if (action.actionKind === "move" || action.actionKind === "delete") return decision === "confirm"
+    if (action.actionKind === "update" || action.actionKind === "move" || action.actionKind === "delete") return decision === "confirm"
       ? employeeClient(employeeId).confirmContextDocumentMutation(action.confirmationId)
       : employeeClient(employeeId).rejectContextDocumentMutation(action.confirmationId);
     return decision === "confirm"
       ? employeeClient(employeeId).confirmTaskMutation(action.confirmationId)
       : employeeClient(employeeId).rejectTaskMutation(action.confirmationId);
+  }
+  function renderPendingActionItem(action: AssistantPendingAction, ordinal?: number): string[] {
+    const preview = renderTaskActionPreview(action.preview);
+    if (ordinal === undefined) return preview;
+    return preview.map((line, index) => index === 0 ? `${ordinal}. ${line}` : `   ${line}`);
+  }
+  async function rejectPendingActions(employeeId: string, actions: AssistantPendingAction[]): Promise<"cancelled"> {
+    try {
+      const results = await Promise.all(actions.map((action) => decidePendingAction(employeeId, action, "reject")));
+      if (results.every(({ status }) => status === "rejected" || status === "already_rejected" || status === "not_found")) return "cancelled";
+    } catch (error) {
+      logShellError("task proposal terminal rejection", error);
+    }
+    throw new TaskProposalTerminalizationUnknownError();
+  }
+  async function sendTaskProposal(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<"delivered" | "cancelled"> {
+    const actions = chat.pendingActions;
+    if (!actions.length) return "delivered";
+    const grouped = actions.length > 1;
+    const groupId = grouped ? randomUUID().replaceAll("-", "").slice(0, 24) : undefined;
+    const trackForTextDecision = grouped || isLevelOnePendingAction(actions[0]!);
+    const question = grouped
+      ? "Подтвердить всё? Скажите «да», нажмите кнопку или выберите пункты словами."
+      : trackForTextDecision
+        ? "Подтвердить действие? Скажите «да» или нажмите кнопку."
+        : "Подтвердить изменение?";
+    const text = grouped
+      ? ["Предложения:", ...actions.flatMap((action, index) => renderPendingActionItem(action, index + 1)), "", question].join("\n")
+      : ["Предложение:", ...renderPendingActionItem(actions[0]!), "", question].join("\n");
+    const replyMarkup = grouped ? pendingActionGroupReplyMarkup(groupId!) : pendingActionReplyMarkup(actions[0]!);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const rendered = renderTelegramPlainText(text);
+        if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
+        const sent = await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { replyMarkup, parseMode: rendered[0]!.parseMode });
+        if (grouped || trackForTextDecision) activeActionMessageIds.set(chatId, sent.messageId);
+        if (grouped) activePendingActionGroups.set(chatId, { groupId: groupId!, actions, messageId: sent.messageId });
+        else if (trackForTextDecision) activePendingActions.set(chatId, { action: actions[0]!, messageId: sent.messageId });
+        return "delivered";
+      } catch (error) {
+        logShellError("task proposal delivery", error);
+      }
+    }
+    return rejectPendingActions(employeeId, actions);
+  }
+  async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
+    const pendingActions = chat.pendingActions ?? [];
+    if (!chat.response.trim()) throw new Error("Agent returned an empty response");
+    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    if (pendingActions.length) {
+      await removeActiveReplyMarkup(chatId);
+      if (await sendTaskProposal(chatId, { ...chat, pendingActions }, employeeId) === "cancelled") await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
+      return;
+    }
+    if (activePendingActions.has(chatId) || activePendingActionGroups.has(chatId)) await sendMarkdown(chatId, chat.response);
+    else await sendMarkdown(chatId, chat.response, { replyMarkup: feedbackMarkup });
+  }
+  async function textDecisionAction(employeeId: string, pending: ActivePendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {
+    return decidePendingAction(employeeId, pending.action, decision);
   }
   function textDecisionText(action: ActivePendingAction["action"], result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
     if (action.actionKind === "delete_idea") {
@@ -541,7 +545,41 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (action.actionKind === "move" || action.actionKind === "delete") return contextDocumentDecisionText(result as ContextDocumentDecisionResult);
     return taskDecisionText(result as TaskMutationDecisionResult);
   }
+  function groupDecisionLine(index: number, action: AssistantPendingAction, result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
+    return `${index + 1}. ${textDecisionText(action, result)}`;
+  }
+  async function applyGroupSelection(employeeId: string, group: ActivePendingActionGroup, selection: TextConfirmationSelection): Promise<string[]> {
+    const decisions = new Map<number, TextConfirmationDecision>();
+    for (const index of selection.confirm) decisions.set(index, "confirm");
+    for (const index of selection.reject) decisions.set(index, "reject");
+    const lines: string[] = [];
+    for (const [index, decision] of [...decisions.entries()].sort(([left], [right]) => left - right)) {
+      const action = group.actions[index];
+      if (!action) continue;
+      try {
+        lines.push(groupDecisionLine(index, action, await decidePendingAction(employeeId, action, decision)));
+      } catch (error) {
+        logShellError("group decision", error);
+        lines.push(`${index + 1}. Не удалось обработать действие; остальные результаты сохранены.`);
+      }
+    }
+    return lines;
+  }
   async function resolveTextDecision(chatId: string, text: string, employeeId: string): Promise<boolean> {
+    const group = activePendingActionGroups.get(chatId);
+    if (group) {
+      const selection = classifyTextConfirmationSelection(text, group.actions.length);
+      if (!selection) return false;
+      const lines = await applyGroupSelection(employeeId, group, selection);
+      const decided = new Set([...selection.confirm, ...selection.reject]);
+      const remaining = group.actions.filter((_action, index) => !decided.has(index));
+      if (remaining.length) {
+        activePendingActionGroups.set(chatId, { ...group, actions: remaining });
+        if (remaining.length === 1) activePendingActions.set(chatId, { action: remaining[0]!, messageId: group.messageId });
+      } else await removeReplyMarkup(chatId, group.messageId);
+      await replyPort.sendMessage(chatId, ["Результат:", ...lines, ...(remaining.length ? [`Осталось без решения: ${remaining.length}.`] : [])].join("\n"));
+      return true;
+    }
     const pending = activePendingActions.get(chatId);
     if (!pending || !isLevelOnePendingAction(pending.action)) return false;
     const decision = classifyTextConfirmation(text);
@@ -612,7 +650,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (await resolveTextDecision(chatId, trimmed, session.employeeId)) return;
-        if (!activePendingActions.has(chatId)) await removeActiveReplyMarkup(chatId);
+        if (!activePendingActions.has(chatId) && !activePendingActionGroups.has(chatId)) await removeActiveReplyMarkup(chatId);
         await withTypingIndicator(replyPort, chatId, () => dispatchText(chatId, trimmed, session, "text", userId));
       } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, error instanceof TaskProposalTerminalizationUnknownError ? taskProposalTerminalizationUnknownMessage : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
@@ -750,6 +788,27 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           }
           return void await replyPort.answerCallbackQuery(callbackQueryId, "Неизвестное действие.");
         }
+        if (data.startsWith("gp:")) {
+          const decoded = decodePendingActionGroupCallbackData(data);
+          if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат действия.");
+          if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
+          if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
+          const group = activePendingActionGroups.get(chatId);
+          if (!group || group.groupId !== decoded.groupId || (messageId !== undefined && group.messageId !== messageId)) return void await replyPort.answerCallbackQuery(callbackQueryId, "Группа предложений не найдена.");
+          const handled = await runCallbackAction({
+            chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
+            action: () => applyGroupSelection(session.employeeId, group, decoded.action === "confirm"
+              ? { confirm: group.actions.map((_action, index) => index), reject: [] }
+              : { confirm: [], reject: group.actions.map((_action, index) => index) }),
+            repeatedText: "Уже обработано.",
+          });
+          if (handled.repeated) return;
+          try { await replyPort.answerCallbackQuery(callbackQueryId, "Группа обработана."); }
+          catch (error) { logShellError("group decision callback answer", error); }
+          if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+          await replyPort.sendMessage(chatId, ["Результат:", ...handled.result].join("\n"));
+          return;
+        }
         if (data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:")) {
           const ideaDeletion = data.startsWith("id:");
           const contextDocumentMutation = data.startsWith("cd:");
@@ -797,7 +856,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.answerCallbackQuery(callbackQueryId, "Спасибо, учту 👍");
         if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
       } catch (error) {
-        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
+        logShellError("callback", error); await replyPort.answerCallbackQuery(callbackQueryId, data.startsWith("tg:consent:") ? "Не удалось сохранить согласие. Попробуйте ещё раз позже." : data.startsWith("ob:") ? "Не удалось сохранить профиль. Попробуйте ещё раз позже." : data.startsWith("gp:") || data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:") ? "Не удалось обработать предложение. Попробуйте ещё раз позже." : "Не удалось сохранить отзыв. Попробуйте ещё раз позже.");
       } finally {
         const remaining = leaveChat(chatId);
         if (remaining === 0 && actionKey && callbackActionKeys.get(chatId) === actionKey) callbackActionKeys.delete(chatId);

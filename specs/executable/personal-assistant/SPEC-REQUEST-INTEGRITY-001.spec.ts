@@ -175,10 +175,10 @@ describe("SPEC-REQUEST-INTEGRITY-001: typed global denial contract", () => {
 
     expect(result).toMatchObject({
       outcome: { status: "completed" },
-      pendingAction: { actionKind: "complete", preview: { kind: "complete", taskId: { value: "pool-task", truncated: false }, taskTitle: { value: "Записаться в бассейн", truncated: false } } },
+      pendingActions: [{ actionKind: "complete", preview: { kind: "complete", taskId: { value: "pool-task", truncated: false }, taskTitle: { value: "Записаться в бассейн", truncated: false } } }],
     });
     await expect(fixture.tasks.get("maxim", "pool-task")).resolves.toMatchObject({ status: "open" });
-    await expect(fixture.taskMutations.confirm("maxim", result.pendingAction!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(fixture.taskMutations.confirm("maxim", result.pendingActions[0]!.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(fixture.tasks.get("maxim", "pool-task")).resolves.toMatchObject({ status: "done" });
   });
 

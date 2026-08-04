@@ -38,7 +38,7 @@ import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipants
 import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
-export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; effect: "none" };
+export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
 export type AgentRunContext = {
   profile?: UserProfile;
   systemContext?: string;
@@ -471,7 +471,7 @@ export class MinutkaService {
       logOperationalError("chat response audit", error);
     }
     if (decision.insightDecision.candidate) await this.extractInsights({ input: chatInput, messageId, response, profile, recentTurns, decision, requestId });
-    return { messageId, response, selectedProcessIds: built.selectedProcessIds, effect: "none" };
+    return { messageId, response, selectedProcessIds: built.selectedProcessIds, pendingActions: [], effect: "none" };
   }
 
   async listInsights(input: ListInsightsInput): Promise<StructuredInsight[]> { return this.stores.insightStore.listInsights(input); }

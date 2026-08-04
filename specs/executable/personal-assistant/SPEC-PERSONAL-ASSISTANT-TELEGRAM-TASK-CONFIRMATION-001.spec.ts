@@ -600,22 +600,81 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Keep proposal" }]);
   });
 
-  it("keeps multiple pending task proposals independently actionable", async () => {
-    let turn = 0;
+  it("renders one grouped card and confirms every canonical proposal with one gesture", async () => {
     const { telegram, tasks } = await harness(async (_input, context) => {
-      turn += 1;
-      await context.tasks.propose({ kind: "create", title: `Proposal ${turn}`, project: "ASSISTANT", type: "operations" });
-      return "Предложение подготовлено.";
+      await context.tasks.propose({ kind: "cancel", taskId: "group-task-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "group-task-2" });
+      return "Предложения подготовлены.";
     });
-    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "first" });
-    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "second" });
-    const proposals = telegram.sentMessages().filter((message) => message.text.includes("Предложение:"));
-    expect(proposals).toHaveLength(2);
-    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: owner.chatId, messageId: proposals[0]!.messageId, replyMarkup: undefined });
+    await tasks.create(owner.employeeId, { id: "group-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "group-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
 
-    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[0]!, "✅ Подтвердить"), messageId: proposals[0]!.messageId, callbackQueryId: "confirm-first" });
-    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposals[1]!, "✅ Подтвердить"), messageId: proposals[1]!.messageId, callbackQueryId: "confirm-second" });
-    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Proposal 1" }, { title: "Proposal 2" }]);
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложения:"))!;
+    expect(proposal.text).toContain("1. Действие: отменить задачу");
+    expect(proposal.text).toContain("2. Действие: отменить задачу");
+    expect(proposal.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить всё", "❌ Отклонить всё"]);
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить всё"), messageId: proposal.messageId, callbackQueryId: "confirm-group" });
+    await expect(tasks.get(owner.employeeId, "group-task-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "group-task-2")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("1. Изменение сохранено.");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("2. Изменение сохранено.");
+  });
+
+  it("rejects every pending record when a grouped card cannot be delivered", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "delivery-task-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "delivery-task-2" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "delivery-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "delivery-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+    telegram.setMessageDeliverySequence("fail", "fail");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+
+    expect(telegram.taskMutationRejectCalls()).toEqual(["telegram-confirmation-1", "telegram-confirmation-2"]);
+    expect(telegram.sentMessages().at(-1)?.text).toBe("Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.");
+    await expect(tasks.get(owner.employeeId, "delivery-task-1")).resolves.toMatchObject({ status: "open" });
+    await expect(tasks.get(owner.employeeId, "delivery-task-2")).resolves.toMatchObject({ status: "open" });
+  });
+
+  it("reports every result and keeps a failed middle group item isolated", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "failure-task-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "failure-task-2" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "failure-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "failure-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    await tasks.delete(owner.employeeId, "failure-task-2", { expectedRevision: 1 });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+
+    await expect(tasks.get(owner.employeeId, "failure-task-1")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("1. Изменение сохранено.");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("2. Задача не найдена. Изменение не выполнено.");
+  });
+
+  it("confirms a selected group item by text and leaves the rest pending", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "partial-task-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "partial-task-2" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "partial-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "partial-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "только первое" });
+    await expect(tasks.get(owner.employeeId, "partial-task-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "partial-task-2")).resolves.toMatchObject({ status: "open" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Осталось без решения: 1.");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+    await expect(tasks.get(owner.employeeId, "partial-task-2")).resolves.toMatchObject({ status: "cancelled" });
   });
 
   it("keeps a terminal rejection stable when Telegram markup cleanup fails", async () => {

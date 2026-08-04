@@ -103,10 +103,10 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
     const result = await client.forEmployee("owner").chat({ threadId: "thread", text: "create", responseChannel: "telegram" });
     expect(result).toMatchObject({
       effect: "pending_action_created",
-      pendingAction: { confirmationId: "recovery-confirmation-1" },
+      pendingActions: [{ confirmationId: "recovery-confirmation-1" }],
     });
-    if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
-    await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+    if (result.effect !== "pending_action_created" || !result.pendingActions[0]) throw new Error("expected pending action");
+    await expect(confirmations.confirm("owner", result.pendingActions[0].confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Post-abort proposal" }]);
   });
 
@@ -124,11 +124,11 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
       // Must return before SDK deadline with the proposal visible
       expect(result).toMatchObject({
         effect: "pending_action_created",
-        pendingAction: { confirmationId: "recovery-confirmation-1" },
+        pendingActions: [{ confirmationId: "recovery-confirmation-1" }],
       });
       // Proposal remains owner-visible and confirmable
-      if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
-      await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      if (result.effect !== "pending_action_created" || !result.pendingActions[0]) throw new Error("expected pending action");
+      await expect(confirmations.confirm("owner", result.pendingActions[0].confirmationId)).resolves.toMatchObject({ status: "confirmed" });
       await expect(tasks.list("owner")).resolves.toMatchObject([{ title: "Post-abort proposal" }]);
       // History was not persisted because the store stalled
       expect(world.messages).toHaveLength(0);
@@ -155,11 +155,11 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
       // because recovery budget terminates the slow append and returns the result.
       const result = await client.forEmployee("owner").chat({ threadId: "thread", text: "hidden id test", responseChannel: "telegram" });
       expect(result).toMatchObject({
-        pendingAction: { confirmationId: "recovery-confirmation-1" },
+        pendingActions: [{ confirmationId: "recovery-confirmation-1" }],
       });
       // The confirmation ID is visible, so confirming it is valid
-      if (result.effect !== "pending_action_created" || !result.pendingAction) throw new Error("expected pending action");
-      await expect(confirmations.confirm("owner", result.pendingAction.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      if (result.effect !== "pending_action_created" || !result.pendingActions[0]) throw new Error("expected pending action");
+      await expect(confirmations.confirm("owner", result.pendingActions[0].confirmationId)).resolves.toMatchObject({ status: "confirmed" });
     } finally {
       warning.mockRestore();
     }

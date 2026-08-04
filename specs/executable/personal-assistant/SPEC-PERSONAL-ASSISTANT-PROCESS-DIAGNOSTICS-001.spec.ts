@@ -77,6 +77,6 @@ describe("SPEC-PERSONAL-ASSISTANT-PROCESS-DIAGNOSTICS-001: evidence-derived proc
     const result = await service.chat({ userId: "owner", threadId: "thread", text: "Что делать сейчас?" });
     expect(result.selectedProcessIds).toEqual(["core", "day_focus", "evening_reflection"]);
     expect(result.effect).toBe("none");
-    expect(result.pendingAction).toBeUndefined();
+    expect(result.pendingActions[0]).toBeUndefined();
   });
 });
