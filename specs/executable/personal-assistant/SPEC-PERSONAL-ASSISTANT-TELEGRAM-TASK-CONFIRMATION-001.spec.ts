@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AssistantService } from "../../../src/application/assistant-service.js";
+import { AssistantService, type AssistantPendingAction } from "../../../src/application/assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
@@ -17,7 +17,8 @@ import { createDeterministicIdGenerator } from "../../../src/application/runtime
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
 import { ContextDocumentService } from "../../../src/application/context-document-service.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
-import { taskDecisionText } from "../../../src/telegram/telegram-shell.js";
+import { buildPendingActionGroupCard, maxTelegramMessageCharacters, taskDecisionText } from "../../../src/telegram/telegram-shell.js";
+import { renderTelegramPlainText } from "../../../src/telegram/telegram-renderer.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 
@@ -64,6 +65,34 @@ function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number],
   const button = message.replyMarkup?.inlineKeyboard.flat().find((candidate) => candidate.text === text);
   if (!button) throw new Error(`button ${text} not found`);
   return button.callbackData;
+}
+
+function oversizedPendingActions(): AssistantPendingAction[] {
+  const longText = "🙂".repeat(280);
+  return Array.from({ length: 5 }, (_, index) => ({
+    confirmationId: `oversized-confirmation-${index + 1}`,
+    actionKind: "create" as const,
+    summary: `Предложение ${index + 1}`,
+    expiresAt: "2026-07-29T09:15:00.000Z",
+    preview: {
+      kind: "create" as const,
+      title: { value: `${index + 1}-${longText}`, truncated: false },
+      project: { value: `${index + 1}-${longText}`, truncated: false },
+      type: "operations" as const,
+      dueDate: "2026-08-10",
+    },
+  }));
+}
+
+function proactiveResult(pendingActions: AssistantPendingAction[]) {
+  return {
+    messageId: "oversized-message",
+    response: "Предложения подготовлены.",
+    selectedProcessIds: [],
+    outcome: { status: "completed" as const },
+    pendingActions,
+    effect: "pending_action_created" as const,
+  };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram task decisions", () => {
@@ -598,6 +627,60 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: `confirm-after-${nextModality}` });
     expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Keep proposal" }]);
+  });
+
+  it("bounds worst-case grouped previews to one stable owner-visible Telegram card", () => {
+    const actions = oversizedPendingActions();
+    const card = buildPendingActionGroupCard(actions, maxTelegramMessageCharacters);
+
+    expect(renderTelegramPlainText(card.text)).toHaveLength(1);
+    expect(card.shown.length).toBeGreaterThanOrEqual(1);
+    expect(card.omitted.length).toBeGreaterThan(0);
+    expect(card.text).toContain(`Показано ${card.shown.length} из 5; остальные предложения не показаны.`);
+    expect(card.shown.map(({ confirmationId }) => confirmationId)).toEqual(actions.slice(0, card.shown.length).map(({ confirmationId }) => confirmationId));
+    expect(card.omitted.map(({ confirmationId }) => confirmationId)).toEqual(actions.slice(card.shown.length).map(({ confirmationId }) => confirmationId));
+  });
+
+  it("delivers an oversized group once and addresses only the shown proposals", async () => {
+    const actions = oversizedPendingActions();
+    const card = buildPendingActionGroupCard(actions, maxTelegramMessageCharacters);
+    const { telegram } = await harness(async () => "legacy");
+
+    await telegram.deliverProactive({ chatId: owner.chatId, employeeId: owner.employeeId, result: proactiveResult(actions) });
+
+    expect(telegram.messageDeliveryAttempts()).toHaveLength(1);
+    const proposal = telegram.sentMessages().at(-1)!;
+    expect(proposal.text).toBe(card.text);
+    expect(proposal.text).not.toMatch(/отклонен|отменен/iu);
+    expect(telegram.taskMutationRejectCalls()).toEqual([]);
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "пятое — да" });
+    expect(telegram.taskMutationConfirmCalls()).toEqual([]);
+
+    await telegram.deliverCallback({
+      chatId: owner.chatId,
+      userId: owner.userId,
+      callbackData: taskButton(proposal, "✅ Подтвердить всё"),
+      messageId: proposal.messageId,
+      callbackQueryId: "confirm-bounded-group",
+    });
+    expect(telegram.taskMutationConfirmCalls()).toEqual(card.shown.map(({ confirmationId }) => confirmationId));
+    expect(telegram.taskMutationConfirmCalls()).not.toContain(card.omitted[0]!.confirmationId);
+  });
+
+  it("rejects only shown proposals when bounded group delivery fails", async () => {
+    const actions = oversizedPendingActions();
+    const card = buildPendingActionGroupCard(actions, maxTelegramMessageCharacters);
+    const { telegram } = await harness(async () => "legacy");
+    telegram.setMessageDeliverySequence("fail", "fail");
+
+    await telegram.deliverProactive({ chatId: owner.chatId, employeeId: owner.employeeId, result: proactiveResult(actions) });
+
+    expect(telegram.messageDeliveryAttempts()).toHaveLength(3);
+    expect(telegram.messageDeliveryAttempts().slice(0, 2).map(({ text }) => text)).toEqual([card.text, card.text]);
+    expect(telegram.taskMutationRejectCalls()).toEqual(card.shown.map(({ confirmationId }) => confirmationId));
+    expect(telegram.taskMutationRejectCalls()).not.toContain(card.omitted[0]!.confirmationId);
+    expect(telegram.sentMessages().at(-1)?.text).toContain("остальные предложения не отклонены");
   });
 
   it("renders one grouped card and confirms every canonical proposal with one gesture", async () => {

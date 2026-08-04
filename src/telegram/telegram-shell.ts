@@ -245,6 +245,78 @@ function renderTaskActionPreview(preview: AssistantPendingAction["preview"]): st
     }
   }
 }
+
+const pendingActionGroupQuestion = "Подтвердить всё? Скажите «да», нажмите кнопку или выберите пункты словами.";
+const pendingActionGroupTruncationMarker = "… [сокращено]";
+
+function renderPendingActionItem(action: AssistantPendingAction, ordinal?: number): string[] {
+  const preview = renderTaskActionPreview(action.preview);
+  if (ordinal === undefined) return preview;
+  return preview.map((line, index) => index === 0 ? `${ordinal}. ${line}` : `   ${line}`);
+}
+
+function pendingActionGroupText(itemLines: string[], shown: number, total: number): string {
+  return [
+    "Предложения:",
+    ...itemLines,
+    ...(shown < total ? ["", `Показано ${shown} из ${total}; остальные предложения не показаны.`] : []),
+    "",
+    pendingActionGroupQuestion,
+  ].join("\n");
+}
+
+function plainTextFitsBudget(text: string, budget: number): boolean {
+  const rendered = renderTelegramPlainText(text);
+  return rendered.length === 1 && telegramMessageLength(rendered[0]!.text) <= Math.min(budget, maxTelegramMessageCharacters);
+}
+
+function boundedFirstPendingActionItem(action: AssistantPendingAction, total: number, budget: number): string[] {
+  const item = renderPendingActionItem(action, 1).join("\n");
+  const ordinalPrefix = "1. ";
+  const body = item.startsWith(ordinalPrefix) ? item.slice(ordinalPrefix.length) : item;
+  const codePoints = Array.from(body);
+  const candidate = (length: number) => `${ordinalPrefix}${codePoints.slice(0, length).join("").trimEnd()}${pendingActionGroupTruncationMarker}`;
+  if (!plainTextFitsBudget(pendingActionGroupText([candidate(0)], 1, total), budget)) {
+    throw new RangeError("Telegram pending action group budget is too small for one bounded item");
+  }
+  let lower = 0;
+  let upper = codePoints.length;
+  while (lower < upper) {
+    const middle = Math.ceil((lower + upper) / 2);
+    if (plainTextFitsBudget(pendingActionGroupText([candidate(middle)], 1, total), budget)) lower = middle;
+    else upper = middle - 1;
+  }
+  return candidate(lower).split("\n");
+}
+
+export type PendingActionGroupCard = {
+  shown: AssistantPendingAction[];
+  omitted: AssistantPendingAction[];
+  text: string;
+};
+
+/** Builds one owner-visible Telegram group card without changing canonical proposals. */
+export function buildPendingActionGroupCard(actions: AssistantPendingAction[], budget: number): PendingActionGroupCard {
+  if (actions.length < 2) throw new RangeError("A pending action group requires at least two actions");
+  if (!Number.isInteger(budget) || budget <= 0) throw new RangeError("Telegram pending action group budget must be a positive integer");
+  const allItemLines = actions.flatMap((action, index) => renderPendingActionItem(action, index + 1));
+  const fullText = pendingActionGroupText(allItemLines, actions.length, actions.length);
+  if (plainTextFitsBudget(fullText, budget)) return { shown: [...actions], omitted: [], text: fullText };
+
+  for (let shownCount = actions.length - 1; shownCount >= 1; shownCount -= 1) {
+    const shown = actions.slice(0, shownCount);
+    const text = pendingActionGroupText(shown.flatMap((action, index) => renderPendingActionItem(action, index + 1)), shownCount, actions.length);
+    if (plainTextFitsBudget(text, budget)) return { shown, omitted: actions.slice(shownCount), text };
+  }
+
+  const shown = actions.slice(0, 1);
+  return {
+    shown,
+    omitted: actions.slice(1),
+    text: pendingActionGroupText(boundedFirstPendingActionItem(shown[0]!, actions.length, budget), 1, actions.length),
+  };
+}
+
 export function contextDocumentDecisionText(result: ContextDocumentDecisionResult): string {
   if (result.status === "confirmed" || result.status === "already_confirmed") {
     if (result.outcome.outcome === "conflict") return "Документ изменился после предложения. Перечитайте его и подготовьте новое предложение.";
@@ -485,11 +557,6 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       ? employeeClient(employeeId).confirmTaskMutation(action.confirmationId)
       : employeeClient(employeeId).rejectTaskMutation(action.confirmationId);
   }
-  function renderPendingActionItem(action: AssistantPendingAction, ordinal?: number): string[] {
-    const preview = renderTaskActionPreview(action.preview);
-    if (ordinal === undefined) return preview;
-    return preview.map((line, index) => index === 0 ? `${ordinal}. ${line}` : `   ${line}`);
-  }
   async function rejectPendingActions(employeeId: string, actions: AssistantPendingAction[]): Promise<"cancelled"> {
     try {
       const results = await Promise.all(actions.map((action) => decidePendingAction(employeeId, action, "reject")));
@@ -499,21 +566,21 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     }
     throw new TaskProposalTerminalizationUnknownError();
   }
-  async function sendTaskProposal(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<"delivered" | "cancelled"> {
+  async function sendTaskProposal(chatId: string, chat: TelegramChatDeliveryResult, employeeId: string): Promise<"delivered" | "cancelled" | "shown_cancelled"> {
     const actions = chat.pendingActions;
     if (!actions.length) return "delivered";
     const grouped = actions.length > 1;
+    const groupCard = grouped ? buildPendingActionGroupCard(actions, maxTelegramMessageCharacters) : undefined;
+    const shownActions = groupCard?.shown ?? actions;
+    const omittedActions = groupCard?.omitted ?? [];
     const groupId = grouped ? randomUUID().replaceAll("-", "").slice(0, 24) : undefined;
-    const trackForTextDecision = grouped || isLevelOnePendingAction(actions[0]!);
-    const question = grouped
-      ? "Подтвердить всё? Скажите «да», нажмите кнопку или выберите пункты словами."
-      : trackForTextDecision
-        ? "Подтвердить действие? Скажите «да» или нажмите кнопку."
-        : "Подтвердить изменение?";
-    const text = grouped
-      ? ["Предложения:", ...actions.flatMap((action, index) => renderPendingActionItem(action, index + 1)), "", question].join("\n")
-      : ["Предложение:", ...renderPendingActionItem(actions[0]!), "", question].join("\n");
-    const replyMarkup = grouped ? pendingActionGroupReplyMarkup(groupId!) : pendingActionReplyMarkup(actions[0]!);
+    const trackForTextDecision = grouped || isLevelOnePendingAction(shownActions[0]!);
+    const question = trackForTextDecision
+      ? "Подтвердить действие? Скажите «да» или нажмите кнопку."
+      : "Подтвердить изменение?";
+    const text = groupCard?.text
+      ?? ["Предложение:", ...renderPendingActionItem(shownActions[0]!), "", question].join("\n");
+    const replyMarkup = grouped ? pendingActionGroupReplyMarkup(groupId!) : pendingActionReplyMarkup(shownActions[0]!);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const rendered = renderTelegramPlainText(text);
@@ -522,16 +589,17 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         if (grouped || trackForTextDecision) activeActionMessageIds.set(chatId, sent.messageId);
         if (grouped) activePendingActionGroups.set(chatId, {
           groupId: groupId!,
-          items: actions.map((action, index) => ({ ordinal: (index + 1) as ActivePendingActionGroupItem["ordinal"], action, state: "pending" })),
+          items: shownActions.map((action, index) => ({ ordinal: (index + 1) as ActivePendingActionGroupItem["ordinal"], action, state: "pending" })),
           messageId: sent.messageId,
         });
-        else if (trackForTextDecision) activePendingActions.set(chatId, { action: actions[0]!, messageId: sent.messageId });
+        else if (trackForTextDecision) activePendingActions.set(chatId, { action: shownActions[0]!, messageId: sent.messageId });
         return "delivered";
       } catch (error) {
         logShellError("task proposal delivery", error);
       }
     }
-    return rejectPendingActions(employeeId, actions);
+    await rejectPendingActions(employeeId, shownActions);
+    return omittedActions.length ? "shown_cancelled" : "cancelled";
   }
   async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
     const pendingActions = chat.pendingActions ?? [];
@@ -539,7 +607,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
     if (pendingActions.length) {
       await removeActiveReplyMarkup(chatId);
-      if (await sendTaskProposal(chatId, { ...chat, pendingActions }, employeeId) === "cancelled") await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
+      const delivery = await sendTaskProposal(chatId, { ...chat, pendingActions }, employeeId);
+      if (delivery === "cancelled") await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
+      else if (delivery === "shown_cancelled") await replyPort.sendMessage(chatId, "Не удалось доставить показанные предложения. Они отменены; остальные предложения не отклонены и останутся доступными до истечения срока.");
       return;
     }
     if (activePendingActions.has(chatId) || activePendingActionGroups.has(chatId)) await sendMarkdown(chatId, chat.response);
