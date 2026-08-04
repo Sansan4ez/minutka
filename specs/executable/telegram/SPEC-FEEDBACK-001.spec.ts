@@ -573,6 +573,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
         selectedProcessIds: ["core"],
         outcome: { status: "completed" },
         effect: "none",
+        pendingActions: [],
       },
     });
 

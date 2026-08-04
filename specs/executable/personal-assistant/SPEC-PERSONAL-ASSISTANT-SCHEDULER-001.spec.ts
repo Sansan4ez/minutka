@@ -85,7 +85,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
     const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
-    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Три приоритета и один следующий шаг.", selectedProcessIds: ["core", "day_focus"], outcome: { status: "completed" }, effect: "none" };
+    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Три приоритета и один следующий шаг.", selectedProcessIds: ["core", "day_focus"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
     const facade = {
       async runScheduledProcess(input: { userId: string; threadId: string; processId: "day_focus" }) {
         facadeCalls.push(input);
@@ -115,7 +115,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
     const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
-    const result: AssistantChatResult = { messageId: "scheduled-evening-message", response: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?", selectedProcessIds: ["core", "evening_reflection"], outcome: { status: "completed" }, effect: "none" };
+    const result: AssistantChatResult = { messageId: "scheduled-evening-message", response: "Как прошёл день? Что получилось, что помешало и какой один шаг перенесём на завтра?", selectedProcessIds: ["core", "evening_reflection"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
     const facade = {
       async runScheduledProcess(input: { userId: string; threadId: string; processId: "evening_reflection" }) {
         facadeCalls.push(input);

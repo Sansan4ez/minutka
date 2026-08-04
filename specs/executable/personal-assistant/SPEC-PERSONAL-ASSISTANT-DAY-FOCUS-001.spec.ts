@@ -114,6 +114,7 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
         selectedProcessIds: ["core", "day_focus"],
         outcome: { status: "completed" },
         effect: "none",
+        pendingActions: [],
       };
     } };
     const facade = new PersonalAssistantService(
@@ -146,6 +147,7 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
         selectedProcessIds: ["core", "evening_reflection"],
         outcome: { status: "completed" },
         effect: "none",
+        pendingActions: [],
       };
     } };
     const facade = new PersonalAssistantService(
