@@ -49,6 +49,8 @@ export function createSpecHttpApplication(
     rejectTaskMutation: async () => { throw new Error("task mutation confirmation is not configured in this spec adapter"); },
     confirmContextDocumentMutation: async () => { throw new Error("context document mutation confirmation is not configured in this spec adapter"); },
     rejectContextDocumentMutation: async () => { throw new Error("context document mutation confirmation is not configured in this spec adapter"); },
+    listContextDocumentVersions: async () => { throw new Error("context document version history is not configured in this spec adapter"); },
+    restoreContextDocumentVersion: async () => { throw new Error("context document version restore is not configured in this spec adapter"); },
     confirmIdeaDeletion: async () => { throw new Error("idea deletion confirmation is not configured in this spec adapter"); },
     rejectIdeaDeletion: async () => { throw new Error("idea deletion confirmation is not configured in this spec adapter"); },
     undoIdeaDeletion: async () => { throw new Error("idea deletion undo is not configured in this spec adapter"); },
