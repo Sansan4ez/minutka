@@ -48,7 +48,7 @@ function createService(input: {
     ingestionService: ingestion,
     ideaStore: ideas,
     taskStore: tasks,
-    taskMutations,
+    taskMutations: { propose: taskMutations.propose.bind(taskMutations) },
     auditEventStore: createInMemoryAuditEventStore(world),
     requestIntegrityGuard: input.guard,
     participantStore: input.participantStore,

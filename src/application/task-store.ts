@@ -43,6 +43,11 @@ export type TaskMutationResult =
   | { outcome: "not_found" }
   | { outcome: "conflict"; current?: Task };
 
+export type TaskDeletionResult =
+  | { outcome: "deleted"; task: Task }
+  | { outcome: "not_found" }
+  | { outcome: "conflict"; current?: Task };
+
 /** Read-only owner-scoped task boundary. */
 export interface TaskReader {
   get(userId: string, id: string): Promise<Task | null>;
@@ -54,6 +59,7 @@ export interface TaskReader {
 export interface TaskWriter {
   create(userId: string, input: CreateTaskInput): Promise<TaskMutationResult>;
   update(userId: string, id: string, input: UpdateTaskInput): Promise<TaskMutationResult>;
+  delete(userId: string, id: string, input: { expectedRevision: number }): Promise<TaskDeletionResult>;
 }
 
 export type TaskStore = TaskReader & TaskWriter;

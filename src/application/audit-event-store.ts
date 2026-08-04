@@ -24,6 +24,7 @@ export type AuditEventType =
   | "thread_summary_failed"
   | "task_mutation_proposed"
   | "task_mutation_decided"
+  | "task_mutation_undone"
   | "usage_soft_limit_exceeded"
   | "employee_data_deleted";
 
@@ -66,6 +67,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   thread_summary_failed: ["reason", "turnCount", "previousCharacters"],
   task_mutation_proposed: ["confirmationId", "actionKind", "status", "taskId"],
   task_mutation_decided: ["confirmationId", "actionKind", "status", "result", "taskId"],
+  task_mutation_undone: ["actionKind", "status", "taskId", "ideaStatusRestored"],
   usage_soft_limit_exceeded: ["month", "source", "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cachedInputUnknownRecords", "estimatedCostUsdMicros", "softLimitUsdMicros"],
   employee_data_deleted: [],
 };

@@ -6,11 +6,13 @@ import {
   taskActionKindMatchesProposal,
   taskMutationPayloadDigest,
   taskMutationProposalTaskId,
+  type TaskMutationConfirmationRecord,
   type TaskMutationConfirmationStore,
   type TaskMutationProposal,
   type TaskPendingActionKind,
 } from "../../application/task-mutation-confirmation.js";
 import type { TaskMutationResult, TaskWriter } from "../../application/task-store.js";
+import type { IdeaStatus } from "../../application/idea-store.js";
 import type { Task } from "../../domain/task.js";
 import { withTransaction } from "./postgres-pool.js";
 
@@ -27,6 +29,10 @@ type Row = {
   completed_at: Date | null;
   decision: "confirmed" | "rejected" | null;
   outcome: unknown | null;
+  before_task: unknown | null;
+  undo_context: unknown | null;
+  undo_expires_at: Date | null;
+  undone_at: Date | null;
 };
 
 export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMutationConfirmationStore {
@@ -70,18 +76,48 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
             return { result: { status: "rejected" }, actionKind, taskId };
           }
 
-          const transactionalWriter: TaskWriter = {
-            create: (ownerId, createInput) => taskStoreWithClient(client).create(ownerId, createInput),
-            update: (ownerId, taskId, updateInput) => taskStoreWithClient(client).update(ownerId, taskId, updateInput),
-          };
-          const outcome = await effect(transactionalWriter, proposal);
+          const writer = taskStoreWithClient(client);
+          const beforeTask = proposal.kind === "create" ? null : await writer.get(row.user_id, proposal.taskId);
+          const ideaBeforeStatus = actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId
+            ? await selectIdeaStatus(client, row.user_id, proposal.input.originIdeaId)
+            : undefined;
+          if (actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId && ideaBeforeStatus === "raw") {
+            await client.query("UPDATE minutka_private.ideas SET status='planned', last_activity_at=now(), revision=revision+1 WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [row.user_id, proposal.input.originIdeaId]);
+          }
+          const outcome = await effect(writer, proposal);
           await client.query(
             `UPDATE minutka_private.task_mutation_confirmations
-             SET completed_at=$2, decision='confirmed', outcome=$3::jsonb
+             SET completed_at=$2, decision='confirmed', outcome=$3::jsonb, before_task=$4::jsonb,
+                 undo_context=$5::jsonb, undo_expires_at=$6
              WHERE confirmation_id=$1`,
-            [input.confirmationId, input.decidedAt, JSON.stringify(outcome)],
+            [input.confirmationId, input.decidedAt, JSON.stringify(outcome), beforeTask ? JSON.stringify(beforeTask) : null,
+              ideaBeforeStatus ? JSON.stringify({ ideaBeforeStatus }) : null, actionKind === "cancel" ? null : input.undoExpiresAt ?? null],
           );
           return { result: { status: "confirmed", outcome: copyTaskMutationResult(outcome) }, actionKind, taskId };
+        });
+      } catch (error) { throw mapPostgresError(error); }
+    },
+    async undo(input, effect) {
+      try {
+        return await withTransaction(pool, async (client) => {
+          const selected = await client.query<Row>(
+            `SELECT * FROM minutka_private.task_mutation_confirmations
+             WHERE user_id=$1 AND decision='confirmed' AND action_kind IN ('create','update','complete','idea_to_task')
+             ORDER BY completed_at DESC, confirmation_id DESC LIMIT 1 FOR UPDATE`,
+            [input.ownerId],
+          );
+          const row = selected.rows[0];
+          if (!row) return { status: "not_found" };
+          const record = restoreFullRecord(row);
+          if (!record) return { status: "not_found" };
+          const task = outcomeTask(record);
+          if (row.undone_at) return task ? { status: "already_undone", actionKind: record.actionKind as Exclude<TaskPendingActionKind, "cancel">, task, ...(record.ideaBeforeStatus !== undefined ? { ideaStatusRestored: true } : {}) } : { status: "not_found" };
+          if (!row.undo_expires_at || Date.parse(input.undoneAt) > row.undo_expires_at.getTime()) return { status: "expired" };
+          const result = await effect(taskUndoWriterWithClient(client), record);
+          if (result.status === "undone") {
+            await client.query("UPDATE minutka_private.task_mutation_confirmations SET undone_at=$2 WHERE confirmation_id=$1", [row.confirmation_id, input.undoneAt]);
+          }
+          return result;
         });
       } catch (error) { throw mapPostgresError(error); }
     },
@@ -119,7 +155,29 @@ function restoreCanonicalProposal(row: Row): TaskMutationProposal | null {
   }
 }
 
-function taskStoreWithClient(client: Pick<PoolClient, "query">): TaskWriter {
+function restoreFullRecord(row: Row): TaskMutationConfirmationRecord | null {
+  const proposal = restoreCanonicalProposal(row);
+  if (!proposal || !row.decision || !row.completed_at) return null;
+  const undoContext = row.undo_context && typeof row.undo_context === "object" ? row.undo_context as { ideaBeforeStatus?: IdeaStatus } : undefined;
+  return {
+    confirmationId: row.confirmation_id,
+    ownerId: row.user_id,
+    actionKind: row.action_kind as TaskPendingActionKind,
+    proposal,
+    payloadDigest: row.payload_digest,
+    createdAt: row.created_at.toISOString(),
+    expiresAt: row.expires_at.toISOString(),
+    decision: row.decision,
+    completedAt: row.completed_at.toISOString(),
+    ...(row.outcome ? { outcome: restoreOutcome(row.outcome) } : {}),
+    ...(row.before_task ? { beforeTask: restoreStoredTask(row.before_task) } : {}),
+    ...(undoContext?.ideaBeforeStatus ? { ideaBeforeStatus: undoContext.ideaBeforeStatus } : {}),
+    ...(row.undo_expires_at ? { undoExpiresAt: row.undo_expires_at.toISOString() } : {}),
+    ...(row.undone_at ? { undoneAt: row.undone_at.toISOString() } : {}),
+  };
+}
+
+function taskStoreWithClient(client: Pick<PoolClient, "query">): TaskWriter & { get(userId: string, taskId: string): Promise<Task | null> } {
   return {
     async create(userId, input) {
       const inserted = await client.query<TaskRow>(
@@ -139,33 +197,46 @@ function taskStoreWithClient(client: Pick<PoolClient, "query">): TaskWriter {
       const task = restoreTask(existing);
       return sameCreate(task, input) ? { outcome: "unchanged", task } : { outcome: "conflict", current: task };
     },
+    async get(userId, taskId) {
+      const selected = await client.query<TaskRow>("SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2", [userId, taskId]);
+      return selected.rows[0] ? restoreTask(selected.rows[0]) : null;
+    },
     async update(userId, id, input) {
-      const selected = await client.query<TaskRow>(
-        "SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2 FOR UPDATE",
-        [userId, id],
-      );
+      const selected = await client.query<TaskRow>("SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2 FOR UPDATE", [userId, id]);
       const row = selected.rows[0];
       if (!row) return { outcome: "not_found" };
       const task = restoreTask(row);
       if (task.revision !== input.expectedRevision) return { outcome: "conflict", current: task };
-      if (Object.entries(input.patch).every(([key, value]) => key === "dueDate" && value === null ? task.dueDate === undefined : task[key as keyof Task] === value)) {
-        return { outcome: "unchanged", task };
-      }
+      if (Object.entries(input.patch).every(([key, value]) => key === "dueDate" && value === null ? task.dueDate === undefined : task[key as keyof Task] === value)) return { outcome: "unchanged", task };
       const fields = Object.entries(input.patch).filter(([, value]) => value !== undefined);
       const columns: Record<string, string> = { title: "title", project: "project", type: "record_type", status: "status", dueDate: "due_date" };
       const params: unknown[] = [userId, id, input.expectedRevision];
-      const assignments = fields.map(([name, value]) => {
-        params.push(value);
-        return `${columns[name]}=$${params.length}${name === "dueDate" ? "::date" : ""}`;
-      });
-      const updated = await client.query<TaskRow>(
-        `UPDATE minutka_private.tasks SET ${assignments.join(", ")}, updated_at=now(), revision=revision+1
-         WHERE user_id=$1 AND task_id=$2 AND revision=$3 RETURNING *`,
-        params,
-      );
+      const assignments = fields.map(([name, value]) => { params.push(value); return `${columns[name]}=$${params.length}${name === "dueDate" ? "::date" : ""}`; });
+      const updated = await client.query<TaskRow>(`UPDATE minutka_private.tasks SET ${assignments.join(", ")}, updated_at=now(), revision=revision+1 WHERE user_id=$1 AND task_id=$2 AND revision=$3 RETURNING *`, params);
       return updated.rows[0] ? { outcome: "updated", task: restoreTask(updated.rows[0]) } : { outcome: "conflict", current: task };
     },
+    async delete(userId, id, input) {
+      const deleted = await client.query<TaskRow>("DELETE FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2 AND revision=$3 RETURNING *", [userId, id, input.expectedRevision]);
+      if (deleted.rows[0]) return { outcome: "deleted", task: restoreTask(deleted.rows[0]) };
+      const current = await client.query<TaskRow>("SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2", [userId, id]);
+      return current.rows[0] ? { outcome: "conflict", current: restoreTask(current.rows[0]) } : { outcome: "not_found" };
+    },
   };
+}
+
+function taskUndoWriterWithClient(client: Pick<PoolClient, "query">) {
+  return {
+    ...taskStoreWithClient(client),
+    async restoreIdeaStatus(userId: string, ideaId: string, status: IdeaStatus) {
+      const updated = await client.query("UPDATE minutka_private.ideas SET status=$3, last_activity_at=now(), revision=revision+1 WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [userId, ideaId, status]);
+      return (updated.rowCount ?? 0) > 0;
+    },
+  };
+}
+
+async function selectIdeaStatus(client: Pick<PoolClient, "query">, userId: string, ideaId: string): Promise<IdeaStatus | undefined> {
+  const selected = await client.query<{ status: IdeaStatus }>("SELECT status FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2", [userId, ideaId]);
+  return selected.rows[0]?.status;
 }
 
 type TaskRow = {
@@ -182,16 +253,25 @@ function restoreTask(row: TaskRow): Task {
   };
 }
 
+function restoreStoredTask(value: unknown): Task {
+  const task = value as Task;
+  if (!task || typeof task !== "object" || typeof task.id !== "string" || typeof task.revision !== "number") throw new Error("invalid stored task undo snapshot");
+  return { ...task };
+}
+
 function sameCreate(task: Task, input: Parameters<TaskWriter["create"]>[1]): boolean {
   return task.id === input.id && task.title === input.title && task.project === input.project && task.type === input.type
     && task.status === input.status && task.dueDate === input.dueDate && task.originIdeaId === input.originIdeaId;
 }
 
 function restoreOutcome(value: unknown): TaskMutationResult {
-  if (!value || typeof value !== "object" || !taskResultOutcomes.has(String((value as { outcome?: unknown }).outcome))) {
-    throw new Error("invalid stored task mutation outcome");
-  }
+  if (!value || typeof value !== "object" || !taskResultOutcomes.has(String((value as { outcome?: unknown }).outcome))) throw new Error("invalid stored task mutation outcome");
   return copyTaskMutationResult(value as TaskMutationResult);
+}
+
+function outcomeTask(record: TaskMutationConfirmationRecord): Task | undefined {
+  const outcome = record.outcome;
+  return outcome && outcome.outcome !== "not_found" && outcome.outcome !== "conflict" ? outcome.task : undefined;
 }
 
 function postgresDate(value: string | Date): string {

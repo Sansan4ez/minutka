@@ -16,7 +16,7 @@ The current owner request, bounded `/proc/context` for goals and known projects,
 4. Rank candidates by explicit owner-goal alignment, overdue or near-term commitments, work already in progress, and practical leverage. An overdue item does not silently override an explicit owner goal: state the conflict when they point in different directions.
 5. Select at most three priorities. Mark conflicting deadlines, unclear goal alignment, and `БЕЗ_ПРОЕКТА` or otherwise unknown projects explicitly.
 6. Give exactly one concrete next action that can be started now. Make it an observable action, not a vague intention.
-7. Keep planning read-only unless the owner explicitly asks to create or change a task. A `proposeTaskMutation` result is only a proposal; the application returns its safe pending action separately. Task execution or rejection happens later through an authenticated owner command outside the agent tool loop. Never claim that a task changed from the proposal.
+7. Keep planning read-only unless the owner explicitly asks to create or change a task. `create`, `update`, and `complete` return an applied level-0 result: state the saved change and the worded undo path without ids. A `cancel` result remains a safe pending action; execution or rejection happens later through an authenticated owner command outside the agent tool loop. Never claim a pending cancellation changed the task.
 
 ## Outputs
 

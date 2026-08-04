@@ -66,7 +66,7 @@ function createComposition(options: {
       ingestionService: ingestion,
       ideaStore: ideas,
       taskStore: tasks,
-      taskMutations: confirmations,
+      taskMutations: { propose: confirmations.propose.bind(confirmations) },
       ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
       auditEventStore,
       requestIntegrityGuard: async () => ({ status: "allowed" }),

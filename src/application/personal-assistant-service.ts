@@ -69,7 +69,7 @@ export class PersonalAssistantService {
     >,
     private readonly conversationService: Pick<AssistantService, "chat">,
     private readonly artifactStore: Pick<ArtifactStore, "checkCapacity" | "save" | "get" | "list" | "delete">,
-    private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject">,
+    private readonly taskMutations?: Pick<TaskMutationConfirmationService, "confirm" | "reject" | "undo">,
     private readonly conversationThreads?: Pick<ConversationThreadService, "reset">,
     private readonly ideaDeletions?: Pick<IdeaDeletionService, "confirm" | "reject" | "undo">,
     private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
@@ -132,6 +132,11 @@ export class PersonalAssistantService {
   rejectTaskMutation(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext) {
     if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
     return this.taskMutations.reject(ownerId, confirmationId, audit);
+  }
+
+  undoTaskMutation(ownerId: string, audit?: TaskMutationAuditContext) {
+    if (!this.taskMutations) throw new Error("task mutation confirmation is not configured");
+    return this.taskMutations.undo(ownerId, audit);
   }
 
   confirmContextDocumentMutation(ownerId: string, confirmationId: string, audit?: ContextDocumentAuditContext) {

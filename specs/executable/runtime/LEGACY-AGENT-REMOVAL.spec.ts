@@ -32,6 +32,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         return { confirmationId: `confirmation-${proposals.length}`, actionKind: input.kind, summary: "proposal", expiresAt: "2026-07-31T21:00:00.000Z" };
       },
       async proposeIdeaToTask() { return { status: "not_found" }; },
+      async undoLast() { return { status: "not_found" }; },
     });
     const schema = tools.proposeTaskMutation.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" });
 
@@ -82,7 +83,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(tool).toBeDefined();
         expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
         expect(Object.keys(options.toolsets?.contextDocuments ?? {})).toEqual(["createContextNote", "proposeContextDocumentUpdate", "proposeContextDocumentMove", "proposeContextDocumentDelete"]);
-        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
+        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "undoTaskMutation"]);
         expect(Object.keys(options.toolsets?.schedules ?? {})).toEqual(["listSchedules", "setDailySchedule", "disableSchedule"]);
         const taskTools = options.toolsets?.tasks as Record<string, { execute?: (input: unknown, context: unknown) => Promise<unknown> }>;
         const taskProposal = await taskTools.proposeTaskMutation?.execute?.({
@@ -93,10 +94,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(taskProposal).toEqual({
           confirmationId: "confirmation-1", actionKind: "create", summary: "Создать задачу: Trace-safe task", expiresAt: "2026-07-16T09:15:00.000Z",
         });
-        expect(ideaProposal).toEqual({
-          status: "needs_confirmation",
-          confirmation: { confirmationId: "confirmation-2", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Trace-safe idea", expiresAt: "2026-07-16T09:15:00.000Z" },
-        });
+        expect(ideaProposal).toEqual({ status: "not_found" });
         expect(JSON.stringify(providerToolTrace)).not.toMatch(/ownerId|proposal|payloadDigest|task-generated|originIdeaId|createdAt/);
         const diagnostic = options.toolsets?.diagnostics?.markProcessUsed as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(diagnostic.execute).toBeTypeOf("function");
@@ -149,11 +147,9 @@ describe("A2.6: legacy Minutka agent removal", () => {
           return { confirmationId: "confirmation-1", actionKind: "create", summary: "Создать задачу: Trace-safe task", expiresAt: "2026-07-16T09:15:00.000Z" };
         },
         async proposeIdeaToTask() {
-          return {
-            status: "needs_confirmation",
-            confirmation: { confirmationId: "confirmation-2", actionKind: "idea_to_task", summary: "Создать задачу из идеи: Trace-safe idea", expiresAt: "2026-07-16T09:15:00.000Z" },
-          };
+          return { status: "not_found" };
         },
+        async undoLast() { return { status: "not_found" }; },
       },
       contextDocuments: {
         async createNote() { return { outcome: "created", path: "/proc/context/00_inbox/safe.md", version: "version-1" }; },

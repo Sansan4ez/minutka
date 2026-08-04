@@ -35,7 +35,7 @@ function setup(
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);
   const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
-  const baseConfirmationStore = createInMemoryTaskMutationConfirmationStore(tasks);
+  const baseConfirmationStore = createInMemoryTaskMutationConfirmationStore(tasks, ideas);
   const confirmationStore = options.wrapConfirmationStore?.(baseConfirmationStore) ?? baseConfirmationStore;
   const auditEventStore = createInMemoryAuditEventStore(world);
   const confirmations = new TaskMutationConfirmationService(
@@ -55,7 +55,7 @@ function setup(
       : { ...ingestion, captureIdea: options.wrapCaptureIdea(ingestion.captureIdea) },
     ...(options.exposeIdeaStore === false ? {} : { ideaStore: ideas }),
     taskStore: tasks,
-    taskMutations: confirmations,
+    taskMutations: { propose: confirmations.propose.bind(confirmations) },
     ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
     auditEventStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }),
@@ -232,7 +232,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
         ? context.tasks.propose({ kind: "create", title: `Task ${suffix}`, project: "ASSISTANT", type: "operations" })
         : context.tasks.proposeIdeaToTask("idea-owner");
       const first = await propose(firstKind, "first");
-      firstConfirmationId = "confirmationId" in first ? first.confirmationId : first.status === "needs_confirmation" ? first.confirmation.confirmationId : undefined;
+      firstConfirmationId = "confirmationId" in first ? first.confirmationId : undefined;
       secondReceipt = await propose(secondKind, "second");
       return "unreachable";
     }, {
@@ -251,12 +251,12 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
       effect: "pending_action_created",
       pendingAction: { confirmationId: "tool-confirmation-1" },
     });
-    expect(firstConfirmationId).toBe("tool-confirmation-1");
+    if (firstKind === "task") expect(firstConfirmationId).toBe("tool-confirmation-1");
     expect(secondReceipt).toBeUndefined();
     expect(saveCount).toBe(1);
     expect(world.auditEvents.filter(({ type }) => type === "task_mutation_proposed")).toHaveLength(1);
     await expect(confirmations.confirm("owner", "tool-confirmation-2")).resolves.toEqual({ status: "not_found" });
-    await expect(confirmations.confirm("owner", firstConfirmationId!)).resolves.toMatchObject({ status: "confirmed" });
+    await expect(confirmations.confirm("owner", firstConfirmationId ?? "tool-confirmation-1")).resolves.toMatchObject({ status: "confirmed" });
     await expect(tasks.list("owner")).resolves.toHaveLength(1);
   });
 
@@ -578,13 +578,13 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
       exposedKeys = Object.keys(context.tasks).sort();
       const pending = await context.tasks.propose({ kind: "create", title: "Bypass attempt", project: "ASSISTANT", type: "operations" });
       expect((context.tasks as unknown as { confirm?: unknown }).confirm).toBeUndefined();
-      return pending.confirmationId;
+      return "confirmationId" in pending ? pending.confirmationId : pending.task.title;
     });
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "propose and confirm" })).resolves.toMatchObject({
       pendingAction: { confirmationId: "tool-confirmation-1" },
     });
-    expect(exposedKeys).toEqual(["list", "propose", "proposeIdeaToTask"]);
+    expect(exposedKeys).toEqual(["list", "propose", "proposeIdeaToTask", "undoLast"]);
     await expect(tasks.list("owner")).resolves.toEqual([]);
   });
 

@@ -88,6 +88,17 @@ export function createInMemoryTaskStore(clock: Clock): TaskStore {
       tasks.set(taskKey, updated);
       return { outcome: "updated", task: copyTask(updated) };
     },
+    async delete(userId, id, input) {
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) throw new Error("expectedRevision must be a positive safe integer");
+      const taskKey = key(userId, id);
+      const existing = tasks.get(taskKey);
+      if (existing === undefined) return { outcome: "not_found" };
+      if (existing.revision !== input.expectedRevision) return { outcome: "conflict", current: copyTask(existing) };
+      tasks.delete(taskKey);
+      taskOwners.delete(existing.id);
+      if (existing.originIdeaId !== undefined) originIds.delete(originKey(existing.userId, existing.originIdeaId));
+      return { outcome: "deleted", task: copyTask(existing) };
+    },
   };
 }
 

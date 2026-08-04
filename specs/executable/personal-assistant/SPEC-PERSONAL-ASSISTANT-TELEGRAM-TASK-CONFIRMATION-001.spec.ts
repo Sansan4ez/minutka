@@ -42,6 +42,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
     createInMemoryTaskMutationConfirmationStore(tasks), clock,
     { confirmationId: (() => { let id = 0; return () => `telegram-confirmation-${++id}`; })() },
   );
+  const taskMutationProposals = { propose: taskMutations.propose.bind(taskMutations) };
   const ideaDeletions = new IdeaDeletionService(
     ideas, createInMemoryIdeaDeletionConfirmationStore(ideas), clock,
     { confirmationId: (() => { let id = 0; return () => `telegram-idea-deletion-${++id}`; })() },
@@ -50,7 +51,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(legacy.world),
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
-    ideaStore: ideas, ideaDeletions, contextDocuments, taskStore: tasks, taskMutations,
+    ideaStore: ideas, ideaDeletions, contextDocuments, taskStore: tasks, taskMutations: taskMutationProposals,
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
   });
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });

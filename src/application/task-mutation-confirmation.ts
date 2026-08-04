@@ -5,9 +5,11 @@ import { pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
 import { normalizeTaskPatch } from "./task-store.js";
+import type { IdeaStatus } from "./idea-store.js";
 import type { CreateTaskInput, TaskMutationResult, TaskPatch, TaskWriter } from "./task-store.js";
 
 export const taskMutationConfirmationTtlMilliseconds = 15 * 60_000;
+export const taskMutationUndoWindowMilliseconds = 15 * 60_000;
 export const taskMutationConfirmationPurgeBatchSize = 500;
 
 const recordTypeSchema = z.enum(["money", "development", "content", "people", "operations", "knowledge", "personal"]);
@@ -86,10 +88,24 @@ export type TaskMutationDecisionResult =
   | { status: "rejected" | "already_rejected" }
   | { status: "not_found" | "owner_mismatch" | "expired" | "invalid_payload" };
 
+export type TaskMutationUndoResult =
+  | { status: "undone" | "already_undone"; actionKind: Exclude<TaskPendingActionKind, "cancel">; task: Task; ideaStatusRestored?: boolean }
+  | { status: "not_found" | "expired" }
+  | { status: "conflict"; actionKind: Exclude<TaskPendingActionKind, "cancel">; current?: Task };
+
 export type TaskMutationConfirmationRecord = PendingTaskMutation & {
   decision?: "confirmed" | "rejected";
   outcome?: TaskMutationResult;
   completedAt?: string;
+  beforeTask?: Task;
+  ideaBeforeStatus?: IdeaStatus;
+  undoExpiresAt?: string;
+  undoneAt?: string;
+};
+
+export type TaskMutationUndoWriter = TaskWriter & {
+  get(userId: string, taskId: string): Promise<Task | null>;
+  restoreIdeaStatus(userId: string, ideaId: string, status: IdeaStatus): Promise<boolean>;
 };
 
 /**
@@ -100,9 +116,13 @@ export type TaskMutationConfirmationRecord = PendingTaskMutation & {
 export interface TaskMutationConfirmationStore {
   save(record: PendingTaskMutation): Promise<void>;
   decide(
-    input: { confirmationId: string; ownerId: string; decision: "confirm" | "reject"; decidedAt: string },
+    input: { confirmationId: string; ownerId: string; decision: "confirm" | "reject"; decidedAt: string; undoExpiresAt?: string },
     effect: (writer: TaskWriter, proposal: TaskMutationProposal) => Promise<TaskMutationResult>,
   ): Promise<{ result: TaskMutationDecisionResult; actionKind?: TaskPendingActionKind; taskId?: string }>;
+  undo(
+    input: { ownerId: string; undoneAt: string },
+    effect: (writer: TaskMutationUndoWriter, record: TaskMutationConfirmationRecord) => Promise<TaskMutationUndoResult>,
+  ): Promise<TaskMutationUndoResult>;
   purge(input: { pendingExpiredBefore: string; completedBefore: string; limit: number }): Promise<number>;
 }
 
@@ -119,6 +139,7 @@ export class TaskMutationConfirmationService {
       confirmationId?: () => string;
       auditEventStore?: AuditEventStore;
       idGenerator?: Pick<IdGenerator, "auditEventId">;
+      undoWindowMilliseconds?: number;
     } = {},
   ) {}
 
@@ -153,8 +174,22 @@ export class TaskMutationConfirmationService {
     return this.decide(ownerId, confirmationId, "confirm", audit);
   }
 
+  autoApply(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext): Promise<TaskMutationDecisionResult> {
+    return this.decide(ownerId, confirmationId, "confirm", audit);
+  }
+
   reject(ownerId: string, confirmationId: string, audit?: TaskMutationAuditContext): Promise<TaskMutationDecisionResult> {
     return this.decide(ownerId, confirmationId, "reject", audit);
+  }
+
+  async undo(ownerId: string, audit?: TaskMutationAuditContext): Promise<TaskMutationUndoResult> {
+    const safeOwnerId = assertOwnerId(ownerId);
+    const undoneAt = assertTimestamp(this.clock.now());
+    const result = await this.store.undo({ ownerId: safeOwnerId, undoneAt }, executeTaskMutationUndo);
+    if (result.status === "undone" || result.status === "already_undone" || result.status === "conflict") {
+      await this.auditUndoSafely(safeOwnerId, result, audit);
+    }
+    return result;
   }
 
   purge(input: { completedReplayRetentionMilliseconds: number; limit?: number; now?: string }): Promise<number> {
@@ -176,11 +211,14 @@ export class TaskMutationConfirmationService {
     const safeOwnerId = assertOwnerId(ownerId);
     const safeConfirmationId = requiredText.parse(confirmationId);
     const decidedAt = assertTimestamp(this.clock.now());
+    const undoWindow = this.options.undoWindowMilliseconds ?? taskMutationUndoWindowMilliseconds;
+    if (!Number.isSafeInteger(undoWindow) || undoWindow <= 0) throw new Error("undo window must be a positive safe integer");
     const decided = await this.store.decide({
       confirmationId: safeConfirmationId,
       ownerId: safeOwnerId,
       decision,
       decidedAt,
+      ...(decision === "confirm" ? { undoExpiresAt: new Date(Date.parse(decidedAt) + undoWindow).toISOString() } : {}),
     }, (writer, proposal) => executeTaskMutation(writer, safeOwnerId, proposal));
     const result = decided.result;
     if (terminalAuditStatus(result.status) && decided.actionKind) {
@@ -196,6 +234,29 @@ export class TaskMutationConfirmationService {
       );
     }
     return result;
+  }
+
+  private async auditUndoSafely(ownerId: string, result: Extract<TaskMutationUndoResult, { status: "undone" | "already_undone" | "conflict" }>, context?: TaskMutationAuditContext): Promise<void> {
+    if (!this.options.auditEventStore || !this.options.idGenerator) return;
+    try {
+      await this.options.auditEventStore.append({
+        id: this.options.idGenerator.auditEventId(),
+        requestId: context?.requestId ?? `task-mutation-undo:${result.status === "conflict" ? result.current?.id ?? "unknown" : result.task.id}`,
+        type: "task_mutation_undone",
+        employeeId: ownerId,
+        ...(context?.threadId ? { threadId: context.threadId } : {}),
+        ...(context?.messageId ? { messageId: context.messageId } : {}),
+        occurredAt: this.clock.now(),
+        metadata: safeAuditMetadata("task_mutation_undone", {
+          actionKind: result.actionKind,
+          status: result.status,
+          taskId: result.status === "conflict" ? result.current?.id ?? "unknown" : result.task.id,
+          ...(result.status === "undone" || result.status === "already_undone" ? { ideaStatusRestored: result.ideaStatusRestored ?? false } : {}),
+        }),
+      });
+    } catch {
+      // Audit is diagnostic and must not change undo semantics.
+    }
   }
 
   private async auditSafely(
@@ -275,6 +336,36 @@ export async function executeTaskMutation(writer: TaskWriter, ownerId: string, p
   }
 }
 
+export async function executeTaskMutationUndo(writer: TaskMutationUndoWriter, record: TaskMutationConfirmationRecord): Promise<TaskMutationUndoResult> {
+  if (record.actionKind === "cancel") return { status: "not_found" };
+  const appliedTask = taskFromOutcome(record.outcome);
+  if (!appliedTask) return { status: "conflict", actionKind: record.actionKind };
+  if (record.proposal.kind === "create") {
+    const deleted = await writer.delete(record.ownerId, appliedTask.id, { expectedRevision: appliedTask.revision });
+    if (deleted.outcome === "conflict") return { status: "conflict", actionKind: record.actionKind, ...(deleted.current ? { current: deleted.current } : {}) };
+    if (deleted.outcome === "not_found") return { status: "conflict", actionKind: record.actionKind };
+    const ideaStatusRestored = record.proposal.input.originIdeaId !== undefined && record.ideaBeforeStatus !== undefined
+      ? await writer.restoreIdeaStatus(record.ownerId, record.proposal.input.originIdeaId, record.ideaBeforeStatus)
+      : false;
+    return { status: "undone", actionKind: record.actionKind, task: deleted.task, ...(ideaStatusRestored ? { ideaStatusRestored: true } : {}) };
+  }
+  if (!record.beforeTask) return { status: "conflict", actionKind: record.actionKind };
+  const current = await writer.get(record.ownerId, appliedTask.id);
+  if (!current || current.revision !== appliedTask.revision) return { status: "conflict", actionKind: record.actionKind, ...(current ? { current } : {}) };
+  const restored = await writer.update(record.ownerId, current.id, {
+    expectedRevision: current.revision,
+    patch: {
+      title: record.beforeTask.title,
+      project: record.beforeTask.project,
+      type: record.beforeTask.type,
+      status: record.beforeTask.status,
+      dueDate: record.beforeTask.dueDate ?? null,
+    },
+  });
+  if (restored.outcome === "updated" || restored.outcome === "unchanged") return { status: "undone", actionKind: record.actionKind, task: restored.task };
+  return { status: "conflict", actionKind: record.actionKind, ...(restored.outcome === "conflict" && restored.current ? { current: restored.current } : {}) };
+}
+
 export function taskMutationProposalTaskId(proposal: TaskMutationProposal): string {
   return proposal.kind === "create" ? proposal.input.id : proposal.taskId;
 }
@@ -292,6 +383,11 @@ function terminalAuditStatus(status: TaskMutationDecisionResult["status"]): bool
 function taskIdFromOutcome(outcome: TaskMutationResult | undefined): string | undefined {
   if (!outcome || outcome.outcome === "not_found") return undefined;
   return outcome.outcome === "conflict" ? outcome.current?.id : outcome.task.id;
+}
+
+function taskFromOutcome(outcome: TaskMutationResult | undefined): Task | undefined {
+  if (!outcome || outcome.outcome === "not_found" || outcome.outcome === "conflict") return undefined;
+  return outcome.task;
 }
 
 function inferTaskPendingActionKind(proposal: TaskMutationProposal): TaskPendingActionKind {

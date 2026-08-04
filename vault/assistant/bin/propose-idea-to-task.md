@@ -10,7 +10,7 @@ An existing idea id. There is no owner id, task id, confirmation payload, or pro
 
 ## Output
 
-`not_found`, `already_converted` with only the existing task id, or `needs_confirmation` with only the safe pending-action receipt. In every branch, the model and serialized tool trace do not receive owner id, canonical proposal, generated task provenance, origin idea id, digest, or creation timestamp; `AssistantService` captures canonical data privately.
+`not_found`, `already_converted` with only the existing task id, or `status: applied` with the safe task view and `undoAvailable: true`. In every branch, the model and serialized tool trace do not receive owner id, canonical proposal, generated provenance, origin idea id, digest, or confirmation timestamp; `AssistantService` captures canonical data privately. For `applied`, report the result in one sentence and add “Скажи «отмени», если не то”, without ids.
 
 ## Confirmation level
 
@@ -18,4 +18,4 @@ Level 0: `idea_to_task` is a reversible internal owner-scoped write. When the ap
 
 ## Boundary
 
-The current typed result is authoritative: if it is still `needs_confirmation`, no task mutation has occurred and the idea remains unchanged until the authenticated application command executes the stored canonical proposal outside the agent tool loop. Never simulate an unwired level-0 path. A second task operation in the same turn fails deterministically.
+The current typed result is authoritative: claim conversion only for `status: applied`. The stored canonical proposal remains private even though the application immediately executes its authenticated decision path. `undoTaskMutation` removes the created task and restores the idea's previous status from server-held state. A second task operation in the same turn fails deterministically.

@@ -1,3 +1,4 @@
+import type { IdeaStore } from "./idea-store.js";
 import type { TaskStore } from "./task-store.js";
 import {
   copyTaskMutationResult,
@@ -11,7 +12,7 @@ import {
 } from "./task-mutation-confirmation.js";
 
 /** Hermetic durable-state model: one lock per confirmation mirrors the SQL row lock. */
-export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore): TaskMutationConfirmationStore {
+export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore, ideas?: Pick<IdeaStore, "get" | "update">): TaskMutationConfirmationStore {
   const records = new Map<string, TaskMutationConfirmationRecord>();
   const locks = new Map<string, Promise<void>>();
 
@@ -38,12 +39,47 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
           records.set(record.confirmationId, record);
           return { result: { status: "rejected" }, actionKind: record.actionKind, taskId };
         }
+        record.beforeTask = record.proposal.kind === "create" ? undefined : await taskStore.get(record.ownerId, record.proposal.taskId) ?? undefined;
+        if (record.actionKind === "idea_to_task" && record.proposal.kind === "create" && record.proposal.input.originIdeaId && ideas) {
+          const idea = await ideas.get(record.ownerId, record.proposal.input.originIdeaId);
+          record.ideaBeforeStatus = idea?.status;
+          if (idea?.status === "raw") await ideas.update(record.ownerId, idea.id, { status: "planned" });
+        }
         const outcome = await effect(taskStore, normalizeTaskMutationProposal(record.proposal));
         record.decision = "confirmed";
         record.outcome = copyTaskMutationResult(outcome);
         record.completedAt = input.decidedAt;
+        if (record.actionKind !== "cancel" && input.undoExpiresAt) record.undoExpiresAt = input.undoExpiresAt;
         records.set(record.confirmationId, record);
         return { result: { status: "confirmed", outcome: copyTaskMutationResult(outcome) }, actionKind: record.actionKind, taskId };
+      });
+    },
+    async undo(input, effect) {
+      const candidate = [...records.values()]
+        .filter((record) => record.ownerId === input.ownerId && record.decision === "confirmed" && record.actionKind !== "cancel")
+        .sort((left, right) => (right.completedAt ?? "").localeCompare(left.completedAt ?? "") || right.confirmationId.localeCompare(left.confirmationId))[0];
+      if (!candidate) return { status: "not_found" };
+      return withKeyLock(locks, candidate.confirmationId, async () => {
+        const record = records.get(candidate.confirmationId)!;
+        const task = outcomeTask(record);
+        if (record.undoneAt) return task ? { status: "already_undone", actionKind: record.actionKind as Exclude<typeof record.actionKind, "cancel">, task, ...(record.ideaBeforeStatus !== undefined ? { ideaStatusRestored: true } : {}) } : { status: "not_found" };
+        if (!record.undoExpiresAt || Date.parse(input.undoneAt) > Date.parse(record.undoExpiresAt)) return { status: "expired" };
+        const result = await effect({
+          ...taskStore,
+          get: taskStore.get.bind(taskStore),
+          restoreIdeaStatus: async (ownerId, ideaId, status) => {
+            if (!ideas) return false;
+            const idea = await ideas.get(ownerId, ideaId);
+            if (!idea) return false;
+            const restored = await ideas.update(ownerId, ideaId, { status });
+            return restored?.status === status;
+          },
+        }, copyFullRecord(record));
+        if (result.status === "undone") {
+          record.undoneAt = input.undoneAt;
+          records.set(record.confirmationId, record);
+        }
+        return result;
       });
     },
     async purge(input) {
@@ -63,6 +99,11 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
   };
 }
 
+function outcomeTask(record: TaskMutationConfirmationRecord) {
+  const outcome = record.outcome;
+  return outcome && outcome.outcome !== "not_found" && outcome.outcome !== "conflict" ? { ...outcome.task } : undefined;
+}
+
 function validCanonicalRecord(record: TaskMutationConfirmationRecord): boolean {
   try {
     const proposal = normalizeTaskMutationProposal(record.proposal);
@@ -75,6 +116,15 @@ function validCanonicalRecord(record: TaskMutationConfirmationRecord): boolean {
 
 function copyRecord(record: PendingTaskMutation): TaskMutationConfirmationRecord {
   return { ...record, proposal: normalizeTaskMutationProposal(record.proposal) };
+}
+
+function copyFullRecord(record: TaskMutationConfirmationRecord): TaskMutationConfirmationRecord {
+  return {
+    ...record,
+    proposal: normalizeTaskMutationProposal(record.proposal),
+    ...(record.outcome ? { outcome: copyTaskMutationResult(record.outcome) } : {}),
+    ...(record.beforeTask ? { beforeTask: { ...record.beforeTask } } : {}),
+  };
 }
 
 async function withKeyLock<T>(locks: Map<string, Promise<void>>, key: string, action: () => Promise<T>): Promise<T> {

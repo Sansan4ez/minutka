@@ -200,6 +200,24 @@ export function createPostgresTaskStore(pool: Pool): TaskStore {
         throw mapPostgresError(error);
       }
     },
+    async delete(userId, id, input) {
+      const safeUserId = assertUserId(userId);
+      const safeId = assertRequiredText(id, "task id");
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) {
+        throw new Error("expectedRevision must be a positive safe integer");
+      }
+      try {
+        const deleted = await pool.query<Row>(
+          "DELETE FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2 AND revision=$3 RETURNING *",
+          [safeUserId, safeId, input.expectedRevision],
+        );
+        if (deleted.rows[0]) return { outcome: "deleted", task: restoreTask(deleted.rows[0]) };
+        const current = await pool.query<Row>("SELECT * FROM minutka_private.tasks WHERE user_id=$1 AND task_id=$2", [safeUserId, safeId]);
+        return current.rows[0] ? { outcome: "conflict", current: restoreTask(current.rows[0]) } : { outcome: "not_found" };
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
   };
 }
 

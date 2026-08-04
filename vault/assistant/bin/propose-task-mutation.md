@@ -10,7 +10,7 @@ Task content or a current task id plus expected revision. The tool does not acce
 
 ## Output
 
-The model and serialized tool trace receive only the safe pending-action receipt: opaque confirmation id, action kind, bounded human-readable summary, and expiry. The canonical pending record is captured privately by `AssistantService` and is not part of the tool output. Do not quote or render the receipt, task id, confirmation id, or confirmation instructions in the assistant response; the application owns the owner-visible confirmation card.
+For `create`, `update`, and `complete`, the model receives `status: applied`, the safe task view, and `undoAvailable: true`; the canonical confirmation record and previous state stay private. Report the result in one normal sentence and add “Скажи «отмени», если не то”, without task or confirmation ids. For `cancel`, the model receives only the safe pending-action receipt; the application owns the owner-visible confirmation card.
 
 ## Confirmation level
 
@@ -19,4 +19,4 @@ The model and serialized tool trace receive only the safe pending-action receipt
 
 ## Boundary
 
-The current typed result is authoritative: never claim a task changed while it remains a proposal, and never simulate an unwired confirmation path. A second task operation in the same turn fails deterministically. Confirmation or rejection, when required, is an authenticated application command outside the agent tool loop; transports never submit owner id, digest, or authoritative proposal payload.
+The current typed result is authoritative: claim a change only for `status: applied`; never claim a pending cancellation changed a task. A second task operation in the same turn fails deterministically. Confirmation or rejection, when required, is an authenticated application command outside the agent tool loop; transports never submit owner id, digest, or authoritative proposal payload. A plain “отмени” after an applied task write is handled by `undoTaskMutation`, which restores server-held canonical state.

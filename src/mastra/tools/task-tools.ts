@@ -82,15 +82,30 @@ const invalidTaskProposalSchema = z.strictObject({
   message: z.string().min(1),
 });
 
-const taskProposalOutputSchema = z.union([pendingTaskReceiptSchema, invalidTaskProposalSchema]);
+const appliedTaskMutationSchema = z.strictObject({
+  status: z.literal("applied"),
+  actionKind: z.enum(["create", "update", "complete", "idea_to_task"]),
+  task: assistantTaskViewSchema,
+  undoAvailable: z.literal(true),
+});
+const taskProposalOutputSchema = z.union([pendingTaskReceiptSchema, appliedTaskMutationSchema, invalidTaskProposalSchema]);
 
-const ideaToTaskProposalSchema = z.discriminatedUnion("status", [
+const ideaToTaskProposalSchema = z.union([
   z.strictObject({ status: z.literal("not_found") }),
   z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskReceiptSchema }),
+  appliedTaskMutationSchema,
 ]);
 
-export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask"] as const;
+const taskUndoOutputSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("already_undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("not_found") }),
+  z.strictObject({ status: z.literal("expired") }),
+  z.strictObject({ status: z.literal("conflict"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), current: assistantTaskViewSchema.optional() }),
+]);
+
+export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "undoTaskMutation"] as const;
 
 export function createTaskTools(tasks: AssistantTaskCapabilities) {
   return {
@@ -109,7 +124,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeTaskMutation: createTool({
       id: "proposeTaskMutation",
-      description: "Prepare one owner-bound create, update, complete, or cancel task proposal for this turn. This never mutates a task; the application renders the separate owner confirmation action. Do not quote the receipt or ids in your response.",
+      description: "Apply one owner-bound create, update, or complete task mutation immediately with a short undo window. Cancellation remains a confirmation proposal. Report applied results in prose, mention that the owner can say 'отмени', and never quote ids or receipts.",
       strict: true,
       inputSchema: taskProposalTransportSchema,
       outputSchema: taskProposalOutputSchema,
@@ -139,12 +154,21 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Prepare one owner-bound conversion of an existing idea into a task. This never mutates a task; the application preserves provenance privately and renders the separate owner confirmation action. Do not quote the receipt or ids in your response.",
+      description: "Apply one owner-bound conversion of an existing idea into a task immediately with provenance and a short undo window. Report the result in prose, mention that the owner can say 'отмени', and never quote ids.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: ({ ideaId }) => tasks.proposeIdeaToTask(ideaId),
+    }),
+    undoTaskMutation: createTool({
+      id: "undoTaskMutation",
+      description: "Undo the owner's most recent reversible task mutation within the short undo window. Use for a plain request such as 'отмени' after creating, updating, completing, or converting an idea to a task.",
+      strict: true,
+      inputSchema: z.strictObject({}),
+      outputSchema: taskUndoOutputSchema,
+      mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+      execute: () => tasks.undoLast(),
     }),
   };
 }

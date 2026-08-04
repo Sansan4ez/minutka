@@ -160,7 +160,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       return "ready";
     }, {
       documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
-      ideaStore: ideas, taskStore: tasks, taskMutations, ideaToTask,
+      ideaStore: ideas, taskStore: tasks, taskMutations: { propose: taskMutations.propose.bind(taskMutations) }, ideaToTask,
       requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
     });
     const taskFacade = new PersonalAssistantService(runtime.service, createChat, artifacts, taskMutations);
@@ -260,7 +260,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       ingestionService: ingestion,
       ideaStore: ideas,
       taskStore: tasks,
-      taskMutations,
+      taskMutations: { propose: taskMutations.propose.bind(taskMutations) },
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator: createDeterministicIdGenerator(),

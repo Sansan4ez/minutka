@@ -28,7 +28,7 @@ import type { ThreadCompactionService } from "./thread-compaction-service.js";
 import type { TaskReader } from "./task-store.js";
 import type { IdeaToTaskService } from "./idea-to-task.js";
 import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, type TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
-import { createAssistantTaskCapabilities, type AssistantTaskCapabilities } from "./assistant-task-capabilities.js";
+import { createAssistantTaskCapabilities, type AssistantTaskCapabilities, type AssistantTaskCapabilityCallbacks } from "./assistant-task-capabilities.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
@@ -52,7 +52,7 @@ export type AssistantAgentContext = {
   documents: ReturnType<typeof createOwnerDocumentReader>;
   /** Owner-bound note creation and proposal-only Markdown mutations. */
   contextDocuments: AssistantContextDocumentCapabilities;
-  /** Owner-bound task reads and proposals. Execution is an authenticated application command. */
+  /** Owner-bound task reads, level-0 writes with undo, and level-1 cancellation proposals. */
   tasks: AssistantTaskCapabilities;
   /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
   ideas: {
@@ -110,7 +110,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose">; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -280,13 +280,15 @@ export class AssistantService {
     const documents = createOwnerDocumentReader({ userId, documentStore: this.deps.documentStore, audit: auditDocumentTool, contextBudget: this.contextBudget });
     let pendingTaskMutation: PendingTaskMutation | undefined;
     let pendingTaskTitle: string | undefined;
+    let taskOperationUsed = false;
     let pendingIdeaDeletion: { record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] } | undefined;
     let pendingContextDocumentMutation: PendingContextDocumentMutationReceipt | undefined;
     let contextDocumentProposalReserved = false;
     const taskProposalState: { persistence: "none" | "attempted" | "persisted" } = { persistence: "none" };
-    const reserveTaskProposalSlot = (pending: PendingTaskMutation) => {
+    const reserveTaskProposalSlot: AssistantTaskCapabilityCallbacks["beforePersist"] = (pending) => {
       throwAssistantAbortReason(applicationSignal);
-      if (taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
+      if (taskOperationUsed || taskProposalState.persistence !== "none") throw new Error("only one task proposal is allowed per assistant turn");
+      taskOperationUsed = true;
       if (pendingIdeaDeletion || pendingContextDocumentMutation || contextDocumentProposalReserved) throw new Error("only one pending action is allowed per assistant turn");
       pendingTaskMutation = pending;
       taskProposalState.persistence = "attempted";
@@ -372,11 +374,17 @@ export class AssistantService {
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
-      onProposal: (_pending, taskTitle) => {
+      onProposal: ((_pending, taskTitle) => {
         pendingTaskTitle = taskTitle;
         taskProposalState.persistence = "persisted";
         chatEffect.pendingActionCreated = true;
-      },
+      }) satisfies AssistantTaskCapabilityCallbacks["onProposal"],
+      onApplied: (() => {
+        pendingTaskMutation = undefined;
+        taskProposalState.persistence = "none";
+        chatEffect.pendingActionCreated = false;
+        if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      }) satisfies AssistantTaskCapabilityCallbacks["onApplied"],
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget, requiredProcessId);
     if (systemContextBudget.omittedSourceIds.length > 0) {
@@ -750,6 +758,7 @@ const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>
   searchIdeas: "inbox_capture",
   proposeIdeaDeletion: "inbox_capture",
   undoIdeaDeletion: "inbox_capture",
+  undoTaskMutation: "day_focus",
 };
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {
