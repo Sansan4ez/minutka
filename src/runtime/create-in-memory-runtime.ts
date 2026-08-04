@@ -10,6 +10,8 @@ import { createOnboardingContextMaterializer } from "../application/onboarding-c
 import { createInMemoryOnboardingDraftStore } from "../application/in-memory-onboarding-draft-store.js";
 import { createInMemoryTelegramInviteRedemptionStore } from "../application/in-memory-telegram-invite-redemption-store.js";
 import { createInMemoryTelegramSessionStore } from "../telegram/in-memory-telegram-session-store.js";
+import { createInMemoryPendingActionGroupStore } from "../telegram/in-memory-pending-action-group-store.js";
+import type { PendingActionGroupStore } from "../telegram/pending-action-group-store.js";
 import type { TelegramSessionStore } from "../telegram/telegram-session-store.js";
 import { createInMemoryWorld, type InMemoryWorld } from "../application/in-memory-world.js";
 import { MinutkaService, type AgentRunner, type MinutkaServiceDeps } from "../application/minutka-service.js";
@@ -31,6 +33,7 @@ export type InMemoryRuntime = {
   world: InMemoryWorld;
   documentStore: DocumentStore;
   telegramSessionStore: TelegramSessionStore;
+  pendingActionGroupStore: PendingActionGroupStore;
   scheduleStore: ScheduleStore;
 };
 
@@ -46,7 +49,8 @@ export function createInMemoryRuntime(input: {
   const world = input.world ?? createInMemoryWorld();
   const deps = input.deps ?? {};
   const sessionStore = createInMemoryTelegramSessionStore();
-  const clock = { now: world.now };
+  const clock = { now: () => world.now() };
+  const pendingActionGroupStore = createInMemoryPendingActionGroupStore(clock);
   const documentStore = createInMemoryDocumentStore(clock);
   const ingestionService = createIngestionService({
     documentStore,
@@ -91,5 +95,5 @@ export function createInMemoryRuntime(input: {
     idGenerator: createDeterministicIdGenerator(),
     ...deps,
   } as MinutkaServiceDeps);
-  return { service, world, documentStore, telegramSessionStore: sessionStore, scheduleStore };
+  return { service, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }

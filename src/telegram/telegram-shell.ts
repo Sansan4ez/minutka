@@ -22,6 +22,8 @@ import type { SaveArtifactInput, SaveArtifactResult, TelegramArtifactPayloadKind
 import type { TelegramFileGateway } from "./telegram-file-gateway.js";
 import { randomUUID } from "node:crypto";
 import { chatInputFitsCharacterLimit, maxChatInputCharacters } from "../shared/chat-limits.js";
+import type { PendingActionGroup, PendingActionGroupItem, PendingActionGroupOrdinal, PendingActionGroupStore } from "./pending-action-group-store.js";
+import { createInMemoryPendingActionGroupStore } from "./in-memory-pending-action-group-store.js";
 import { pipeline, Transform } from "node:stream";
 import { classifyTextConfirmation, classifyTextConfirmationSelection, type TextConfirmationDecision, type TextConfirmationSelection } from "./text-confirmation.js";
 
@@ -158,13 +160,8 @@ function currentTimeInTimezone(timezone: string): string {
 }
 type TelegramChatDeliveryResult = { messageId: string; response: string; pendingActions: AssistantPendingAction[] };
 type ActivePendingAction = { action: AssistantPendingAction; messageId: number };
-type ActivePendingActionGroupItem = {
-  ordinal: 1 | 2 | 3 | 4 | 5;
-  action: AssistantPendingAction;
-  state: "pending" | "resolved";
-};
-type ActivePendingActionGroup = { groupId: string; items: ActivePendingActionGroupItem[]; messageId: number };
-type GroupDecisionOutcome = { ordinal: ActivePendingActionGroupItem["ordinal"]; state: "resolved" | "retryable"; line: string };
+type ActivePendingActionGroup = PendingActionGroup & { state: "delivered"; messageId: number };
+type GroupDecisionOutcome = { ordinal: PendingActionGroupOrdinal; state: "resolved" | "retryable"; line: string };
 
 function pendingActionReplyMarkup(action: AssistantPendingAction) {
   const encode = action.actionKind === "delete_idea"
@@ -408,8 +405,10 @@ export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatI
   for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; replyPort: TelegramReplyPort; privacyExplanation: string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; pendingActionGroupStore?: PendingActionGroupStore; replyPort: TelegramReplyPort; privacyExplanation: string; now?: () => string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
+  const now = deps.now ?? (() => new Date().toISOString());
+  const pendingActionGroupStore = deps.pendingActionGroupStore ?? createInMemoryPendingActionGroupStore();
   const privacyExplanation = deps.privacyExplanation.trim();
   if (!privacyExplanation) throw new Error("privacyExplanation is required");
   const rawReplyPort = deps.replyPort;
@@ -419,7 +418,6 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   const inFlightChatCounts = new Map<string, number>();
   const activeActionMessageIds = new Map<string, number>();
   const activePendingActions = new Map<string, ActivePendingAction>();
-  const activePendingActionGroups = new Map<string, ActivePendingActionGroup>();
   const inFlightActionMessages = new Map<string, Promise<boolean>>();
   const callbackActionKeys = new Map<string, string>();
   const employeeClient = (employeeId: string) => client.forEmployee(employeeId);
@@ -436,7 +434,6 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       await rawReplyPort.editReplyMarkup(chatId, messageId);
       if (activeActionMessageIds.get(chatId) === messageId) activeActionMessageIds.delete(chatId);
       if (activePendingActions.get(chatId)?.messageId === messageId) activePendingActions.delete(chatId);
-      if (activePendingActionGroups.get(chatId)?.messageId === messageId) activePendingActionGroups.delete(chatId);
     } catch (error) {
       logShellError("reply markup cleanup", error);
     }
@@ -581,24 +578,37 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     const text = groupCard?.text
       ?? ["Предложение:", ...renderPendingActionItem(shownActions[0]!), "", question].join("\n");
     const replyMarkup = grouped ? pendingActionGroupReplyMarkup(groupId!) : pendingActionReplyMarkup(shownActions[0]!);
+    if (grouped) {
+      const createdAt = now();
+      await pendingActionGroupStore.create({
+        groupId: groupId!,
+        ownerId: employeeId,
+        items: shownActions.map((action, index) => ({ ordinal: (index + 1) as PendingActionGroupOrdinal, action, state: "pending" })),
+        createdAt,
+        expiresAt: new Date(Math.max(...shownActions.map(({ expiresAt }) => Date.parse(expiresAt)))).toISOString(),
+      });
+    }
+    const rendered = renderTelegramPlainText(text);
+    if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
+    let sent: TelegramSentMessage | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const rendered = renderTelegramPlainText(text);
-        if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
-        const sent = await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { replyMarkup, parseMode: rendered[0]!.parseMode });
-        if (grouped || trackForTextDecision) activeActionMessageIds.set(chatId, sent.messageId);
-        if (grouped) activePendingActionGroups.set(chatId, {
-          groupId: groupId!,
-          items: shownActions.map((action, index) => ({ ordinal: (index + 1) as ActivePendingActionGroupItem["ordinal"], action, state: "pending" })),
-          messageId: sent.messageId,
-        });
-        else if (trackForTextDecision) activePendingActions.set(chatId, { action: shownActions[0]!, messageId: sent.messageId });
-        return "delivered";
+        sent = await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { replyMarkup, parseMode: rendered[0]!.parseMode });
+        break;
       } catch (error) {
         logShellError("task proposal delivery", error);
       }
     }
+    if (sent) {
+      if (grouped || trackForTextDecision) activeActionMessageIds.set(chatId, sent.messageId);
+      if (grouped) {
+        const delivered = await pendingActionGroupStore.markDelivered({ ownerId: employeeId, groupId: groupId!, messageId: sent.messageId });
+        if (!delivered) throw new Error("Telegram pending action group delivery binding failed");
+      } else if (trackForTextDecision) activePendingActions.set(chatId, { action: shownActions[0]!, messageId: sent.messageId });
+      return "delivered";
+    }
     await rejectPendingActions(employeeId, shownActions);
+    if (grouped) await pendingActionGroupStore.cancel(employeeId, groupId!);
     return omittedActions.length ? "shown_cancelled" : "cancelled";
   }
   async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
@@ -612,7 +622,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       else if (delivery === "shown_cancelled") await replyPort.sendMessage(chatId, "Не удалось доставить показанные предложения. Они отменены; остальные предложения не отклонены и останутся доступными до истечения срока.");
       return;
     }
-    if (activePendingActions.has(chatId) || activePendingActionGroups.has(chatId)) await sendMarkdown(chatId, chat.response);
+    if (activePendingActions.has(chatId) || await pendingActionGroupStore.getLatestDelivered(employeeId)) await sendMarkdown(chatId, chat.response);
     else await sendMarkdown(chatId, chat.response, { replyMarkup: feedbackMarkup });
   }
   async function textDecisionAction(employeeId: string, pending: ActivePendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {
@@ -630,17 +640,16 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (action.actionKind === "move" || action.actionKind === "delete") return contextDocumentDecisionText(result as ContextDocumentDecisionResult);
     return taskDecisionText(result as TaskMutationDecisionResult);
   }
-  function groupDecisionLine(ordinal: ActivePendingActionGroupItem["ordinal"], action: AssistantPendingAction, result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
+  function groupDecisionLine(ordinal: PendingActionGroupOrdinal, action: AssistantPendingAction, result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
     return `${ordinal}. ${textDecisionText(action, result)}`;
   }
-  function pendingGroupItems(group: ActivePendingActionGroup): ActivePendingActionGroupItem[] {
+  function pendingGroupItems(group: PendingActionGroup): PendingActionGroupItem[] {
     return group.items.filter((item) => item.state === "pending");
   }
-  function applyGroupOutcomes(group: ActivePendingActionGroup, outcomes: GroupDecisionOutcome[]): ActivePendingActionGroup {
-    const resolved = new Set(outcomes.filter((outcome) => outcome.state === "resolved").map((outcome) => outcome.ordinal));
-    return { ...group, items: group.items.map((item) => resolved.has(item.ordinal) ? { ...item, state: "resolved" } : item) };
+  function resolvedGroupOrdinals(outcomes: GroupDecisionOutcome[]): PendingActionGroupOrdinal[] {
+    return outcomes.filter((outcome) => outcome.state === "resolved").map((outcome) => outcome.ordinal);
   }
-  function groupResultText(outcomes: GroupDecisionOutcome[], remaining: ActivePendingActionGroupItem[]): string {
+  function groupResultText(outcomes: GroupDecisionOutcome[], remaining: PendingActionGroupItem[]): string {
     return [
       "Результат:",
       ...outcomes.map((outcome) => outcome.line),
@@ -669,17 +678,20 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     return outcomes;
   }
   async function resolveTextDecision(chatId: string, text: string, employeeId: string): Promise<boolean> {
-    const group = activePendingActionGroups.get(chatId);
-    if (group) {
+    const group = await pendingActionGroupStore.getLatestDelivered(employeeId);
+    if (group?.messageId !== undefined) {
       const highestOrdinal = group.items.at(-1)?.ordinal;
       if (highestOrdinal === undefined) return false;
       const selection = classifyTextConfirmationSelection(text, highestOrdinal);
       if (!selection) return false;
-      const outcomes = await applyGroupSelection(employeeId, group, selection);
-      const updatedGroup = applyGroupOutcomes(group, outcomes);
+      const deliveredGroup = group as ActivePendingActionGroup;
+      const outcomes = await applyGroupSelection(employeeId, deliveredGroup, selection);
+      const updatedGroup = await pendingActionGroupStore.markItemsResolved({ ownerId: employeeId, groupId: group.groupId, ordinals: resolvedGroupOrdinals(outcomes) }) ?? deliveredGroup;
       const remaining = pendingGroupItems(updatedGroup);
-      if (remaining.length) activePendingActionGroups.set(chatId, updatedGroup);
-      else await removeReplyMarkup(chatId, group.messageId);
+      if (!remaining.length) {
+        await pendingActionGroupStore.complete(employeeId, group.groupId);
+        await removeReplyMarkup(chatId, group.messageId);
+      }
       await replyPort.sendMessage(chatId, groupResultText(outcomes, remaining));
       return true;
     }
@@ -753,7 +765,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         const trimmed = text.trim(); if (!trimmed) return void await replyPort.sendMessage(chatId, "Сообщение не может быть пустым."); if (!chatInputFitsCharacterLimit(trimmed)) return void await replyPort.sendMessage(chatId, `Сообщение слишком длинное (максимум ${maxChatInputCharacters} символов).`);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (await resolveTextDecision(chatId, trimmed, session.employeeId)) return;
-        if (!activePendingActions.has(chatId) && !activePendingActionGroups.has(chatId)) await removeActiveReplyMarkup(chatId);
+        if (!activePendingActions.has(chatId) && !(await pendingActionGroupStore.getLatestDelivered(session.employeeId))) await removeActiveReplyMarkup(chatId);
         await withTypingIndicator(replyPort, chatId, () => dispatchText(chatId, trimmed, session, "text", userId));
       } catch (error) { logShellError("text message", error); await replyPort.sendMessage(chatId, error instanceof TaskProposalTerminalizationUnknownError ? taskProposalTerminalizationUnknownMessage : mutationOutcomeUserMessage(error) ?? contextOverflowUserMessage(error) ?? "Не удалось обработать сообщение. Попробуйте ещё раз позже."); } finally { leaveChat(chatId); }
     },
@@ -896,22 +908,34 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (!decoded) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверный формат действия.");
           if (!session) { const existingChat = await sessionStore.getByIdentity(identity(chatId)); return void await replyPort.answerCallbackQuery(callbackQueryId, existingChat ? "Этот аккаунт не связан с данным чатом." : "Сессия не найдена. Выполните /start."); }
           if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
-          const group = activePendingActionGroups.get(chatId);
-          if (!group || group.groupId !== decoded.groupId || (messageId !== undefined && group.messageId !== messageId)) return void await replyPort.answerCallbackQuery(callbackQueryId, "Группа предложений не найдена.");
-          const pending = pendingGroupItems(group);
+          const storedGroup = await pendingActionGroupStore.get(session.employeeId, decoded.groupId);
+          if (storedGroup?.state === "completed" && messageId !== undefined && storedGroup.messageId === messageId) {
+            await replyPort.answerCallbackQuery(callbackQueryId, "Уже обработано.");
+            await removeReplyMarkup(chatId, messageId);
+            return;
+          }
+          if (!storedGroup || storedGroup.state === "completed" || storedGroup.state === "cancelled" || messageId === undefined) return void await replyPort.answerCallbackQuery(callbackQueryId, "Группа предложений не найдена.");
+          const group = storedGroup.state === "preparing"
+            ? await pendingActionGroupStore.markDelivered({ ownerId: session.employeeId, groupId: decoded.groupId, messageId })
+            : storedGroup.messageId === messageId ? storedGroup : undefined;
+          if (!group || group.state !== "delivered" || group.messageId !== messageId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Группа предложений не найдена.");
+          const deliveredGroup = group as ActivePendingActionGroup;
+          const pending = pendingGroupItems(deliveredGroup);
           const handled = await runCallbackAction({
             chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
-            action: () => applyGroupSelection(session.employeeId, group, decoded.action === "confirm"
+            action: () => applyGroupSelection(session.employeeId, deliveredGroup, decoded.action === "confirm"
               ? { confirm: pending.map((item) => item.ordinal - 1), reject: [] }
               : { confirm: [], reject: pending.map((item) => item.ordinal - 1) }),
             repeatedText: "Уже обработано.",
             isCompleted: (outcomes) => outcomes.every((outcome) => outcome.state === "resolved"),
           });
           if (handled.repeated) return;
-          const updatedGroup = applyGroupOutcomes(group, handled.result);
+          const updatedGroup = await pendingActionGroupStore.markItemsResolved({ ownerId: session.employeeId, groupId: deliveredGroup.groupId, ordinals: resolvedGroupOrdinals(handled.result) }) ?? deliveredGroup;
           const remaining = pendingGroupItems(updatedGroup);
-          if (remaining.length) activePendingActionGroups.set(chatId, updatedGroup);
-          else if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+          if (!remaining.length) {
+            await pendingActionGroupStore.complete(session.employeeId, group.groupId);
+            await removeReplyMarkup(chatId, messageId);
+          }
           try { await replyPort.answerCallbackQuery(callbackQueryId, remaining.length ? "Часть группы не обработана; можно повторить." : "Группа обработана."); }
           catch (error) { logShellError("group decision callback answer", error); }
           await replyPort.sendMessage(chatId, groupResultText(handled.result, remaining));

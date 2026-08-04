@@ -30,6 +30,7 @@ import { createSecretBox } from "../../src/infrastructure/postgres/secret-box.js
 import { ContextDocumentService } from "../../src/application/context-document-service.js";
 import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
+import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -395,6 +396,54 @@ describe("PostgreSQL storage contracts", () => {
     await expect(sessions.purgeActionMessages({ claimedBefore: "2026-07-01T00:00:00.000Z" })).resolves.toBe(1);
     await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 10, claimedAt: "2026-07-18T00:00:00.000Z", staleBefore: "2026-07-17T23:59:00.000Z" })).resolves.toEqual({ status: "claimed" });
     await expect(sessions.claimActionMessage({ identity, employeeId, messageId: 11, claimedAt: "2026-07-18T00:00:00.000Z", staleBefore: "2026-07-17T23:59:00.000Z" })).resolves.toEqual({ status: "already_claimed" });
+  });
+
+  it("persists owner-scoped Telegram pending-action groups and partial item state", async () => {
+    await issueProfileReadyParticipant(pool, "group_owner_a", "invite_group_owner_a");
+    await issueProfileReadyParticipant(pool, "group_owner_b", "invite_group_owner_b");
+    const action = (confirmationId: string, title: string) => ({
+      confirmationId,
+      actionKind: "cancel" as const,
+      summary: `Отменить ${title}`,
+      expiresAt: "2099-01-01T00:15:00.000Z",
+      preview: {
+        kind: "cancel" as const,
+        taskId: { value: confirmationId, truncated: false },
+        taskTitle: { value: title, truncated: false },
+      },
+    });
+    let groups = createPostgresPendingActionGroupStore(pool);
+    await groups.create({
+      groupId: "aaaaaaaaaaaaaaaaaaaaaaaa",
+      ownerId: "group_owner_a",
+      items: [
+        { ordinal: 1, action: action("confirmation-a-1", "Первое"), state: "pending" },
+        { ordinal: 2, action: action("confirmation-a-2", "Второе"), state: "pending" },
+      ],
+      createdAt: "2099-01-01T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:15:00.000Z",
+    });
+    await expect(groups.getLatestDelivered("group_owner_a")).resolves.toBeUndefined();
+    await groups.markDelivered({ ownerId: "group_owner_a", groupId: "aaaaaaaaaaaaaaaaaaaaaaaa", messageId: 42 });
+    await groups.markItemsResolved({ ownerId: "group_owner_a", groupId: "aaaaaaaaaaaaaaaaaaaaaaaa", ordinals: [1] });
+
+    groups = createPostgresPendingActionGroupStore(pool);
+    await expect(groups.get("group_owner_a", "aaaaaaaaaaaaaaaaaaaaaaaa")).resolves.toMatchObject({
+      state: "delivered", messageId: 42, items: [{ ordinal: 1, state: "resolved" }, { ordinal: 2, state: "pending" }],
+    });
+    await expect(groups.get("group_owner_b", "aaaaaaaaaaaaaaaaaaaaaaaa")).resolves.toBeUndefined();
+    await expect(groups.markItemsResolved({ ownerId: "group_owner_b", groupId: "aaaaaaaaaaaaaaaaaaaaaaaa", ordinals: [2] })).resolves.toBeUndefined();
+    const stored = await pool.query<{ items: unknown }>("SELECT items FROM minutka_private.telegram_pending_action_groups WHERE group_id = 'aaaaaaaaaaaaaaaaaaaaaaaa'");
+    const serialized = JSON.stringify(stored.rows[0]?.items);
+    expect(serialized).not.toContain("proposal");
+    expect(serialized).not.toContain("chatId");
+    expect(serialized).not.toContain("body");
+
+    await groups.complete("group_owner_a", "aaaaaaaaaaaaaaaaaaaaaaaa");
+    await expect(groups.getLatestDelivered("group_owner_a")).resolves.toBeUndefined();
+    await pool.query("UPDATE minutka_private.telegram_pending_action_groups SET expires_at = now() - interval '1 minute', created_at = now() - interval '2 minutes' WHERE group_id = 'aaaaaaaaaaaaaaaaaaaaaaaa'");
+    await expect(groups.purgeExpired({ limit: 1 })).resolves.toBe(1);
+    await expect(groups.get("group_owner_a", "aaaaaaaaaaaaaaaaaaaaaaaa")).resolves.toBeUndefined();
   });
 
   it("gives one result for parallel same-chat claims and identifies the winning constraint", async () => {

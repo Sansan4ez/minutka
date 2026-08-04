@@ -56,6 +56,7 @@ import { DefaultScheduleProvisioner } from "../application/default-schedules.js"
 import { ScheduleManagementService } from "../application/schedule-management-service.js";
 import { ContextDocumentService, contextDocumentConfirmationTtlMilliseconds } from "../application/context-document-service.js";
 import { createPostgresContextDocumentConfirmationStore } from "../infrastructure/postgres/postgres-context-document-confirmation-store.js";
+import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -83,6 +84,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const auditEventStore = createPostgresAuditEventStore(pool);
     const taskMutationConfirmationStore = createPostgresTaskMutationConfirmationStore(pool);
     const contextDocumentConfirmationStore = createPostgresContextDocumentConfirmationStore(pool);
+    const pendingActionGroupStore = createPostgresPendingActionGroupStore(pool);
     const taskMutations = new TaskMutationConfirmationService(taskMutationConfirmationStore, systemClock, {
       auditEventStore,
       idGenerator: randomIdGenerator,
@@ -110,6 +112,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const retentionCleanupJobs = [
       { operation: "Minutka onboarding draft", run: () => onboardingDraftStore.purgeExpired() },
       { operation: "Minutka Telegram action-message", run: purgeExpiredTelegramActions },
+      { operation: "Minutka Telegram pending-action group", run: () => pendingActionGroupStore.purgeExpired({ limit: 500 }) },
       { operation: "Personal assistant task-confirmation", run: purgeTaskMutationConfirmations },
       { operation: "Personal assistant context-document confirmation", run: purgeContextDocumentConfirmations },
     ] as const;
@@ -268,6 +271,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       artifactContentStore,
       contextDocuments,
       telegramSessionStore,
+      pendingActionGroupStore,
       privacyExplanation: privacy.explanation,
       artifactMaximumBytes: artifactConfig.saveLimits.maximumBytes,
       startScheduler,

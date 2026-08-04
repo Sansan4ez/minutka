@@ -21,7 +21,8 @@ export type CallbackAnswer = { callbackQueryId: string; text?: string };
 export type ReplyMarkupEdit = { chatId: string; messageId: number; replyMarkup?: TelegramReplyMarkup };
 
 export class TelegramDriver {
-  private readonly shell: ReturnType<typeof createTelegramShell>;
+  private shell!: ReturnType<typeof createTelegramShell>;
+  private recreateShell!: () => void;
   private readonly sent: SentMessage[] = [];
   private readonly callbacks: CallbackAnswer[] = [];
   private readonly replyMarkupEdits: ReplyMarkupEdit[] = [];
@@ -123,23 +124,29 @@ export class TelegramDriver {
         return this.voiceTranscripts.get(fileId) ?? "";
       },
     };
-    this.shell = createTelegramShell({
-      privacyExplanation: executableSpecPrivacyExplanation, client,
-      sessionStore: runtime.telegramSessionStore,
-      replyPort,
-      ...(voiceEnabled ? { speechToText, voiceFileGateway } : {}),
-      ...(artifactIntake ? {
-        artifactIntake,
-        fileGateway: { createFileBody: ({ fileId, fileSizeBytes }) => ({ ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from(Buffer.from(fileId)) }) },
-      } : {}),
-      ...(voiceProcessingTimeoutMs === undefined ? {} : { voiceProcessingTimeoutMs }),
-    });
+    this.recreateShell = () => {
+      this.shell = createTelegramShell({
+        privacyExplanation: executableSpecPrivacyExplanation, client,
+        now: () => runtime.world.now(),
+        sessionStore: runtime.telegramSessionStore,
+        pendingActionGroupStore: runtime.pendingActionGroupStore,
+        replyPort,
+        ...(voiceEnabled ? { speechToText, voiceFileGateway } : {}),
+        ...(artifactIntake ? {
+          artifactIntake,
+          fileGateway: { createFileBody: ({ fileId, fileSizeBytes }) => ({ ...(fileSizeBytes === undefined ? {} : { size: fileSizeBytes }), openStream: () => Readable.from(Buffer.from(fileId)) }) },
+        } : {}),
+        ...(voiceProcessingTimeoutMs === undefined ? {} : { voiceProcessingTimeoutMs }),
+      });
+    };
+    this.recreateShell();
   }
 
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async startNewConversation(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleNew(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async showSchedule(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleSchedule(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverProactive(input: { chatId: string; employeeId: string; result: AssistantChatResult }): Promise<void> { await this.shell.deliverProactive(input.chatId, input.result, input.employeeId); }
+  restartShell(): void { this.recreateShell(); }
   async sendText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverText(input: { chatId: string; userId?: string; text: string }): Promise<void> { await this.shell.handleText(input.chatId, input.text, input.userId ?? this.defaultUserId(input.chatId)); }
   async sendFile(input: { chatId: string; userId?: string; attachment: TelegramFileAttachment }): Promise<void> { await this.shell.handleFile(input.chatId, input.attachment, input.userId ?? this.defaultUserId(input.chatId)); }

@@ -28,6 +28,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   let now = "2026-07-29T09:00:00.000Z";
   const clock = { now: () => now };
   const legacy = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
+  legacy.world.now = clock.now;
   await legacy.service.issueInvite({ employeeId: owner.employeeId, inviteCode: owner.inviteCode });
   await legacy.service.redeemTelegramInvite({ inviteCode: owner.inviteCode, identity: { chatId: owner.chatId, userId: owner.userId } });
   await legacy.service.acceptConsent({ employeeId: owner.employeeId, accepted: true, source: "test", telegramIdentity: { chatId: owner.chatId, userId: owner.userId } });
@@ -58,7 +59,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
   const facade = new PersonalAssistantService(legacy.service, assistant, artifacts, taskMutations, undefined, ideaDeletions, undefined, undefined, contextDocuments);
   const telegram = new TelegramDriver(legacy.world, async () => "legacy", {}, true, undefined, { ...legacy, service: facade }, { saveArtifact: (input) => facade.saveArtifact(input) });
-  return { telegram, ideas, tasks, documents, contextDocuments, facade, setNow(value: string) { now = value; } };
+  return { telegram, ideas, tasks, documents, contextDocuments, facade, pendingActionGroupStore: legacy.pendingActionGroupStore, setNow(value: string) { now = value; } };
 }
 
 function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number], text: string): string {
@@ -68,7 +69,7 @@ function taskButton(message: ReturnType<TelegramDriver["sentMessages"]>[number],
 }
 
 function oversizedPendingActions(): AssistantPendingAction[] {
-  const longText = "🙂".repeat(280);
+  const longText = "🙂".repeat(278);
   return Array.from({ length: 5 }, (_, index) => ({
     confirmationId: `oversized-confirmation-${index + 1}`,
     actionKind: "create" as const,
@@ -703,6 +704,79 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.get(owner.employeeId, "group-task-2")).resolves.toMatchObject({ status: "cancelled" });
     expect(telegram.sentMessages().at(-1)?.text).toContain("1. Изменение сохранено.");
     expect(telegram.sentMessages().at(-1)?.text).toContain("2. Изменение сохранено.");
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить всё"), messageId: proposal.messageId, callbackQueryId: "confirm-group-again" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Уже обработано.");
+    await expect(tasks.list(owner.employeeId)).resolves.toHaveLength(2);
+  });
+
+  it("recovers a delivered group callback after shell restart", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "restart-callback-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "restart-callback-2" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "restart-callback-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "restart-callback-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложения:"))!;
+    telegram.restartShell();
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить всё"), messageId: proposal.messageId, callbackQueryId: "restart-confirm-group" });
+    await expect(tasks.get(owner.employeeId, "restart-callback-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "restart-callback-2")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Группа обработана.");
+  });
+
+  it("recovers the latest delivered group for a text decision after shell restart", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "restart-text-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "restart-text-2" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "restart-text-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "restart-text-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    telegram.restartShell();
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+
+    await expect(tasks.get(owner.employeeId, "restart-text-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "restart-text-2")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("1. Изменение сохранено.");
+  });
+
+  it("does not resolve a preparing group by text but binds its original callback after restart", async () => {
+    let turns = 0;
+    const { telegram, tasks, facade, pendingActionGroupStore } = await harness(async (_input, context) => {
+      turns += 1;
+      if (turns === 1) {
+        await context.tasks.propose({ kind: "cancel", taskId: "preparing-callback-1" });
+        await context.tasks.propose({ kind: "cancel", taskId: "preparing-callback-2" });
+      }
+      return "Обычный ответ.";
+    });
+    await tasks.create(owner.employeeId, { id: "preparing-callback-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "preparing-callback-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+    const chat = await facade.chat({ userId: owner.employeeId, threadId: "preparing-thread", text: "prepare", responseChannel: "telegram" });
+    await pendingActionGroupStore.create({
+      groupId: "cccccccccccccccccccccccc",
+      ownerId: owner.employeeId,
+      items: chat.pendingActions.map((action, index) => ({ ordinal: (index + 1) as 1 | 2, action, state: "pending" as const })),
+      createdAt: "2026-07-29T09:00:00.000Z",
+      expiresAt: "2026-07-29T09:15:00.000Z",
+    });
+    telegram.restartShell();
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+    await expect(tasks.get(owner.employeeId, "preparing-callback-1")).resolves.toMatchObject({ status: "open" });
+    await expect(tasks.get(owner.employeeId, "preparing-callback-2")).resolves.toMatchObject({ status: "open" });
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: "gp:c:cccccccccccccccccccccccc", messageId: 77, callbackQueryId: "bind-preparing-group" });
+    await expect(tasks.get(owner.employeeId, "preparing-callback-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "preparing-callback-2")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(pendingActionGroupStore.get(owner.employeeId, "cccccccccccccccccccccccc")).resolves.toMatchObject({ state: "completed", messageId: 77 });
   });
 
   it("rejects every pending record when a grouped card cannot be delivered", async () => {
