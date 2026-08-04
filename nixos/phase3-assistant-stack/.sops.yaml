@@ -1,0 +1,12 @@
+keys:
+  # Local owner key. The private key lives in ~/.config/sops/age/keys.txt.
+  - &owner age13fvzv36jr0t29s9wvc84ydgn8vrc3cw2takk500ecjedzxjnr5msac2tqd
+  # Derived from the production host's ssh-ed25519 host public key.
+  - &server age124y0rav64q5pp3tc9leq4xhnwax5879fwfrk9j6v4u4ggpnx6g0qz2kv37
+
+creation_rules:
+  - path_regex: secrets/assistant\.yaml$
+    key_groups:
+      - age:
+          - *owner
+          - *server

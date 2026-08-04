@@ -10,7 +10,9 @@ polling, а HTTP API приложения должен оставаться на
 - `phase1-installable-base/` — минимальная установка с `disko` и
   `nixos-anywhere`;
 - `phase2-ops-base/` — admin-пользователь, sudo, ops-пакеты, zram, firewall,
-  fail2ban и deploy через `deploy-rs`.
+  fail2ban и deploy через `deploy-rs`;
+- `phase3-assistant-stack/` — production stack с `sops-nix`; приложение и
+  хранилища подключаются к нему следующими инфраструктурными задачами.
 
 Обе фазы используют `github:NixOS/nixpkgs/nixos-25.11` и конфигурацию
 `personal-assistant-1`.
@@ -155,3 +157,13 @@ sudo nixos-rebuild switch --rollback
 
 После deploy и после rollback повторно проверь SSH-доступ, активность
 `sshd`/`fail2ban` и внешний `nmap`.
+
+## 6. Подготовить production secrets
+
+Phase 3 использует зашифрованный bundle и не копирует `.env` на сервер.
+Инициализация recipients и bundle описана в
+[`phase3-assistant-stack/secrets/README.md`](phase3-assistant-stack/secrets/README.md),
+ротация и восстановление — в
+[`../docs/runbooks/production-secrets.md`](../docs/runbooks/production-secrets.md).
+После подготовки примени stack из `nixos/phase3-assistant-stack` через
+`./scripts/deploy.sh`.
