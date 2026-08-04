@@ -658,23 +658,59 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     expect(telegram.sentMessages().at(-1)?.text).toContain("2. Задача не найдена. Изменение не выполнено.");
   });
 
-  it("confirms a selected group item by text and leaves the rest pending", async () => {
+  it("keeps original ordinals across partial group decisions and lists unresolved items", async () => {
     const { telegram, tasks } = await harness(async (_input, context) => {
       await context.tasks.propose({ kind: "cancel", taskId: "partial-task-1" });
       await context.tasks.propose({ kind: "cancel", taskId: "partial-task-2" });
+      await context.tasks.propose({ kind: "cancel", taskId: "partial-task-3" });
       return "Предложения подготовлены.";
     });
     await tasks.create(owner.employeeId, { id: "partial-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
     await tasks.create(owner.employeeId, { id: "partial-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "partial-task-3", title: "Третье", project: "ASSISTANT", type: "operations", status: "open" });
 
-    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени обе" });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени три" });
+    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложения:"))!;
     await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "только первое" });
     await expect(tasks.get(owner.employeeId, "partial-task-1")).resolves.toMatchObject({ status: "cancelled" });
     await expect(tasks.get(owner.employeeId, "partial-task-2")).resolves.toMatchObject({ status: "open" });
-    expect(telegram.sentMessages().at(-1)?.text).toContain("Осталось без решения: 1.");
+    await expect(tasks.get(owner.employeeId, "partial-task-3")).resolves.toMatchObject({ status: "open" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Осталось без решения: 2.");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("2. Действие: отменить задачу\n   Задача: Второе");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("3. Действие: отменить задачу\n   Задача: Третье");
 
-    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "да" });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "второе — да" });
     await expect(tasks.get(owner.employeeId, "partial-task-2")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(tasks.get(owner.employeeId, "partial-task-3")).resolves.toMatchObject({ status: "open" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("3. Действие: отменить задачу\n   Задача: Третье");
+
+    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить всё"), messageId: proposal.messageId, callbackQueryId: "confirm-partial-remainder" });
+    await expect(tasks.get(owner.employeeId, "partial-task-3")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.taskMutationConfirmCalls()).toEqual(["telegram-confirmation-1", "telegram-confirmation-2", "telegram-confirmation-3"]);
+  });
+
+  it("keeps a transiently failed group item retryable under its original ordinal", async () => {
+    const { telegram, tasks } = await harness(async (_input, context) => {
+      await context.tasks.propose({ kind: "cancel", taskId: "retry-task-1" });
+      await context.tasks.propose({ kind: "cancel", taskId: "retry-task-2" });
+      await context.tasks.propose({ kind: "cancel", taskId: "retry-task-3" });
+      return "Предложения подготовлены.";
+    });
+    await tasks.create(owner.employeeId, { id: "retry-task-1", title: "Первое", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "retry-task-2", title: "Второе", project: "ASSISTANT", type: "operations", status: "open" });
+    await tasks.create(owner.employeeId, { id: "retry-task-3", title: "Третье", project: "ASSISTANT", type: "operations", status: "open" });
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "отмени три" });
+    telegram.setTaskMutationConfirmationSequence("fail", "pass");
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "второе — да" });
+
+    await expect(tasks.get(owner.employeeId, "retry-task-2")).resolves.toMatchObject({ status: "open" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("2. Не удалось обработать действие; его можно повторить.");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("2. Действие: отменить задачу\n   Задача: Второе");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "второе — да" });
+    await expect(tasks.get(owner.employeeId, "retry-task-2")).resolves.toMatchObject({ status: "cancelled" });
+    expect(telegram.taskMutationConfirmCalls()).toEqual(["telegram-confirmation-2", "telegram-confirmation-2"]);
   });
 
   it("keeps a terminal rejection stable when Telegram markup cleanup fails", async () => {

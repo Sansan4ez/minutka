@@ -158,7 +158,13 @@ function currentTimeInTimezone(timezone: string): string {
 }
 type TelegramChatDeliveryResult = { messageId: string; response: string; pendingActions: AssistantPendingAction[] };
 type ActivePendingAction = { action: AssistantPendingAction; messageId: number };
-type ActivePendingActionGroup = { groupId: string; actions: AssistantPendingAction[]; messageId: number };
+type ActivePendingActionGroupItem = {
+  ordinal: 1 | 2 | 3 | 4 | 5;
+  action: AssistantPendingAction;
+  state: "pending" | "resolved";
+};
+type ActivePendingActionGroup = { groupId: string; items: ActivePendingActionGroupItem[]; messageId: number };
+type GroupDecisionOutcome = { ordinal: ActivePendingActionGroupItem["ordinal"]; state: "resolved" | "retryable"; line: string };
 
 function pendingActionReplyMarkup(action: AssistantPendingAction) {
   const encode = action.actionKind === "delete_idea"
@@ -389,8 +395,8 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     answerCallbackQuery: (callbackQueryId, text) => rawReplyPort.answerCallbackQuery(callbackQueryId, text),
   };
   const sendMarkdown = (chatId: string, markdown: string, options?: Parameters<TelegramReplyPort["sendMessage"]>[2]) => sendRendered(chatId, renderTelegramMarkdown(markdown), options);
-  async function runCallbackAction<T>(input: { chatId: string; userId?: string; employeeId: string; messageId?: number; callbackQueryId: string; action: () => Promise<T>; repeatedText?: string }): Promise<{ repeated: true } | { repeated: false; result: T }> {
-    const { chatId, userId, employeeId, messageId, callbackQueryId, action, repeatedText = "Уже обработано." } = input;
+  async function runCallbackAction<T>(input: { chatId: string; userId?: string; employeeId: string; messageId?: number; callbackQueryId: string; action: () => Promise<T>; repeatedText?: string; isCompleted?: (result: T) => boolean }): Promise<{ repeated: true } | { repeated: false; result: T }> {
+    const { chatId, userId, employeeId, messageId, callbackQueryId, action, repeatedText = "Уже обработано.", isCompleted = () => true } = input;
     if (messageId === undefined) return { repeated: false, result: await action() };
     const key = `${chatId}:${messageId}`;
     const inFlight = inFlightActionMessages.get(key);
@@ -417,8 +423,13 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       }
       claimAcquired = true;
       const result = await action();
-      await sessionStore.completeActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt });
-      completed = true;
+      if (isCompleted(result)) {
+        await sessionStore.completeActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt });
+        completed = true;
+      } else {
+        await sessionStore.releaseActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt });
+        claimAcquired = false;
+      }
       return { repeated: false, result };
     } catch (error) {
       if (claimAcquired) await sessionStore.releaseActionMessage({ identity: telegramIdentity, employeeId, messageId, claimedAt }).catch((releaseError) => logShellError("action message claim release", releaseError));
@@ -509,7 +520,11 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         if (rendered.length !== 1) throw new Error("Telegram task proposal exceeds one message");
         const sent = await rawReplyPort.sendMessage(chatId, rendered[0]!.text, { replyMarkup, parseMode: rendered[0]!.parseMode });
         if (grouped || trackForTextDecision) activeActionMessageIds.set(chatId, sent.messageId);
-        if (grouped) activePendingActionGroups.set(chatId, { groupId: groupId!, actions, messageId: sent.messageId });
+        if (grouped) activePendingActionGroups.set(chatId, {
+          groupId: groupId!,
+          items: actions.map((action, index) => ({ ordinal: (index + 1) as ActivePendingActionGroupItem["ordinal"], action, state: "pending" })),
+          messageId: sent.messageId,
+        });
         else if (trackForTextDecision) activePendingActions.set(chatId, { action: actions[0]!, messageId: sent.messageId });
         return "delivered";
       } catch (error) {
@@ -545,39 +560,57 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (action.actionKind === "move" || action.actionKind === "delete") return contextDocumentDecisionText(result as ContextDocumentDecisionResult);
     return taskDecisionText(result as TaskMutationDecisionResult);
   }
-  function groupDecisionLine(index: number, action: AssistantPendingAction, result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
-    return `${index + 1}. ${textDecisionText(action, result)}`;
+  function groupDecisionLine(ordinal: ActivePendingActionGroupItem["ordinal"], action: AssistantPendingAction, result: TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult): string {
+    return `${ordinal}. ${textDecisionText(action, result)}`;
   }
-  async function applyGroupSelection(employeeId: string, group: ActivePendingActionGroup, selection: TextConfirmationSelection): Promise<string[]> {
+  function pendingGroupItems(group: ActivePendingActionGroup): ActivePendingActionGroupItem[] {
+    return group.items.filter((item) => item.state === "pending");
+  }
+  function applyGroupOutcomes(group: ActivePendingActionGroup, outcomes: GroupDecisionOutcome[]): ActivePendingActionGroup {
+    const resolved = new Set(outcomes.filter((outcome) => outcome.state === "resolved").map((outcome) => outcome.ordinal));
+    return { ...group, items: group.items.map((item) => resolved.has(item.ordinal) ? { ...item, state: "resolved" } : item) };
+  }
+  function groupResultText(outcomes: GroupDecisionOutcome[], remaining: ActivePendingActionGroupItem[]): string {
+    return [
+      "Результат:",
+      ...outcomes.map((outcome) => outcome.line),
+      ...(remaining.length ? [
+        `Осталось без решения: ${remaining.length}.`,
+        "Нерешённые пункты (исходные номера):",
+        ...remaining.flatMap((item) => renderPendingActionItem(item.action, item.ordinal)),
+      ] : []),
+    ].join("\n");
+  }
+  async function applyGroupSelection(employeeId: string, group: ActivePendingActionGroup, selection: TextConfirmationSelection): Promise<GroupDecisionOutcome[]> {
     const decisions = new Map<number, TextConfirmationDecision>();
-    for (const index of selection.confirm) decisions.set(index, "confirm");
-    for (const index of selection.reject) decisions.set(index, "reject");
-    const lines: string[] = [];
-    for (const [index, decision] of [...decisions.entries()].sort(([left], [right]) => left - right)) {
-      const action = group.actions[index];
-      if (!action) continue;
+    for (const index of selection.confirm) decisions.set(index + 1, "confirm");
+    for (const index of selection.reject) decisions.set(index + 1, "reject");
+    const outcomes: GroupDecisionOutcome[] = [];
+    for (const [ordinal, decision] of [...decisions.entries()].sort(([left], [right]) => left - right)) {
+      const item = group.items.find((candidate) => candidate.ordinal === ordinal && candidate.state === "pending");
+      if (!item) continue;
       try {
-        lines.push(groupDecisionLine(index, action, await decidePendingAction(employeeId, action, decision)));
+        outcomes.push({ ordinal: item.ordinal, state: "resolved", line: groupDecisionLine(item.ordinal, item.action, await decidePendingAction(employeeId, item.action, decision)) });
       } catch (error) {
         logShellError("group decision", error);
-        lines.push(`${index + 1}. Не удалось обработать действие; остальные результаты сохранены.`);
+        outcomes.push({ ordinal: item.ordinal, state: "retryable", line: `${item.ordinal}. Не удалось обработать действие; его можно повторить.` });
       }
     }
-    return lines;
+    return outcomes;
   }
   async function resolveTextDecision(chatId: string, text: string, employeeId: string): Promise<boolean> {
     const group = activePendingActionGroups.get(chatId);
     if (group) {
-      const selection = classifyTextConfirmationSelection(text, group.actions.length);
+      const highestOrdinal = group.items.at(-1)?.ordinal;
+      if (highestOrdinal === undefined) return false;
+      const selection = classifyTextConfirmationSelection(text, highestOrdinal);
       if (!selection) return false;
-      const lines = await applyGroupSelection(employeeId, group, selection);
-      const decided = new Set([...selection.confirm, ...selection.reject]);
-      const remaining = group.actions.filter((_action, index) => !decided.has(index));
-      if (remaining.length) {
-        activePendingActionGroups.set(chatId, { ...group, actions: remaining });
-        if (remaining.length === 1) activePendingActions.set(chatId, { action: remaining[0]!, messageId: group.messageId });
-      } else await removeReplyMarkup(chatId, group.messageId);
-      await replyPort.sendMessage(chatId, ["Результат:", ...lines, ...(remaining.length ? [`Осталось без решения: ${remaining.length}.`] : [])].join("\n"));
+      const outcomes = await applyGroupSelection(employeeId, group, selection);
+      const updatedGroup = applyGroupOutcomes(group, outcomes);
+      const remaining = pendingGroupItems(updatedGroup);
+      if (remaining.length) activePendingActionGroups.set(chatId, updatedGroup);
+      else await removeReplyMarkup(chatId, group.messageId);
+      await replyPort.sendMessage(chatId, groupResultText(outcomes, remaining));
       return true;
     }
     const pending = activePendingActions.get(chatId);
@@ -795,18 +828,23 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (!session.consentAcceptedAt || session.consentPrivacyVersion !== currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Сначала подтвердите согласие с политикой конфиденциальности.");
           const group = activePendingActionGroups.get(chatId);
           if (!group || group.groupId !== decoded.groupId || (messageId !== undefined && group.messageId !== messageId)) return void await replyPort.answerCallbackQuery(callbackQueryId, "Группа предложений не найдена.");
+          const pending = pendingGroupItems(group);
           const handled = await runCallbackAction({
             chatId, userId, employeeId: session.employeeId, messageId, callbackQueryId,
             action: () => applyGroupSelection(session.employeeId, group, decoded.action === "confirm"
-              ? { confirm: group.actions.map((_action, index) => index), reject: [] }
-              : { confirm: [], reject: group.actions.map((_action, index) => index) }),
+              ? { confirm: pending.map((item) => item.ordinal - 1), reject: [] }
+              : { confirm: [], reject: pending.map((item) => item.ordinal - 1) }),
             repeatedText: "Уже обработано.",
+            isCompleted: (outcomes) => outcomes.every((outcome) => outcome.state === "resolved"),
           });
           if (handled.repeated) return;
-          try { await replyPort.answerCallbackQuery(callbackQueryId, "Группа обработана."); }
+          const updatedGroup = applyGroupOutcomes(group, handled.result);
+          const remaining = pendingGroupItems(updatedGroup);
+          if (remaining.length) activePendingActionGroups.set(chatId, updatedGroup);
+          else if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
+          try { await replyPort.answerCallbackQuery(callbackQueryId, remaining.length ? "Часть группы не обработана; можно повторить." : "Группа обработана."); }
           catch (error) { logShellError("group decision callback answer", error); }
-          if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-          await replyPort.sendMessage(chatId, ["Результат:", ...handled.result].join("\n"));
+          await replyPort.sendMessage(chatId, groupResultText(handled.result, remaining));
           return;
         }
         if (data.startsWith("tm:") || data.startsWith("id:") || data.startsWith("cd:")) {

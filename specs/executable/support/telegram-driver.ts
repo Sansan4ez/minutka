@@ -33,6 +33,8 @@ export class TelegramDriver {
   private failNextMarkupEdit = false;
   private failNextTaskReject = false;
   private readonly taskRejects: string[] = [];
+  private readonly taskConfirmOutcomes: Array<"pass" | "fail"> = [];
+  private readonly taskConfirms: string[] = [];
   private readonly voiceFiles = new Map<string, Buffer>();
   private readonly voiceTranscripts = new Map<string, string>();
   private readonly voiceErrors = new Map<string, "download" | "download-hang" | "transcribe" | "stream" | "hang">();
@@ -57,6 +59,11 @@ export class TelegramDriver {
             };
             if (property === "resetConversation") return () => (runtime.service as PersonalAssistantService).resetConversation({ userId: employeeId });
             if (property === "listSchedules") return async () => ({ schedules: (await (runtime.service as PersonalAssistantService).listSchedules(employeeId)).map(({ id, processId, timeOfDay, timezone, enabled, nextFireAt }) => ({ id, processId, timeOfDay, timezone, enabled, nextFireAt })) });
+            if (property === "confirmTaskMutation") return async (confirmationId: string, input: {}) => {
+              self.taskConfirms.push(confirmationId);
+              if (self.taskConfirmOutcomes.shift() === "fail") throw new Error("simulated task confirmation failure");
+              return scoped.confirmTaskMutation(confirmationId, input);
+            };
             if (property === "rejectTaskMutation" || property === "rejectContextDocumentMutation") return async (confirmationId: string, input: {}) => {
               self.taskRejects.push(confirmationId);
               if (self.failNextTaskReject) { self.failNextTaskReject = false; throw new Error("simulated task rejection failure"); }
@@ -149,17 +156,19 @@ export class TelegramDriver {
   failNextChatActionDelivery(): void { this.failNextChatAction = true; }
   setMessageDeliverySequence(...outcomes: Array<"pass" | "fail" | "deliver_then_fail">): void { this.sendOutcomes.push(...outcomes); }
   failNextTaskMutationRejection(): void { this.failNextTaskReject = true; }
+  setTaskMutationConfirmationSequence(...outcomes: Array<"pass" | "fail">): void { this.taskConfirmOutcomes.push(...outcomes); }
   failNextReplyMarkupEdit(): void { this.failNextMarkupEdit = true; }
   sentMessages(): SentMessage[] { return this.sent; }
   messageDeliveryAttempts(): Array<Omit<SentMessage, "messageId">> { return [...this.deliveryAttempts]; }
   taskMutationRejectCalls(): string[] { return [...this.taskRejects]; }
+  taskMutationConfirmCalls(): string[] { return [...this.taskConfirms]; }
   callbackAnswers(): CallbackAnswer[] { return this.callbacks; }
   replyMarkupEditCalls(): ReplyMarkupEdit[] { return this.replyMarkupEdits; }
   sentChatActions(): Array<{ chatId: string; action: "typing" }> { return this.chatActions; }
   voiceDownloadCalls(): string[] { return [...this.voiceDownloads]; }
   transcriptionCalls(): string[] { return [...this.transcriptions]; }
   closedVoiceStreamIds(): string[] { return [...this.closedVoiceStreams]; }
-  clear() { this.sent.length = 0; this.callbacks.length = 0; this.replyMarkupEdits.length = 0; this.chatActions.length = 0; this.deliveryAttempts.length = 0; this.taskRejects.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
+  clear() { this.sent.length = 0; this.callbacks.length = 0; this.replyMarkupEdits.length = 0; this.chatActions.length = 0; this.deliveryAttempts.length = 0; this.taskRejects.length = 0; this.taskConfirms.length = 0; this.taskConfirmOutcomes.length = 0; this.voiceDownloads.length = 0; this.transcriptions.length = 0; this.closedVoiceStreams.length = 0; }
   private latestActionMessageId(chatId: string): number | undefined {
     for (let index = this.sent.length - 1; index >= 0; index--) {
       const message = this.sent[index];
