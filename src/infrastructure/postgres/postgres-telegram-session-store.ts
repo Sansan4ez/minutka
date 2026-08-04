@@ -21,7 +21,7 @@ const session = (row: Row) => ({
   employeeId: row.employee_id,
   threadId: row.thread_id,
   ...(row.consent_accepted_at ? { consentAcceptedAt: row.consent_accepted_at.toISOString() } : {}),
-  ...(row.privacy_version ? { consentPrivacyVersion: row.privacy_version } : {}),
+  ...(row.consent_accepted_at && row.privacy_version ? { consentPrivacyVersion: row.privacy_version } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });

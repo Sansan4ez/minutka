@@ -6,7 +6,6 @@ import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js"
 import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { currentPrivacyVersion } from "../../../src/domain/privacy.js";
 import { Readable } from "node:stream";
 import { createInMemoryTelegramSessionStore } from "../../../src/telegram/in-memory-telegram-session-store.js";
 
@@ -36,10 +35,14 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     const world = createInMemoryWorld();
     const runtime = createInMemoryRuntime({ world, agentRunner: async () => "Готово" });
     const claimedAt = new Date().toISOString();
+    const identity = { chatId: "1", userId: "2" };
     await runtime.telegramSessionStore.claim({
-      identity: { chatId: "1", userId: "2" },
-      session: { employeeId: "owner", threadId: "thread", consentAcceptedAt: claimedAt, consentPrivacyVersion: currentPrivacyVersion, createdAt: claimedAt, updatedAt: claimedAt },
+      identity,
+      session: { employeeId: "owner", threadId: "thread", createdAt: claimedAt, updatedAt: claimedAt },
     });
+    expect(await runtime.telegramSessionStore.getByIdentity(identity)).not.toHaveProperty("consentAcceptedAt");
+    expect(await runtime.telegramSessionStore.getByIdentity(identity)).not.toHaveProperty("consentPrivacyVersion");
+    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "owner", acceptedAt: claimedAt });
     const chatActions: Array<{ chatId: string; action: string }> = [];
     const telegram = {
       async sendMessage(_chatId: string, _text: string, _options: Record<string, unknown>) { return { message_id: 17 }; },

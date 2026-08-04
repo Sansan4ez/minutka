@@ -41,7 +41,10 @@ export interface TelegramSessionStore {
   getDeliveryByEmployee(employeeId: string): Promise<TelegramDeliverySession | undefined>;
   /** Restores proactive delivery for a digest-only legacy session without recreating it. */
   linkDeliveryTarget(input: { identity: TelegramIdentity; employeeId: string }): Promise<void>;
-  claim(input: { identity: TelegramIdentity; session: TelegramSession }): Promise<TelegramSessionClaimResult>;
+  claim(input: {
+    identity: TelegramIdentity;
+    session: Omit<TelegramSession, "consentAcceptedAt" | "consentPrivacyVersion">;
+  }): Promise<TelegramSessionClaimResult>;
   /** Rotates the active dialogue thread for one owner without deleting prior history or durable records. */
   rotateThread(input: { userId: string; nextThreadId: string; updatedAt: string }): Promise<void>;
   /** Removes the chat-to-employee link during personal-data deletion. */

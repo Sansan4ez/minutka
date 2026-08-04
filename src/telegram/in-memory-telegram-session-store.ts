@@ -25,13 +25,19 @@ export function createInMemoryTelegramSessionStore(options: { deliveryTargetsLin
     async claim({ identity, session }): Promise<TelegramSessionClaimResult> {
       if (store.has(identity.chatId)) return { status: "chat_already_linked" };
       if ([...store.values()].some((entry) => entry.session.employeeId === session.employeeId)) return { status: "employee_already_linked" };
+      const claimedSession: TelegramSession = {
+        employeeId: session.employeeId,
+        threadId: session.threadId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      };
       store.set(identity.chatId, {
         identity: { ...identity },
-        session: { ...session },
+        session: claimedSession,
         ...(options.deliveryTargetsLinked === false ? {} : { deliveryChatId: identity.chatId }),
         actionMessages: new Map(),
       });
-      return { status: "claimed", session: { ...session } };
+      return { status: "claimed", session: { ...claimedSession } };
     },
     async rotateThread({ userId, nextThreadId, updatedAt }) {
       const found = [...store.values()].find((entry) => entry.session.employeeId === userId);

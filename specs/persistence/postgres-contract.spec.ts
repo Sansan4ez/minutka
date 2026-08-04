@@ -310,8 +310,11 @@ describe("PostgreSQL storage contracts", () => {
     const identity = { chatId: "chat_rotate", userId: "user_rotate" };
     expect(await sessions.claim({
       identity,
-      session: { employeeId: "emp_rotate", threadId: "thread_old", consentAcceptedAt: now, createdAt: now, updatedAt: now },
+      session: { employeeId: "emp_rotate", threadId: "thread_old", createdAt: now, updatedAt: now },
     })).toMatchObject({ status: "claimed" });
+    expect(await sessions.getByIdentity(identity)).not.toHaveProperty("consentAcceptedAt");
+    expect(await sessions.getByIdentity(identity)).not.toHaveProperty("consentPrivacyVersion");
+    await sessions.markConsentAccepted({ identity, employeeId: "emp_rotate", acceptedAt: now });
 
     await sessions.rotateThread({ userId: "emp_rotate", nextThreadId: "thread_new", updatedAt: "2026-07-17T11:00:00.000Z" });
 
@@ -319,6 +322,8 @@ describe("PostgreSQL storage contracts", () => {
       employeeId: "emp_rotate",
       threadId: "thread_new",
       consentAcceptedAt: now,
+      consentPrivacyVersion: "privacy-v2",
+      createdAt: now,
       updatedAt: "2026-07-17T11:00:00.000Z",
     });
   });

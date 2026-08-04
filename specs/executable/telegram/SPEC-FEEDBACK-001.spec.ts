@@ -1088,7 +1088,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     ).toHaveLength(1);
   });
 
-  it("10d. Reopens consent when a linked session has an obsolete privacy version", async () => {
+  it("10d. Reopens consent when a linked owner has only an obsolete privacy acceptance", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
     await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent" });
@@ -1096,7 +1096,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt: world.now(), explanationShownAt: world.now(), source: "test" });
     await runtime.telegramSessionStore.claim({
       identity: { chatId: "chat_reconsent", userId: "user_reconsent" },
-      session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", consentAcceptedAt: world.now(), consentPrivacyVersion: "privacy-v1", createdAt: world.now(), updatedAt: world.now() },
+      session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", createdAt: world.now(), updatedAt: world.now() },
     });
     const sent: string[] = [];
     const shell = createTelegramShell({

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { createInMemoryTelegramSessionStore } from "../../../src/telegram/in-memory-telegram-session-store.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
-import { currentPrivacyVersion } from "../../../src/domain/privacy.js";
 import { executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 
 const linkedAt = "2026-07-30T05:00:00.000Z";
@@ -10,13 +9,12 @@ const linkedAt = "2026-07-30T05:00:00.000Z";
 async function setup(schedulesByOwner: Record<string, unknown[]>) {
   const sessionStore = createInMemoryTelegramSessionStore();
   for (const [index, owner] of Object.keys(schedulesByOwner).entries()) {
+    const identity = { chatId: `chat-${index}`, userId: `telegram-${index}` };
     await sessionStore.claim({
-      identity: { chatId: `chat-${index}`, userId: `telegram-${index}` },
-      session: {
-        employeeId: owner, threadId: `thread-${owner}`, consentAcceptedAt: linkedAt,
-        consentPrivacyVersion: currentPrivacyVersion, createdAt: linkedAt, updatedAt: linkedAt,
-      },
+      identity,
+      session: { employeeId: owner, threadId: `thread-${owner}`, createdAt: linkedAt, updatedAt: linkedAt },
     });
+    await sessionStore.markConsentAccepted({ identity, employeeId: owner, acceptedAt: linkedAt });
   }
   const messages: Array<{ chatId: string; text: string; parseMode?: string }> = [];
   const client = new ServiceMinutkaClient({
