@@ -82,19 +82,25 @@ const invalidTaskProposalSchema = z.strictObject({
   message: z.string().min(1),
 });
 
+const taskActionKindSchema = z.enum(["create", "update", "complete", "idea_to_task"]);
 const appliedTaskMutationSchema = z.strictObject({
   status: z.literal("applied"),
-  actionKind: z.enum(["create", "update", "complete", "idea_to_task"]),
+  actionKind: taskActionKindSchema,
   task: assistantTaskViewSchema,
   undoAvailable: z.literal(true),
 });
-const taskProposalOutputSchema = z.union([pendingTaskReceiptSchema, appliedTaskMutationSchema, invalidTaskProposalSchema]);
+const terminalTaskMutationNoEffectSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("conflict"), actionKind: taskActionKindSchema, current: assistantTaskViewSchema.optional() }),
+  z.strictObject({ status: z.literal("not_found"), actionKind: taskActionKindSchema }),
+]);
+const taskProposalOutputSchema = z.union([pendingTaskReceiptSchema, appliedTaskMutationSchema, terminalTaskMutationNoEffectSchema, invalidTaskProposalSchema]);
 
 const ideaToTaskProposalSchema = z.union([
   z.strictObject({ status: z.literal("not_found") }),
   z.strictObject({ status: z.literal("already_converted"), taskId: z.string().min(1) }),
   z.strictObject({ status: z.literal("needs_confirmation"), confirmation: pendingTaskReceiptSchema }),
   appliedTaskMutationSchema,
+  terminalTaskMutationNoEffectSchema,
 ]);
 
 const taskUndoOutputSchema = z.discriminatedUnion("status", [
@@ -124,7 +130,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeTaskMutation: createTool({
       id: "proposeTaskMutation",
-      description: "Apply one owner-bound create, update, or complete task mutation immediately with a short undo window. Cancellation remains a confirmation proposal. Report applied results in prose, mention that the owner can say 'отмени', and never quote ids or receipts.",
+      description: "Apply one owner-bound create, update, or complete task mutation immediately with a short undo window. Cancellation remains a confirmation proposal. Report applied results in prose and mention that the owner can say 'отмени'. For conflict or not_found, say that nothing changed and suggest listing the task again; do not ask for confirmation. Never quote ids or receipts.",
       strict: true,
       inputSchema: taskProposalTransportSchema,
       outputSchema: taskProposalOutputSchema,
@@ -154,7 +160,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Apply one owner-bound conversion of an existing idea into a task immediately with provenance and a short undo window. Report that the task was created, the idea was marked planned and kept in the archive (not deleted), mention that the owner can say 'отмени', and never quote ids.",
+      description: "Apply one owner-bound conversion of an existing idea into a task immediately with provenance and a short undo window. Report an applied conversion and its undo path only for status applied. For conflict or not_found, say that nothing changed and suggest rereading the idea/task state; do not ask for confirmation. Never quote ids.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,

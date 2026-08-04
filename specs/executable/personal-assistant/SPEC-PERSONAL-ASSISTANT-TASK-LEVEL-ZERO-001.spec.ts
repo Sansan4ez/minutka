@@ -10,9 +10,13 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
+import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } from "../../../src/application/task-mutation-confirmation.js";
+import { createTaskTools } from "../../../src/mastra/tools/task-tools.js";
 
-function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
+function setup(
+  runner: ConstructorParameters<typeof AssistantService>[0],
+  options: { wrapConfirmationStore?: (store: TaskMutationConfirmationStore) => TaskMutationConfirmationStore } = {},
+) {
   let now = "2026-08-04T09:00:00.000Z";
   const clock = { now: () => now };
   const world = createInMemoryWorld(clock.now);
@@ -20,7 +24,8 @@ function setup(runner: ConstructorParameters<typeof AssistantService>[0]) {
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);
   const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
-  const confirmations = new TaskMutationConfirmationService(createInMemoryTaskMutationConfirmationStore(tasks, ideas), clock, {
+  const baseConfirmationStore = createInMemoryTaskMutationConfirmationStore(tasks, ideas);
+  const confirmations = new TaskMutationConfirmationService(options.wrapConfirmationStore?.(baseConfirmationStore) ?? baseConfirmationStore, clock, {
     confirmationId: (() => { let id = 0; return () => `level-zero-${++id}`; })(),
   });
   const service = new AssistantService(runner, {
@@ -82,6 +87,85 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
     await expect(completeEnv.tasks.get("owner", "task-complete")).resolves.toMatchObject({ status: "done" });
     await expect(completeEnv.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", actionKind: "complete" });
     await expect(completeEnv.tasks.get("owner", "task-complete")).resolves.toMatchObject({ status: "in_progress" });
+  });
+
+  it("returns a terminal conflict without a pending card when a level-zero update becomes stale", async () => {
+    let modelVisible: unknown;
+    let tasksForSaveHook!: ReturnType<typeof createInMemoryTaskStore>;
+    const env = setup(async (_input, context) => {
+      modelVisible = await context.tasks.propose({ kind: "update", taskId: "task-stale", expectedRevision: 1, patch: { project: "новый" } });
+      return "Задача уже изменилась, поэтому ничего не менял. Могу перечитать её и повторить с актуальными данными.";
+    }, {
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          await store.save(record);
+          await tasksForSaveHook.update("owner", "task-stale", { expectedRevision: 1, patch: { status: "in_progress" } });
+        },
+      }),
+    });
+    tasksForSaveHook = env.tasks;
+    await env.tasks.create("owner", { id: "task-stale", title: "Позвонить", project: "старый", type: "operations", status: "open" });
+
+    const result = await env.service.chat({ userId: "owner", threadId: "thread", text: "перенеси задачу" });
+
+    expect(result).toMatchObject({ effect: "none", pendingActions: [], response: expect.stringMatching(/ничего не менял/i) });
+    expect(modelVisible).toMatchObject({ status: "conflict", actionKind: "update", current: { project: "старый", status: "in_progress", revision: 2 } });
+    expect(JSON.stringify(modelVisible)).not.toMatch(/confirmationId|payloadDigest|ownerId|proposal|undoAvailable/);
+    await expect(env.tasks.get("owner", "task-stale")).resolves.toMatchObject({ project: "старый", status: "in_progress", revision: 2 });
+    await expect(env.confirmations.confirm("owner", "level-zero-1")).resolves.toMatchObject({
+      status: "already_confirmed", outcome: { outcome: "conflict", current: { revision: 2 } },
+    });
+    await expect(env.tasks.get("owner", "task-stale")).resolves.toMatchObject({ project: "старый", status: "in_progress", revision: 2 });
+  });
+
+  it("returns terminal not_found for a missing completion without a saved-proposal message", async () => {
+    let modelVisible: unknown;
+    let tasksForSaveHook!: ReturnType<typeof createInMemoryTaskStore>;
+    const env = setup(async (_input, context) => {
+      modelVisible = await context.tasks.propose({ kind: "complete", taskId: "task-missing", expectedRevision: 1 });
+      return "Задача больше не найдена, поэтому ничего не менял. Могу перечитать список задач.";
+    }, {
+      wrapConfirmationStore: (store) => ({
+        ...store,
+        async save(record) {
+          await store.save(record);
+          await tasksForSaveHook.delete("owner", "task-missing", { expectedRevision: 1 });
+        },
+      }),
+    });
+    tasksForSaveHook = env.tasks;
+    await env.tasks.create("owner", { id: "task-missing", title: "Исчезающая", project: "дом", type: "personal", status: "open" });
+
+    const result = await env.service.chat({ userId: "owner", threadId: "thread", text: "заверши исчезающую задачу" });
+
+    expect(result).toMatchObject({ effect: "none", pendingActions: [], response: expect.stringMatching(/ничего не менял/i) });
+    expect(result.response).not.toMatch(/предложени.+сохран|подтвержден/i);
+    expect(modelVisible).toEqual({ status: "not_found", actionKind: "complete" });
+    expect(JSON.stringify(modelVisible)).not.toMatch(/confirmationId|payloadDigest|ownerId|proposal|undoAvailable/);
+    await expect(env.tasks.get("owner", "task-missing")).resolves.toBeNull();
+    await expect(env.confirmations.confirm("owner", "level-zero-1")).resolves.toEqual({
+      status: "already_confirmed", outcome: { outcome: "not_found" },
+    });
+  });
+
+  it("accepts safe terminal no-effect results in task tool output schemas", () => {
+    const tools = createTaskTools({
+      async list() { return []; },
+      async propose() { return { status: "not_found", actionKind: "complete" }; },
+      async proposeIdeaToTask() { return { status: "conflict", actionKind: "idea_to_task" }; },
+      async undoLast() { return { status: "not_found" }; },
+    });
+    const proposalSchema = tools.proposeTaskMutation.outputSchema as unknown as { parse(value: unknown): unknown };
+    const ideaSchema = tools.proposeIdeaToTask.outputSchema as unknown as { parse(value: unknown): unknown };
+
+    expect(proposalSchema.parse({ status: "conflict", actionKind: "update", current: {
+      id: "task-safe", title: "Безопасно", project: "дом", type: "personal", status: "open",
+      createdAt: "2026-08-04T09:00:00.000Z", updatedAt: "2026-08-04T09:00:00.000Z", revision: 2,
+    } })).toMatchObject({ status: "conflict", actionKind: "update" });
+    expect(ideaSchema.parse({ status: "not_found", actionKind: "idea_to_task" })).toEqual({ status: "not_found", actionKind: "idea_to_task" });
+    expect(() => proposalSchema.parse({ status: "conflict", actionKind: "update", confirmationId: "private" })).toThrow();
+    expect(() => ideaSchema.parse({ status: "not_found", actionKind: "idea_to_task", proposal: {} })).toThrow();
   });
 
   it("undoes idea-to-task by deleting the task and restoring the previous idea status", async () => {

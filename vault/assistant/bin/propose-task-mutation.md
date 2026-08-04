@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Prepare one typed task operation per assistant turn: create, update, complete, or cancel an owner task.
+Prepare one typed owner task operation per turn: create, update, complete, or cancel.
 
 ## Inputs
 
@@ -10,13 +10,13 @@ Task content or a current task id plus expected revision. The tool does not acce
 
 ## Output
 
-For `create`, `update`, and `complete`, the model receives `status: applied`, the safe task view, and `undoAvailable: true`; the canonical confirmation record and previous state stay private. Report the result in one normal sentence and add “Скажи «отмени», если не то”, without task or confirmation ids. For `cancel`, the model receives only the safe pending-action receipt; the application owns the owner-visible confirmation card.
+For `create`, `update`, and `complete`, the model receives one terminal typed result: `status: applied` with the safe task view and `undoAvailable: true`, `status: conflict` with an optional current safe task view, or `status: not_found`. The canonical confirmation record and previous state stay private. For `applied`, report the result in one normal sentence and add “Скажи «отмени», если не то”, without task or confirmation ids. For `conflict` or `not_found`, say that nothing changed and offer to reread the task; do not mention confirmation or an undo path. For `cancel`, the model receives only the safe pending-action receipt; the application owns the owner-visible confirmation card.
 
 ## Confirmation level
 
-- `create`, `update`, and `complete` are level 0: reversible internal owner-scoped writes. When the application returns an applied result, report it in normal prose and name the worded undo path; do not ask for prior confirmation.
+- `create`, `update`, and `complete` are level 0: reversible internal owner-scoped writes. When the application returns an applied result, report it in normal prose and name the worded undo path; do not ask for prior confirmation. When it returns `conflict` or `not_found`, report the no-effect honestly and suggest rereading the task; do not say the change was saved or prepared for confirmation.
 - `cancel` is level 1: destructive but recoverable. Ask once in normal prose and explicitly say the owner can answer «да» or press the button; both paths resolve the same authenticated confirmation outside the agent loop.
 
 ## Boundary
 
-The current typed result is authoritative: claim a change only for `status: applied`; never claim a pending cancellation changed a task. A second task operation in the same turn fails deterministically. Confirmation or rejection, when required, is an authenticated application command outside the agent tool loop; transports never submit owner id, digest, or authoritative proposal payload. A plain “отмени” after an applied task write is handled by `undoTaskMutation`, which restores server-held canonical state.
+The current typed result is authoritative: claim a change only for `status: applied`; `conflict` and `not_found` are terminal no-effect results and must never be presented as pending; never claim a pending cancellation changed a task. A second task operation in the same turn fails deterministically. Confirmation or rejection, when required, is an authenticated application command outside the agent tool loop; transports never submit owner id, digest, or authoritative proposal payload. A plain “отмени” after an applied task write is handled by `undoTaskMutation`, which restores server-held canonical state.

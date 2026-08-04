@@ -400,12 +400,12 @@ export class AssistantService {
         slot.persistence = "persisted";
         chatEffect.pendingActionCreated = true;
       }) satisfies AssistantTaskCapabilityCallbacks["onProposal"],
-      onApplied: ((_result, pending) => {
+      onResolved: ((result, pending) => {
         const index = pendingActionSlots.findIndex((candidate) => candidate.kind === "task" && candidate.pending.confirmationId === pending.confirmationId);
         if (index >= 0) pendingActionSlots.splice(index, 1);
         chatEffect.pendingActionCreated = pendingActionSlots.length > 0;
-        if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
-      }) satisfies AssistantTaskCapabilityCallbacks["onApplied"],
+        if (result.status === "applied" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      }) satisfies AssistantTaskCapabilityCallbacks["onResolved"],
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget, requiredProcessId);
     if (systemContextBudget.omittedSourceIds.length > 0) {

@@ -584,7 +584,11 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
       exposedKeys = Object.keys(context.tasks).sort();
       const pending = await context.tasks.propose({ kind: "create", title: "Bypass attempt", project: "ASSISTANT", type: "operations" });
       expect((context.tasks as unknown as { confirm?: unknown }).confirm).toBeUndefined();
-      return "confirmationId" in pending ? pending.confirmationId : pending.task.title;
+      return "confirmationId" in pending
+        ? pending.confirmationId
+        : pending.status === "applied"
+          ? pending.task.title
+          : pending.status;
     });
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "propose and confirm" })).resolves.toMatchObject({

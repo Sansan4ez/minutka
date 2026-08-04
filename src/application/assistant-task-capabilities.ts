@@ -21,7 +21,12 @@ export type AppliedTaskMutation = {
   undoAvailable: true;
 };
 
-export type AssistantTaskMutationResult = AppliedTaskMutation | PendingTaskReceipt;
+export type TerminalTaskMutationNoEffect =
+  | { status: "conflict"; actionKind: AppliedTaskMutation["actionKind"]; current?: AssistantTaskView }
+  | { status: "not_found"; actionKind: AppliedTaskMutation["actionKind"] };
+
+export type ResolvedTaskMutation = AppliedTaskMutation | TerminalTaskMutationNoEffect;
+export type AssistantTaskMutationResult = ResolvedTaskMutation | PendingTaskReceipt;
 export type AssistantTaskUndoResult =
   | { status: "undone" | "already_undone"; actionKind: AppliedTaskMutation["actionKind"]; task: AssistantTaskView; ideaStatusRestored?: boolean }
   | { status: "not_found" | "expired" }
@@ -29,12 +34,12 @@ export type AssistantTaskUndoResult =
 export type AssistantIdeaToTaskProposalResult =
   | { status: "not_found" }
   | { status: "already_converted"; taskId: string }
-  | AppliedTaskMutation;
+  | ResolvedTaskMutation;
 
 export type AssistantTaskCapabilityCallbacks = {
   beforePersist: TaskMutationBeforePersist;
   onProposal: (pending: PendingTaskMutation, taskTitle?: string) => void;
-  onApplied: (result: AppliedTaskMutation | undefined, pending: PendingTaskMutation) => void;
+  onResolved: (result: ResolvedTaskMutation, pending: PendingTaskMutation) => void;
 };
 
 export type AssistantTaskCapabilities = {
@@ -58,7 +63,7 @@ export function createAssistantTaskCapabilities(input: {
   audit?: TaskMutationAuditContext;
   beforePersist: AssistantTaskCapabilityCallbacks["beforePersist"];
   onProposal: AssistantTaskCapabilityCallbacks["onProposal"];
-  onApplied: AssistantTaskCapabilityCallbacks["onApplied"];
+  onResolved: AssistantTaskCapabilityCallbacks["onResolved"];
 }): AssistantTaskCapabilities {
   return {
     async list(options = {}) {
@@ -81,9 +86,9 @@ export function createAssistantTaskCapabilities(input: {
       );
       input.onProposal(pending, taskTitle);
       if (proposal.kind === "cancel" || !input.mutations.autoApply) return pendingTaskReceipt(pending);
-      const applied = appliedTaskMutation(proposal.kind, await input.mutations.autoApply(input.ownerId, pending.confirmationId, input.audit));
-      input.onApplied(applied, pending);
-      return applied;
+      const resolved = resolvedTaskMutation(proposal.kind, await input.mutations.autoApply(input.ownerId, pending.confirmationId, input.audit));
+      input.onResolved(resolved, pending);
+      return resolved;
     },
     async proposeIdeaToTask(ideaId) {
       if (!input.ideaToTask) throw new Error("idea to task conversion is not configured");
@@ -92,9 +97,9 @@ export function createAssistantTaskCapabilities(input: {
       if (result.status === "already_converted") return { status: "already_converted", taskId: result.taskId };
       input.onProposal(result.confirmation);
       if (!input.mutations?.autoApply) return { status: "needs_confirmation", confirmation: pendingTaskReceipt(result.confirmation) } as never;
-      const applied = appliedTaskMutation("idea_to_task", await input.mutations.autoApply(input.ownerId, result.confirmation.confirmationId, input.audit));
-      input.onApplied(applied, result.confirmation);
-      return applied;
+      const resolved = resolvedTaskMutation("idea_to_task", await input.mutations.autoApply(input.ownerId, result.confirmation.confirmationId, input.audit));
+      input.onResolved(resolved, result.confirmation);
+      return resolved;
     },
     async undoLast() {
       if (!input.mutations?.undo) throw new Error("task mutation undo is not configured");
@@ -116,9 +121,16 @@ function toAssistantTaskUndoResult(result: TaskMutationUndoResult): AssistantTas
   };
 }
 
-function appliedTaskMutation(actionKind: AppliedTaskMutation["actionKind"], decision: TaskMutationDecisionResult): AppliedTaskMutation {
+function resolvedTaskMutation(actionKind: AppliedTaskMutation["actionKind"], decision: TaskMutationDecisionResult): ResolvedTaskMutation {
   if (decision.status !== "confirmed" && decision.status !== "already_confirmed") throw new Error(`task mutation auto-apply failed: ${decision.status}`);
-  if (decision.outcome.outcome === "not_found" || decision.outcome.outcome === "conflict") throw new Error(`task mutation auto-apply failed: ${decision.outcome.outcome}`);
+  if (decision.outcome.outcome === "not_found") return { status: "not_found", actionKind };
+  if (decision.outcome.outcome === "conflict") {
+    return {
+      status: "conflict",
+      actionKind,
+      ...(decision.outcome.current ? { current: toAssistantTaskView(decision.outcome.current) } : {}),
+    };
+  }
   return { status: "applied", actionKind, task: toAssistantTaskView(decision.outcome.task), undoAvailable: true };
 }
 
