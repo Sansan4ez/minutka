@@ -89,7 +89,13 @@ export type TaskMutationDecisionResult =
   | { status: "not_found" | "owner_mismatch" | "expired" | "invalid_payload" };
 
 export type TaskMutationUndoResult =
-  | { status: "undone" | "already_undone"; actionKind: Exclude<TaskPendingActionKind, "cancel">; task: Task; ideaStatusRestored?: boolean }
+  | {
+      status: "undone" | "already_undone";
+      actionKind: Exclude<TaskPendingActionKind, "cancel">;
+      task: Task;
+      ideaStatusRestored?: boolean;
+      ideaStatusConflict?: boolean;
+    }
   | { status: "not_found" | "expired" }
   | { status: "conflict"; actionKind: Exclude<TaskPendingActionKind, "cancel">; current?: Task };
 
@@ -99,13 +105,21 @@ export type TaskMutationConfirmationRecord = PendingTaskMutation & {
   completedAt?: string;
   beforeTask?: Task;
   ideaBeforeStatus?: IdeaStatus;
+  ideaExpectedStatus?: "planned";
+  ideaExpectedRevision?: number;
   undoExpiresAt?: string;
   undoneAt?: string;
 };
 
+export type IdeaStatusRestoreResult = "restored" | "not_found" | "conflict";
+
 export type TaskMutationUndoWriter = TaskWriter & {
   get(userId: string, taskId: string): Promise<Task | null>;
-  restoreIdeaStatus(userId: string, ideaId: string, status: IdeaStatus): Promise<boolean>;
+  restoreIdeaStatus(userId: string, ideaId: string, input: {
+    expectedStatus: "planned";
+    expectedRevision: number;
+    restoreStatus: IdeaStatus;
+  }): Promise<IdeaStatusRestoreResult>;
 };
 
 /**
@@ -251,7 +265,10 @@ export class TaskMutationConfirmationService {
           actionKind: result.actionKind,
           status: result.status,
           taskId: result.status === "conflict" ? result.current?.id ?? "unknown" : result.task.id,
-          ...(result.status === "undone" || result.status === "already_undone" ? { ideaStatusRestored: result.ideaStatusRestored ?? false } : {}),
+          ...(result.status === "undone" || result.status === "already_undone" ? {
+            ideaStatusRestored: result.ideaStatusRestored ?? false,
+            ideaStatusConflict: result.ideaStatusConflict ?? false,
+          } : {}),
         }),
       });
     } catch {
@@ -344,10 +361,30 @@ export async function executeTaskMutationUndo(writer: TaskMutationUndoWriter, re
     const deleted = await writer.delete(record.ownerId, appliedTask.id, { expectedRevision: appliedTask.revision });
     if (deleted.outcome === "conflict") return { status: "conflict", actionKind: record.actionKind, ...(deleted.current ? { current: deleted.current } : {}) };
     if (deleted.outcome === "not_found") return { status: "conflict", actionKind: record.actionKind };
-    const ideaStatusRestored = record.proposal.input.originIdeaId !== undefined && record.ideaBeforeStatus !== undefined
-      ? await writer.restoreIdeaStatus(record.ownerId, record.proposal.input.originIdeaId, record.ideaBeforeStatus)
-      : false;
-    return { status: "undone", actionKind: record.actionKind, task: deleted.task, ...(ideaStatusRestored ? { ideaStatusRestored: true } : {}) };
+    const ideaId = record.proposal.input.originIdeaId;
+    const ideaUndoContext = ideaId !== undefined
+      && record.ideaBeforeStatus !== undefined
+      && record.ideaExpectedStatus !== undefined
+      && record.ideaExpectedRevision !== undefined
+      ? {
+          ideaId,
+          expectedStatus: record.ideaExpectedStatus,
+          expectedRevision: record.ideaExpectedRevision,
+          restoreStatus: record.ideaBeforeStatus,
+        }
+      : undefined;
+    const ideaRestore = ideaUndoContext
+      ? await writer.restoreIdeaStatus(record.ownerId, ideaUndoContext.ideaId, ideaUndoContext)
+      : undefined;
+    return {
+      status: "undone",
+      actionKind: record.actionKind,
+      task: deleted.task,
+      ...(ideaRestore === undefined ? {} : {
+        ideaStatusRestored: ideaRestore === "restored",
+        ...(ideaRestore === "conflict" ? { ideaStatusConflict: true } : {}),
+      }),
+    };
   }
   if (!record.beforeTask) return { status: "conflict", actionKind: record.actionKind };
   const current = await writer.get(record.ownerId, appliedTask.id);

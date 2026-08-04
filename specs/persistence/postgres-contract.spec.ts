@@ -626,6 +626,75 @@ describe("PostgreSQL storage contracts", () => {
     await expect(createPostgresTaskStore(pool).get("emp_task_confirmation", "task-rejected-pg")).resolves.toBeNull();
   });
 
+  it("persists optimistic idea conversion undo and walks backward through reversible mutations after restart", async () => {
+    await issueProfileReadyParticipant(pool, "task_undo_owner", "invite_task_undo_owner");
+    await issueProfileReadyParticipant(pool, "task_undo_other", "invite_task_undo_other");
+    let currentTime = "2026-08-04T09:00:00.000Z";
+    const ideas = createPostgresIdeaStore(pool);
+    const tasks = createPostgresTaskStore(pool);
+    const confirmations = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => currentTime },
+      { confirmationId: (() => { let sequence = 0; return () => `task-undo-pg-${++sequence}`; })() },
+    );
+
+    await ideas.add({ id: "idea-undo-safe", userId: "task_undo_owner", project: "ASSISTANT", type: "development", summary: "Keep newer status", status: "raw" });
+    const conversion = await new IdeaToTaskService(ideas, tasks, confirmations).propose("task_undo_owner", "idea-undo-safe");
+    if (conversion.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await confirmations.autoApply("task_undo_owner", conversion.confirmation.confirmationId);
+    await ideas.update("task_undo_owner", "idea-undo-safe", { status: "done" });
+
+    await pool.end();
+    pool = createPostgresPool(config);
+    const restartedIdeas = createPostgresIdeaStore(pool);
+    const restartedTasks = createPostgresTaskStore(pool);
+    const restarted = new TaskMutationConfirmationService(createPostgresTaskMutationConfirmationStore(pool), { now: () => currentTime });
+    await expect(restarted.undo("task_undo_other")).resolves.toEqual({ status: "not_found" });
+    await expect(restarted.undo("task_undo_owner")).resolves.toMatchObject({
+      status: "undone", actionKind: "idea_to_task", ideaStatusRestored: false, ideaStatusConflict: true,
+    });
+    await expect(restartedTasks.getByOriginIdeaId("task_undo_owner", "idea-undo-safe")).resolves.toBeNull();
+    await expect(restartedIdeas.get("task_undo_owner", "idea-undo-safe")).resolves.toMatchObject({ status: "done", revision: 3 });
+
+    currentTime = "2026-08-04T09:01:00.000Z";
+    const first = await restarted.propose("task_undo_owner", {
+      kind: "create", input: { id: "task-undo-first", title: "First", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await restarted.autoApply("task_undo_owner", first.confirmationId);
+    currentTime = "2026-08-04T09:02:00.000Z";
+    const second = await restarted.propose("task_undo_owner", {
+      kind: "create", input: { id: "task-undo-second", title: "Second", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await restarted.autoApply("task_undo_owner", second.confirmationId);
+
+    await expect(restarted.undo("task_undo_owner")).resolves.toMatchObject({ status: "undone", task: { id: "task-undo-second" } });
+    await expect(restarted.undo("task_undo_owner")).resolves.toMatchObject({ status: "undone", task: { id: "task-undo-first" } });
+    await expect(restarted.undo("task_undo_owner")).resolves.toEqual({ status: "not_found" });
+  });
+
+  it("returns expired for the newest reversible mutation instead of skipping to an older one", async () => {
+    await issueProfileReadyParticipant(pool, "task_undo_expired_owner", "invite_task_undo_expired_owner");
+    let currentTime = "2026-08-04T10:00:00.000Z";
+    const confirmations = new TaskMutationConfirmationService(
+      createPostgresTaskMutationConfirmationStore(pool),
+      { now: () => currentTime },
+      { undoWindowMilliseconds: 60_000, confirmationId: (() => { let sequence = 0; return () => `task-undo-expired-pg-${++sequence}`; })() },
+    );
+    const older = await confirmations.propose("task_undo_expired_owner", {
+      kind: "create", input: { id: "task-undo-expired-older", title: "Older", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await confirmations.autoApply("task_undo_expired_owner", older.confirmationId);
+    currentTime = "2026-08-04T10:00:01.000Z";
+    const newest = await confirmations.propose("task_undo_expired_owner", {
+      kind: "create", input: { id: "task-undo-expired-newest", title: "Newest", project: "ASSISTANT", type: "operations", status: "open" },
+    });
+    await confirmations.autoApply("task_undo_expired_owner", newest.confirmationId);
+    currentTime = "2026-08-04T10:01:02.000Z";
+
+    await expect(confirmations.undo("task_undo_expired_owner")).resolves.toEqual({ status: "expired" });
+    await expect(createPostgresTaskStore(pool).list("task_undo_expired_owner")).resolves.toHaveLength(2);
+  });
+
   it("confirms large context document updates and rejects payload tampering", async () => {
     await issueProfileReadyParticipant(pool, "context_document_owner", "invite_context_document_owner");
     const clock = { now: () => "2026-08-03T10:00:00.000Z" };

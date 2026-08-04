@@ -44,7 +44,7 @@ function setup(
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
-  it("applies create without a pending action and undoes it idempotently", async () => {
+  it("applies create without a pending action and exhausts the general undo stack", async () => {
     let applied: unknown;
     const env = setup(async (_input, context) => {
       applied = await context.tasks.propose({ kind: "create", title: "Купить корм", project: "дом", type: "personal", dueDate: "2026-08-07" });
@@ -61,7 +61,43 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
 
     await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", actionKind: "create", task: { title: "Купить корм" } });
     await expect(env.tasks.list("owner")).resolves.toEqual([]);
-    await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "already_undone" });
+    await expect(env.confirmations.undo("owner")).resolves.toEqual({ status: "not_found" });
+  });
+
+  it("walks backward through sequential reversible mutations", async () => {
+    const env = setup(async () => "unused");
+    await env.tasks.create("owner", { id: "task-stack", title: "Исходная", project: "дом", type: "personal", status: "open" });
+    const first = await env.confirmations.propose("owner", {
+      kind: "update", taskId: "task-stack", expectedRevision: 1, patch: { project: "работа" },
+    }, { actionKind: "update" });
+    await env.confirmations.autoApply("owner", first.confirmationId);
+    env.advance(1);
+    const second = await env.confirmations.propose("owner", {
+      kind: "update", taskId: "task-stack", expectedRevision: 2, patch: { status: "done" },
+    }, { actionKind: "complete" });
+    await env.confirmations.autoApply("owner", second.confirmationId);
+
+    await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", actionKind: "complete" });
+    await expect(env.tasks.get("owner", "task-stack")).resolves.toMatchObject({ project: "работа", status: "open", revision: 4 });
+    await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "conflict", actionKind: "update", current: { revision: 4 } });
+    await expect(env.tasks.get("owner", "task-stack")).resolves.toMatchObject({ project: "работа", status: "open", revision: 4 });
+  });
+
+  it("undoes two independent mutations from newest to oldest and then returns not_found", async () => {
+    const env = setup(async () => "unused");
+    const first = await env.confirmations.propose("owner", {
+      kind: "create", input: { id: "task-first", title: "Первая", project: "дом", type: "personal", status: "open" },
+    });
+    await env.confirmations.autoApply("owner", first.confirmationId);
+    env.advance(1);
+    const second = await env.confirmations.propose("owner", {
+      kind: "create", input: { id: "task-second", title: "Вторая", project: "дом", type: "personal", status: "open" },
+    });
+    await env.confirmations.autoApply("owner", second.confirmationId);
+
+    await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", task: { id: "task-second" } });
+    await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", task: { id: "task-first" } });
+    await expect(env.confirmations.undo("owner")).resolves.toEqual({ status: "not_found" });
   });
 
   it("restores previous update and completion state from the canonical record", async () => {
@@ -158,14 +194,23 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
     });
     const proposalSchema = tools.proposeTaskMutation.outputSchema as unknown as { parse(value: unknown): unknown };
     const ideaSchema = tools.proposeIdeaToTask.outputSchema as unknown as { parse(value: unknown): unknown };
+    const undoSchema = tools.undoTaskMutation.outputSchema as unknown as { parse(value: unknown): unknown };
 
     expect(proposalSchema.parse({ status: "conflict", actionKind: "update", current: {
       id: "task-safe", title: "Безопасно", project: "дом", type: "personal", status: "open",
       createdAt: "2026-08-04T09:00:00.000Z", updatedAt: "2026-08-04T09:00:00.000Z", revision: 2,
     } })).toMatchObject({ status: "conflict", actionKind: "update" });
     expect(ideaSchema.parse({ status: "not_found", actionKind: "idea_to_task" })).toEqual({ status: "not_found", actionKind: "idea_to_task" });
+    expect(undoSchema.parse({
+      status: "undone", actionKind: "idea_to_task", ideaStatusRestored: false, ideaStatusConflict: true,
+      task: {
+        id: "task-safe", title: "Безопасно", project: "дом", type: "personal", status: "open",
+        createdAt: "2026-08-04T09:00:00.000Z", updatedAt: "2026-08-04T09:00:00.000Z", revision: 1,
+      },
+    })).toMatchObject({ status: "undone", ideaStatusConflict: true });
     expect(() => proposalSchema.parse({ status: "conflict", actionKind: "update", confirmationId: "private" })).toThrow();
     expect(() => ideaSchema.parse({ status: "not_found", actionKind: "idea_to_task", proposal: {} })).toThrow();
+    expect(() => undoSchema.parse({ status: "undone", actionKind: "idea_to_task", task: {}, ideaExpectedRevision: 2 })).toThrow();
   });
 
   it("undoes idea-to-task by deleting the task and restoring the previous idea status", async () => {
@@ -184,7 +229,25 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
     await expect(env.ideas.get("owner", "idea-1")).resolves.toMatchObject({ status: "raw" });
   });
 
-  it("keeps cancellation pending and returns a clear expired undo outcome", async () => {
+  it("deletes the converted task but preserves a concurrently changed idea status", async () => {
+    const env = setup(async () => "unused");
+    await env.ideas.add({ id: "idea-conflict", userId: "owner", project: "дом", type: "personal", summary: "Не затирать", status: "raw" });
+    const proposed = await new IdeaToTaskService(env.ideas, env.tasks, env.confirmations).propose("owner", "idea-conflict");
+    if (proposed.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await env.confirmations.autoApply("owner", proposed.confirmation.confirmationId);
+    await env.ideas.update("owner", "idea-conflict", { status: "done" });
+
+    const undo = await env.confirmations.undo("owner");
+
+    expect(undo).toMatchObject({
+      status: "undone", actionKind: "idea_to_task", ideaStatusRestored: false, ideaStatusConflict: true,
+    });
+    expect(JSON.stringify(undo)).not.toMatch(/ideaBeforeStatus|ideaExpectedStatus|ideaExpectedRevision|undoContext/);
+    await expect(env.tasks.getByOriginIdeaId("owner", "idea-conflict")).resolves.toBeNull();
+    await expect(env.ideas.get("owner", "idea-conflict")).resolves.toMatchObject({ status: "done", revision: 3 });
+  });
+
+  it("keeps cancellation pending and returns a clear expired undo outcome without skipping to an older mutation", async () => {
     const env = setup(async (_input, context) => {
       const [task] = await context.tasks.list();
       return JSON.stringify(await context.tasks.propose({ kind: "cancel", taskId: task!.id }));
@@ -199,8 +262,13 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
       return "Записал. Скажи «отмени», если не то.";
     });
     await createEnv.service.chat({ userId: "owner", threadId: "thread", text: "создай" });
+    createEnv.advance(1);
+    const latest = await createEnv.confirmations.propose("owner", {
+      kind: "create", input: { id: "task-latest-expired", title: "Просроченная", project: "дом", type: "personal", status: "open" },
+    });
+    await createEnv.confirmations.autoApply("owner", latest.confirmationId);
     createEnv.advance(15 * 60_000 + 1);
     await expect(createEnv.confirmations.undo("owner")).resolves.toEqual({ status: "expired" });
-    await expect(createEnv.tasks.list("owner")).resolves.toHaveLength(1);
+    await expect(createEnv.tasks.list("owner")).resolves.toHaveLength(2);
   });
 });

@@ -46,7 +46,11 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
         record.ideaBeforeStatus = originIdea?.status;
         const outcome = await effect(taskStore, normalizeTaskMutationProposal(record.proposal));
         if (originIdea?.status === "raw" && ideas && outcome.outcome !== "not_found" && outcome.outcome !== "conflict") {
-          await ideas.update(record.ownerId, originIdea.id, { status: "planned" });
+          const plannedIdea = await ideas.update(record.ownerId, originIdea.id, { status: "planned" });
+          if (plannedIdea) {
+            record.ideaExpectedStatus = "planned";
+            record.ideaExpectedRevision = plannedIdea.revision;
+          }
         }
         record.decision = "confirmed";
         record.outcome = copyTaskMutationResult(outcome);
@@ -58,23 +62,23 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
     },
     async undo(input, effect) {
       const candidate = [...records.values()]
-        .filter((record) => record.ownerId === input.ownerId && record.decision === "confirmed" && record.actionKind !== "cancel")
+        .filter((record) => record.ownerId === input.ownerId && record.decision === "confirmed" && record.actionKind !== "cancel" && record.undoneAt === undefined)
         .sort((left, right) => (right.completedAt ?? "").localeCompare(left.completedAt ?? "") || right.confirmationId.localeCompare(left.confirmationId))[0];
       if (!candidate) return { status: "not_found" };
       return withKeyLock(locks, candidate.confirmationId, async () => {
         const record = records.get(candidate.confirmationId)!;
-        const task = outcomeTask(record);
-        if (record.undoneAt) return task ? { status: "already_undone", actionKind: record.actionKind as Exclude<typeof record.actionKind, "cancel">, task, ...(record.ideaBeforeStatus !== undefined ? { ideaStatusRestored: true } : {}) } : { status: "not_found" };
+        if (record.undoneAt) return { status: "not_found" };
         if (!record.undoExpiresAt || Date.parse(input.undoneAt) > Date.parse(record.undoExpiresAt)) return { status: "expired" };
         const result = await effect({
           ...taskStore,
           get: taskStore.get.bind(taskStore),
-          restoreIdeaStatus: async (ownerId, ideaId, status) => {
-            if (!ideas) return false;
+          restoreIdeaStatus: async (ownerId, ideaId, restore) => {
+            if (!ideas) return "not_found";
             const idea = await ideas.get(ownerId, ideaId);
-            if (!idea) return false;
-            const restored = await ideas.update(ownerId, ideaId, { status });
-            return restored?.status === status;
+            if (!idea) return "not_found";
+            if (idea.status !== restore.expectedStatus || idea.revision !== restore.expectedRevision) return "conflict";
+            const restored = await ideas.update(ownerId, ideaId, { status: restore.restoreStatus });
+            return restored?.status === restore.restoreStatus ? "restored" : "conflict";
           },
         }, copyFullRecord(record));
         if (result.status === "undone") {
@@ -99,11 +103,6 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
       return candidates.length;
     },
   };
-}
-
-function outcomeTask(record: TaskMutationConfirmationRecord) {
-  const outcome = record.outcome;
-  return outcome && outcome.outcome !== "not_found" && outcome.outcome !== "conflict" ? { ...outcome.task } : undefined;
 }
 
 function validCanonicalRecord(record: TaskMutationConfirmationRecord): boolean {

@@ -28,7 +28,13 @@ export type TerminalTaskMutationNoEffect =
 export type ResolvedTaskMutation = AppliedTaskMutation | TerminalTaskMutationNoEffect;
 export type AssistantTaskMutationResult = ResolvedTaskMutation | PendingTaskReceipt;
 export type AssistantTaskUndoResult =
-  | { status: "undone" | "already_undone"; actionKind: AppliedTaskMutation["actionKind"]; task: AssistantTaskView; ideaStatusRestored?: boolean }
+  | {
+      status: "undone" | "already_undone";
+      actionKind: AppliedTaskMutation["actionKind"];
+      task: AssistantTaskView;
+      ideaStatusRestored?: boolean;
+      ideaStatusConflict?: boolean;
+    }
   | { status: "not_found" | "expired" }
   | { status: "conflict"; actionKind: AppliedTaskMutation["actionKind"]; current?: AssistantTaskView };
 export type AssistantIdeaToTaskProposalResult =
@@ -118,6 +124,7 @@ function toAssistantTaskUndoResult(result: TaskMutationUndoResult): AssistantTas
     actionKind: completed.actionKind,
     task: toAssistantTaskView(completed.task),
     ...(completed.ideaStatusRestored === undefined ? {} : { ideaStatusRestored: completed.ideaStatusRestored }),
+    ...(completed.ideaStatusConflict === undefined ? {} : { ideaStatusConflict: completed.ideaStatusConflict }),
   };
 }
 

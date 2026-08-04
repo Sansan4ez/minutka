@@ -78,13 +78,27 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
 
           const writer = taskStoreWithClient(client);
           const beforeTask = proposal.kind === "create" ? null : await writer.get(row.user_id, proposal.taskId);
-          const ideaBeforeStatus = actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId
-            ? await selectIdeaStatus(client, row.user_id, proposal.input.originIdeaId)
+          const ideaBefore = actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId
+            ? await selectIdeaStatusAndRevision(client, row.user_id, proposal.input.originIdeaId)
             : undefined;
           const outcome = await effect(writer, proposal);
-          if (actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId && ideaBeforeStatus === "raw"
+          let ideaUndoContext: { ideaBeforeStatus: IdeaStatus; ideaExpectedStatus: "planned"; ideaExpectedRevision: number } | undefined;
+          if (actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId && ideaBefore?.status === "raw"
             && outcome.outcome !== "not_found" && outcome.outcome !== "conflict") {
-            await client.query("UPDATE minutka_private.ideas SET status='planned', last_activity_at=now(), revision=revision+1 WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [row.user_id, proposal.input.originIdeaId]);
+            const planned = await client.query<{ revision: string | number }>(
+              `UPDATE minutka_private.ideas
+               SET status='planned', last_activity_at=now(), revision=revision+1
+               WHERE user_id=$1 AND idea_id=$2 AND status='raw' AND revision=$3 AND deleted_at IS NULL
+               RETURNING revision`,
+              [row.user_id, proposal.input.originIdeaId, ideaBefore.revision],
+            );
+            if (planned.rows[0]) {
+              ideaUndoContext = {
+                ideaBeforeStatus: ideaBefore.status,
+                ideaExpectedStatus: "planned",
+                ideaExpectedRevision: Number(planned.rows[0].revision),
+              };
+            }
           }
           await client.query(
             `UPDATE minutka_private.task_mutation_confirmations
@@ -92,7 +106,7 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
                  undo_context=$5::jsonb, undo_expires_at=$6
              WHERE confirmation_id=$1`,
             [input.confirmationId, input.decidedAt, JSON.stringify(outcome), beforeTask ? JSON.stringify(beforeTask) : null,
-              ideaBeforeStatus ? JSON.stringify({ ideaBeforeStatus }) : null, actionKind === "cancel" ? null : input.undoExpiresAt ?? null],
+              ideaUndoContext ? JSON.stringify(ideaUndoContext) : null, actionKind === "cancel" ? null : input.undoExpiresAt ?? null],
           );
           return { result: { status: "confirmed", outcome: copyTaskMutationResult(outcome) }, actionKind, taskId };
         });
@@ -103,7 +117,8 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
         return await withTransaction(pool, async (client) => {
           const selected = await client.query<Row>(
             `SELECT * FROM minutka_private.task_mutation_confirmations
-             WHERE user_id=$1 AND decision='confirmed' AND action_kind IN ('create','update','complete','idea_to_task')
+             WHERE user_id=$1 AND decision='confirmed' AND undone_at IS NULL
+               AND action_kind IN ('create','update','complete','idea_to_task')
              ORDER BY completed_at DESC, confirmation_id DESC LIMIT 1 FOR UPDATE`,
             [input.ownerId],
           );
@@ -111,8 +126,7 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
           if (!row) return { status: "not_found" };
           const record = restoreFullRecord(row);
           if (!record) return { status: "not_found" };
-          const task = outcomeTask(record);
-          if (row.undone_at) return task ? { status: "already_undone", actionKind: record.actionKind as Exclude<TaskPendingActionKind, "cancel">, task, ...(record.ideaBeforeStatus !== undefined ? { ideaStatusRestored: true } : {}) } : { status: "not_found" };
+          if (row.undone_at) return { status: "not_found" };
           if (!row.undo_expires_at || Date.parse(input.undoneAt) > row.undo_expires_at.getTime()) return { status: "expired" };
           const result = await effect(taskUndoWriterWithClient(client), record);
           if (result.status === "undone") {
@@ -159,7 +173,7 @@ function restoreCanonicalProposal(row: Row): TaskMutationProposal | null {
 function restoreFullRecord(row: Row): TaskMutationConfirmationRecord | null {
   const proposal = restoreCanonicalProposal(row);
   if (!proposal || !row.decision || !row.completed_at) return null;
-  const undoContext = row.undo_context && typeof row.undo_context === "object" ? row.undo_context as { ideaBeforeStatus?: IdeaStatus } : undefined;
+  const undoContext = restoreIdeaUndoContext(row.undo_context);
   return {
     confirmationId: row.confirmation_id,
     ownerId: row.user_id,
@@ -172,7 +186,11 @@ function restoreFullRecord(row: Row): TaskMutationConfirmationRecord | null {
     completedAt: row.completed_at.toISOString(),
     ...(row.outcome ? { outcome: restoreOutcome(row.outcome) } : {}),
     ...(row.before_task ? { beforeTask: restoreStoredTask(row.before_task) } : {}),
-    ...(undoContext?.ideaBeforeStatus ? { ideaBeforeStatus: undoContext.ideaBeforeStatus } : {}),
+    ...(undoContext ? {
+      ideaBeforeStatus: undoContext.ideaBeforeStatus,
+      ideaExpectedStatus: undoContext.ideaExpectedStatus,
+      ideaExpectedRevision: undoContext.ideaExpectedRevision,
+    } : {}),
     ...(row.undo_expires_at ? { undoExpiresAt: row.undo_expires_at.toISOString() } : {}),
     ...(row.undone_at ? { undoneAt: row.undone_at.toISOString() } : {}),
   };
@@ -228,16 +246,54 @@ function taskStoreWithClient(client: Pick<PoolClient, "query">): TaskWriter & { 
 function taskUndoWriterWithClient(client: Pick<PoolClient, "query">) {
   return {
     ...taskStoreWithClient(client),
-    async restoreIdeaStatus(userId: string, ideaId: string, status: IdeaStatus) {
-      const updated = await client.query("UPDATE minutka_private.ideas SET status=$3, last_activity_at=now(), revision=revision+1 WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [userId, ideaId, status]);
-      return (updated.rowCount ?? 0) > 0;
+    async restoreIdeaStatus(userId: string, ideaId: string, input: {
+      expectedStatus: "planned";
+      expectedRevision: number;
+      restoreStatus: IdeaStatus;
+    }) {
+      const updated = await client.query(
+        `UPDATE minutka_private.ideas
+         SET status=$5, last_activity_at=now(), revision=revision+1
+         WHERE user_id=$1 AND idea_id=$2 AND status=$3 AND revision=$4 AND deleted_at IS NULL`,
+        [userId, ideaId, input.expectedStatus, input.expectedRevision, input.restoreStatus],
+      );
+      if ((updated.rowCount ?? 0) > 0) return "restored" as const;
+      const selected = await client.query("SELECT 1 FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [userId, ideaId]);
+      return (selected.rowCount ?? 0) > 0 ? "conflict" as const : "not_found" as const;
     },
   };
 }
 
-async function selectIdeaStatus(client: Pick<PoolClient, "query">, userId: string, ideaId: string): Promise<IdeaStatus | undefined> {
-  const selected = await client.query<{ status: IdeaStatus }>("SELECT status FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2", [userId, ideaId]);
-  return selected.rows[0]?.status;
+async function selectIdeaStatusAndRevision(
+  client: Pick<PoolClient, "query">,
+  userId: string,
+  ideaId: string,
+): Promise<{ status: IdeaStatus; revision: number } | undefined> {
+  const selected = await client.query<{ status: IdeaStatus; revision: string | number }>(
+    "SELECT status, revision FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL",
+    [userId, ideaId],
+  );
+  const row = selected.rows[0];
+  return row ? { status: row.status, revision: Number(row.revision) } : undefined;
+}
+
+function restoreIdeaUndoContext(value: unknown): {
+  ideaBeforeStatus: IdeaStatus;
+  ideaExpectedStatus: "planned";
+  ideaExpectedRevision: number;
+} | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const context = value as Record<string, unknown>;
+  const ideaStatuses: readonly IdeaStatus[] = ["raw", "discussed", "planned", "done", "dropped"];
+  if (!ideaStatuses.includes(context.ideaBeforeStatus as IdeaStatus)
+    || context.ideaExpectedStatus !== "planned"
+    || !Number.isSafeInteger(context.ideaExpectedRevision)
+    || Number(context.ideaExpectedRevision) < 1) return undefined;
+  return {
+    ideaBeforeStatus: context.ideaBeforeStatus as IdeaStatus,
+    ideaExpectedStatus: "planned",
+    ideaExpectedRevision: Number(context.ideaExpectedRevision),
+  };
 }
 
 type TaskRow = {
@@ -268,11 +324,6 @@ function sameCreate(task: Task, input: Parameters<TaskWriter["create"]>[1]): boo
 function restoreOutcome(value: unknown): TaskMutationResult {
   if (!value || typeof value !== "object" || !taskResultOutcomes.has(String((value as { outcome?: unknown }).outcome))) throw new Error("invalid stored task mutation outcome");
   return copyTaskMutationResult(value as TaskMutationResult);
-}
-
-function outcomeTask(record: TaskMutationConfirmationRecord): Task | undefined {
-  const outcome = record.outcome;
-  return outcome && outcome.outcome !== "not_found" && outcome.outcome !== "conflict" ? outcome.task : undefined;
 }
 
 function postgresDate(value: string | Date): string {

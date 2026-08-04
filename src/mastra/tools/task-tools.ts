@@ -104,8 +104,8 @@ const ideaToTaskProposalSchema = z.union([
 ]);
 
 const taskUndoOutputSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.literal("undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional() }),
-  z.strictObject({ status: z.literal("already_undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional(), ideaStatusConflict: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("already_undone"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), task: assistantTaskViewSchema, ideaStatusRestored: z.boolean().optional(), ideaStatusConflict: z.boolean().optional() }),
   z.strictObject({ status: z.literal("not_found") }),
   z.strictObject({ status: z.literal("expired") }),
   z.strictObject({ status: z.literal("conflict"), actionKind: z.enum(["create", "update", "complete", "idea_to_task"]), current: assistantTaskViewSchema.optional() }),
