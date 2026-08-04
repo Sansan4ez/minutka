@@ -56,7 +56,7 @@ export type AssistantAgentContext = {
   tasks: AssistantTaskCapabilities;
   /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
   ideas: {
-    search(input: { query?: string; limit?: number }): ReturnType<IdeaDeletionService["search"]>;
+    search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
     propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
     undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
   };

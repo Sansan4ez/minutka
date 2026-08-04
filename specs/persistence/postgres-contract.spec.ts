@@ -765,7 +765,7 @@ describe("PostgreSQL storage contracts", () => {
     await expect(useCase.propose("idea_task_owner", "idea_task_origin")).resolves.toEqual({
       status: "already_converted", taskId: proposed.taskId, originIdeaId: "idea_task_origin",
     });
-    await expect(createPostgresIdeaStore(pool).get("idea_task_owner", "idea_task_origin")).resolves.toMatchObject({ status: "raw" });
+    await expect(createPostgresIdeaStore(pool).get("idea_task_owner", "idea_task_origin")).resolves.toMatchObject({ status: "planned", revision: 2 });
   });
 
   it("persists owner-scoped tasks across restarts with filters, optimistic conflicts and idea idempotency", async () => {

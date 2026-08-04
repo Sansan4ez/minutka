@@ -81,10 +81,11 @@ export function createPostgresTaskMutationConfirmationStore(pool: Pool): TaskMut
           const ideaBeforeStatus = actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId
             ? await selectIdeaStatus(client, row.user_id, proposal.input.originIdeaId)
             : undefined;
-          if (actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId && ideaBeforeStatus === "raw") {
+          const outcome = await effect(writer, proposal);
+          if (actionKind === "idea_to_task" && proposal.kind === "create" && proposal.input.originIdeaId && ideaBeforeStatus === "raw"
+            && outcome.outcome !== "not_found" && outcome.outcome !== "conflict") {
             await client.query("UPDATE minutka_private.ideas SET status='planned', last_activity_at=now(), revision=revision+1 WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [row.user_id, proposal.input.originIdeaId]);
           }
-          const outcome = await effect(writer, proposal);
           await client.query(
             `UPDATE minutka_private.task_mutation_confirmations
              SET completed_at=$2, decision='confirmed', outcome=$3::jsonb, before_task=$4::jsonb,

@@ -154,7 +154,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeIdeaToTask: createTool({
       id: "proposeIdeaToTask",
-      description: "Apply one owner-bound conversion of an existing idea into a task immediately with provenance and a short undo window. Report the result in prose, mention that the owner can say 'отмени', and never quote ids.",
+      description: "Apply one owner-bound conversion of an existing idea into a task immediately with provenance and a short undo window. Report that the task was created, the idea was marked planned and kept in the archive (not deleted), mention that the owner can say 'отмени', and never quote ids.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1) }),
       outputSchema: ideaToTaskProposalSchema,

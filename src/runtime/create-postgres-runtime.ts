@@ -136,11 +136,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       onCapacityWarning: (warning) => console.warn("Artifact capacity warning.", warning),
     });
     const ideaStore = createPostgresIdeaStore(pool);
+    const taskStore = createPostgresTaskStore(pool);
     const ideaDeletions = new IdeaDeletionService(
       ideaStore,
       createPostgresIdeaDeletionConfirmationStore(pool),
       systemClock,
-      { auditEventStore, idGenerator: randomIdGenerator },
+      { auditEventStore, idGenerator: randomIdGenerator, tasks: taskStore },
     );
     const scheduleStore = createPostgresScheduleStore(pool);
     const stores = {
@@ -203,7 +204,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       clock: systemClock,
       idGenerator: randomIdGenerator,
     });
-    const taskStore = createPostgresTaskStore(pool);
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {

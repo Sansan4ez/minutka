@@ -1,8 +1,7 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import type { IdeaDeletionService } from "../../application/idea-deletion.js";
+import type { IdeaDeletionService, IdeaSearchResult } from "../../application/idea-deletion.js";
 import { pendingIdeaDeletionReceipt } from "../../application/idea-deletion.js";
-import type { Idea } from "../../application/idea-store.js";
 import { recordTypeSchema } from "../../contracts/minutka-api.js";
 
 const ideaViewSchema = z.strictObject({
@@ -14,6 +13,7 @@ const ideaViewSchema = z.strictObject({
   createdAt: z.iso.datetime(),
   lastActivityAt: z.iso.datetime(),
   revision: z.number().int().positive(),
+  convertedTaskId: z.string().min(1).optional(),
 });
 
 const deletionReceiptSchema = z.strictObject({
@@ -26,16 +26,20 @@ const deletionReceiptSchema = z.strictObject({
 export const assistantIdeaToolNames = ["searchIdeas", "proposeIdeaDeletion", "undoIdeaDeletion"] as const;
 
 export function createIdeaTools(ideas: {
-  search(input: { query?: string; limit?: number }): ReturnType<IdeaDeletionService["search"]>;
+  search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
   propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
   undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
 }) {
   return {
     searchIdeas: createTool({
       id: "searchIdeas",
-      description: "Deterministically search bounded active owner ideas by id, project, or summary. Use this before deletion when the reference is natural-language or ambiguous.",
+      description: "Deterministically search bounded owner ideas by id, project, or summary. By default returns active raw/discussed ideas; pass statuses only when the owner explicitly asks for planned, done, dropped, or other archived ideas. Use this before deletion when the reference is natural-language or ambiguous.",
       strict: true,
-      inputSchema: z.strictObject({ query: z.string().optional(), limit: z.number().int().min(1).max(10).optional() }),
+      inputSchema: z.strictObject({
+        query: z.string().optional(),
+        limit: z.number().int().min(1).max(10).optional(),
+        statuses: z.array(z.enum(["raw", "discussed", "planned", "done", "dropped"])).min(1).optional(),
+      }),
       outputSchema: z.strictObject({ ideas: z.array(ideaViewSchema) }),
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: async (input) => ({ ideas: (await ideas.search(input)).map(toIdeaView) }),
@@ -75,7 +79,7 @@ export function createIdeaTools(ideas: {
   };
 }
 
-function toIdeaView(idea: Idea): z.infer<typeof ideaViewSchema> {
+function toIdeaView(idea: IdeaSearchResult): z.infer<typeof ideaViewSchema> {
   return {
     id: idea.id,
     project: idea.project,
@@ -85,5 +89,6 @@ function toIdeaView(idea: Idea): z.infer<typeof ideaViewSchema> {
     createdAt: idea.createdAt,
     lastActivityAt: idea.lastActivityAt,
     revision: idea.revision,
+    ...(idea.convertedTaskId === undefined ? {} : { convertedTaskId: idea.convertedTaskId }),
   };
 }

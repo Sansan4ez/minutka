@@ -3,24 +3,26 @@ import { IdeaDeletionService } from "../../../src/application/idea-deletion.js";
 import { createInMemoryIdeaDeletionConfirmationStore } from "../../../src/application/in-memory-idea-deletion-confirmation-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import type { IdeaMutationResult } from "../../../src/application/idea-store.js";
+import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createIdeaTools } from "../../../src/mastra/tools/idea-tools.js";
 
 function setup() {
   let now = "2026-07-31T09:00:00.000Z";
   const clock = { now: () => now };
   const ideas = createInMemoryIdeaStore(clock);
+  const tasks = createInMemoryTaskStore(clock);
   const service = new IdeaDeletionService(
     ideas,
     createInMemoryIdeaDeletionConfirmationStore(ideas),
     clock,
-    { confirmationId: () => "idea-delete-1" },
+    { confirmationId: () => "idea-delete-1", tasks },
   );
   const tools = createIdeaTools({
     search: (input) => service.search("owner", input),
     propose: (input) => service.propose("owner", input),
     undo: (input) => service.undo("owner", input),
   });
-  return { ideas, service, tools, setNow(value: string) { now = value; } };
+  return { ideas, tasks, service, tools, setNow(value: string) { now = value; } };
 }
 
 async function execute<TInput, TOutput>(tool: {
@@ -67,6 +69,21 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
       }],
     });
     expect(JSON.stringify(parsed)).not.toMatch(/userId|source|suggestedNextStep|private raw source/);
+  });
+
+  it("hides archived ideas by default and returns conversion linkage for explicit archived search", async () => {
+    const { ideas, tasks, tools } = setup();
+    await ideas.add({ id: "idea-active", userId: "owner", project: "ASSISTANT", type: "knowledge", summary: "Active idea", status: "discussed" });
+    await ideas.add({ id: "idea-planned", userId: "owner", project: "ASSISTANT", type: "development", summary: "Converted idea", status: "planned" });
+    await tasks.create("owner", { id: "task-from-idea", title: "Converted idea", project: "ASSISTANT", type: "development", status: "open", originIdeaId: "idea-planned" });
+    await tasks.create("other", { id: "private-other-task", title: "Private", project: "OTHER", type: "personal", status: "open", originIdeaId: "idea-active" });
+
+    const active = parseOutput<{ ideas: Array<Record<string, unknown>> }>(tools.searchIdeas, await execute(tools.searchIdeas, {}));
+    expect(active.ideas).toEqual([expect.objectContaining({ id: "idea-active", status: "discussed" })]);
+    expect(JSON.stringify(active)).not.toMatch(/idea-planned|private-other-task/);
+
+    const archived = parseOutput<{ ideas: Array<Record<string, unknown>> }>(tools.searchIdeas, await execute(tools.searchIdeas, { statuses: ["planned"] }));
+    expect(archived.ideas).toEqual([expect.objectContaining({ id: "idea-planned", status: "planned", convertedTaskId: "task-from-idea" })]);
   });
 
   it.each([

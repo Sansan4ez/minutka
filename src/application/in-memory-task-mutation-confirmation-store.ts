@@ -40,12 +40,14 @@ export function createInMemoryTaskMutationConfirmationStore(taskStore: TaskStore
           return { result: { status: "rejected" }, actionKind: record.actionKind, taskId };
         }
         record.beforeTask = record.proposal.kind === "create" ? undefined : await taskStore.get(record.ownerId, record.proposal.taskId) ?? undefined;
-        if (record.actionKind === "idea_to_task" && record.proposal.kind === "create" && record.proposal.input.originIdeaId && ideas) {
-          const idea = await ideas.get(record.ownerId, record.proposal.input.originIdeaId);
-          record.ideaBeforeStatus = idea?.status;
-          if (idea?.status === "raw") await ideas.update(record.ownerId, idea.id, { status: "planned" });
-        }
+        const originIdea = record.actionKind === "idea_to_task" && record.proposal.kind === "create" && record.proposal.input.originIdeaId && ideas
+          ? await ideas.get(record.ownerId, record.proposal.input.originIdeaId)
+          : null;
+        record.ideaBeforeStatus = originIdea?.status;
         const outcome = await effect(taskStore, normalizeTaskMutationProposal(record.proposal));
+        if (originIdea?.status === "raw" && ideas && outcome.outcome !== "not_found" && outcome.outcome !== "conflict") {
+          await ideas.update(record.ownerId, originIdea.id, { status: "planned" });
+        }
         record.decision = "confirmed";
         record.outcome = copyTaskMutationResult(outcome);
         record.completedAt = input.decidedAt;

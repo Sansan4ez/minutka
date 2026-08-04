@@ -6,16 +6,17 @@ import { createInMemoryTaskStore } from "../../../src/application/in-memory-task
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
 
 function harness() {
-  const clock = { now: () => "2026-07-28T09:00:00.000Z" };
+  let now = "2026-07-28T09:00:00.000Z";
+  const clock = { now: () => now };
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);
   let confirmationId = 0;
-  const confirmationStore = createInMemoryTaskMutationConfirmationStore(tasks);
+  const confirmationStore = createInMemoryTaskMutationConfirmationStore(tasks, ideas);
   const confirmations = new TaskMutationConfirmationService(confirmationStore, clock, {
     confirmationId: () => `idea-task-confirmation-${++confirmationId}`,
   });
   const createService = () => new IdeaToTaskService(ideas, tasks, confirmations);
-  return { ideas, tasks, confirmations, createService };
+  return { ideas, tasks, confirmations, createService, advance(milliseconds: number) { now = new Date(Date.parse(now) + milliseconds).toISOString(); } };
 }
 
 async function addIdea(ideas: ReturnType<typeof createInMemoryIdeaStore>, userId = "owner", id = "idea-1") {
@@ -50,7 +51,23 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TO-TASK-001: confirmed idea conversion", 
       status: "confirmed", outcome: { outcome: "created", task: { id: proposed.taskId, originIdeaId: "idea-1" } },
     });
     await expect(tasks.get("owner", proposed.taskId)).resolves.toMatchObject({ userId: "owner", originIdeaId: "idea-1" });
-    await expect(ideas.get("owner", "idea-1")).resolves.toMatchObject({ status: "raw" });
+    await expect(ideas.get("owner", "idea-1")).resolves.toMatchObject({ status: "planned", revision: 2 });
+  });
+
+  it("does not change idea status for a proposal that is rejected or expires", async () => {
+    const { ideas, confirmations, createService, advance } = harness();
+    await addIdea(ideas, "owner", "idea-rejected");
+    const rejected = await createService().propose("owner", "idea-rejected");
+    if (rejected.status !== "needs_confirmation") throw new Error("expected confirmation");
+    await expect(confirmations.reject("owner", rejected.confirmation.confirmationId)).resolves.toEqual({ status: "rejected" });
+    await expect(ideas.get("owner", "idea-rejected")).resolves.toMatchObject({ status: "raw", revision: 1 });
+
+    await addIdea(ideas, "owner", "idea-expired");
+    const expired = await createService().propose("owner", "idea-expired");
+    if (expired.status !== "needs_confirmation") throw new Error("expected confirmation");
+    advance(15 * 60_000 + 1);
+    await expect(confirmations.confirm("owner", expired.confirmation.confirmationId)).resolves.toEqual({ status: "expired" });
+    await expect(ideas.get("owner", "idea-expired")).resolves.toMatchObject({ status: "raw", revision: 1 });
   });
 
   it("does not let a caller substitute the owner and does not duplicate conversion", async () => {

@@ -10,7 +10,7 @@ An existing idea id. There is no owner id, task id, confirmation payload, or pro
 
 ## Output
 
-`not_found`, `already_converted` with only the existing task id, or `status: applied` with the safe task view and `undoAvailable: true`. In every branch, the model and serialized tool trace do not receive owner id, canonical proposal, generated provenance, origin idea id, digest, or confirmation timestamp; `AssistantService` captures canonical data privately. For `applied`, report the result in one sentence and add “Скажи «отмени», если не то”, without ids.
+`not_found`, `already_converted` with only the existing task id, or `status: applied` with the safe task view and `undoAvailable: true`. Private owner, proposal, provenance, digest, and confirmation data stay server-side. For `applied`, say the task was created and the idea marked planned, archived, not deleted; add “Скажи «отмени», если не то”, without ids.
 
 ## Confirmation level
 

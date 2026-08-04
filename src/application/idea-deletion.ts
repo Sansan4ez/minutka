@@ -3,15 +3,21 @@ import { z } from "zod";
 import { safeConfirmationDisplayText, type PendingTaskPreviewText } from "./task-mutation-confirmation.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import { assertUserId } from "./document-store.js";
-import type { Idea, IdeaMutationResult, IdeaStore } from "./idea-store.js";
+import type { Idea, IdeaMutationResult, IdeaStatus, IdeaStore } from "./idea-store.js";
 import type { Clock, IdGenerator } from "./runtime-primitives.js";
+import type { TaskReader } from "./task-store.js";
 
 export const ideaDeletionConfirmationTtlMilliseconds = 15 * 60_000;
 export const ideaDeletionUndoWindowMilliseconds = 15 * 60_000;
 export const ideaDeletionSearchMaximumLimit = 10;
 export const ideaDeletionConfirmationPurgeBatchSize = 500;
 
+const activeIdeaStatuses: readonly IdeaStatus[] = ["raw", "discussed"];
+const allIdeaStatuses = new Set<IdeaStatus>(["raw", "discussed", "planned", "done", "dropped"]);
 const requiredText = z.string().refine((value) => value.trim().length > 0, "Required text");
+
+export type IdeaSearchInput = { query?: string; limit?: number; statuses?: IdeaStatus[] };
+export type IdeaSearchResult = Idea & { convertedTaskId?: string };
 
 export type IdeaDeletionProposal = {
   ideaId: string;
@@ -75,18 +81,25 @@ export class IdeaDeletionService {
       undoWindowMilliseconds?: number;
       auditEventStore?: AuditEventStore;
       idGenerator?: Pick<IdGenerator, "auditEventId">;
+      tasks?: Pick<TaskReader, "getByOriginIdeaId">;
     } = {},
   ) {}
 
-  async search(ownerId: string, input: { query?: string; limit?: number } = {}): Promise<Idea[]> {
+  async search(ownerId: string, input: IdeaSearchInput = {}): Promise<IdeaSearchResult[]> {
     const safeOwnerId = assertUserId(ownerId);
     const limit = input.limit ?? ideaDeletionSearchMaximumLimit;
     if (!Number.isSafeInteger(limit) || limit <= 0 || limit > ideaDeletionSearchMaximumLimit) throw new Error(`limit must be between 1 and ${ideaDeletionSearchMaximumLimit}`);
+    const statuses = normalizeSearchStatuses(input.statuses);
     const query = input.query?.trim().toLocaleLowerCase();
     const source = await this.ideas.list(safeOwnerId, undefined, { limit: 100, order: "activity_desc" });
-    return source
+    const matches = source
+      .filter((idea) => statuses.has(idea.status))
       .filter((idea) => !query || [idea.id, idea.project, idea.summary].some((value) => value.toLocaleLowerCase().includes(query)))
       .slice(0, limit);
+    return Promise.all(matches.map(async (idea) => {
+      const converted = await this.options.tasks?.getByOriginIdeaId(safeOwnerId, idea.id);
+      return { ...idea, ...(converted ? { convertedTaskId: converted.id } : {}) };
+    }));
   }
 
   async propose(
@@ -222,6 +235,17 @@ export function pendingIdeaDeletionAction(record: PendingIdeaDeletion, idea: Ide
       revision: idea.revision,
     },
   };
+}
+
+function normalizeSearchStatuses(statuses: IdeaStatus[] | undefined): Set<IdeaStatus> {
+  if (statuses === undefined) return new Set(activeIdeaStatuses);
+  if (statuses.length === 0) throw new Error("statuses must contain at least one idea status");
+  const normalized = new Set<IdeaStatus>();
+  for (const status of statuses) {
+    if (!allIdeaStatuses.has(status)) throw new Error("invalid idea status");
+    normalized.add(status);
+  }
+  return normalized;
 }
 
 export function normalizeProposal(input: IdeaDeletionProposal): IdeaDeletionProposal {
