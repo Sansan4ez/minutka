@@ -1,8 +1,8 @@
-# Phase 3: production secrets baseline
+# Phase 3: production assistant stack
 
-Третий этап добавляет `sops-nix` к operational baseline. Он не поднимает само
-приложение, PostgreSQL или MinIO: соответствующие модули подключаются задачами
-INF.2 и INF.3 к этому stack-каталогу.
+Третий этап добавляет к operational baseline `sops-nix`, Nix-пакет приложения
+и systemd-сервис ассистента. PostgreSQL и MinIO подключаются отдельным модулем
+INF.3; сервис уже декларативно требует оба юнита и стартует после них.
 
 ## Что обеспечивает этап
 
@@ -12,7 +12,13 @@ INF.2 и INF.3 к этому stack-каталогу.
 - systemd-совместимый `/run/secrets/rendered/personal-assistant.env` без кавычек
   и комментариев;
 - evaluation failure при отсутствующем, незашифрованном bundle или видимом
-  плейсхолдере.
+  плейсхолдере;
+- `pkgs.buildNpmPackage` с pinned `npmDepsHash`, без отдельного build-step;
+- self-contained runtime в `/nix/store/.../lib/personal-assistant` с
+  `package.json`, `node_modules`, `src`, `vault/assistant` и `migrations`;
+- system user, restart через 5 секунд, journald и systemd hardening;
+- reviewable non-secret runtime limits and token-price settings in the NixOS
+  module; journal storage capped at 512 MiB.
 
 Подготовка и проверка bundle описаны в
 [`secrets/README.md`](secrets/README.md). Ротация и аварийное восстановление — в
@@ -28,13 +34,32 @@ INF.2 и INF.3 к этому stack-каталогу.
 ./scripts/deploy.sh
 ```
 
-Проверка runtime-файлов:
+Локально пакет можно собрать отдельно:
+
+```bash
+nix build .#personal-assistant
+```
+
+Проверка после deploy:
 
 ```bash
 sudo find /run/secrets \
   -type f -printf '%m %U:%G %p\n'
-sudo systemctl show personal-assistant -p EnvironmentFiles
+sudo systemctl status personal-assistant
+sudo systemctl show personal-assistant \
+  -p EnvironmentFiles -p WorkingDirectory -p Restart -p RestartUSec
+sudo journalctl -u personal-assistant --since today
 ```
 
-Ожидаются только `0400 personal-assistant:personal-assistant`. Содержимое
-секретов в терминал и журналы не выводится.
+Ожидаются только `0400 personal-assistant:personal-assistant`, а
+`WorkingDirectory` должен указывать на пакет в Nix store. Для smoke restart:
+
+```bash
+pid="$(systemctl show -p MainPID --value personal-assistant)"
+sudo kill -9 "$pid"
+timeout 10 sh -c 'until systemctl is-active --quiet personal-assistant; do sleep 1; done'
+```
+
+Содержимое секретов в терминал и журналы не выводится. Версия приложения входит
+в то же NixOS generation, поэтому `./scripts/rollback.sh` откатывает сервис и
+хост вместе.

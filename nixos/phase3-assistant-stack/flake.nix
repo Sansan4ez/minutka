@@ -17,10 +17,16 @@
   outputs = { self, nixpkgs, disko, sops-nix, deploy-rs, ... }:
     let
       site = import ./site.nix;
+      personalAssistantPackage = nixpkgs.legacyPackages.${site.system}.callPackage ./package.nix { };
     in {
+      packages.${site.system} = {
+        personal-assistant = personalAssistantPackage;
+        default = personalAssistantPackage;
+      };
+
       nixosConfigurations.personal-assistant-1 = nixpkgs.lib.nixosSystem {
         system = site.system;
-        specialArgs = { inherit site; };
+        specialArgs = { inherit site personalAssistantPackage; };
         modules = [
           disko.nixosModules.disko
           sops-nix.nixosModules.sops
