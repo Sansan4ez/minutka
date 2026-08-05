@@ -38,7 +38,17 @@ production-сервера. На хосте `sops-nix` расшифровывае
    регенерация разрывает существующие привязки и делает часть durable-данных
    нечитаемой.
 
-6. Проверь, что в файле нет plaintext и плейсхолдеров:
+6. Для production PostgreSQL URL используй unix socket, а не TCP:
+
+   ```text
+   postgresql://minutka_runtime:...@localhost/minutka?host=%2Frun%2Fpostgresql
+   postgresql://minutka_migrator:...@localhost/minutka?host=%2Frun%2Fpostgresql
+   ```
+
+   `DATABASE_SSL_MODE=disable` задаётся NixOS-модулем: локальный unix socket не
+   использует TLS и не доступен снаружи.
+
+7. Проверь, что в файле нет plaintext и плейсхолдеров:
 
    ```bash
    sops filestatus secrets/assistant.yaml
@@ -54,7 +64,12 @@ production-сервера. На хосте `sops-nix` расшифровывае
 
 - `/run/secrets/assistant/*` — отдельные значения для PostgreSQL/MinIO bootstrap;
 - `/run/secrets/rendered/personal-assistant.env` — чистый `KEY=value` для
-  systemd `EnvironmentFile`.
+  systemd `EnvironmentFile` приложения и migration oneshot;
+- `/run/secrets/rendered/minio-root.env` — root credential file только для
+  `minio.service`.
 
-Все файлы принадлежат `personal-assistant:personal-assistant` и имеют mode
-`0400`. В `/nix/store`, working directory и home сервиса plaintext не попадает.
+Application runtime получает только `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`; root
+credential не входит в его EnvironmentFile. Все файлы имеют mode `0400` и
+принадлежат минимально необходимому service user (`personal-assistant` либо
+`minio`). В `/nix/store`, working directory и home сервисов plaintext не
+попадает.

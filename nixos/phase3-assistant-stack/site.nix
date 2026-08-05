@@ -31,4 +31,13 @@
     gateway = "169.58.0.1";
     nameservers = [ "1.1.1.1" "8.8.8.8" ];
   };
+
+  storage.minio = {
+    # Mount a dedicated durable filesystem here before admitting pilot traffic.
+    # 55 GiB = 45 GiB artifact budget + 5 GiB application reserve + 5 GiB
+    # filesystem reserve for MinIO versioning/metadata and operational headroom.
+    dataDir = "/srv/personal-assistant/minio";
+    capacityBytes = 59055800320;
+    filesystemReserveBytes = 5368709120;
+  };
 }

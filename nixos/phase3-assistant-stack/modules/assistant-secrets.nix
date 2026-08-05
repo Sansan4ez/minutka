@@ -42,7 +42,11 @@ let
     environmentSecrets;
   runtimeSecretPaths = lib.mapAttrs
     (name: _: config.sops.secrets.${secretPath name}.path)
-    infrastructureSecrets;
+    allSecrets;
+  minioRootCredentialLines = [
+    "MINIO_ROOT_USER=${placeholders.minio_root_user}"
+    "MINIO_ROOT_PASSWORD=${placeholders.minio_root_password}"
+  ];
 in
 lib.mkMerge [
   {
@@ -57,6 +61,7 @@ lib.mkMerge [
   (lib.mkIf (builtins.pathExists secretFile) {
     _module.args.personalAssistantSecrets = {
       environmentFile = config.sops.templates."personal-assistant.env".path;
+      minioRootCredentialsFile = config.sops.templates."minio-root.env".path;
       inherit runtimeSecretPaths;
     };
 
@@ -84,11 +89,20 @@ lib.mkMerge [
         })
         allSecrets;
 
-      templates."personal-assistant.env" = {
-        owner = "personal-assistant";
-        group = "personal-assistant";
-        mode = "0400";
-        content = lib.concatStringsSep "\n" environmentLines + "\n";
+      templates = {
+        "personal-assistant.env" = {
+          owner = "personal-assistant";
+          group = "personal-assistant";
+          mode = "0400";
+          content = lib.concatStringsSep "\n" environmentLines + "\n";
+        };
+
+        "minio-root.env" = {
+          owner = "minio";
+          group = "minio";
+          mode = "0400";
+          content = lib.concatStringsSep "\n" minioRootCredentialLines + "\n";
+        };
       };
     };
   })

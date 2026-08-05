@@ -42,6 +42,9 @@ buildNpmPackage {
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/personal-assistant" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/runtime/serve.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/personal-assistant-db-migrate" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/infrastructure/postgres/migrate.ts"
 
     runHook postInstall
   '';

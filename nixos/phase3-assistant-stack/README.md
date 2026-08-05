@@ -1,8 +1,9 @@
 # Phase 3: production assistant stack
 
-Третий этап добавляет к operational baseline `sops-nix`, Nix-пакет приложения
-и systemd-сервис ассистента. PostgreSQL и MinIO подключаются отдельным модулем
-INF.3; сервис уже декларативно требует оба юнита и стартует после них.
+Третий этап добавляет к operational baseline `sops-nix`, Nix-пакет приложения,
+systemd-сервис ассистента и оба durable storage: PostgreSQL 16 и MinIO.
+PostgreSQL доступен только через unix socket; MinIO API и Console слушают
+только loopback.
 
 ## Что обеспечивает этап
 
@@ -18,7 +19,13 @@ INF.3; сервис уже декларативно требует оба юни
   `package.json`, `node_modules`, `src`, `vault/assistant` и `migrations`;
 - system user, restart через 5 секунд, journald и systemd hardening;
 - reviewable non-secret runtime limits and token-price settings in the NixOS
-  module; journal storage capped at 512 MiB.
+  module; journal storage capped at 512 MiB;
+- PostgreSQL 16 без TCP, отдельные `minutka_migrator`/`minutka_runtime`,
+  идемпотентный database setup и migration oneshot до приложения;
+- MinIO provisioning oneshot: bucket `personal-assistant`, versioning Enabled и
+  least-privilege policy/user; root credential не попадает в runtime;
+- MinIO data dir и capacity budget из `site.storage.minio`, с обязательным
+  filesystem reserve не меньше 5 GiB.
 
 Подготовка и проверка bundle описаны в
 [`secrets/README.md`](secrets/README.md). Ротация и аварийное восстановление — в
@@ -27,7 +34,12 @@ INF.3; сервис уже декларативно требует оба юни
 ## Deploy
 
 Перед deploy на хосте уже должна быть применена Phase 2, а production
-`ssh-ed25519` host key не должен меняться после шифрования bundle.
+`ssh-ed25519` host key не должен меняться после шифрования bundle. До приёма
+pilot traffic смонтируй durable filesystem в `site.storage.minio.dataDir` и
+проверь, что его фактическая ёмкость не меньше `capacityBytes`. Текущий budget —
+55 GiB: 45 GiB global artifact hard limit, 5 GiB application reserve и 5 GiB
+filesystem reserve. MinIO нельзя оставлять на маленьком root volume без
+capacity-monitoring (метрики добавляются в INF.6).
 
 ```bash
 ./scripts/deploy.sh --dry-activate
@@ -45,14 +57,22 @@ nix build .#personal-assistant
 ```bash
 sudo find /run/secrets \
   -type f -printf '%m %U:%G %p\n'
-sudo systemctl status personal-assistant
+sudo systemctl status postgresql minio \
+  personal-assistant-postgres-setup \
+  personal-assistant-postgres-migrate \
+  personal-assistant-minio-provision \
+  personal-assistant
 sudo systemctl show personal-assistant \
   -p EnvironmentFiles -p WorkingDirectory -p Restart -p RestartUSec
 sudo journalctl -u personal-assistant --since today
+sudo ss -lntp | grep -E '127\.0\.0\.1:(9000|9001)'
+sudo -u postgres psql -d postgres -Atc \
+  "select rolname, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname in ('minutka_runtime','minutka_migrator') order by rolname"
 ```
 
-Ожидаются только `0400 personal-assistant:personal-assistant`, а
-`WorkingDirectory` должен указывать на пакет в Nix store. Для smoke restart:
+Ожидаются `0400 personal-assistant:personal-assistant` для application/bootstrap
+secrets и `0400 minio:minio` только для `minio-root.env`; `WorkingDirectory`
+должен указывать на пакет в Nix store. Для smoke restart:
 
 ```bash
 pid="$(systemctl show -p MainPID --value personal-assistant)"
@@ -63,3 +83,31 @@ timeout 10 sh -c 'until systemctl is-active --quiet personal-assistant; do sleep
 Содержимое секретов в терминал и журналы не выводится. Версия приложения входит
 в то же NixOS generation, поэтому `./scripts/rollback.sh` откатывает сервис и
 хост вместе.
+
+## Durable storage contract
+
+MinIO — durable storage, не cache. После knowledge-base cutover он является
+единственным source of truth owner knowledge base; двусторонней синхронизации с
+Git workspace нет. Канонические object prefixes:
+
+```text
+{owner}/context/*
+{owner}/cas/sha256/**
+```
+
+`{owner}/inbox/*` не provisionится как отдельный namespace. Временные ingress
+blobs могут существовать как внутренние object keys приложения, но не являются
+канонической knowledge-base зоной. Artifact CAS хранится под
+`{owner}/cas/sha256/**`.
+
+Application startup выполняется только после provisioning и migration oneshot.
+Затем сам runtime вызывает read-only readiness contract `prepareMinioBucket`:
+проверяет наличие bucket, `Enabled` versioning и реальное соблюдение conditional
+`If-None-Match: *`. При нарушении любого из условий процесс завершается до
+приёма HTTP/Telegram traffic.
+
+Runtime PostgreSQL role не владеет database/schema: owner —
+`minutka_migrator`, а миграции явно выдают runtime только `USAGE`, DML и чтение
+migration status. MinIO application credential имеет только bucket/object
+операции и не может создавать пользователей или менять policy. Backup/restore
+PostgreSQL и MinIO остаются в INF.5.

@@ -1,6 +1,6 @@
 # Локальный MinIO
 
-MinIO хранит owner-scoped документы, inbox-файлы и содержимое артефактов. `compose.yaml` публикует S3 API и Console только на `127.0.0.1`, поэтому персональные данные не доступны напрямую из внешней сети.
+MinIO хранит owner-scoped документы, временные ingress blobs и содержимое артефактов. После KB cutover MinIO — единственный source of truth базы знаний; Git workspace используется только для контролируемого bootstrap import и не синхронизируется двусторонне. `compose.yaml` публикует S3 API и Console только на `127.0.0.1`, поэтому персональные данные не доступны напрямую из внешней сети.
 
 ## Настройка окружения
 
@@ -81,12 +81,11 @@ http://127.0.0.1:9001
 
 Не использовать `MINIO_ACCESS_KEY` для административного входа: это ограниченная application credential.
 
-После входа открыть **Object Browser** → bucket `personal-assistant`. Owner-scoped объекты имеют вид:
+После входа открыть **Object Browser** → bucket `personal-assistant`. Канонические durable owner-scoped зоны:
 
 ```text
-<owner-id>/context/...
-<owner-id>/inbox/...
-<owner-id>/artifacts/...
+<owner-id>/context/*
+<owner-id>/cas/sha256/**
 ```
 
 Для документов pilot knowledge base MinIO является единственным source of truth после bootstrap import; канонический prefix:
@@ -94,6 +93,11 @@ http://127.0.0.1:9001
 ```text
 <PILOT_USER_ID>/context/
 ```
+
+`<owner-id>/inbox/*` не provisionится как отдельный namespace и не является
+действующим knowledge-base path. Runtime может создавать внутренние временные
+blob keys для ingress, но canonical artifact content хранится как CAS под
+`<owner-id>/cas/sha256/**`.
 
 Legacy prefix `<PILOT_USER_ID>/context/imported-knowledge-base/` может временно оставаться во время compatibility migration, но не используется новыми импортами и не показывается агенту.
 

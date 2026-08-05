@@ -8,10 +8,23 @@ let
     MINUTKA_API_PORT = "8787";
     TELEGRAM_MODE = "polling";
 
+    DATABASE_SSL_MODE = "disable";
+    MINIO_ENDPOINT = "127.0.0.1";
+    MINIO_PORT = "9000";
+    MINIO_USE_SSL = "false";
+    MINIO_BUCKET = "personal-assistant";
+
     ASSISTANT_USAGE_MONTHLY_SOFT_LIMIT_USD = "30";
     ASSISTANT_USAGE_INPUT_USD_PER_MILLION_TOKENS = "5";
     ASSISTANT_USAGE_CACHED_INPUT_USD_PER_MILLION_TOKENS = "0.5";
     ASSISTANT_USAGE_OUTPUT_USD_PER_MILLION_TOKENS = "30";
+
+    ASSISTANT_ARTIFACT_MAXIMUM_BYTES = "104857600";
+    ASSISTANT_ARTIFACT_SAVE_TIMEOUT_MS = "60000";
+    ASSISTANT_ARTIFACT_OWNER_SOFT_QUOTA_BYTES = "2147483648";
+    ASSISTANT_ARTIFACT_OWNER_HARD_QUOTA_BYTES = "3221225472";
+    ASSISTANT_ARTIFACT_GLOBAL_HARD_QUOTA_BYTES = "48318382080";
+    ASSISTANT_ARTIFACT_INFRASTRUCTURE_RESERVE_BYTES = "5368709120";
 
     ASSISTANT_CONTEXT_TOTAL_CHARACTERS = "88000";
     ASSISTANT_CONTEXT_RESPONSE_RESERVE_CHARACTERS = "8000";
@@ -54,8 +67,15 @@ in
   systemd.services.personal-assistant = {
     description = "Personal AI assistant";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "postgresql.service" "minio.service" ];
-    requires = [ "postgresql.service" "minio.service" ];
+    after = [
+      "network-online.target"
+      "personal-assistant-postgres-migrate.service"
+      "personal-assistant-minio-provision.service"
+    ];
+    requires = [
+      "personal-assistant-postgres-migrate.service"
+      "personal-assistant-minio-provision.service"
+    ];
     wants = [ "network-online.target" ];
 
     environment = environment;

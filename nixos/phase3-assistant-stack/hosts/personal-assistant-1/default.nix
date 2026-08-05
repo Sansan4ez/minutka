@@ -10,6 +10,8 @@
       ../../modules/ssh.nix
       ../../modules/ops-runtime.nix
       ../../modules/assistant-secrets.nix
+      ../../modules/postgres.nix
+      ../../modules/minio.nix
       ../../modules/personal-assistant.nix
     ]
     ++ lib.optionals (builtins.pathExists ./hardware-configuration.nix) [

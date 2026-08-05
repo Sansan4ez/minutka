@@ -11,8 +11,8 @@ polling, а HTTP API приложения должен оставаться на
   `nixos-anywhere`;
 - `phase2-ops-base/` — admin-пользователь, sudo, ops-пакеты, zram, firewall,
   fail2ban и deploy через `deploy-rs`;
-- `phase3-assistant-stack/` — production stack с `sops-nix`; приложение и
-  хранилища подключаются к нему следующими инфраструктурными задачами.
+- `phase3-assistant-stack/` — production stack с `sops-nix`, приложением,
+  PostgreSQL 16 и loopback-only MinIO с декларативным provisioning.
 
 Обе фазы используют `github:NixOS/nixpkgs/nixos-25.11` и конфигурацию
 `personal-assistant-1`.
@@ -165,5 +165,8 @@ Phase 3 использует зашифрованный bundle и не копи�
 [`phase3-assistant-stack/secrets/README.md`](phase3-assistant-stack/secrets/README.md),
 ротация и восстановление — в
 [`../docs/runbooks/production-secrets.md`](../docs/runbooks/production-secrets.md).
-После подготовки примени stack из `nixos/phase3-assistant-stack` через
-`./scripts/deploy.sh`.
+После подготовки проверь durable MinIO volume и capacity budget в
+`phase3-assistant-stack/site.nix`, затем примени stack через
+`nixos/phase3-assistant-stack/scripts/deploy.sh`. Подробный storage contract,
+проверки ролей/bucket/versioning и канонические prefixes описаны в
+[`phase3-assistant-stack/README.md`](phase3-assistant-stack/README.md).
