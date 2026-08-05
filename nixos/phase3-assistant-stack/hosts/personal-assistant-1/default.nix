@@ -10,6 +10,7 @@
       ../../modules/ssh.nix
       ../../modules/ops-runtime.nix
       ../../modules/assistant-secrets.nix
+      ../../modules/cliproxyapi.nix
       ../../modules/postgres.nix
       ../../modules/minio.nix
       ../../modules/personal-assistant.nix

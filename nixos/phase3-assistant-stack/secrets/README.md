@@ -76,7 +76,28 @@ production-сервера. На хосте `sops-nix` расшифровывае
   `minio.service`.
 
 Application runtime получает только `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`; root
-credential не входит в его EnvironmentFile. Все файлы имеют mode `0400` и
-принадлежат минимально необходимому service user (`personal-assistant` либо
-`minio`). В `/nix/store`, working directory и home сервисов plaintext не
-попадает.
+credential не входит в его EnvironmentFile. `cliproxy_management_key` рендерится
+только в `/run/secrets/rendered/cliproxyapi.yaml`: CLIProxyAPI использует его для
+loopback management API, а приложение получает отдельный client key через
+`OPENAI_API_KEY`. Все файлы имеют mode `0400` и принадлежат минимально
+необходимому service user (`personal-assistant`, `cliproxyapi` либо `minio`). В
+`/nix/store`, working directory и home сервисов plaintext не попадает.
+
+## CLIProxyAPI credentials
+
+Production CLIProxyAPI хранит OAuth/provider credentials в persistent каталоге
+`/var/lib/cliproxyapi/.cli-proxy-api/`. Это аналог `~/.cli-proxy-api/` на dev:
+HOME service user равен `/var/lib/cliproxyapi`, поэтому credentials, добавленные
+через CLI или management panel, автоматически сохраняются там и переживают
+restart/deploy. Они намеренно не копируются с dev и не коммитятся в этот repo.
+
+Management panel доступна только через SSH tunnel:
+
+```bash
+ssh -L 8317:127.0.0.1:8317 admin@169.58.116.31
+```
+
+После этого открыть `http://127.0.0.1:8317/management.html`. Management key
+хранится в sops bundle; его значение не печатать в logs/issue. До добавления
+хотя бы одного provider credential `/v1/models` может быть пустым, а запросы
+ассистента к LLM будут завершаться ошибкой.

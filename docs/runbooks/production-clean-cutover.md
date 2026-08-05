@@ -81,7 +81,36 @@ curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null
 '
 ```
 
-## 3. Доказать чистое состояние production
+## 3. Настроить production CLIProxyAPI
+
+CLIProxyAPI запускается на `127.0.0.1:8317`; наружу порт не открывается. OAuth и
+provider credentials с dev не копируются. Оператор добавляет их через SSH tunnel:
+
+```bash
+ssh -L 8317:127.0.0.1:8317 admin@169.58.116.31
+```
+
+Открыть `http://127.0.0.1:8317/management.html` и добавить credential для prefix,
+указанного в `LLM_MODEL` (`11qiw` для `openai/11qiw/gpt-5.5`). Credentials
+автоматически сохраняются на production в
+`/var/lib/cliproxyapi/.cli-proxy-api/` и переживают restart/deploy.
+
+Проверить без печати ключей:
+
+```bash
+ssh admin@169.58.116.31 '
+systemctl is-active cliproxyapi.service
+sudo ss -lnt | grep "127.0.0.1:8317"
+sudo find /var/lib/cliproxyapi/.cli-proxy-api -maxdepth 1 -type f \
+  -printf "%m %U:%G %f\n"
+'
+```
+
+Приложение использует `OPENAI_BASE_URL=http://127.0.0.1:8317/v1` и отдельный
+client key из sops. STT остаётся независимым:
+`STT_BASE_URL=https://openrouter.ai/api/v1` и отдельный `STT_API_KEY`.
+
+## 4. Доказать чистое состояние production
 
 Проверить прикладные таблицы до первого production invite:
 
@@ -128,7 +157,7 @@ EOF
 Если любой count ненулевой, остановись: не очищай production автоматически и не
 трогай dev. Сначала выясни происхождение данных.
 
-## 4. Проверить backup чистого контура
+## 5. Проверить backup чистого контура
 
 Первый backup должен работать без `/home/admin/user_knowledge_base` и создать
 только PostgreSQL dump плюс полный MinIO mirror:
@@ -150,7 +179,7 @@ sudo cat /var/lib/personal-assistant-observability/backup.last_success
 Полный backup/restore contract описан в
 [production backup and restore](./production-backup-restore.md).
 
-## 5. Operator checkpoint: остановить dev polling
+## 6. Operator checkpoint: остановить dev polling
 
 Эту часть выполняет оператор на dev самостоятельно. Перед продолжением он
 должен подтвердить одно из двух:
@@ -171,7 +200,7 @@ Method: <new bot configured | runtime stopped>
 Dev PostgreSQL/MinIO untouched: yes
 ```
 
-## 6. Активировать production polling
+## 7. Активировать production polling
 
 Только после operator checkpoint:
 
@@ -192,7 +221,7 @@ single-poller contract. Если Telegram сообщает conflict (`getUpdates
 by other getUpdates request), немедленно остановить production и выяснить, какой
 старый runtime продолжает polling.
 
-## 7. Новый invite и D.0 без импорта БЗ
+## 8. Новый invite и D.0 без импорта БЗ
 
 Выдай новый production invite через CLI/API. Участник проходит consent и
 onboarding заново. Для этого запуска раздел

@@ -3,7 +3,10 @@
 let
   appDir = "${personalAssistantPackage}/lib/personal-assistant";
   environment = {
-    LLM_MODEL = "openai/gpt-5.5";
+    LLM_MODEL = "openai/11qiw/gpt-5.5";
+    OPENAI_BASE_URL = "http://127.0.0.1:8317/v1";
+    STT_PROVIDER = "openai";
+    STT_BASE_URL = "https://openrouter.ai/api/v1";
     MINUTKA_API_HOST = "127.0.0.1";
     MINUTKA_API_PORT = "8787";
     TELEGRAM_MODE = "polling";
@@ -70,10 +73,12 @@ in
     wantedBy = [ "multi-user.target" ];
     after = [
       "network-online.target"
+      "cliproxyapi.service"
       "personal-assistant-postgres-migrate.service"
       "personal-assistant-minio-provision.service"
     ];
     requires = [
+      "cliproxyapi.service"
       "personal-assistant-postgres-migrate.service"
       "personal-assistant-minio-provision.service"
     ];

@@ -15,6 +15,7 @@ let
     integration_enc_key = "INTEGRATION_ENC_KEY";
     invite_code_pepper = "INVITE_CODE_PEPPER";
     telegram_identity_pepper = "TELEGRAM_IDENTITY_PEPPER";
+    cliproxy_management_key = "CLIPROXY_MANAGEMENT_KEY";
     minio_access_key = "MINIO_ACCESS_KEY";
     minio_secret_key = "MINIO_SECRET_KEY";
     database_url = "DATABASE_URL";
@@ -48,6 +49,47 @@ let
     "MINIO_ROOT_PASSWORD=${placeholders.minio_root_password}"
   ];
   backupPgpassLine = "localhost:5432:minutka:minutka_migrator:${placeholders.minutka_migrator_db_password}";
+  cliproxyConfig = ''
+    host: "127.0.0.1"
+    port: 8317
+    tls:
+      enable: false
+      cert: ""
+      key: ""
+    remote-management:
+      allow-remote: false
+      secret-key: "${placeholders.cliproxy_management_key}"
+      disable-control-panel: false
+      panel-github-repository: "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+    auth-dir: "/var/lib/cliproxyapi/.cli-proxy-api"
+    api-keys:
+      - "${placeholders.openai_api_key}"
+    debug: false
+    pprof:
+      enable: false
+      addr: "127.0.0.1:8316"
+    commercial-mode: false
+    logging-to-file: true
+    logs-max-total-size-mb: 10
+    error-logs-max-files: 10
+    usage-statistics-enabled: true
+    proxy-url: ""
+    force-model-prefix: true
+    passthrough-headers: false
+    request-retry: 3
+    max-retry-credentials: 0
+    max-retry-interval: 30
+    disable-cooling: false
+    quota-exceeded:
+      switch-project: true
+      switch-preview-model: true
+      antigravity-credits: true
+    routing:
+      strategy: "fill-first"
+    ws-auth: false
+    enable-gemini-cli-endpoint: false
+    nonstream-keepalive-interval: 0
+  '';
 in
 lib.mkMerge [
   {
@@ -64,6 +106,7 @@ lib.mkMerge [
       environmentFile = config.sops.templates."personal-assistant.env".path;
       minioRootCredentialsFile = config.sops.templates."minio-root.env".path;
       backupPgpassFile = config.sops.templates."personal-assistant-backup.pgpass".path;
+      cliproxyConfigFile = config.sops.templates."cliproxyapi.yaml".path;
       inherit runtimeSecretPaths;
     };
 
@@ -111,6 +154,13 @@ lib.mkMerge [
           group = "personal-assistant";
           mode = "0400";
           content = backupPgpassLine + "\n";
+        };
+
+        "cliproxyapi.yaml" = {
+          owner = "cliproxyapi";
+          group = "cliproxyapi";
+          mode = "0400";
+          content = cliproxyConfig;
         };
       };
     };

@@ -15,6 +15,9 @@ unix socket; MinIO API и Console слушают только loopback.
   и комментариев;
 - evaluation failure при отсутствующем, незашифрованном bundle или видимом
   плейсхолдере;
+- loopback-only CLIProxyAPI `127.0.0.1:8317` как локальный OpenAI-compatible
+  LLM gateway; provider OAuth credentials добавляются оператором через SSH tunnel
+  и сохраняются в `/var/lib/cliproxyapi/.cli-proxy-api/`;
 - `pkgs.buildNpmPackage` с pinned `npmDepsHash`, без отдельного build-step;
 - self-contained runtime в `/nix/store/.../lib/personal-assistant` с
   `package.json`, `node_modules`, `src`, `vault/assistant` и `migrations`;
@@ -70,7 +73,7 @@ nix build .#personal-assistant
 ```bash
 sudo find /run/secrets \
   -type f -printf '%m %U:%G %p\n'
-sudo systemctl status postgresql minio \
+sudo systemctl status cliproxyapi postgresql minio \
   personal-assistant-postgres-setup \
   personal-assistant-postgres-migrate \
   personal-assistant-minio-provision \
@@ -87,7 +90,7 @@ sudo find /var/backups/personal-assistant -maxdepth 3 -type f | sort | tail -n 3
 sudo systemctl start personal-assistant-smoke.service
 sudo systemctl start personal-assistant-observability-collector.service
 curl -fsS http://127.0.0.1:9100/metrics | grep '^personal_assistant_'
-sudo ss -lntp | grep -E '127\.0\.0\.1:(9000|9001|9100)'
+sudo ss -lntp | grep -E '127\.0\.0\.1:(8317|9000|9001|9100)'
 sudo -u postgres psql -d postgres -Atc \
   "select rolname, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname in ('minutka_runtime','minutka_migrator') order by rolname"
 ```
