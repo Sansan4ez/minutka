@@ -121,6 +121,9 @@ async function withVoiceTimeout<T>(timeoutMs: number, action: (signal: AbortSign
 const onboardingIntroduction = "Давайте коротко познакомимся. Напишите, как к вам обращаться, как вы хотите называть меня, предпочитаете общение на ты или на вы, тёплый или деловой стиль и длину ответов. Часовой пояс можно будет выбрать кнопкой. Можно ответить одним сообщением или по частям.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
+function logArtifactRejection(reason: "object_limit" | "owner_quota" | "global_capacity"): void {
+  console.warn(`Artifact save rejected (${reason}).`);
+}
 function consentCallbackData(employeeId: string): string | undefined { const callbackData = `tg:consent:${employeeId}`; return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined; }
 function onboardingCallbackData(action: "confirm" | "reset" | "addressForm" | "persona" | "responseLength" | "timezone", value?: string): string | undefined {
   const data = value ? `ob:${action}:${value}` : `ob:${action}`;
@@ -775,7 +778,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await removeActiveReplyMarkup(chatId);
         const session = await authorizedSession(chatId, userId); if (!session) return;
         if (!artifactIntake || !fileGateway) return void await replyPort.sendMessage(chatId, "Сохранение файлов сейчас недоступно. Попробуйте ещё раз позже.");
-        if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > artifactMaximumBytes) return void await replyPort.sendMessage(chatId, artifactObjectLimitMessage(artifactMaximumBytes));
+        if (attachment.fileSizeBytes !== undefined && attachment.fileSizeBytes > artifactMaximumBytes) {
+          logArtifactRejection("object_limit");
+          return void await replyPort.sendMessage(chatId, artifactObjectLimitMessage(artifactMaximumBytes));
+        }
         const deliveryKey = `telegram:${chatId}:${attachment.messageId}:${attachment.payloadKind}:${attachment.fileUniqueId ?? attachment.fileId}`;
         if (attachment.fileSizeBytes !== undefined) await artifactIntake.checkArtifactCapacity?.({ ownerId: session.employeeId, deliveryKey, size: attachment.fileSizeBytes });
         await artifactIntake.saveArtifact({
@@ -800,6 +806,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         await replyPort.sendMessage(chatId, "Файл сохранён.");
       } catch (error) {
         logShellError("file message", error);
+        if (error instanceof ArtifactTooLargeError) logArtifactRejection("object_limit");
+        else if (error instanceof ArtifactOwnerQuotaExceededError) logArtifactRejection("owner_quota");
+        else if (error instanceof ArtifactGlobalCapacityExceededError) logArtifactRejection("global_capacity");
         const message = error instanceof ArtifactTooLargeError ? artifactObjectLimitMessage(artifactMaximumBytes)
           : error instanceof ArtifactOwnerQuotaExceededError ? "Квота хранения файлов для вашего профиля исчерпана. Обратитесь к оператору пилота."
           : error instanceof ArtifactGlobalCapacityExceededError ? "Сохранение новых файлов временно приостановлено из-за общей ёмкости хранилища. Обратитесь к оператору пилота."

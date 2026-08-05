@@ -170,6 +170,8 @@ Phase 3 использует зашифрованный bundle и не копи�
 `backupPull`, затем примени stack через
 `nixos/phase3-assistant-stack/scripts/deploy.sh`. Подробный storage contract,
 проверки ролей/bucket/versioning и канонические prefixes описаны в
-[`phase3-assistant-stack/README.md`](phase3-assistant-stack/README.md), а backup,
+[`phase3-assistant-stack/README.md`](phase3-assistant-stack/README.md), backup,
 off-site pull и восстановление с нуля — в
-[`../docs/runbooks/production-backup-restore.md`](../docs/runbooks/production-backup-restore.md).
+[`../docs/runbooks/production-backup-restore.md`](../docs/runbooks/production-backup-restore.md),
+а smoke, loopback-метрики и SSH-туннель — в
+[`../docs/runbooks/production-observability.md`](../docs/runbooks/production-observability.md).

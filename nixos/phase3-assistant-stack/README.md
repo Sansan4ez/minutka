@@ -1,8 +1,9 @@
 # Phase 3: production assistant stack
 
 Третий этап добавляет к operational baseline `sops-nix`, Nix-пакет приложения,
-systemd-сервис ассистента, оба durable storage, daily backup, restore smoke и
-read-only source account для off-site pull. PostgreSQL доступен только через
+systemd-сервис ассистента, оба durable storage, daily backup, restore smoke,
+read-only source account для off-site pull и loopback-only observability.
+PostgreSQL доступен только через
 unix socket; MinIO API и Console слушают только loopback.
 
 ## Что обеспечивает этап
@@ -29,13 +30,18 @@ unix socket; MinIO API и Console слушают только loopback.
 - daily `pg_dump -Fc`, version-aware MinIO mirror и Git bundle/worktree snapshot
   source knowledge base в `/var/backups/personal-assistant/<UTC timestamp>`;
 - 14-day local retention, `backup.last_success`, restore smoke и отдельный
-  SSH account для pull-based off-site snapshots.
+  SSH account для pull-based off-site snapshots;
+- smoke каждые 15 минут для PostgreSQL, MinIO, приложения и `/healthz`;
+- `node_exporter` только на loopback с textfile-метриками service/backup/smoke,
+  schedule fires, monthly usage и storage/artifact capacity без owner labels.
 
 Подготовка и проверка bundle описаны в
 [`secrets/README.md`](secrets/README.md). Ротация secrets — в
 [`../../docs/runbooks/production-secrets.md`](../../docs/runbooks/production-secrets.md),
 backup, off-site pull и полное восстановление — в
-[`../../docs/runbooks/production-backup-restore.md`](../../docs/runbooks/production-backup-restore.md).
+[`../../docs/runbooks/production-backup-restore.md`](../../docs/runbooks/production-backup-restore.md),
+smoke, SSH-туннель и operator thresholds — в
+[`../../docs/runbooks/production-observability.md`](../../docs/runbooks/production-observability.md).
 
 ## Deploy
 
@@ -45,7 +51,8 @@ pilot traffic смонтируй durable filesystem в `site.storage.minio.dataD
 проверь, что его фактическая ёмкость не меньше `capacityBytes`. Текущий budget —
 55 GiB: 45 GiB global artifact hard limit, 5 GiB application reserve и 5 GiB
 filesystem reserve. MinIO нельзя оставлять на маленьком root volume без
-capacity-monitoring (метрики добавляются в INF.6).
+capacity-monitoring; collector публикует free bytes, use percent и ранний soft
+threshold до filesystem reserve.
 
 ```bash
 ./scripts/deploy.sh --dry-activate
@@ -68,13 +75,19 @@ sudo systemctl status postgresql minio \
   personal-assistant-postgres-migrate \
   personal-assistant-minio-provision \
   personal-assistant \
-  personal-assistant-backup.timer
+  personal-assistant-backup.timer \
+  personal-assistant-smoke.timer \
+  personal-assistant-observability-collector.timer \
+  prometheus-node-exporter.service
 sudo systemctl show personal-assistant \
   -p EnvironmentFiles -p WorkingDirectory -p Restart -p RestartUSec
 sudo journalctl -u personal-assistant --since today
 sudo systemctl start personal-assistant-backup.service
 sudo find /var/backups/personal-assistant -maxdepth 3 -type f | sort | tail -n 30
-sudo ss -lntp | grep -E '127\.0\.0\.1:(9000|9001)'
+sudo systemctl start personal-assistant-smoke.service
+sudo systemctl start personal-assistant-observability-collector.service
+curl -fsS http://127.0.0.1:9100/metrics | grep '^personal_assistant_'
+sudo ss -lntp | grep -E '127\.0\.0\.1:(9000|9001|9100)'
 sudo -u postgres psql -d postgres -Atc \
   "select rolname, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname in ('minutka_runtime','minutka_migrator') order by rolname"
 ```
