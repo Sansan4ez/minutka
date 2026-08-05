@@ -26,7 +26,9 @@ in
     description = "Administrative user";
     extraGroups = [ "wheel" ];
     openssh.authorizedKeys.keys = adminAuthorizedKeys;
+    homeMode = "0710";
   };
+  users.groups.users.members = lib.mkAfter [ "personal-assistant" ];
 
   users.groups.personal-assistant = { };
   users.users.personal-assistant = {

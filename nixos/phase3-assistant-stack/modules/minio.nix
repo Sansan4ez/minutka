@@ -22,9 +22,12 @@ let
       app_user="$(< "$MINIO_ACCESS_KEY_FILE")"
       app_password="$(< "$MINIO_SECRET_KEY_FILE")"
       policy_file="$(mktemp)"
+      mc_config_dir="$(mktemp -d)"
+      export MC_CONFIG_DIR="$mc_config_dir"
 
       cleanup() {
         rm -f "$policy_file"
+        rm -rf "$mc_config_dir"
         root_user=
         root_password=
         app_user=

@@ -74,7 +74,7 @@ in
   };
 
   systemd.tmpfiles.rules = [
-    "d /var/lib/personal-assistant 0750 root root -"
+    "d /var/lib/personal-assistant 0750 root postgres -"
     "d /var/lib/personal-assistant/postgresql 0750 postgres postgres -"
     "d /var/lib/personal-assistant/postgresql/16 0700 postgres postgres -"
   ];

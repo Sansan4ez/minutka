@@ -90,5 +90,9 @@ sudo find /var/lib/personal-assistant /opt /srv \
   -xdev -type f \( -name '.env' -o -name '*secret*' \) -print
 ```
 
-Ожидание: первая команда ничего не выводит; runtime-файлы имеют `0400` и owner
-`personal-assistant`; последний поиск не находит production secret copies.
+Ожидание: первая команда ничего не выводит; application runtime-файлы имеют
+`0400 personal-assistant:personal-assistant`, PostgreSQL role passwords и MinIO
+app credential — `0440 personal-assistant:postgres` для peer-authenticated
+setup/restore smoke, MinIO root
+template — `0400 minio:minio`; последний поиск не находит production secret
+copies.

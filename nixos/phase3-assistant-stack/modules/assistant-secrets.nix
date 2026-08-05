@@ -47,6 +47,7 @@ let
     "MINIO_ROOT_USER=${placeholders.minio_root_user}"
     "MINIO_ROOT_PASSWORD=${placeholders.minio_root_password}"
   ];
+  backupPgpassLine = "localhost:5432:minutka:minutka_migrator:${placeholders.minutka_migrator_db_password}";
 in
 lib.mkMerge [
   {
@@ -62,6 +63,7 @@ lib.mkMerge [
     _module.args.personalAssistantSecrets = {
       environmentFile = config.sops.templates."personal-assistant.env".path;
       minioRootCredentialsFile = config.sops.templates."minio-root.env".path;
+      backupPgpassFile = config.sops.templates."personal-assistant-backup.pgpass".path;
       inherit runtimeSecretPaths;
     };
 
@@ -84,8 +86,8 @@ lib.mkMerge [
       secrets = lib.mapAttrs'
         (name: _: lib.nameValuePair (secretPath name) {
           owner = "personal-assistant";
-          group = "personal-assistant";
-          mode = "0400";
+          group = if builtins.elem name [ "minutka_db_password" "minutka_migrator_db_password" "minio_access_key" "minio_secret_key" ] then "postgres" else "personal-assistant";
+          mode = if builtins.elem name [ "minutka_db_password" "minutka_migrator_db_password" "minio_access_key" "minio_secret_key" ] then "0440" else "0400";
         })
         allSecrets;
 
@@ -102,6 +104,13 @@ lib.mkMerge [
           group = "minio";
           mode = "0400";
           content = lib.concatStringsSep "\n" minioRootCredentialLines + "\n";
+        };
+
+        "personal-assistant-backup.pgpass" = {
+          owner = "personal-assistant";
+          group = "personal-assistant";
+          mode = "0400";
+          content = backupPgpassLine + "\n";
         };
       };
     };

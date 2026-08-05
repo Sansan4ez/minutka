@@ -166,7 +166,10 @@ Phase 3 использует зашифрованный bundle и не копи�
 ротация и восстановление — в
 [`../docs/runbooks/production-secrets.md`](../docs/runbooks/production-secrets.md).
 После подготовки проверь durable MinIO volume и capacity budget в
-`phase3-assistant-stack/site.nix`, затем примени stack через
+`phase3-assistant-stack/site.nix`, подготовь Git source knowledge base и ключ
+`backupPull`, затем примени stack через
 `nixos/phase3-assistant-stack/scripts/deploy.sh`. Подробный storage contract,
 проверки ролей/bucket/versioning и канонические prefixes описаны в
-[`phase3-assistant-stack/README.md`](phase3-assistant-stack/README.md).
+[`phase3-assistant-stack/README.md`](phase3-assistant-stack/README.md), а backup,
+off-site pull и восстановление с нуля — в
+[`../docs/runbooks/production-backup-restore.md`](../docs/runbooks/production-backup-restore.md).

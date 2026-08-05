@@ -13,6 +13,8 @@
       ../../modules/postgres.nix
       ../../modules/minio.nix
       ../../modules/personal-assistant.nix
+      ../../modules/backup.nix
+      ../../modules/backup-pull.nix
     ]
     ++ lib.optionals (builtins.pathExists ./hardware-configuration.nix) [
       ./hardware-configuration.nix

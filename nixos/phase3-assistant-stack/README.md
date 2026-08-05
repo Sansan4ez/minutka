@@ -1,9 +1,9 @@
 # Phase 3: production assistant stack
 
 Третий этап добавляет к operational baseline `sops-nix`, Nix-пакет приложения,
-systemd-сервис ассистента и оба durable storage: PostgreSQL 16 и MinIO.
-PostgreSQL доступен только через unix socket; MinIO API и Console слушают
-только loopback.
+systemd-сервис ассистента, оба durable storage, daily backup, restore smoke и
+read-only source account для off-site pull. PostgreSQL доступен только через
+unix socket; MinIO API и Console слушают только loopback.
 
 ## Что обеспечивает этап
 
@@ -25,11 +25,17 @@ PostgreSQL доступен только через unix socket; MinIO API и Co
 - MinIO provisioning oneshot: bucket `personal-assistant`, versioning Enabled и
   least-privilege policy/user; root credential не попадает в runtime;
 - MinIO data dir и capacity budget из `site.storage.minio`, с обязательным
-  filesystem reserve не меньше 5 GiB.
+  filesystem reserve не меньше 5 GiB;
+- daily `pg_dump -Fc`, version-aware MinIO mirror и Git bundle/worktree snapshot
+  source knowledge base в `/var/backups/personal-assistant/<UTC timestamp>`;
+- 14-day local retention, `backup.last_success`, restore smoke и отдельный
+  SSH account для pull-based off-site snapshots.
 
 Подготовка и проверка bundle описаны в
-[`secrets/README.md`](secrets/README.md). Ротация и аварийное восстановление — в
-[`../../docs/runbooks/production-secrets.md`](../../docs/runbooks/production-secrets.md).
+[`secrets/README.md`](secrets/README.md). Ротация secrets — в
+[`../../docs/runbooks/production-secrets.md`](../../docs/runbooks/production-secrets.md),
+backup, off-site pull и полное восстановление — в
+[`../../docs/runbooks/production-backup-restore.md`](../../docs/runbooks/production-backup-restore.md).
 
 ## Deploy
 
@@ -61,17 +67,23 @@ sudo systemctl status postgresql minio \
   personal-assistant-postgres-setup \
   personal-assistant-postgres-migrate \
   personal-assistant-minio-provision \
-  personal-assistant
+  personal-assistant \
+  personal-assistant-backup.timer
 sudo systemctl show personal-assistant \
   -p EnvironmentFiles -p WorkingDirectory -p Restart -p RestartUSec
 sudo journalctl -u personal-assistant --since today
+sudo systemctl start personal-assistant-backup.service
+sudo find /var/backups/personal-assistant -maxdepth 3 -type f | sort | tail -n 30
 sudo ss -lntp | grep -E '127\.0\.0\.1:(9000|9001)'
 sudo -u postgres psql -d postgres -Atc \
   "select rolname, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname in ('minutka_runtime','minutka_migrator') order by rolname"
 ```
 
 Ожидаются `0400 personal-assistant:personal-assistant` для application/bootstrap
-secrets и `0400 minio:minio` только для `minio-root.env`; `WorkingDirectory`
+secrets, кроме PostgreSQL role passwords и MinIO app credential
+(`0440 personal-assistant:postgres`, чтобы peer-authenticated setup/restore
+smoke могли читать их), и `0400 minio:minio` только для
+`minio-root.env`; `WorkingDirectory`
 должен указывать на пакет в Nix store. Для smoke restart:
 
 ```bash
