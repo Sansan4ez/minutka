@@ -18,6 +18,12 @@ buildNpmPackage {
       || lib.hasPrefix "src/" relative
       || relative == "migrations"
       || lib.hasPrefix "migrations/" relative
+      # Agent-vault registry dependencies are validated at runtime. Keep the
+      # referenced repository files in the immutable production package.
+      || relative == "docs"
+      || lib.hasPrefix "docs/" relative
+      || relative == "specs"
+      || lib.hasPrefix "specs/" relative
       || relative == "vault"
       || relative == "vault/assistant"
       || lib.hasPrefix "vault/assistant/" relative;
@@ -34,7 +40,7 @@ buildNpmPackage {
     appDir="$out/lib/personal-assistant"
     mkdir -p "$appDir"
     cp package.json package-lock.json "$appDir/"
-    cp -r node_modules src migrations "$appDir/"
+    cp -r node_modules src migrations docs specs "$appDir/"
     mkdir -p "$appDir/vault"
     cp -r vault/assistant "$appDir/vault/"
 

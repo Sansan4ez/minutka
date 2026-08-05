@@ -41,13 +41,6 @@
     filesystemReserveBytes = 5368709120;
   };
 
-  backup = {
-    # The canonical import source is a separate private Git repository. Copy or
-    # clone it to this owner-only path before enabling the backup timer.
-    knowledgeBasePath = "/home/admin/user_knowledge_base";
-    knowledgeBaseGroup = "personal-assistant";
-  };
-
   backupPull = {
     enable = true;
     user = "personal-assistant-backup-pull";

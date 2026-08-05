@@ -1,4 +1,4 @@
-{ lib, pkgs, site, personalAssistantSecrets, ... }:
+{ lib, pkgs, personalAssistantSecrets, ... }:
 
 let
   backupRoot = "/var/backups/personal-assistant";
@@ -8,8 +8,6 @@ let
   database = "minutka";
   bucket = "personal-assistant";
   endpoint = "http://127.0.0.1:9000";
-  knowledgeBasePath = site.backup.knowledgeBasePath;
-  knowledgeBaseGroup = site.backup.knowledgeBaseGroup;
   secretPaths = personalAssistantSecrets.runtimeSecretPaths;
 
   backupScript = pkgs.writeShellApplication {
@@ -17,10 +15,8 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       findutils
-      git
       minio-client
       postgresql_16
-      rsync
     ];
     text = ''
       set -euo pipefail
@@ -36,7 +32,7 @@ let
       }
       trap cleanup EXIT
 
-      mkdir -p "$incomplete_dir/minio"
+      mkdir -p "$incomplete_dir/minio/$MINIO_BUCKET"
       mkdir -p "${stateDir}"
 
       pg_dump \
@@ -54,19 +50,6 @@ let
       minio_access_key=
       minio_secret_key=
 
-      git_cmd=(git -c safe.directory="$KNOWLEDGE_BASE_PATH" -C "$KNOWLEDGE_BASE_PATH")
-      "''${git_cmd[@]}" diff --quiet
-      "''${git_cmd[@]}" diff --cached --quiet
-      "''${git_cmd[@]}" bundle create \
-        "$incomplete_dir/user-knowledge-base.bundle" --all
-      "''${git_cmd[@]}" bundle verify "$incomplete_dir/user-knowledge-base.bundle"
-      "''${git_cmd[@]}" rev-parse HEAD \
-        > "$incomplete_dir/user-knowledge-base.head"
-      mkdir -p "$incomplete_dir/user-knowledge-base-worktree"
-      rsync -a --delete --exclude=.git/ \
-        "$KNOWLEDGE_BASE_PATH/" \
-        "$incomplete_dir/user-knowledge-base-worktree/"
-
       mv "$incomplete_dir" "$target_dir"
       find "${backupRoot}" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
       date -u +%s > "${stateDir}/backup.last_success"
@@ -80,7 +63,6 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       findutils
-      git
       minio-client
       postgresql_16
     ];
@@ -104,9 +86,7 @@ let
       fi
 
       test -s "$backup_dir/${database}.dump"
-      test -s "$backup_dir/user-knowledge-base.bundle"
-      test -s "$backup_dir/user-knowledge-base.head"
-      test -d "$backup_dir/minio"
+      test -d "$backup_dir/minio/$MINIO_BUCKET"
 
       temp_database="personal_assistant_restore_smoke_$(date -u +%s)_$$"
       minio_config_dir="$(mktemp -d -p ${restoreSmokeStateDir} minio-config.XXXXXX)"
@@ -161,9 +141,6 @@ let
         head -c 1 "$document" >/dev/null
       done < <(find "$backup_dir/minio" -type f -path '*/context/*.md' -print)
 
-      git -C "$minio_restore_dir" init --quiet
-      git -C "$minio_restore_dir" bundle verify "$backup_dir/user-knowledge-base.bundle" >/dev/null
-
       echo "Restore smoke passed: $backup_dir"
       echo "PostgreSQL row counts match for: ''${tables[*]}"
       echo "Readable /proc/context documents: $backup_document_count"
@@ -181,14 +158,6 @@ in
         && secretPaths ? minutka_migrator_db_password;
       message = "Backup requires MinIO application credentials and the PostgreSQL migrator password.";
     }
-    {
-      assertion = lib.hasPrefix "/" knowledgeBasePath;
-      message = "site.backup.knowledgeBasePath must be an absolute path.";
-    }
-    {
-      assertion = knowledgeBaseGroup == "personal-assistant";
-      message = "site.backup.knowledgeBaseGroup must grant only the personal-assistant service group read access.";
-    }
   ];
 
   environment.systemPackages = [ backupScript restoreSmokeScript ];
@@ -201,7 +170,7 @@ in
   ];
 
   systemd.services.personal-assistant-backup = {
-    description = "Back up personal-assistant PostgreSQL, MinIO, and knowledge-base Git repository";
+    description = "Back up personal-assistant PostgreSQL and the complete MinIO bucket";
     after = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
     requires = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
 
@@ -212,10 +181,7 @@ in
       MINIO_BUCKET = bucket;
       MINIO_ACCESS_KEY_FILE = secretPaths.minio_access_key;
       MINIO_SECRET_KEY_FILE = secretPaths.minio_secret_key;
-      KNOWLEDGE_BASE_PATH = knowledgeBasePath;
     };
-
-    unitConfig.RequiresMountsFor = [ knowledgeBasePath site.storage.minio.dataDir ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -246,8 +212,8 @@ in
 
   systemd.services.personal-assistant-restore-smoke = {
     description = "Restore and verify a completed personal-assistant backup";
-    after = [ "postgresql.service" "minio.service" ];
-    requires = [ "postgresql.service" "minio.service" ];
+    after = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
+    requires = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
 
     environment = {
       MINIO_ENDPOINT = endpoint;

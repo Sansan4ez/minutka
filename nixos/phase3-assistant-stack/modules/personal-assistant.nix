@@ -7,6 +7,7 @@ let
     MINUTKA_API_HOST = "127.0.0.1";
     MINUTKA_API_PORT = "8787";
     TELEGRAM_MODE = "polling";
+    PRIVACY_POLICY_V2_URL = "https://sansan4ez.github.io/privacy-v2.html";
 
     DATABASE_SSL_MODE = "disable";
     MINIO_ENDPOINT = "127.0.0.1";

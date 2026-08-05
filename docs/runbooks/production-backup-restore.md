@@ -2,90 +2,112 @@
 
 ## Назначение
 
-Production-host ежедневно сохраняет три источника durable-данных в
-`/var/backups/personal-assistant/<UTC timestamp>/`:
+Production-host ежедневно сохраняет в
+`/var/backups/personal-assistant/<UTC timestamp>/` два production-источника
+durable-данных:
 
-- `minutka.dump` — custom-format `pg_dump -Fc` PostgreSQL;
-- `minio/` — object-level mirror bucket MinIO;
-- `user-knowledge-base.bundle`, `user-knowledge-base.head` и
-  `user-knowledge-base-worktree/` — самодостаточный Git bundle и exact worktree
-  snapshot исходного owner knowledge-base repository.
+- `minutka.dump` — custom-format `pg_dump -Fc` PostgreSQL со всеми
+  owner-scoped прикладными записями;
+- `minio/personal-assistant/` — полный object-level mirror versioned bucket
+  MinIO. Он содержит БЗ и artifacts всех owner-account'ов под prefix'ами
+  `{owner}/context/*` и `{owner}/cas/sha256/**`.
+
+После bootstrap import MinIO является единственным source of truth owner БЗ.
+Внешние Git-репозитории — одноразовые источники импорта отдельных owner'ов, а
+не production durable storage. Поэтому backup не требует локального
+`/home/admin/user_knowledge_base`, не создаёт Git bundle и не блокируется его
+отсутствием.
 
 Локальный retention — 14 дней. Успешный запуск записывает Unix timestamp в
 `/var/lib/personal-assistant-observability/backup.last_success`; незавершённый
-каталог имеет suffix `.incomplete` и не считается бэкапом.
+каталог имеет suffix `.incomplete` и не считается backup.
 
 ## Что не входит в backup
 
 Data backup намеренно не содержит:
 
-- git-репозиторий конфигурации personal-assistant;
+- Git-репозиторий конфигурации personal-assistant;
 - зашифрованный `nixos/phase3-assistant-stack/secrets/assistant.yaml` как
   отдельную копию вне config repository;
 - private owner age key;
 - `/etc/ssh/ssh_host_ed25519_key`, который является server age identity;
-- полный disk/VPS snapshot и незакоммиченные изменения knowledge-base.
+- внешние Git workspaces, использованные для импорта БЗ конкретных owner'ов;
+- полный disk/VPS snapshot.
 
-Для disaster recovery эти артефакты хранятся отдельно от production VPS. Без
-owner age key нельзя пере-зашифровать secrets под новый host key; без ciphertext
-bundle приходится перевыпускать внешние credentials, а стабильные peppers и
-`INTEGRATION_ENC_KEY` без data migration менять нельзя.
+Для disaster recovery config repository, encrypted secrets bundle и owner age
+private key хранятся отдельно от production VPS. При восстановлении старой
+PostgreSQL значения `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и
+`TELEGRAM_IDENTITY_PEPPER` сохраняются byte-for-byte. Для clean bootstrap без
+старых данных, напротив, создаются новые production-only значения — см.
+[production secrets](./production-secrets.md).
 
-## Подготовка перед первым запуском
+## Первый backup чистого production
 
-На production-host должен существовать owner-only Git repository по пути из
-`site.backup.knowledgeBasePath`:
-
-```bash
-sudo install -d -m 0750 -o admin -g personal-assistant /home/admin/user_knowledge_base
-rsync -a --delete /home/admin/user_knowledge_base/ \
-  admin@169.58.116.31:/home/admin/user_knowledge_base/
-ssh admin@169.58.116.31 '
-sudo chmod 0710 /home/admin
-sudo chgrp -R personal-assistant /home/admin/user_knowledge_base
-sudo find /home/admin/user_knowledge_base -type d -exec chmod 0750 {} +
-sudo find /home/admin/user_knowledge_base -type f -exec chmod 0640 {} +
-git -C /home/admin/user_knowledge_base status --short
-'
-```
-
-Рабочее дерево должно быть чистым: backup fail-closed проверяет staged/unstaged
-изменения, затем фиксирует Git refs и exact worktree snapshot.
-
-Применить Phase 3 и запустить первый backup:
-
-```bash
-cd nixos/phase3-assistant-stack
-./scripts/deploy.sh
-ssh admin@169.58.116.31 \
-  'sudo systemctl start personal-assistant-backup.service'
-```
-
-Проверка:
+Clean launch не требует rsync dev PostgreSQL, MinIO или owner Git repository.
+После применения Phase 3 и до выдачи первого production invite проверь, что
+production storage чистые, затем запусти backup:
 
 ```bash
 ssh admin@169.58.116.31 '
 set -euo pipefail
-systemctl list-timers personal-assistant-backup.timer --all
+sudo -u postgres psql -d minutka -At <<"SQL"
+SELECT table_name || E'\t' || row_count
+FROM (
+  SELECT 'participants' AS table_name, count(*) AS row_count FROM minutka_private.participants
+  UNION ALL SELECT 'consents', count(*) FROM minutka_private.consents
+  UNION ALL SELECT 'process_schedules', count(*) FROM minutka_private.process_schedules
+  UNION ALL SELECT 'ideas', count(*) FROM minutka_private.ideas
+  UNION ALL SELECT 'tasks', count(*) FROM minutka_private.tasks
+  UNION ALL SELECT 'messages', count(*) FROM minutka_private.messages
+) AS counts
+ORDER BY table_name;
+SQL
+sudo systemctl start personal-assistant-backup.service
 sudo journalctl -u personal-assistant-backup.service --no-pager -n 100
-sudo find /var/backups/personal-assistant -maxdepth 3 -type f -printf "%m %U:%G %p\n" | sort | tail -n 30
+sudo find /var/backups/personal-assistant -maxdepth 4 -type f -printf "%m %U:%G %p\n" | sort | tail -n 30
 sudo cat /var/lib/personal-assistant-observability/backup.last_success
 '
 ```
 
-## Restore smoke на вчерашнем backup
+Для проверки пустого MinIO используй временный `mc` config и runtime
+credentials, не печатая их:
+
+```bash
+ssh admin@169.58.116.31 '
+sudo sh -eu <<"EOF"
+config="$(mktemp -d)"
+trap "rm -rf $config" EXIT
+export MC_CONFIG_DIR="$config"
+access="$(cat /run/secrets/assistant/minio_access_key)"
+secret="$(cat /run/secrets/assistant/minio_secret_key)"
+mc_bin="$(command -v mc || find /nix/store -path '*/bin/mc' -type f -print -quit)"
+test -n "$mc_bin"
+"$mc_bin" alias set production http://127.0.0.1:9000 "$access" "$secret" >/dev/null
+count="$("$mc_bin" find production/personal-assistant --name "*" | wc -l)"
+test "$count" -eq 0
+echo "Production MinIO is empty"
+EOF
+'
+```
+
+Ожидание перед invite: все перечисленные row counts равны `0`, MinIO не
+содержит owner objects, backup содержит PostgreSQL dump и каталог
+`minio/personal-assistant/` даже если bucket пуст.
+
+## Restore smoke
 
 `personal-assistant-restore-smoke` по умолчанию выбирает последний завершённый
 backup возрастом не меньше 23 часов — вчерашний daily snapshot с допуском на
 15-минутный randomized delay. Он:
 
-1. восстанавливает `minutka.dump` во временную PostgreSQL database;
-2. сравнивает `count(*)` для `participants`, `consents`,
+1. проверяет наличие `minutka.dump` и полного MinIO mirror;
+2. восстанавливает dump во временную PostgreSQL database;
+3. сравнивает `count(*)` для `participants`, `consents`,
    `process_schedules`, `ideas`, `tasks`, `messages` с production database;
-3. зеркалирует live MinIO bucket во временный каталог и сравнивает количество
-   читаемых `*/context/*.md` с копией `/proc/context` в backup;
-4. выполняет `git bundle verify` для source knowledge base;
-5. всегда удаляет временную database и temporary directories.
+4. зеркалирует live MinIO bucket во временный каталог;
+5. сравнивает количество и читаемость всех `*/context/*.md` в live bucket и
+   backup; нулевое количество документов допустимо для чистого production;
+6. всегда удаляет временную database и temporary directories.
 
 Запуск последнего вчерашнего backup:
 
@@ -108,10 +130,9 @@ sudo systemctl start personal-assistant-restore-smoke.service
 '
 ```
 
-Smoke сравнивает snapshot с текущим production. Поэтому его запускают до
-новых записей либо выбирают вчерашний backup сразу после daily backup; при
-ожидаемом изменении данных несоответствие row/document count требует ручной
-сверки, а не игнорирования.
+Smoke сравнивает snapshot с текущим production. Поэтому его запускают до новых
+записей либо сразу после выбранного backup. При ожидаемом изменении данных
+несоответствие row/document count требует ручной сверки, а не игнорирования.
 
 ## Pull-based off-site copy
 
@@ -217,7 +238,8 @@ Migrations выполняются до restore только для provisioning 
 ### 4. MinIO restore
 
 Получить root credential только через временную root-owned shell из sops
-runtime paths и зеркалировать backup в уже provisioned versioned bucket:
+runtime paths и зеркалировать полный backup bucket в уже provisioned versioned
+bucket:
 
 ```bash
 ssh admin@NEW_SERVER_IP '
@@ -229,36 +251,19 @@ export MC_CONFIG_DIR="$config"
 root_user="$(cat /run/secrets/assistant/minio_root_user)"
 root_password="$(cat /run/secrets/assistant/minio_root_password)"
 mc alias set restore http://127.0.0.1:9000 "$root_user" "$root_password" >/dev/null
-mc mirror --overwrite --remove /tmp/personal-assistant-restore/minio/ restore/personal-assistant
+mc mirror --overwrite --remove \
+  /tmp/personal-assistant-restore/minio/personal-assistant/ \
+  restore/personal-assistant
 EOF
 '
 ```
 
 Не восстанавливать MinIO data-dir поверх работающего процесса: backup является
-object-level mirror и восстанавливается через S3 API.
+object-level mirror и восстанавливается через S3 API. Отдельное восстановление
+Git source repositories не требуется: owner БЗ всех пользователей уже находится
+в восстановленном MinIO bucket.
 
-### 5. Knowledge-base source repository
-
-```bash
-ssh admin@NEW_SERVER_IP '
-set -euo pipefail
-sudo rm -rf /home/admin/user_knowledge_base
-sudo -u admin git clone /tmp/personal-assistant-restore/user-knowledge-base.bundle /home/admin/user_knowledge_base
-expected="$(cat /tmp/personal-assistant-restore/user-knowledge-base.head)"
-actual="$(sudo -u admin git -C /home/admin/user_knowledge_base rev-parse HEAD)"
-test "$actual" = "$expected"
-sudo -u admin rsync -a --delete \
-  /tmp/personal-assistant-restore/user-knowledge-base-worktree/ \
-  /home/admin/user_knowledge_base/
-sudo -u admin git -C /home/admin/user_knowledge_base diff --quiet
-sudo chmod 0710 /home/admin
-sudo chgrp -R personal-assistant /home/admin/user_knowledge_base
-sudo find /home/admin/user_knowledge_base -type d -exec chmod 0750 {} +
-sudo find /home/admin/user_knowledge_base -type f -exec chmod 0640 {} +
-'
-```
-
-### 6. Запуск и проверка
+### 5. Запуск и проверка
 
 ```bash
 ssh admin@NEW_SERVER_IP '
@@ -292,6 +297,6 @@ active schedules, restore smoke проходит, новый backup появля
 - config Git repository;
 - encrypted `secrets/assistant.yaml`;
 - owner age private key;
-- свежий off-site timestamp со всеми тремя data sources;
+- свежий off-site timestamp с PostgreSQL dump и полным MinIO mirror;
 - private SSH key off-site pull host;
 - записанный порядок замены server age recipient и DNS/IP.

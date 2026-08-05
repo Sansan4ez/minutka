@@ -32,13 +32,22 @@ Production-секреты хранятся только в зашифрован�
 7. После подтверждения отзови прежний credential у провайдера.
 
 `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и `TELEGRAM_IDENTITY_PEPPER` нельзя
-ротировать как обычный token:
+ротировать как обычный token внутри контура с существующими durable-данными:
 
 - смена `INTEGRATION_ENC_KEY` требует предварительно перечитать и
   перешифровать все integration credentials/chat ids;
 - смена pepper требует migration, которая пересчитает соответствующие digests
   из доступного исходного идентификатора;
-- если такой migration нет, значения сохраняются byte-for-byte при переносе.
+- при restore/data migration значения сохраняются byte-for-byte, если отдельной
+  migration нет.
+
+Это ограничение не означает, что чистый production обязан наследовать dev
+secrets. При clean bootstrap с новой PostgreSQL и пустым MinIO старых
+ciphertext/digests нет, поэтому эти три значения генерируются заново как
+production-only. Не копируй dev `.env` целиком. Переиспользуй только явно
+выбранные внешние credentials; при Telegram cutover — текущий bot token после
+остановки dev polling. Пошаговая последовательность описана в
+[runbook чистого production cutover](./production-clean-cutover.md).
 
 ## Ротация локального age-ключа владельца
 

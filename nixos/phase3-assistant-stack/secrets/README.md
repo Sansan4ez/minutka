@@ -26,17 +26,24 @@ production-сервера. На хосте `sops-nix` расшифровывае
 
 4. Запиши оба recipient в `../.sops.yaml`. Owner recipient не является
    секретом; private key остаётся вне репозитория и должен иметь отдельный backup.
-5. Создай bundle и перенеси действующие значения из локального `.env`:
+5. Создай bundle и заполни production values:
 
    ```bash
    cp secrets/assistant.yaml.example secrets/assistant.yaml
    sops secrets/assistant.yaml
    ```
 
-   `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и
-   `TELEGRAM_IDENTITY_PEPPER` переносятся без изменения. Их случайная
-   регенерация разрывает существующие привязки и делает часть durable-данных
-   нечитаемой.
+   Выбор значений зависит от режима запуска:
+
+   - при restore/migration существующей PostgreSQL сохраняй
+     `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и `TELEGRAM_IDENTITY_PEPPER`
+     byte-for-byte: их регенерация разрывает существующие привязки и делает
+     ciphertext/digests нечитаемыми;
+   - при clean production bootstrap без старых PostgreSQL/MinIO данных создай
+     новые независимые production-only значения; dev `.env` целиком не копируй;
+   - внешний credential переиспользуй только явно. Для controlled Telegram
+     cutover это текущий `TELEGRAM_BOT_TOKEN`, причём polling сначала должен
+     быть остановлен на dev.
 
 6. Для production PostgreSQL URL используй unix socket, а не TCP:
 

@@ -27,8 +27,8 @@ unix socket; MinIO API и Console слушают только loopback.
   least-privilege policy/user; root credential не попадает в runtime;
 - MinIO data dir и capacity budget из `site.storage.minio`, с обязательным
   filesystem reserve не меньше 5 GiB;
-- daily `pg_dump -Fc`, version-aware MinIO mirror и Git bundle/worktree snapshot
-  source knowledge base в `/var/backups/personal-assistant/<UTC timestamp>`;
+- daily `pg_dump -Fc` и полный version-aware mirror owner-scoped MinIO bucket
+  в `/var/backups/personal-assistant/<UTC timestamp>`;
 - 14-day local retention, `backup.last_success`, restore smoke и отдельный
   SSH account для pull-based off-site snapshots;
 - smoke каждые 15 минут для PostgreSQL, MinIO, приложения и `/healthz`;
@@ -107,7 +107,9 @@ timeout 10 sh -c 'until systemctl is-active --quiet personal-assistant; do sleep
 
 Содержимое секретов в терминал и журналы не выводится. Версия приложения входит
 в то же NixOS generation, поэтому `./scripts/rollback.sh` откатывает сервис и
-хост вместе.
+хост вместе. Первичный clean bootstrap и переключение действующего Telegram-бота
+выполняются по
+[`../../docs/runbooks/production-clean-cutover.md`](../../docs/runbooks/production-clean-cutover.md).
 
 ## Durable storage contract
 
@@ -123,7 +125,10 @@ Git workspace нет. Канонические object prefixes:
 `{owner}/inbox/*` не provisionится как отдельный namespace. Временные ingress
 blobs могут существовать как внутренние object keys приложения, но не являются
 канонической knowledge-base зоной. Artifact CAS хранится под
-`{owner}/cas/sha256/**`.
+`{owner}/cas/sha256/**`. Полный mirror bucket сохраняет БЗ и artifacts всех
+owner-account'ов. Внешние Git workspaces могут использоваться для контролируемого
+одноразового импорта конкретного owner, но не являются production durable
+storage и не входят в обязательный backup contract.
 
 Application startup выполняется только после provisioning и migration oneshot.
 Затем сам runtime вызывает read-only readiness contract `prepareMinioBucket`:
