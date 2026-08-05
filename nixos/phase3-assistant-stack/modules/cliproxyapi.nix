@@ -51,7 +51,8 @@ in
       Group = "cliproxyapi";
       WorkingDirectory = stateDir;
       Environment = "HOME=${stateDir}";
-      ExecStart = "${lib.getExe' package "cli-proxy-api"} -config ${personalAssistantSecrets.cliproxyConfigFile}";
+      ExecStart = "${lib.getExe' package "cli-proxy-api"} -config ${stateDir}/config.yaml";
+      ExecStartPre = "${pkgs.coreutils}/bin/install -m 0600 -o cliproxyapi -g cliproxyapi ${personalAssistantSecrets.cliproxyConfigFile} ${stateDir}/config.yaml";
       Restart = "always";
       RestartSec = 5;
       StateDirectory = "cliproxyapi";
