@@ -178,8 +178,19 @@ host не имеет credentials, способных удалить off-site sna
 ```bash
 sudo install -d -m 0750 -o admin -g admin \
   /srv/backups/personal-assistant/{snapshots,logs}
+ssh-keygen -t ed25519 \
+  -f ~/.ssh/id_personal_assistant_pull \
+  -C personal-assistant-off-site-pull
 ssh-keyscan -H 169.58.116.31 >> ~/.ssh/known_hosts
 ```
+
+Публичный ключ `~/.ssh/id_personal_assistant_pull.pub` прописывается только в
+`site.backupPull.sshAuthorizedKeys`; админские ключи из
+`site.adminAuthorizedKeys` для pull не переиспользуются. Production ограничивает
+этот ключ forced command `rrsync -ro /var/backups/personal-assistant` и SSH
+опцией `restrict`: произвольная команда, запись на production, forwarding и PTY
+недоступны. Для клиента корень `/` в rsync соответствует разрешённому каталогу
+`/var/backups/personal-assistant` на production.
 
 Создать `/home/admin/.local/bin/pull-personal-assistant-backups`:
 
@@ -205,8 +216,8 @@ if [ -n "$previous" ] && [ -d "$previous" ]; then
 fi
 
 rsync "${options[@]}" \
-  -e 'ssh -i /home/admin/.ssh/id_ed25519 -o IdentitiesOnly=yes' \
-  "$source_user@$source_host:/var/backups/personal-assistant/" \
+  -e 'ssh -i /home/admin/.ssh/id_personal_assistant_pull -o IdentitiesOnly=yes -o BatchMode=yes' \
+  "$source_user@$source_host:/" \
   "$destination/"
 ln -sfn "$destination" "$base/latest"
 find "$base/snapshots" -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {} +

@@ -45,9 +45,9 @@
   backupPull = {
     enable = true;
     user = "personal-assistant-backup-pull";
-    # Pull key currently held by the off-site host v760294.hosted-by-vdsina.com.
+    # Dedicated pull key held by the off-site host v760294.hosted-by-vdsina.com.
     sshAuthorizedKeys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILtxITw5sdJKdp5x+uzAcXVHHFn74yBREgZCazjm0mOC personal-assistant-off-site-pull"
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEGa4hJm+zN9CxU3PLABKip6Xv+xb1zcC5vK8/Yv+EsC personal-assistant-off-site-pull"
     ];
   };
 }
