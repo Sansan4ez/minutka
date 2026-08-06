@@ -117,7 +117,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
   return {
     listTasks: createTool({
       id: "listTasks",
-      description: "List bounded owner tasks. Use this to obtain current task ids and revisions before proposing updates, completion, or cancellation.",
+      description: "List bounded owner tasks. Use this to check for an existing similar active task before creating a new one, and to obtain current task ids and revisions before proposing updates, completion, or cancellation.",
       strict: true,
       inputSchema: z.strictObject({
         filter: taskFilterSchema.optional(),
@@ -130,7 +130,7 @@ export function createTaskTools(tasks: AssistantTaskCapabilities) {
     }),
     proposeTaskMutation: createTool({
       id: "proposeTaskMutation",
-      description: "Apply one owner-bound create, update, or complete task mutation immediately with a short undo window. Cancellation remains a confirmation proposal. Report applied results in prose and mention that the owner can say 'отмени'. For conflict or not_found, say that nothing changed and suggest listing the task again; do not ask for confirmation. Never quote ids or receipts.",
+      description: "Apply one owner-bound create, update, or complete task mutation immediately with a short undo window. Before kind=create, compare with visible /proc/records and use listTasks as needed; if there is a clear similar task, ask whether to update it or create a separate task instead of creating immediately. Cancellation remains a confirmation proposal. Report applied results in prose and mention that the owner can say 'отмени'. For conflict or not_found, say that nothing changed and suggest listing the task again; do not ask for confirmation. Never quote ids or receipts.",
       strict: true,
       inputSchema: taskProposalTransportSchema,
       outputSchema: taskProposalOutputSchema,

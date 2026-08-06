@@ -53,6 +53,20 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-STORE-001: owner-scoped idea bank", () =>
     await expect(store.update("maxim", "idea-1", { summary: "" })).rejects.toThrow("summary is required");
   });
 
+  it("appends to an idea atomically with owner and revision checks", async () => {
+    let now = "2026-07-01T00:00:00.000Z";
+    const store = createInMemoryIdeaStore({ now: () => now });
+    await store.add({ id: "idea-1", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться", status: "raw" });
+    now = "2026-07-02T12:00:00.000Z";
+
+    await expect(store.append("other", "idea-1", { expectedRevision: 1, text: "Чужое" })).resolves.toEqual({ status: "not_found" });
+    await expect(store.append("maxim", "idea-1", { expectedRevision: 2, text: "Устаревшее" })).resolves.toMatchObject({ status: "conflict", current: { revision: 1 } });
+    await expect(store.append("maxim", "idea-1", { expectedRevision: 1, text: "  Записался  " })).resolves.toMatchObject({
+      status: "applied",
+      idea: { summary: "Записаться\n\nЗаписался", revision: 2, lastActivityAt: now },
+    });
+  });
+
   it("updates an idea in its owner scope and renews its activity timestamp", async () => {
     let now = "2026-07-01T00:00:00.000Z";
     const store = createInMemoryIdeaStore({ now: () => now });

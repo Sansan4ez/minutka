@@ -41,6 +41,11 @@ export type IdeaMutationResult =
   | { outcome: "not_found" | "expired" }
   | { outcome: "conflict"; current?: Idea };
 
+export type IdeaAppendMutationResult =
+  | { status: "applied"; idea: Idea }
+  | { status: "not_found" }
+  | { status: "conflict"; current: Idea };
+
 /**
  * Owner-scoped persistence boundary for the idea bank.
  * Timestamps are owned by the adapter so updates always renew activity.
@@ -51,6 +56,7 @@ export interface IdeaStore {
   list(userId: string, filter?: IdeaFilter, options?: IdeaListOptions): Promise<Idea[]>;
   stale(userId: string, days: number): Promise<Idea[]>;
   update(userId: string, id: string, patch: UpdateIdeaInput): Promise<Idea | null>;
+  append(userId: string, id: string, input: { expectedRevision: number; text: string }): Promise<IdeaAppendMutationResult>;
   softDelete(userId: string, id: string, input: { expectedRevision?: number; deletedAt: string; undoExpiresAt: string }): Promise<IdeaMutationResult>;
   undoDelete(userId: string, id: string, input: { expectedRevision?: number; restoredAt: string }): Promise<IdeaMutationResult>;
 }

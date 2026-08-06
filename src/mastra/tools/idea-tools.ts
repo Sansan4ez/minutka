@@ -1,6 +1,7 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import type { IdeaDeletionService, IdeaSearchResult } from "../../application/idea-deletion.js";
+import type { AppendIdeaResult } from "../../application/idea-append.js";
 import { pendingIdeaDeletionReceipt } from "../../application/idea-deletion.js";
 import { recordTypeSchema } from "../../contracts/minutka-api.js";
 
@@ -23,17 +24,24 @@ const deletionReceiptSchema = z.strictObject({
   expiresAt: z.iso.datetime(),
 });
 
-export const assistantIdeaToolNames = ["searchIdeas", "proposeIdeaDeletion", "undoIdeaDeletion"] as const;
+const appendIdeaOutputSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("applied"), idea: ideaViewSchema }),
+  z.strictObject({ status: z.literal("not_found") }),
+  z.strictObject({ status: z.literal("conflict"), current: ideaViewSchema }),
+]);
+
+export const assistantIdeaToolNames = ["searchIdeas", "appendIdea", "proposeIdeaDeletion", "undoIdeaDeletion"] as const;
 
 export function createIdeaTools(ideas: {
   search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
+  append(input: { ideaId: string; expectedRevision: number; text: string }): Promise<AppendIdeaResult>;
   propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
   undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
 }) {
   return {
     searchIdeas: createTool({
       id: "searchIdeas",
-      description: "Deterministically search bounded owner ideas by id, project, or summary. By default returns active raw/discussed ideas; pass statuses only when the owner explicitly asks for planned, done, dropped, or other archived ideas. Use this before deletion when the reference is natural-language or ambiguous.",
+      description: "Deterministically search bounded owner ideas by id, project, or summary. By default returns active raw/discussed ideas; pass statuses only when the owner explicitly asks for planned, done, dropped, or other archived ideas. Use this to find an existing idea before creating a similar one, and before deletion when the reference is natural-language or ambiguous.",
       strict: true,
       inputSchema: z.strictObject({
         query: z.string().optional(),
@@ -43,6 +51,20 @@ export function createIdeaTools(ideas: {
       outputSchema: z.strictObject({ ideas: z.array(ideaViewSchema) }),
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: async (input) => ({ ideas: (await ideas.search(input)).map(toIdeaView) }),
+    }),
+    appendIdea: createTool({
+      id: "appendIdea",
+      description: "Append owner-provided details to one exact existing idea after the owner chooses to supplement it instead of creating a separate record. This is an immediate reversible internal write; use the current revision from /proc/records or searchIdeas. On conflict or not_found, say nothing changed and offer to search again.",
+      strict: true,
+      inputSchema: z.strictObject({ ideaId: z.string().min(1), expectedRevision: z.number().int().positive(), text: z.string().min(1) }),
+      outputSchema: appendIdeaOutputSchema,
+      mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+      execute: async (input) => {
+        const result = await ideas.append(input);
+        if (result.status === "applied") return { status: result.status, idea: toIdeaView(result.idea) };
+        if (result.status === "conflict") return { status: result.status, current: toIdeaView(result.current) };
+        return result;
+      },
     }),
     proposeIdeaDeletion: createTool({
       id: "proposeIdeaDeletion",

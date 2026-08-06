@@ -10,6 +10,7 @@
     { "id": "proposeContextDocumentMove", "manifest": "propose-context-document-move.md", "mutating": false },
     { "id": "proposeContextDocumentDelete", "manifest": "propose-context-document-delete.md", "mutating": false },
     { "id": "searchIdeas", "manifest": "search-ideas.md", "mutating": false },
+    { "id": "appendIdea", "manifest": "append-idea.md", "mutating": true },
     { "id": "proposeIdeaDeletion", "manifest": "propose-idea-deletion.md", "mutating": false },
     { "id": "undoIdeaDeletion", "manifest": "undo-idea-deletion.md", "mutating": true },
     { "id": "listTasks", "manifest": "list-tasks.md", "mutating": false },

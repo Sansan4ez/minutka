@@ -51,6 +51,7 @@ import { createUsageRecorder } from "../application/usage-recorder.js";
 import { artifactRuntimeConfigFromEnv } from "../config/artifacts.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
 import { IdeaDeletionService } from "../application/idea-deletion.js";
+import { IdeaAppendService } from "../application/idea-append.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 import { createSecretBox } from "../infrastructure/postgres/secret-box.js";
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
@@ -142,6 +143,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ideaStore = createPostgresIdeaStore(pool);
     const taskStore = createPostgresTaskStore(pool);
     const projectLabels = new ProjectLabelService(ideaStore, taskStore);
+    const ideaAppends = new IdeaAppendService(ideaStore);
     const ideaDeletions = new IdeaDeletionService(
       ideaStore,
       createPostgresIdeaDeletionConfirmationStore(pool),
@@ -217,6 +219,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       conversationStore: stores.conversationStore,
       ingestionService: ingestion,
       ideaStore,
+      ideaAppends,
       ideaDeletions,
       contextDocuments,
       scheduleManagement,

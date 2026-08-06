@@ -183,6 +183,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       },
       ideas: {
         search: async () => [],
+        append: async () => ({ status: "not_found" }),
         propose: async () => ({ status: "not_found" }),
         undo: async () => ({ outcome: "not_found" }),
       },

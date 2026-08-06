@@ -4,7 +4,7 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 | Process id | When it applies | Allowed effect |
 |---|---|---|
-| `inbox_capture` | Retain an inbound idea or artifact; “create project X” alone is not capture. | Call `captureIdea` before claiming save; for project-only requests explain the label model and offer the first record. |
+| `inbox_capture` | Retain an idea/task/artifact; “create project X” alone is not capture. | Compare with `/proc/records`; supplement a clear match or create separately without losing input. |
 | `knowledge_lookup` | Search the owner's knowledge base or notes for a subject, including “what do I have about X?”. | Try bounded query variants, read the best matches, cite `/proc/context/*` sources, and disclose incomplete reads or say “не нашёл в базе”. |
 | `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; reversible task changes apply immediately with worded undo, while cancellation remains confirmable. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
@@ -13,7 +13,7 @@ If no process applies, answer from `/AGENTS.md` and bounded owner projections. P
 
 For knowledge-base writes, `createContextNote` is allowed only after an explicit save/add request. For existing Markdown, call `readDocument` first, pass its exact version to one proposal tool, and leave execution to the application confirmation buttons. A proposal is not a document change; on a stale version, stop and ask to reread rather than overwriting. Artifacts are never promoted automatically.
 
-Projects are labels on ideas/tasks. For “создай проект X” alone, do not call `captureIdea`; say the label appears with the first task/idea and offer it. Use `listProjects` for lists and before open clarification. Preserve a named label instead of `БЕЗ_ПРОЕКТА`.
+Projects are labels. For “создай проект X”, offer its first record rather than capturing the request. Use `listProjects` before clarification and preserve named labels.
 
 For task requests, use `listTasks` as needed and perform at most one task operation. For “mark X completed”, resolve id/revision with `listTasks`, then call `proposeTaskMutation({ kind: "complete", taskId, expectedRevision })`; for an applied create/update/complete/idea-to-task result, state what changed and say “Скажи «отмени», если не то” without ids. A plain undo request uses `undoTaskMutation`. Cancellation remains a pending level-1 action: do not claim it changed before authenticated confirmation outside the agent tool loop.
 

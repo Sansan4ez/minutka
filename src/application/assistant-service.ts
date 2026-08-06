@@ -38,6 +38,7 @@ import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilitie
 import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
 import { ProjectLabelService, type AssistantProjectListResult } from "./project-labels.js";
+import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -55,9 +56,10 @@ export type AssistantAgentContext = {
   contextDocuments: AssistantContextDocumentCapabilities;
   /** Owner-bound task reads, level-0 writes with undo, and level-1 cancellation proposals. */
   tasks: AssistantTaskCapabilities;
-  /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
+  /** Owner-bound idea search, level-0 append, confirmable deletion proposal, and short-window undo. */
   ideas: {
     search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
+    append(input: { ideaId: string; expectedRevision: number; text: string }): Promise<AppendIdeaResult>;
     propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
     undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
   };
@@ -119,7 +121,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -321,8 +323,15 @@ export class AssistantService {
     };
     const ideas = {
       search: (input: { query?: string; limit?: number }) => {
-        if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
+        if (!this.deps.ideaDeletions) throw new Error("idea search is not configured");
         return this.deps.ideaDeletions.search(userId, input);
+      },
+      append: async (input: { ideaId: string; expectedRevision: number; text: string }) => {
+        if (!this.deps.ideaAppends) throw new Error("idea append is not configured");
+        const result = await this.deps.ideaAppends.append(userId, input);
+        observedExecutionTrace.push({ kind: "tool", toolName: "appendIdea" });
+        if (result.status === "applied" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        return result;
       },
       propose: async (input: { ideaId: string; expectedRevision: number; reason?: string }) => {
         if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
@@ -814,6 +823,7 @@ function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: Assist
 const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>> = {
   captureIdea: "inbox_capture",
   searchIdeas: "inbox_capture",
+  appendIdea: "inbox_capture",
   proposeIdeaDeletion: "inbox_capture",
   undoIdeaDeletion: "inbox_capture",
   undoTaskMutation: "day_focus",

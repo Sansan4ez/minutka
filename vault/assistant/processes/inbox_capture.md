@@ -2,31 +2,34 @@
 
 ## When this process applies
 
-For each owner message or artifact that may be an idea, note, link, voice memo, or photo.
+For an inbound idea, task, or artifact.
 
 ## Inputs
 
-The current owner message or artifact, bounded `/proc/context`, `/proc/records`, and trusted source metadata supplied by the application.
+Current input and bounded `/proc/records`.
 
 ## Process
 
-1. Classify by project and record type; preserve an owner-named label.
-2. “Создай проект X” alone is not a record: explain that the label appears with the first task/idea and offer it. Do not call `captureIdea`.
-3. For actual capture, call `captureIdea` before replying; no prior confirmation.
-4. Give the saved summary and one next step.
-5. If project is absent/unknown, use `БЕЗ_ПРОЕКТА`, call `listProjects`, and ask one concise question with existing labels when available. Never drop the item.
+1. Classify; preserve a named project. “Создай проект X” alone is not a record: offer its first task/idea; do not call `captureIdea`.
+2. Retrieve before write: compare with `/proc/records`; use `searchIdeas`/`listTasks` only for exact lookup.
+3. No clear match: create immediately, without a question.
+4. One clear match: ask one plain-text question before writing: “Похоже на запись от 21:05 про бассейн — дополнить её или завести отдельную?” No buttons.
+5. Supplement via `appendIdea` with current revision, or task update; otherwise create separately.
+6. Silence/topic change/ambiguity means create separately. A possible duplicate is cheaper than dropped input.
+7. Give the saved/updated summary and one next step.
+8. Unknown project: save under `БЕЗ_ПРОЕКТА`, call `listProjects`, and offer existing labels. Never ask openly first.
 
 ## Outputs
 
-A saved owner-scoped idea, a concise confirmation, one suggested next step, and—when needed—one project clarification question.
+A saved/supplemented record, next step, and at most one question.
 
 ## Privacy notes
 
-Use only the current owner's bounded projections. Source provenance is application-owned and must never be invented or replaced.
+Use owner-scoped tools; provenance is application-owned.
 
 ## Anti-patterns
 
-Do not write directly to stores/files/external services, invent project/action facts, turn project-only requests into ideas, or claim an actual capture before the tool succeeds.
+No direct writes, invented facts, or premature success claims.
 
 ## Dependencies
 
