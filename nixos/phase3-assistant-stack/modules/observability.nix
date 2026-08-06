@@ -63,8 +63,7 @@ let
         minio_capacity_soft_threshold_exceeded=0
       fi
 
-      read -r schedule_last_success usage_monthly_cost artifact_unique_bytes artifact_owner_max_bytes artifact_owner_soft_exceeded <<< "$(
-        psql -h /run/postgresql -U postgres -d ${database} -At -F ' ' -v ON_ERROR_STOP=1 <<'SQL'
+      metrics_row="$(psql -h /run/postgresql -U postgres -d ${database} -At -F ' ' -v ON_ERROR_STOP=1 <<'SQL'
       SELECT
         COALESCE(extract(epoch FROM max(completed_at))::bigint, 0),
         COALESCE((SELECT sum(estimated_cost_usd_micros)::numeric / 1000000 FROM minutka_private.usage WHERE usage_month = date_trunc('month', CURRENT_DATE)::date), 0),
@@ -75,6 +74,8 @@ let
       WHERE status = 'succeeded';
 SQL
       )"
+      [ -n "$metrics_row" ]
+      read -r schedule_last_success usage_monthly_cost artifact_unique_bytes artifact_owner_max_bytes artifact_owner_soft_exceeded <<< "$metrics_row"
       schedule_last_success="$(scalar_or_zero "$schedule_last_success")"
       usage_monthly_cost="$(scalar_or_zero "$usage_monthly_cost")"
       artifact_unique_bytes="$(scalar_or_zero "$artifact_unique_bytes")"

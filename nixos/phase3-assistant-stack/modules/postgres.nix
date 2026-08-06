@@ -66,6 +66,7 @@ in
       local minutka minutka_migrator scram-sha-256
       local all all               reject
     '';
+    identMap = lib.mkAfter "postgres root postgres";
     settings = {
       listen_addresses = lib.mkForce "";
       password_encryption = "scram-sha-256";
