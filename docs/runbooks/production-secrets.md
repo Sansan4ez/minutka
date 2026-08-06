@@ -44,7 +44,16 @@ sudo rm -f /var/lib/cliproxyapi/config.yaml
 
 5. Выполни `./scripts/deploy.sh --dry-activate`, затем обычный deploy.
 6. Перезапусти consumer, если его модуль ещё не подписан на изменение sops
-   template, и проверь readiness без печати значения секрета.
+   template. После смены `minio_secret_key` сначала перезапусти
+   `personal-assistant-minio-provision`, чтобы применить credential
+   в MinIO, затем перезапусти приложение:
+
+   ```bash
+   sudo systemctl restart personal-assistant-minio-provision
+   sudo systemctl restart personal-assistant
+   ```
+
+   Проверь readiness и хранение/чтение объекта без печати значения секрета.
 7. После подтверждения отзови прежний credential у провайдера.
 
 `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и `TELEGRAM_IDENTITY_PEPPER` нельзя

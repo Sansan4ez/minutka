@@ -60,16 +60,15 @@ let
       }
       EOF
 
-      if mc admin user info production "$app_user" >/dev/null 2>&1; then
-        mc admin user enable production "$app_user"
-      else
-        mc admin user add production "$app_user" "$app_password"
-      fi
+      mc admin user add production "$app_user" "$app_password"
+      mc admin policy create production "$MINIO_POLICY" "$policy_file"
 
-      if ! mc admin policy info production "$MINIO_POLICY" >/dev/null 2>&1; then
-        mc admin policy create production "$MINIO_POLICY" "$policy_file"
+      if ! attach_output="$(mc admin policy attach production "$MINIO_POLICY" --user "$app_user" 2>&1)"; then
+        case "$attach_output" in
+          *"already in effect"*) : ;;
+          *) printf '%s\n' "$attach_output" >&2; exit 1 ;;
+        esac
       fi
-      mc admin policy attach production "$MINIO_POLICY" --user "$app_user"
     '';
   };
 in
