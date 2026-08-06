@@ -129,19 +129,22 @@ EOF
 ## Restore smoke
 
 `personal-assistant-restore-smoke` по умолчанию выбирает последний завершённый
-backup возрастом не меньше 23 часов — вчерашний daily snapshot с допуском на
-15-минутный randomized delay. Он:
+backup независимо от его возраста. Каталоги с suffix `.incomplete` исключаются;
+root-only staging конкретного timestamp по-прежнему имеет приоритет. Smoke:
 
-1. проверяет наличие `minutka.dump` и полного MinIO mirror;
+1. проверяет наличие непустого `minutka.dump` и полного MinIO mirror;
 2. восстанавливает dump во временную PostgreSQL database;
-3. сравнивает `count(*)` для `participants`, `consents`,
-   `process_schedules`, `ideas`, `tasks`, `messages` с production database;
+3. проверяет наличие таблиц `participants`, `consents`, `process_schedules`,
+   `ideas`, `tasks`, `messages` и считает строки в snapshot и production;
 4. зеркалирует live MinIO bucket во временный каталог;
-5. сравнивает количество и читаемость всех `*/context/*.md` в live bucket и
-   backup; нулевое количество документов допустимо для чистого production;
-6. всегда удаляет временную database и temporary directories.
+5. считает и проверяет читаемость всех backup-документов `*/context/*.md`;
+   нулевое количество документов допустимо для чистого production;
+6. считает непригодным backup, где любая таблица или БЗ пуста при непустом
+   production; остальные расхождения печатает как drift с числами
+   `restored`/`live`, но не меняет успешный код возврата;
+7. всегда удаляет временную database и temporary directories.
 
-Запуск последнего вчерашнего backup:
+Запуск последнего завершённого backup:
 
 ```bash
 ssh admin@169.58.116.31 \
@@ -162,9 +165,13 @@ sudo systemctl start personal-assistant-restore-smoke.service
 '
 ```
 
-Smoke сравнивает snapshot с текущим production. Поэтому его запускают до новых
-записей либо сразу после выбранного backup. При ожидаемом изменении данных
-несоответствие row/document count требует ручной сверки, а не игнорирования.
+Smoke сравнивает snapshot с текущим production. Обычные новые записи после
+backup дают информационные строки вида `Count drift for ...: restored=N live=M`
+в journal и не делают unit красным. Если restored count равен `0`, а live count
+больше `0`, unit падает с сообщением `Backup content loss for ...`, называющим
+таблицу или context documents. Неожиданный drift всё равно требует ручной
+сверки; зелёный код означает, что backup восстанавливается и не выглядит
+пустым, а не побайтовое равенство текущему production.
 
 ## Pull-based off-site copy
 

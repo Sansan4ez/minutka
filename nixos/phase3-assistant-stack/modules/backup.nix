@@ -74,19 +74,25 @@ let
         if [ -d ${restoreSmokeBackupDir} ]; then
           backup_dir=${restoreSmokeBackupDir}
         else
-          backup_dir="$(find ${backupRoot} -mindepth 1 -maxdepth 1 -type d -mmin +1380 -printf '%f\n' | sort | tail -n 1)"
+          backup_dir="$(find ${backupRoot} -mindepth 1 -maxdepth 1 -type d -not -name '*.incomplete' -printf '%f\n' | sort | tail -n 1)"
           if [ -n "$backup_dir" ]; then
             backup_dir="${backupRoot}/$backup_dir"
           fi
         fi
       fi
       if [ -z "$backup_dir" ] || [ ! -d "$backup_dir" ]; then
-        echo "No staged backup or completed backup at least 23 hours old found." >&2
+        echo "No staged or completed backup found." >&2
         exit 1
       fi
 
-      test -s "$backup_dir/${database}.dump"
-      test -d "$backup_dir/minio/$MINIO_BUCKET"
+      if [ ! -s "$backup_dir/${database}.dump" ]; then
+        echo "Backup dump is missing or empty: $backup_dir/${database}.dump" >&2
+        exit 1
+      fi
+      if [ ! -d "$backup_dir/minio/$MINIO_BUCKET" ]; then
+        echo "Backup MinIO mirror is missing: $backup_dir/minio/$MINIO_BUCKET" >&2
+        exit 1
+      fi
 
       temp_database="personal_assistant_restore_smoke_$(date -u +%s)_$$"
       minio_config_dir="$(mktemp -d -p ${restoreSmokeStateDir} minio-config.XXXXXX)"
@@ -110,14 +116,31 @@ let
         --dbname="$temp_database" \
         "$backup_dir/${database}.dump"
 
-      tables=(participants consents process_schedules ideas tasks messages)
-      for table in "''${tables[@]}"; do
-        production_count="$(psql -h /run/postgresql -U postgres -d ${database} -Atc "SELECT count(*) FROM minutka_private.$table")"
-        restored_count="$(psql -h /run/postgresql -U postgres -d "$temp_database" -Atc "SELECT count(*) FROM minutka_private.$table")"
-        if [ "$production_count" != "$restored_count" ]; then
-          echo "Row count mismatch for $table: production=$production_count restored=$restored_count" >&2
+      report_count() {
+        local label="$1"
+        local restored_count="$2"
+        local live_count="$3"
+
+        if [ "$restored_count" -eq 0 ] && [ "$live_count" -gt 0 ]; then
+          echo "Backup content loss for $label: restored=$restored_count live=$live_count" >&2
           exit 1
         fi
+        if [ "$restored_count" -ne "$live_count" ]; then
+          echo "Count drift for $label: restored=$restored_count live=$live_count"
+        fi
+      }
+
+      tables=(participants consents process_schedules ideas tasks messages)
+      for table in "''${tables[@]}"; do
+        restored_table="$(psql -h /run/postgresql -U postgres -d "$temp_database" -Atc "SELECT to_regclass('minutka_private.$table')")"
+        if [ -z "$restored_table" ]; then
+          echo "Restored backup is missing table minutka_private.$table" >&2
+          exit 1
+        fi
+
+        live_count="$(psql -h /run/postgresql -U postgres -d ${database} -Atc "SELECT count(*) FROM minutka_private.$table")"
+        restored_count="$(psql -h /run/postgresql -U postgres -d "$temp_database" -Atc "SELECT count(*) FROM minutka_private.$table")"
+        report_count "table minutka_private.$table" "$restored_count" "$live_count"
       done
 
       minio_access_key="$(< "$MINIO_ACCESS_KEY_FILE")"
@@ -129,21 +152,20 @@ let
       minio_access_key=
       minio_secret_key=
 
-      backup_document_count="$(find "$backup_dir/minio" -type f -path '*/context/*.md' -printf x | wc -c)"
+      backup_document_count="$(find "$backup_dir/minio/$MINIO_BUCKET" -type f -path '*/context/*.md' -printf x | wc -c)"
       live_document_count="$(find "$minio_restore_dir/live" -type f -path '*/context/*.md' -printf x | wc -c)"
-      if [ "$backup_document_count" != "$live_document_count" ]; then
-        echo "Context document count mismatch: backup=$backup_document_count /proc/context=$live_document_count" >&2
-        exit 1
-      fi
+      report_count "context documents" "$backup_document_count" "$live_document_count"
 
-      while IFS= read -r document; do
-        test -r "$document"
-        head -c 1 "$document" >/dev/null
-      done < <(find "$backup_dir/minio" -type f -path '*/context/*.md' -print)
+      while IFS= read -r -d $'\0' document; do
+        if [ ! -r "$document" ] || ! head -c 1 "$document" >/dev/null; then
+          echo "Backup context document is unreadable: $document" >&2
+          exit 1
+        fi
+      done < <(find "$backup_dir/minio/$MINIO_BUCKET" -type f -path '*/context/*.md' -print0)
 
       echo "Restore smoke passed: $backup_dir"
-      echo "PostgreSQL row counts match for: ''${tables[*]}"
-      echo "Readable /proc/context documents: $backup_document_count"
+      echo "PostgreSQL tables restored and checked: ''${tables[*]}"
+      echo "Readable restored context documents: $backup_document_count"
     '';
   };
 in
