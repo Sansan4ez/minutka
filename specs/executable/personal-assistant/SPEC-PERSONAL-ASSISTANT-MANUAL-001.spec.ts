@@ -42,8 +42,13 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("trusted scheduled `evening_reflection` trigger");
     expect(instructions).toContain("Retrieve before write");
     expect(instructions).toContain("ask one plain-text question");
-    expect(instructions).toContain("Supplement via `appendIdea`");
+    expect(instructions).toContain("Supplement via `appendIdea`/task update");
     expect(instructions).toContain("A possible duplicate is cheaper than dropped input");
+    expect(instructions).toContain("Treat a URL in chat as ordinary text");
+    expect(instructions).toContain("Что сделать со ссылкой?");
+    expect(instructions).toContain("does not create an `ArtifactReference`, context document, download snapshot, or external action");
+    expect(instructions).toContain("No direct writes, invented facts, automatic URL fetch/download/snapshot, metadata extraction, malware scanning, web research");
+    expect(instructions).toContain("never claim page contents were read");
     expect(instructions).toContain("Projects are labels");
     expect(instructions).toContain("do not call `captureIdea`");
     expect(instructions).toContain("call `listProjects`");
@@ -64,7 +69,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("never promote artifacts automatically");
     expect(instructions).toContain("Do not repeat the receipt, task id, confirmation id, or confirmation instructions in prose");
     expect(instructions).not.toContain("show the resulting proposal to the owner");
-    expect(instructions).toContain("do not require calendar integration");
+    expect(instructions).toContain("Do not require calendar integration");
     expect(instructions).toContain("current single-owner prototype privacy boundary");
     expect(instructions).toContain("must never cross an owner boundary");
     expect(instructions).not.toContain("Active process:");
@@ -105,7 +110,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       const referencedId = match[1]!;
       if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId)) expect(registeredIds).toContain(referencedId);
     }
-    expect(readFileSync("vault/assistant/bin/README.md", "utf8")).toContain("feedback callbacks call `submitFeedback` directly");
+    const binReadme = readFileSync("vault/assistant/bin/README.md", "utf8");
+    expect(binReadme).toContain("feedback callbacks call `submitFeedback` directly");
+    expect(binReadme).toContain("no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL");
   });
 
   it("classifies every process file as active, draft, or legacy", () => {

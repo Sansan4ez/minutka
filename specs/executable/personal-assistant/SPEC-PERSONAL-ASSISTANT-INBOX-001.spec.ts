@@ -33,7 +33,7 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
       requestId: () => "req-1", messageId: () => "msg-1", insightId: () => "ins-1", feedbackId: () => "fb-1", ideaId: () => "idea-1", auditEventId: () => "evt-1",
     },
   });
-  return { service, ideas, world, setNow: (value: string) => { now = value; } };
+  return { service, ideas, documents, world, setNow: (value: string) => { now = value; } };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
@@ -53,6 +53,59 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       response: "Сохранил идею: Добавить IdeaStore. Следующий шаг: Создать порт хранения.",
     });
     await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "АССИСТЕНТ", type: "development", summary: "Добавить IdeaStore", source: { kind: "text", text: "Добавь банк идей" } }]);
+  });
+
+  it("captures a bare URL once as chat text before asking for processing intent", async () => {
+    let captureCalls = 0;
+    const { service, ideas } = createService(async (_input, context) => {
+      captureCalls += 1;
+      const captured = await context.captureIdea({
+        project: "БЕЗ_ПРОЕКТА",
+        type: "knowledge",
+        summary: "https://example.com",
+        suggestedNextStep: "Уточнить, что сделать со ссылкой.",
+        needsProjectClarification: false,
+      });
+      expect(captured.idea.source).toEqual({ kind: "text", text: "https://example.com" });
+      return `${captured.response} Что сделать со ссылкой?`;
+    });
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:url", text: "https://example.com" })).resolves.toMatchObject({
+      response: expect.stringMatching(/^Сохранил идею: https:\/\/example\.com\..*Что сделать со ссылкой\?$/),
+      selectedProcessIds: ["core", "inbox_capture"],
+      effect: "business_write_committed",
+    });
+    expect(captureCalls).toBe(1);
+    await expect(ideas.list("maxim")).resolves.toEqual([
+      expect.objectContaining({
+        userId: "maxim",
+        summary: "https://example.com",
+        source: { kind: "text", text: "https://example.com" },
+      }),
+    ]);
+    await expect(ideas.list("other-owner")).resolves.toEqual([]);
+  });
+
+  it("keeps a URL and the owner's stated intent in one idea without claiming page access or creating documents", async () => {
+    const text = "Посмотри ссылку и сравни с нашим предложением: https://example.com";
+    const { service, ideas, documents } = createService(async (_input, context) => {
+      const captured = await context.captureIdea({
+        project: "БЕЗ_ПРОЕКТА",
+        type: "knowledge",
+        summary: text,
+        suggestedNextStep: "Сравнить страницу с нашим предложением, когда доступен инструмент чтения ссылки.",
+        needsProjectClarification: false,
+      });
+      return `${captured.response} Сейчас у меня нет инструмента, чтобы открыть и прочитать страницу.`;
+    });
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:url-intent", text })).resolves.toMatchObject({
+      response: expect.stringContaining("нет инструмента, чтобы открыть и прочитать страницу"),
+      selectedProcessIds: ["core", "inbox_capture"],
+    });
+    await expect(ideas.list("maxim")).resolves.toEqual([
+      expect.objectContaining({ summary: text, source: { kind: "text", text } }),
+    ]);
+    await expect(documents.list("maxim")).resolves.toEqual([]);
   });
 
   it("binds source provenance in the application and writes a content-free audit event", async () => {
