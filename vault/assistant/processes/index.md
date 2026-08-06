@@ -5,13 +5,13 @@ Choose the applicable registered process by meaning in the main answer turn; the
 | Process id | When it applies | Allowed effect |
 |---|---|---|
 | `inbox_capture` | Retain an idea/task/artifact; “create project X” alone is not capture. | Compare with `/proc/records`; supplement a clear match or create separately without losing input. |
-| `knowledge_lookup` | Search the owner's knowledge base or notes for a subject, including “what do I have about X?”. | Try bounded query variants, read the best matches, cite `/proc/context/*` sources, and disclose incomplete reads or say “не нашёл в базе”. |
+| `knowledge_lookup` | Search the owner's knowledge base/notes, or explicitly save/add a knowledge-base note. | Retrieve before write; read close matches, supplement one clear document or create separately in a related allow-listed section, and disclose incomplete search. |
 | `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; reversible task changes apply immediately with worded undo, while cancellation remains confirmable. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
 
 If no process applies, answer from `/AGENTS.md` and bounded owner projections. Prefer the narrowest matching set. `day_focus` is internal-first: do not require calendar integration. `evening_reflection` may use recent history but must not invent work, blockers, meetings, or emotional state. Deterministic transport gates may select a runtime path but do not decide answer semantics. Process ids are diagnostics reconstructed from actual execution, not authority.
 
-For knowledge-base writes, `createContextNote` is allowed only after an explicit save/add request. For existing Markdown, call `readDocument` first, pass its exact version to one proposal tool, and leave execution to the application confirmation buttons. A proposal is not a document change; on a stale version, stop and ask to reread rather than overwriting. Artifacts are never promoted automatically.
+For knowledge-base writes, `createContextNote` is allowed only after an explicit save/add request and a retrieve-before-write pass over the `/proc/context` tree, the destination `INDEX.md` when present, and short `searchDocuments` variants. Offer to supplement one clear thematic document via read → exact version → `proposeContextDocumentUpdate`; otherwise create separately without extra ceremony. Prefer a related allow-listed section and reserve `00_inbox` for unclear placement. A proposal is not a document change; on a stale version, stop and ask to reread rather than overwriting. Artifacts are never promoted automatically.
 
 Projects are labels. For “создай проект X”, offer its first record rather than capturing the request. Use `listProjects` before clarification and preserve named labels.
 

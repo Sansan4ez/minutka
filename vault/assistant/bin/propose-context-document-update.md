@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Prepare one update of an existing owner Markdown document.
+Prepare one update of an existing owner Markdown document, including supplementing a clear thematic match instead of creating a duplicate note.
 
 ## Input
 
@@ -18,4 +18,4 @@ Level 0: updating an existing versioned document is a reversible internal owner-
 
 ## Boundary
 
-The current typed result is authoritative: while it remains a proposal, the document is unchanged until authenticated confirmation outside the agent loop. Never simulate an unwired level-0 path. A stale-version conflict must not be retried as an overwrite.
+Read the document first, preserve its existing content, and use the exact returned version. The current typed result is authoritative: while it remains a proposal, the document is unchanged until authenticated confirmation outside the agent loop. Never simulate an unwired level-0 path, silently merge without showing the owner which logical document is being supplemented, or retry a stale-version conflict as an overwrite.

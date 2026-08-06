@@ -36,6 +36,46 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-TOOLS-001: owner-bound model 
     expect(JSON.stringify(await h.tools.createContextNote.execute?.({ title: "Safe note", content: "other" }, {} as never))).not.toMatch(/owner|object|bucket/);
   });
 
+  it("documents retrieve-before-write, related sections, and safe supplementation", () => {
+    const h = harness();
+    const createDescription = h.tools.createContextNote.description ?? "";
+    const updateDescription = h.tools.proposeContextDocumentUpdate.description ?? "";
+
+    expect(createDescription).toContain("retrieve-before-write");
+    expect(createDescription).toContain("searchDocuments");
+    expect(createDescription).toContain("supplement one clear thematic document");
+    expect(createDescription).toContain("related allow-listed section");
+    expect(createDescription).toContain("00_inbox only when placement is unclear");
+    expect(updateDescription).toContain("supplementing a clear thematic match");
+    expect(updateDescription).toContain("Preserve existing content");
+  });
+
+  it("creates a separate note in an allow-listed neighboring section and blocks arbitrary top levels", async () => {
+    const h = harness();
+    await h.documents.put("owner", "context/30_knowledge/pool.md", "# Бассейн\n\nТренировки");
+
+    const created = await h.tools.createContextNote.execute?.({
+      title: "Сон после бассейна",
+      content: "# Сон после бассейна\n\nНаблюдение",
+      destination: "30_knowledge",
+    }, {} as never);
+
+    expect(created).toMatchObject({
+      outcome: "created",
+      path: "/proc/context/30_knowledge/сон-после-бассейна.md",
+      version: expect.any(String),
+    });
+    expect(JSON.stringify(created)).not.toMatch(/owner|object|bucket/);
+    await expect(h.tools.createContextNote.execute?.({
+      title: "Unsafe",
+      content: "body",
+      destination: "custom_namespace",
+    } as never, {} as never)).resolves.toMatchObject({ error: true });
+    await expect(h.documents.get("owner", "context/30_knowledge/сон-после-бассейна.md")).resolves.toMatchObject({
+      content: "# Сон после бассейна\n\nНаблюдение",
+    });
+  });
+
   it("keeps proposal preview private and blocks trusted or arbitrary namespaces", async () => {
     const h = harness();
     const seeded = await h.documents.put("owner", "context/00_inbox/source.md", "old text");

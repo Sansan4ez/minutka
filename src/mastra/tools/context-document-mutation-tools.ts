@@ -38,7 +38,7 @@ export function createContextDocumentMutationTools(documents: AssistantContextDo
   return {
     createContextNote: createTool({
       id: "createContextNote",
-      description: "Create a new owner Markdown note only after an explicit request to save or add it. Returns the safe /proc/context path and version; never accepts owner or physical storage identifiers.",
+      description: "Create a separate owner Markdown note only after an explicit save/add request and retrieve-before-write: inspect the /proc/context tree and destination INDEX.md when present, run short searchDocuments variants, and offer to supplement one clear thematic document first. Use a related allow-listed section; fall back to 00_inbox only when placement is unclear. Returns only the safe /proc/context path and version.",
       strict: true,
       inputSchema: z.strictObject({
         title: z.string().min(1),
@@ -51,7 +51,7 @@ export function createContextDocumentMutationTools(documents: AssistantContextDo
     }),
     proposeContextDocumentUpdate: createTool({
       id: "proposeContextDocumentUpdate",
-      description: "Prepare one owner-bound Markdown update after readDocument supplied the current version. Never mutates before authenticated confirmation and must not be retried automatically after a version conflict.",
+      description: "Prepare one owner-bound Markdown update after readDocument supplied the current version, including supplementing a clear thematic match instead of creating a duplicate. Preserve existing content, never mutate before the typed application decision, and never retry automatically after a version conflict.",
       strict: true,
       inputSchema: z.strictObject({
         path: contextDocumentHandleSchema,
