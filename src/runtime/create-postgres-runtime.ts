@@ -5,6 +5,7 @@ import { loadAssistantAgentInstructions } from "../application/assistant-manual-
 import { loadContextPriorityManifest } from "../application/context-priority-manifest.js";
 import { assertGeneratedContextSourceMinimums } from "../application/generated-context-startup-validator.js";
 import { createIngestionService } from "../application/ingestion-service.js";
+import { ProjectLabelService } from "../application/project-labels.js";
 import { createOnboardingContextMaterializer } from "../application/onboarding-context-materializer.js";
 import { createRuntimeProjectionBuilder } from "../application/runtime-projections/runtime-projection-builder.js";
 import { createThreadCompactionService } from "../application/thread-compaction-service.js";
@@ -140,6 +141,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const ideaStore = createPostgresIdeaStore(pool);
     const taskStore = createPostgresTaskStore(pool);
+    const projectLabels = new ProjectLabelService(ideaStore, taskStore);
     const ideaDeletions = new IdeaDeletionService(
       ideaStore,
       createPostgresIdeaDeletionConfirmationStore(pool),
@@ -160,6 +162,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       documentStore,
       blobStore,
       ideaStore,
+      canonicalizeProject: (userId, project) => projectLabels.canonicalize(userId, project),
       maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
     });
     const usageStore = createPostgresUsageStore(pool);

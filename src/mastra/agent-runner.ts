@@ -8,6 +8,7 @@ import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLog
 import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
+import { assistantProjectToolNames, createProjectTools } from "./tools/project-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
@@ -15,6 +16,7 @@ export const assistantRuntimeToolsets = {
   contextDocuments: assistantContextDocumentMutationToolNames,
   ideas: assistantIdeaToolNames,
   tasks: assistantTaskToolNames,
+  projects: assistantProjectToolNames,
   schedules: assistantScheduleToolNames,
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -25,6 +27,7 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.contextDocuments,
   ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
+  ...assistantRuntimeToolsets.projects,
   ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
@@ -52,6 +55,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
         contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
         ideas: createIdeaTools(context.ideas),
         tasks: createTaskTools(context.tasks),
+        projects: createProjectTools(context.projects),
         schedules: createScheduleTools(context.schedules),
         diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
       },

@@ -186,6 +186,9 @@ describe("A2.6: legacy Minutka agent removal", () => {
         propose: async () => ({ status: "not_found" }),
         undo: async () => ({ outcome: "not_found" }),
       },
+      projects: {
+        list: async () => ({ projects: [], truncated: false }),
+      },
       schedules: {
         listSchedules: async () => [],
         saveDailySchedule: async () => { throw new Error("not used"); },
@@ -235,6 +238,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.contextDocuments ?? {})).toEqual([...assistantRuntimeToolsets.contextDocuments]);
     expect(Object.keys(generateOptions?.toolsets?.ideas ?? {})).toEqual([...assistantRuntimeToolsets.ideas]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
+    expect(Object.keys(generateOptions?.toolsets?.projects ?? {})).toEqual([...assistantRuntimeToolsets.projects]);
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
@@ -331,6 +335,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     } as never,
     ideas: {} as never,
     tasks: {} as never,
+    projects: {} as never,
     schedules: {} as never,
     markProcessUsed() {},
   });

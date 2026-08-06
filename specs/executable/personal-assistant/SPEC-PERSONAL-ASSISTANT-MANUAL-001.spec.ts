@@ -40,7 +40,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
     expect(instructions).toContain("trusted scheduled `evening_reflection` trigger");
-    expect(instructions).toContain("Call the typed `captureIdea` action before responding");
+    expect(instructions).toContain("For actual capture, call `captureIdea` before replying");
+    expect(instructions).toContain("Projects are labels");
+    expect(instructions).toContain("do not call `captureIdea`");
+    expect(instructions).toContain("call `listProjects`");
     expect(instructions).toContain("Select at most three priorities");
     expect(instructions).toContain("exactly one concrete next action");
     expect(instructions).toContain("authenticated application confirmation command");

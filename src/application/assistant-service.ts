@@ -37,6 +37,7 @@ import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder }
 import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
 import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
+import { ProjectLabelService, type AssistantProjectListResult } from "./project-labels.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -59,6 +60,10 @@ export type AssistantAgentContext = {
     search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
     propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
     undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
+  };
+  /** Owner-bound project-label read model across ideas and tasks. */
+  projects: {
+    list(input?: { limit?: number }): Promise<AssistantProjectListResult>;
   };
   /** Owner-bound daily schedule reads and reversible writes. */
   schedules: OwnerScheduleCapabilities;
@@ -110,6 +115,7 @@ export class AssistantService {
   private readonly contextBudget: ContextBudgetConfig;
   private readonly overflowRecoveryContextBudget: ContextBudgetConfig;
   private readonly usage: UsageRecorder;
+  private readonly projectLabels: ProjectLabelService;
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
@@ -127,6 +133,7 @@ export class AssistantService {
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
     // The recorder is stateless, so every service that spends tokens builds its
     // own; the soft-limit crossing is derived from the durable monthly total.
+    this.projectLabels = new ProjectLabelService(deps.ideaStore, deps.taskStore);
     this.usage = createUsageRecorder({
       usageStore: deps.usageStore,
       usageCostPolicy: deps.usageCostPolicy,
@@ -264,8 +271,12 @@ export class AssistantService {
       return new AssistantContextOverflowError(reason, { cause });
     };
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
+      const requestedProject = idea.project.trim();
+      const project = idea.needsProjectClarification || !requestedProject || requestedProject === NO_PROJECT
+        ? NO_PROJECT
+        : await this.projectLabels.canonicalize(userId, requestedProject);
       try {
-        captureResult = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+        captureResult = await this.deps.ingestionService.captureIdea({ ...idea, project, id: this.ids.ideaId(), userId, source });
       } catch (cause) {
         chatEffect.businessWrite = "outcome_unknown";
         throw new AssistantMutationOutcomeUnknownError({ cause });
@@ -385,12 +396,16 @@ export class AssistantService {
         }
       },
     };
+    const projects = {
+      list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput),
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
       mutations: this.deps.taskMutations,
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
+      canonicalizeProject: (project) => this.projectLabels.canonicalize(userId, project),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
       onProposal: ((pending, taskTitle) => {
@@ -429,6 +444,7 @@ export class AssistantService {
       contextDocuments,
       tasks,
       ideas,
+      projects,
       schedules,
       markProcessUsed,
     } satisfies AssistantAgentContext;
@@ -801,6 +817,7 @@ const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>
   proposeIdeaDeletion: "inbox_capture",
   undoIdeaDeletion: "inbox_capture",
   undoTaskMutation: "day_focus",
+  listProjects: "inbox_capture",
 };
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {

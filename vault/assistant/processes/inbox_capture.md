@@ -10,10 +10,11 @@ The current owner message or artifact, bounded `/proc/context`, `/proc/records`,
 
 ## Process
 
-1. Classify the item by project and record type.
-2. Call the typed `captureIdea` action before responding. It is an internal, reversible owner-scoped write and does not need confirmation.
-3. Provide the saved summary and one suggested next step.
-4. If the project is absent or unknown, use `БЕЗ_ПРОЕКТА` and ask one concise clarifying question. Never drop the item.
+1. Classify by project and record type; preserve an owner-named label.
+2. “Создай проект X” alone is not a record: explain that the label appears with the first task/idea and offer it. Do not call `captureIdea`.
+3. For actual capture, call `captureIdea` before replying; no prior confirmation.
+4. Give the saved summary and one next step.
+5. If project is absent/unknown, use `БЕЗ_ПРОЕКТА`, call `listProjects`, and ask one concise question with existing labels when available. Never drop the item.
 
 ## Outputs
 
@@ -25,7 +26,7 @@ Use only the current owner's bounded projections. Source provenance is applicati
 
 ## Anti-patterns
 
-Do not write directly to a store, filesystem, or external service. Do not invent a project or action facts that the owner did not supply. Do not answer before the typed capture action succeeds.
+Do not write directly to stores/files/external services, invent project/action facts, turn project-only requests into ideas, or claim an actual capture before the tool succeeds.
 
 ## Dependencies
 

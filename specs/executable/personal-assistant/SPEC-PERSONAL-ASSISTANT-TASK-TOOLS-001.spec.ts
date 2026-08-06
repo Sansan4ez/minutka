@@ -67,6 +67,52 @@ function setup(
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", () => {
+  it("lists bounded owner project labels across ideas and tasks and merges case variants", async () => {
+    let listed: unknown;
+    const { service, tasks, ideas } = setup(async (_input, context) => {
+      listed = await context.projects.list({ limit: 2 });
+      return JSON.stringify(listed);
+    });
+    await ideas.add({ id: "pool-idea", userId: "owner", project: "Бассейн", type: "personal", summary: "Идея", status: "raw" });
+    await tasks.create("owner", { id: "pool-task", title: "Задача", project: "бассейн", type: "personal", status: "open" });
+    await tasks.create("owner", { id: "repair-task", title: "Ремонт", project: "Ремонт", type: "operations", status: "open" });
+    await tasks.create("owner", { id: "third-task", title: "Третий", project: "Третий", type: "operations", status: "open" });
+    await ideas.add({ id: "private-idea", userId: "other", project: "СЕКРЕТ", type: "knowledge", summary: "Чужое", status: "raw" });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "какие у меня проекты" });
+
+    expect(JSON.parse(result.response)).toEqual({
+      projects: [
+        { project: "Бассейн", ideaCount: 1, taskCount: 1, totalCount: 2 },
+        { project: "Ремонт", ideaCount: 0, taskCount: 1, totalCount: 1 },
+      ],
+      truncated: true,
+    });
+    expect(JSON.stringify(listed)).not.toContain("СЕКРЕТ");
+  });
+
+  it("normalizes new project labels and reuses an existing label ignoring case", async () => {
+    const ideaSetup = setup(async (_input, context) => {
+      await context.captureIdea({
+        project: "  Новый   проект  ",
+        type: "knowledge",
+        summary: "Первая идея",
+        suggestedNextStep: "Продолжить",
+        needsProjectClarification: false,
+      });
+      return "готово";
+    });
+    await ideaSetup.service.chat({ userId: "owner", threadId: "idea-thread", text: "сохрани" });
+    await expect(ideaSetup.ideas.list("owner", { project: "Новый проект" })).resolves.toHaveLength(1);
+
+    const taskSetup = setup(async (_input, context) => {
+      await context.tasks.propose({ kind: "create", title: "Проверить воду", project: "бассейн", type: "personal" });
+      return "готово";
+    });
+    await taskSetup.ideas.add({ id: "existing-pool", userId: "owner", project: "Бассейн", type: "personal", summary: "Существующая", status: "raw" });
+    const result = await taskSetup.service.chat({ userId: "owner", threadId: "task-thread", text: "создай задачу" });
+    expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
+  });
   it("resolves an omitted task revision into the pending proposal and still detects a later conflict", async () => {
     const { service, confirmations, tasks } = setup(async (_input, context) => {
       const [task] = await context.tasks.list();
