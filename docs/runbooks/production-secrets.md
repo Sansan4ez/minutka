@@ -5,8 +5,24 @@
 Production-секреты хранятся только в зашифрованном
 [`nixos/phase3-assistant-stack/secrets/assistant.yaml`](../../nixos/phase3-assistant-stack/secrets/assistant.yaml).
 Владелец редактирует bundle локальным age-ключом; production-хост расшифровывает
-его своим `ssh-ed25519` host private key. Plaintext на сервере существует только
-в tmpfs-путях `/run/secrets*` с mode `0400`.
+его своим `ssh-ed25519` host private key. Расшифрованные значения из sops bundle
+существуют только в tmpfs: sops-nix-файлы и шаблоны — под `/run/secrets*`, а
+writable runtime-копия конфига CLIProxyAPI — `/run/cliproxyapi/config.yaml` с
+mode `0600` и владельцем
+`cliproxyapi:cliproxyapi`.
+
+Конфиг CLIProxyAPI декларативен: источник истины — шаблон `cliproxyConfig` в
+[`modules/assistant-secrets.nix`](../../nixos/phase3-assistant-stack/modules/assistant-secrets.nix).
+При каждом старте сервиса он заново копируется в tmpfs, поэтому изменения через
+панель управления не переживают restart или deploy по замыслу. OAuth-креды,
+полученные CLIProxyAPI вне sops bundle, хранятся отдельно в
+`/var/lib/cliproxyapi/.cli-proxy-api` и остаются durable. При первом старте после
+выкатки сервис сам удаляет legacy-копию конфига. Проверь результат; если сервис
+ещё не запускался, удали файл вручную:
+
+```bash
+sudo rm -f /var/lib/cliproxyapi/config.yaml
+```
 
 ## Обычное изменение или ротация секрета
 
@@ -92,16 +108,17 @@ owner age key. Если потеряны оба private key, ciphertext восс
 # Репозиторий не содержит production .env.
 git ls-files '.env' '.env_*' '.env.bak*'
 
-# На хосте secret files существуют только в runtime tmpfs.
-sudo find /run/secrets \
+# На хосте plaintext-конфиги и secret files существуют только в runtime tmpfs.
+sudo find /run/secrets /run/cliproxyapi \
   -type f -printf '%m %U:%G %p\n'
-sudo find /var/lib/personal-assistant /opt /srv \
-  -xdev -type f \( -name '.env' -o -name '*secret*' \) -print
+sudo find /var/lib/personal-assistant /var/lib/cliproxyapi /opt /srv \
+  -xdev -type f \( -name '.env' -o -name '*secret*' -o -name 'config.yaml' \) -print
 ```
 
 Ожидание: первая команда ничего не выводит; application runtime-файлы имеют
 `0400 personal-assistant:personal-assistant`, PostgreSQL role passwords и MinIO
 app credential — `0440 personal-assistant:postgres` для peer-authenticated
 setup/restore smoke, MinIO root
-template — `0400 minio:minio`; последний поиск не находит production secret
+template — `0400 minio:minio`, CLIProxyAPI runtime config —
+`0600 cliproxyapi:cliproxyapi`; последний поиск не находит production secret
 copies.

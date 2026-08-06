@@ -16,6 +16,7 @@ let
     autoPatchelf "$out/bin/cli-proxy-api"
   '';
   stateDir = "/var/lib/cliproxyapi";
+  runtimeConfigFile = "/run/cliproxyapi/config.yaml";
 in
 {
   assertions = [
@@ -51,10 +52,15 @@ in
       Group = "cliproxyapi";
       WorkingDirectory = stateDir;
       Environment = "HOME=${stateDir}";
-      ExecStart = "${lib.getExe' package "cli-proxy-api"} -config ${stateDir}/config.yaml";
-      ExecStartPre = "${pkgs.coreutils}/bin/install -m 0600 -o cliproxyapi -g cliproxyapi ${personalAssistantSecrets.cliproxyConfigFile} ${stateDir}/config.yaml";
+      ExecStart = "${lib.getExe' package "cli-proxy-api"} -config ${runtimeConfigFile}";
+      ExecStartPre = [
+        "${pkgs.coreutils}/bin/rm -f ${stateDir}/config.yaml"
+        "${pkgs.coreutils}/bin/install -m 0600 ${personalAssistantSecrets.cliproxyConfigFile} ${runtimeConfigFile}"
+      ];
       Restart = "always";
       RestartSec = 5;
+      RuntimeDirectory = "cliproxyapi";
+      RuntimeDirectoryMode = "0700";
       StateDirectory = "cliproxyapi";
       StateDirectoryMode = "0750";
       UMask = "0077";
