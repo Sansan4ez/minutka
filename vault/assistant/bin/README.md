@@ -12,7 +12,7 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 |---|---|---:|---|---|---|
 | `/bin/capture-idea.md` | `captureIdea` | Yes, reversible internal write | Level 0: no prior confirmation | Bound by `AssistantService`; owner id is not model input | Save a classified owner idea through `IngestionService`. |
 | `/bin/search-ideas.md` | `searchIdeas` | No | No | Authenticated owner's active ideas only | Find existing ideas before capture or resolve exact/ambiguous deletion candidates. |
-| `/bin/append-idea.md` | `appendIdea` | Yes, reversible internal write | Level 0 after owner chooses to supplement | Owner and exact idea id/revision bound by `AssistantService` | Append details to an existing idea instead of creating a duplicate. |
+| `/bin/append-idea.md` | `appendIdea` | Yes, immediate internal write; no undo | Level 0 after owner chooses to supplement | Owner and exact idea id/revision bound by `AssistantService` | Append details to an existing idea instead of creating a duplicate. |
 | `/bin/propose-idea-deletion.md` | `proposeIdeaDeletion` | No durable deletion | Level 1: verbal agreement or parallel button | Owner and exact idea id/revision bound by `AssistantService` | Prepare one reversible idea deletion for authenticated confirmation. |
 | `/bin/undo-idea-deletion.md` | `undoIdeaDeletion` | Yes, reversible internal write | Level 0: no prior confirmation | Authenticated owner's tombstones inside the undo window | Restore an exact or most recently deleted idea idempotently. |
 | `/bin/list-documents.md` | `listDocuments` | No | No | Authenticated owner's `/proc/context` only | List bounded logical document metadata. |

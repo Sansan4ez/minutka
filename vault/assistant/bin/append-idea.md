@@ -22,7 +22,7 @@ Yes: updates the existing owner-scoped idea summary and renews its activity time
 
 ## Confirmation level
 
-Level 0: reversible internal write. Use only after the owner chooses to supplement the existing idea. Do not ask for a button confirmation.
+Level 0: immediate internal write without an undo path. Use only after the owner chooses to supplement the existing idea. Do not ask for a button confirmation.
 
 ## Rules
 

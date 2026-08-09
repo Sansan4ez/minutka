@@ -54,7 +54,7 @@ export function createIdeaTools(ideas: {
     }),
     appendIdea: createTool({
       id: "appendIdea",
-      description: "Append owner-provided details to one exact existing idea after the owner chooses to supplement it instead of creating a separate record. This is an immediate reversible internal write; use the current revision from /proc/records or searchIdeas. On conflict or not_found, say nothing changed and offer to search again.",
+      description: "Append owner-provided details to one exact existing idea after the owner chooses to supplement it instead of creating a separate record. This is an immediate internal write; use the current revision from /proc/records or searchIdeas. There is no undo: report the supplement plainly and never offer «отмени» after it. On conflict or not_found, say nothing changed and offer to search again.",
       strict: true,
       inputSchema: z.strictObject({ ideaId: z.string().min(1), expectedRevision: z.number().int().positive(), text: z.string().min(1) }),
       outputSchema: appendIdeaOutputSchema,

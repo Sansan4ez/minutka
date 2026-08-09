@@ -42,7 +42,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("trusted scheduled `evening_reflection` trigger");
     expect(instructions).toContain("Retrieve before write");
     expect(instructions).toContain("ask one plain-text question");
-    expect(instructions).toContain("Supplement via `appendIdea`/task update");
+    expect(instructions).toContain("Supplement via `appendIdea` (дополнение не откатывается)/task update");
+    expect(instructions).toContain("`appendIdea` has no undo");
+    expect(readFileSync("vault/assistant/bin/append-idea.md", "utf8")).not.toMatch(/\breversible\b/i);
     expect(instructions).toContain("A possible duplicate is cheaper than dropped input");
     expect(instructions).toContain("Treat a URL in chat as ordinary text");
     expect(instructions).toContain("Что сделать со ссылкой?");

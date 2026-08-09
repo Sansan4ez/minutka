@@ -37,12 +37,12 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * `vault/assistant`. Pinning the measured size moves the same failure into
  * `npm run verify` and makes any growth deliberate.
  *
- * Measured 2026-08-09 after the Epic-CONV changes: 23 229 of 24 000
- * characters, leaving 771 characters of headroom. Do not raise this pin merely
+ * Measured 2026-08-09 after documenting appendIdea's no-undo contract: 23 278
+ * of 24 000 characters, leaving 722 characters of headroom. Do not raise this pin merely
  * to make a red spec green: the growth policy remains a separate decision in
  * prs-7ohk.
  */
-const pinnedAgentManualCharacters = 23_229;
+const pinnedAgentManualCharacters = 23_278;
 
 const projection = {
   schemaVersion: 1 as const,

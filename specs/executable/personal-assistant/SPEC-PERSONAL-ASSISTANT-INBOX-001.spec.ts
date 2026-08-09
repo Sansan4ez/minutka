@@ -173,13 +173,13 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
         text: "Записался; после бассейна сон был спокойный",
       });
       expect(result.status).toBe("applied");
-      return "Дополнил существующую запись про бассейн. Скажи «отмени», если не то.";
+      return "Дополнил существующую запись про бассейн.";
     });
     await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
     setNow("2026-07-15T09:30:00.000Z");
 
     await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "По бассейну: записался, сон был спокойный" })).resolves.toMatchObject({
-      response: expect.stringContaining("Дополнил существующую запись"),
+      response: "Дополнил существующую запись про бассейн.",
       selectedProcessIds: ["core", "inbox_capture"],
       effect: "business_write_committed",
     });
