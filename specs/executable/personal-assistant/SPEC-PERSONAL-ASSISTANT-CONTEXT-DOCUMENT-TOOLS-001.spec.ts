@@ -36,6 +36,34 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DOCUMENT-TOOLS-001: owner-bound model 
     expect(JSON.stringify(await h.tools.createContextNote.execute?.({ title: "Safe note", content: "other" }, {} as never))).not.toMatch(/owner|object|bucket/);
   });
 
+  it("keeps every mutation path a plain string field so providers can fill it", () => {
+    const h = harness();
+    const mutationTools = [h.tools.proposeContextDocumentUpdate, h.tools.proposeContextDocumentMove, h.tools.proposeContextDocumentDelete];
+
+    for (const tool of mutationTools) {
+      const schema = tool.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" }) as {
+        properties: Record<string, { type?: string; pattern?: string }>;
+      };
+      // A composed field (allOf/anyOf/oneOf) stops being a string for the model,
+      // which then sends an object and every call is rejected before execute.
+      expect(JSON.stringify(schema)).not.toMatch(/"(allOf|anyOf|oneOf)"/);
+      for (const field of ["path", "destination"]) {
+        if (!(field in schema.properties)) continue;
+        expect(schema.properties[field]).toMatchObject({ type: "string", pattern: expect.any(String) });
+      }
+    }
+  });
+
+  it("still rejects handles outside /proc/context and without a .md suffix", async () => {
+    const h = harness();
+    const parse = (path: string) => h.tools.proposeContextDocumentDelete.inputSchema!["~standard"].validate({ path, expectedVersion: "v1" });
+
+    expect((await parse("/proc/context/00_inbox/note.md")).issues).toBeUndefined();
+    expect((await parse("/proc/records/00_inbox/note.md")).issues).toBeDefined();
+    expect((await parse("/proc/context/00_inbox/note.txt")).issues).toBeDefined();
+    expect((await parse("../../etc/passwd")).issues).toBeDefined();
+  });
+
   it("documents retrieve-before-write, related sections, and safe supplementation", () => {
     const h = harness();
     const createDescription = h.tools.createContextNote.description ?? "";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AssistantService } from "../../../src/application/assistant-service.js";
+import { AssistantService, missingAgentResponseUserMessage } from "../../../src/application/assistant-service.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
@@ -62,6 +62,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-LEVEL-ZERO-001", () => {
     await expect(env.confirmations.undo("owner")).resolves.toMatchObject({ status: "undone", actionKind: "create", task: { title: "Купить корм" } });
     await expect(env.tasks.list("owner")).resolves.toEqual([]);
     await expect(env.confirmations.undo("owner")).resolves.toEqual({ status: "not_found" });
+  });
+
+  it("reports an honest summary instead of failing when the agent stops after a committed write", async () => {
+    const env = setup(async (_input, context) => {
+      await context.tasks.propose({ kind: "create", title: "Купить корм", project: "дом", type: "personal" });
+      return "";
+    });
+
+    const result = await env.service.chat({ userId: "owner", threadId: "telegram:owner", text: "заведи задачу купить корм" });
+    expect(result).toMatchObject({ effect: "business_write_committed", response: missingAgentResponseUserMessage });
+    await expect(env.tasks.list("owner")).resolves.toHaveLength(1);
   });
 
   it("walks backward through sequential reversible mutations", async () => {

@@ -557,10 +557,15 @@ export class AssistantService {
     if (applicationSignal.aborted && !attemptedTaskProposal && !persistedTaskProposal && currentChatEffectState() === "none") {
       throwAssistantAbortReason(applicationSignal);
     }
+    // An empty answer is the same as no answer; normalizing it here lets the
+    // capture gate below treat a silent turn as the loss it is.
+    if (response !== undefined && !response.trim()) response = undefined;
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
-    // turns remains the agent's responsibility.
-    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    // turns remains the agent's responsibility. A turn that ends without text,
+    // effect, or pending action is the same kind of loss: the tool loop gave
+    // up, so the input is captured instead of surfacing as a bare failure.
+    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob" || response === undefined)) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -568,15 +573,16 @@ export class AssistantService {
         suggestedNextStep: "Уточнить проект и следующий шаг.",
         needsProjectClarification: true,
       });
-      if (agentError !== undefined && !(agentError instanceof AssistantContextOverflowError)) response = fallback.response;
+      if (!(agentError instanceof AssistantContextOverflowError) && (agentError !== undefined || response === undefined)) response = fallback.response;
     }
-    if (response !== undefined && !response.trim()) response = undefined;
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (response !== undefined && pendingActionLimitReached && !response.includes(pendingActionGroupLimitUserMessage)) {
       response = `${response.trimEnd()}\n\n${pendingActionGroupLimitUserMessage}`;
     }
     if (agentError !== undefined && response === undefined) throw agentError;
-    if (response === undefined) throw new Error("Agent returned no response");
+    // Work already committed or awaiting confirmation must not be reported as a
+    // failure just because the agent stopped without a closing sentence.
+    if (response === undefined) response = missingAgentResponseUserMessage;
     const usageWarning = usage ? await this.recordUsageSafely({
       userId,
       requestId,
@@ -724,6 +730,8 @@ const downstreamTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ, но предложение задачи сохранено и готово к подтверждению или отклонению.";
 const downstreamWriteAndTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ. Изменение уже сохранено; предложение задачи готово к подтверждению или отклонению. Повторно отправлять запрос не нужно.";
+export const missingAgentResponseUserMessage =
+  "Не удалось сформировать итоговый ответ. Всё, что уже сохранено или подготовлено к подтверждению, не потеряно — проверьте записи и подтверждения; повторять запрос не нужно.";
 export const pendingActionGroupLimitUserMessage =
   `За один ответ можно показать не больше ${maximumPendingActionsPerTurn} подтверждений. Показал только эту часть; оставшиеся действия можно запросить следующим сообщением.`;
 

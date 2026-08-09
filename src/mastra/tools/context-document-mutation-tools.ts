@@ -5,7 +5,12 @@ import {
   type AssistantContextDocumentCapabilities,
 } from "../../application/assistant-context-document-capabilities.js";
 
-const contextDocumentHandleSchema = z.string().startsWith("/proc/context/").endsWith(".md");
+// One `pattern` on purpose: chained string checks serialize to `allOf`, which
+// providers do not translate into a string field, so the model sends an object
+// and every mutation call is rejected before it reaches the typed use case.
+const contextDocumentHandleSchema = z.string().regex(/^\/proc\/context\/.*\.md$/, {
+  message: "must be a /proc/context/ path ending with .md",
+});
 const versionSchema = z.string().min(1).max(512);
 const providerOptional = <T extends z.ZodType>(schema: T) => z.preprocess(
   (value) => value === null ? undefined : value,

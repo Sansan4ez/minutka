@@ -263,6 +263,15 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
     await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Сохрани даже при сбое" }]);
   });
 
+  it("durably captures the input when the agent finishes without any answer", async () => {
+    const { service, ideas } = createService(async () => "");
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Дополни заметку про ключ" })).resolves.toMatchObject({
+      response: expect.stringContaining("К какому проекту её отнести?"), selectedProcessIds: ["core", "inbox_capture"],
+    });
+    await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Дополни заметку про ключ" }]);
+  });
+
   it("rejects an unknown participant before invoking the agent or persisting input", async () => {
     let agentCalls = 0;
     const clock = { now: () => "2026-07-15T09:00:00.000Z" };
