@@ -14,6 +14,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       "assistantActiveToolNames",
       "assistantRuntimeToolsets",
       "createAssistantAgentRunner",
+      "createAssistantToolsets",
     ]);
     expect(mastra.getAgent("personalAssistantAgent")).toBe(personalAssistantAgent);
     expect(() => mastra.getAgent("minutkaAgent" as never)).toThrow();

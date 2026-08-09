@@ -1,4 +1,4 @@
-import type { AssistantAgentRunner } from "../application/assistant-service.js";
+import type { AssistantAgentContext, AssistantAgentRunner } from "../application/assistant-service.js";
 import type { Agent } from "@mastra/core/agent";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
@@ -43,22 +43,26 @@ type AssistantAgentRunnerOptions = { operationalLogger?: ModelUsageWarningLogger
 export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
+export function createAssistantToolsets(context: AssistantAgentContext) {
+  return {
+    inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
+    documents: createDocumentTools(context.documents),
+    contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
+    ideas: createIdeaTools(context.ideas),
+    tasks: createTaskTools(context.tasks),
+    projects: createProjectTools(context.projects),
+    schedules: createScheduleTools(context.schedules),
+    diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
+  };
+}
+
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
 export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent, options: AssistantAgentRunnerOptions = {}): AssistantAgentRunner {
   return async (input, context, signal) => {
     const result: MastraGenerateResult = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
-      toolsets: {
-        inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
-        documents: createDocumentTools(context.documents),
-        contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
-        ideas: createIdeaTools(context.ideas),
-        tasks: createTaskTools(context.tasks),
-        projects: createProjectTools(context.projects),
-        schedules: createScheduleTools(context.schedules),
-        diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
-      },
+      toolsets: createAssistantToolsets(context),
       // `activeTools` is applied after all toolsets are resolved, so ambient
       // agent-level tools cannot be selected during the personal assistant run.
       activeTools: [...assistantActiveToolNames],
