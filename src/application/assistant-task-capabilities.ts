@@ -66,6 +66,7 @@ export function createAssistantTaskCapabilities(input: {
   mutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>;
   ideaToTask?: Pick<IdeaToTaskService, "propose">;
   taskId: () => string;
+  canonicalizeProject?: (project: string) => Promise<string>;
   audit?: TaskMutationAuditContext;
   beforePersist: AssistantTaskCapabilityCallbacks["beforePersist"];
   onProposal: AssistantTaskCapabilityCallbacks["onProposal"];
@@ -83,7 +84,7 @@ export function createAssistantTaskCapabilities(input: {
     },
     async propose(proposal) {
       if (!input.mutations) throw new Error("task mutation confirmation is not configured");
-      const normalized = await normalizeAssistantTaskProposal(proposal, input.taskId, input.ownerId, input.tasks);
+      const normalized = await normalizeAssistantTaskProposal(proposal, input.taskId, input.ownerId, input.tasks, input.canonicalizeProject);
       const taskTitle = proposal.kind === "create" ? undefined : await resolveTaskTitle(input.ownerId, proposal.taskId, input.tasks);
       const pending = await input.mutations.propose(
         input.ownerId,
@@ -160,6 +161,7 @@ async function normalizeAssistantTaskProposal(
   taskId: () => string,
   ownerId: string,
   tasks?: TaskReader,
+  canonicalizeProject?: (project: string) => Promise<string>,
 ): Promise<TaskMutationProposal> {
   switch (proposal.kind) {
     case "create":
@@ -168,14 +170,24 @@ async function normalizeAssistantTaskProposal(
         input: {
           id: taskId(),
           title: proposal.title,
-          project: proposal.project,
+          project: canonicalizeProject ? await canonicalizeProject(proposal.project) : proposal.project,
           type: proposal.type,
           status: "open",
           ...(proposal.dueDate === undefined ? {} : { dueDate: proposal.dueDate }),
         },
       };
     case "update":
-      return { kind: "update", taskId: proposal.taskId, expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks), patch: { ...proposal.patch } };
+      return {
+        kind: "update",
+        taskId: proposal.taskId,
+        expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks),
+        patch: {
+          ...proposal.patch,
+          ...(proposal.patch.project === undefined
+            ? {}
+            : { project: canonicalizeProject ? await canonicalizeProject(proposal.patch.project) : proposal.patch.project }),
+        },
+      };
     case "complete":
       return { kind: "update", taskId: proposal.taskId, expectedRevision: await resolveExpectedRevision(proposal, ownerId, tasks), patch: { status: "done" } };
     case "cancel":

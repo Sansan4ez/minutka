@@ -7,6 +7,7 @@ import { NO_PROJECT, type RecordType } from "../domain/classification.js";
 import type { Idea, IdeaSource, IdeaStore } from "./idea-store.js";
 import { defaultContextBudget } from "./context-budget.js";
 import { assertContextDocumentWithinMaximumBytes } from "./context-document-size.js";
+import { normalizeProjectLabel } from "./project-labels.js";
 
 /**
  * The only application write boundary for personal-vault content. Classification
@@ -42,6 +43,7 @@ export function createIngestionService(deps: {
   documentStore: DocumentStore;
   blobStore: BlobStore;
   ideaStore?: IdeaStore;
+  canonicalizeProject?: (userId: string, project: string) => Promise<string>;
   maximumContextDocumentBytes?: number;
 }): IngestionService {
   const maximumContextDocumentBytes = deps.maximumContextDocumentBytes ?? defaultContextBudget.documentTools.maximumDocumentBytes;
@@ -90,7 +92,11 @@ export function createIngestionService(deps: {
       if (!suggestedNextStep) throw new Error("suggested next step is required");
       const requestedProject = input.project.trim();
       const needsProjectClarification = input.needsProjectClarification || !requestedProject || requestedProject === NO_PROJECT;
-      const project = needsProjectClarification ? NO_PROJECT : requestedProject;
+      const project = needsProjectClarification
+        ? NO_PROJECT
+        : deps.canonicalizeProject
+          ? await deps.canonicalizeProject(userId, requestedProject)
+          : normalizeProjectLabel(requestedProject);
       const ideaStore = deps.ideaStore;
       if (!ideaStore) throw new Error("ideaStore is required for idea capture");
       const idea = await ideaStore.add({

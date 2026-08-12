@@ -142,6 +142,23 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
         throw mapPostgresError(error);
       }
     },
+    async append(userId, id, input) {
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision <= 0) throw new Error("expectedRevision must be a positive safe integer");
+      const text = input.text.trim();
+      if (!text) throw new Error("append text is required");
+      try {
+        const result = await pool.query<Row>(
+          `UPDATE minutka_private.ideas
+           SET summary=CASE WHEN btrim(summary)='' THEN $4 ELSE rtrim(summary) || E'\\n\\n' || $4 END, last_activity_at=now(), revision=revision+1
+           WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL AND revision=$3
+           RETURNING *`,
+          [userId, id, input.expectedRevision, text],
+        );
+        if (result.rows[0]) return { status: "applied", idea: restoreIdea(result.rows[0]) };
+        const selected = await pool.query<Row>("SELECT * FROM minutka_private.ideas WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL", [userId, id]);
+        return selected.rows[0] ? { status: "conflict", current: restoreIdea(selected.rows[0]) } : { status: "not_found" };
+      } catch (error) { throw mapPostgresError(error); }
+    },
     async softDelete(userId, id, input) {
       const params: unknown[] = [userId, id, input.deletedAt, input.undoExpiresAt];
       const expected = input.expectedRevision === undefined ? "" : ` AND revision=$${params.push(input.expectedRevision)}`;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { IdeaAppendService } from "../../../src/application/idea-append.js";
 import { IdeaDeletionService } from "../../../src/application/idea-deletion.js";
 import { createInMemoryIdeaDeletionConfirmationStore } from "../../../src/application/in-memory-idea-deletion-confirmation-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
@@ -17,8 +18,10 @@ function setup() {
     clock,
     { confirmationId: () => "idea-delete-1", tasks },
   );
+  const appends = new IdeaAppendService(ideas);
   const tools = createIdeaTools({
     search: (input) => service.search("owner", input),
+    append: (input) => appends.append("owner", input),
     propose: (input) => service.propose("owner", input),
     undo: (input) => service.undo("owner", input),
   });
@@ -86,12 +89,59 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
     expect(archived.ideas).toEqual([expect.objectContaining({ id: "idea-planned", status: "planned", convertedTaskId: "task-from-idea" })]);
   });
 
+  it("appends details to an exact owner idea without exposing owner or source fields", async () => {
+    const { ideas, tools, setNow } = setup();
+    await ideas.add({
+      id: "idea-pool",
+      userId: "owner",
+      project: "Бассейн",
+      type: "personal",
+      summary: "Записаться в бассейн",
+      source: { kind: "text", text: "private source" },
+      status: "raw",
+    });
+    setNow("2026-07-31T09:30:00.000Z");
+
+    const output = await execute(tools.appendIdea, {
+      ideaId: "idea-pool",
+      expectedRevision: 1,
+      text: "Записался; после бассейна сон был спокойный",
+    });
+    const parsed = parseOutput<{ status: string; idea: Record<string, unknown> }>(tools.appendIdea, output);
+
+    expect(parsed).toEqual({
+      status: "applied",
+      idea: expect.objectContaining({
+        id: "idea-pool",
+        summary: "Записаться в бассейн\n\nЗаписался; после бассейна сон был спокойный",
+        lastActivityAt: "2026-07-31T09:30:00.000Z",
+        revision: 2,
+      }),
+    });
+    expect(JSON.stringify(parsed)).not.toMatch(/userId|source|private source/);
+    await expect(ideas.list("owner")).resolves.toHaveLength(1);
+  });
+
+  it("does not append with a stale revision or across owners", async () => {
+    const { ideas, tools } = setup();
+    await ideas.add({ id: "idea-1", userId: "owner", project: "ASSISTANT", type: "knowledge", summary: "Original", status: "raw" });
+    await ideas.update("owner", "idea-1", { status: "discussed" });
+
+    await expect(execute(tools.appendIdea, { ideaId: "idea-1", expectedRevision: 1, text: "Stale" })).resolves.toMatchObject({
+      status: "conflict",
+      current: { id: "idea-1", summary: "Original", revision: 2 },
+    });
+    await expect(execute(tools.appendIdea, { ideaId: "missing", expectedRevision: 1, text: "Private" })).resolves.toEqual({ status: "not_found" });
+    await expect(ideas.get("owner", "idea-1")).resolves.toMatchObject({ summary: "Original", revision: 2 });
+  });
+
   it.each([
     ["not_found", { status: "not_found" }],
     ["conflict", { status: "conflict" }],
   ] as const)("validates proposeIdeaDeletion %s output", async (_status, serviceOutput) => {
     const tools = createIdeaTools({
       search: async () => [],
+      append: async () => ({ status: "not_found" }),
       propose: async () => serviceOutput,
       undo: async () => ({ outcome: "not_found" }),
     });
@@ -139,6 +189,7 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
   ] as const)("validates undoIdeaDeletion %s output", async (_outcome, serviceOutput) => {
     const tools = createIdeaTools({
       search: async () => [],
+      append: async () => ({ status: "not_found" }),
       propose: async () => ({ status: "not_found" }),
       undo: async () => serviceOutput as IdeaMutationResult,
     });

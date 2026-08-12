@@ -4,15 +4,17 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 | Process id | When it applies | Allowed effect |
 |---|---|---|
-| `inbox_capture` | Retain an idea, note, link, voice memo, photo, or other inbound record. | Call owner-scoped `captureIdea` before claiming it was saved. |
-| `knowledge_lookup` | Search the owner's knowledge base or notes for a subject, including “what do I have about X?”. | Try bounded query variants, read the best matches, cite `/proc/context/*` sources, and disclose incomplete reads or say “не нашёл в базе”. |
+| `inbox_capture` | Retain an idea/task/artifact or URL; project-only requests are not capture. | Retrieve before write; keep URL context/intent in one idea, never auto-fetch/promote, and ask “Что сделать со ссылкой?” after capturing a URL without intent. |
+| `knowledge_lookup` | Search the owner's knowledge base/notes, or explicitly save/add a knowledge-base note. | Retrieve before write; read close matches, supplement one clear document or create separately in a related allow-listed section, and disclose incomplete search. |
 | `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; reversible task changes apply immediately with worded undo, while cancellation remains confirmable. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
 
-If no process applies, answer from `/AGENTS.md` and bounded owner projections. Prefer the narrowest matching set. `day_focus` is internal-first: do not require calendar integration. `evening_reflection` may use recent history but must not invent work, blockers, meetings, or emotional state. Deterministic transport gates may select a runtime path but do not decide answer semantics. Process ids are diagnostics reconstructed from actual execution, not authority.
+If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.
 
-For knowledge-base writes, `createContextNote` is allowed only after an explicit save/add request. For existing Markdown, call `readDocument` first, pass its exact version to one proposal tool, and leave execution to the application confirmation buttons. A proposal is not a document change; on a stale version, stop and ask to reread rather than overwriting. Artifacts are never promoted automatically.
+Knowledge-base writes require explicit save/add and retrieve-before-write. Supplement one clear document via read/version/update; otherwise use `createContextNote` in a related section. On conflict, stop. Never auto-promote artifacts.
 
-For task requests, use `listTasks` as needed and perform at most one task operation. For “mark X completed”, resolve id/revision with `listTasks`, then call `proposeTaskMutation({ kind: "complete", taskId, expectedRevision })`; for an applied create/update/complete/idea-to-task result, state what changed and say “Скажи «отмени», если не то” without ids. A plain undo request uses `undoTaskMutation`. Cancellation remains a pending level-1 action: do not claim it changed before authenticated confirmation outside the agent tool loop.
+Projects are labels. For “создай проект X”, offer its first record; use `listProjects` before clarification.
+
+For tasks, use `listTasks` as needed and perform one operation. Applied level-0 changes get a worded undo path; cancellation stays pending until authenticated confirmation.
 
 For daily check-in times, use `listSchedules`, then `setDailySchedule` or `disableSchedule`; supported process ids are closed by the tool. After a saved write, state its time, timezone, and enabled state.

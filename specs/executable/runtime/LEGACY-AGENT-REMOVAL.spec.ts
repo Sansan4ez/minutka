@@ -14,6 +14,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       "assistantActiveToolNames",
       "assistantRuntimeToolsets",
       "createAssistantAgentRunner",
+      "createAssistantToolsets",
     ]);
     expect(mastra.getAgent("personalAssistantAgent")).toBe(personalAssistantAgent);
     expect(() => mastra.getAgent("minutkaAgent" as never)).toThrow();
@@ -183,8 +184,12 @@ describe("A2.6: legacy Minutka agent removal", () => {
       },
       ideas: {
         search: async () => [],
+        append: async () => ({ status: "not_found" }),
         propose: async () => ({ status: "not_found" }),
         undo: async () => ({ outcome: "not_found" }),
+      },
+      projects: {
+        list: async () => ({ projects: [], truncated: false }),
       },
       schedules: {
         listSchedules: async () => [],
@@ -235,6 +240,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.contextDocuments ?? {})).toEqual([...assistantRuntimeToolsets.contextDocuments]);
     expect(Object.keys(generateOptions?.toolsets?.ideas ?? {})).toEqual([...assistantRuntimeToolsets.ideas]);
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
+    expect(Object.keys(generateOptions?.toolsets?.projects ?? {})).toEqual([...assistantRuntimeToolsets.projects]);
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
@@ -331,6 +337,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     } as never,
     ideas: {} as never,
     tasks: {} as never,
+    projects: {} as never,
     schedules: {} as never,
     markProcessUsed() {},
   });

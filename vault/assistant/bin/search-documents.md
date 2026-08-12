@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Search logical owner-scoped document paths and contents under `/proc/context`.
+Search logical owner-scoped document paths and contents under `/proc/context`, including the mandatory retrieve-before-write pass before creating a knowledge-base note.
 
 ## Mutating
 
@@ -24,6 +24,8 @@ No.
 ## Rules
 
 - Search is limited to the authenticated owner's personal context namespace.
+- Before `createContextNote`, use 2–3 short query variants for the future note and inspect the `/proc/context` tree plus the destination section's exact-case `INDEX.md` when present.
+- A clear thematic match is a prompt to read and offer supplementation, not permission to rewrite or merge automatically.
 - Matching is case-insensitive literal substring search over paths and contents, not a regular expression.
 - Sorted logical path metadata is checked first. A path match is returned once without reading the body, even when the same document content would also match.
 - Results never include physical object keys, bucket names, credentials, or signed URLs.

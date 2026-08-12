@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { IdeaAppendService } from "../../../src/application/idea-append.js";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
@@ -24,6 +25,7 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
     conversationStore: createInMemoryConversationStore(world),
     ingestionService: ingestion,
     ideaStore: ideas,
+    ideaAppends: new IdeaAppendService(ideas),
     auditEventStore: createInMemoryAuditEventStore(world),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
@@ -31,7 +33,7 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
       requestId: () => "req-1", messageId: () => "msg-1", insightId: () => "ins-1", feedbackId: () => "fb-1", ideaId: () => "idea-1", auditEventId: () => "evt-1",
     },
   });
-  return { service, ideas, world, setNow: (value: string) => { now = value; } };
+  return { service, ideas, documents, world, setNow: (value: string) => { now = value; } };
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
@@ -51,6 +53,59 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       response: "Сохранил идею: Добавить IdeaStore. Следующий шаг: Создать порт хранения.",
     });
     await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "АССИСТЕНТ", type: "development", summary: "Добавить IdeaStore", source: { kind: "text", text: "Добавь банк идей" } }]);
+  });
+
+  it("captures a bare URL once as chat text before asking for processing intent", async () => {
+    let captureCalls = 0;
+    const { service, ideas } = createService(async (_input, context) => {
+      captureCalls += 1;
+      const captured = await context.captureIdea({
+        project: "БЕЗ_ПРОЕКТА",
+        type: "knowledge",
+        summary: "https://example.com",
+        suggestedNextStep: "Уточнить, что сделать со ссылкой.",
+        needsProjectClarification: false,
+      });
+      expect(captured.idea.source).toEqual({ kind: "text", text: "https://example.com" });
+      return `${captured.response} Что сделать со ссылкой?`;
+    });
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:url", text: "https://example.com" })).resolves.toMatchObject({
+      response: expect.stringMatching(/^Сохранил идею: https:\/\/example\.com\..*Что сделать со ссылкой\?$/),
+      selectedProcessIds: ["core", "inbox_capture"],
+      effect: "business_write_committed",
+    });
+    expect(captureCalls).toBe(1);
+    await expect(ideas.list("maxim")).resolves.toEqual([
+      expect.objectContaining({
+        userId: "maxim",
+        summary: "https://example.com",
+        source: { kind: "text", text: "https://example.com" },
+      }),
+    ]);
+    await expect(ideas.list("other-owner")).resolves.toEqual([]);
+  });
+
+  it("keeps a URL and the owner's stated intent in one idea without claiming page access or creating documents", async () => {
+    const text = "Посмотри ссылку и сравни с нашим предложением: https://example.com";
+    const { service, ideas, documents } = createService(async (_input, context) => {
+      const captured = await context.captureIdea({
+        project: "БЕЗ_ПРОЕКТА",
+        type: "knowledge",
+        summary: text,
+        suggestedNextStep: "Сравнить страницу с нашим предложением, когда доступен инструмент чтения ссылки.",
+        needsProjectClarification: false,
+      });
+      return `${captured.response} Сейчас у меня нет инструмента, чтобы открыть и прочитать страницу.`;
+    });
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:url-intent", text })).resolves.toMatchObject({
+      response: expect.stringContaining("нет инструмента, чтобы открыть и прочитать страницу"),
+      selectedProcessIds: ["core", "inbox_capture"],
+    });
+    await expect(ideas.list("maxim")).resolves.toEqual([
+      expect.objectContaining({ summary: text, source: { kind: "text", text } }),
+    ]);
+    await expect(documents.list("maxim")).resolves.toEqual([]);
   });
 
   it("binds source provenance in the application and writes a content-free audit event", async () => {
@@ -92,6 +147,86 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
     expect(world.messages[0]?.response).toContain("Сохранено без финального текста");
   });
 
+  it("asks one plain-text choice for a visible similar idea before writing", async () => {
+    const { service, ideas } = createService(async (_input, context) => {
+      const [candidate] = context.records.data.records;
+      expect(candidate).toMatchObject({ id: "idea-pool", summary: "Записаться в бассейн" });
+      return "Похоже на запись от 09:00 про бассейн — дополнить её или завести отдельную?";
+    });
+    await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "По бассейну: записался, сон был спокойный" })).resolves.toMatchObject({
+      response: "Похоже на запись от 09:00 про бассейн — дополнить её или завести отдельную?",
+      effect: "none",
+      pendingActions: [],
+    });
+    await expect(ideas.list("maxim")).resolves.toEqual([expect.objectContaining({ id: "idea-pool", revision: 1 })]);
+  });
+
+  it("supplements a visible similar idea instead of creating a duplicate", async () => {
+    const { service, ideas, setNow } = createService(async (_input, context) => {
+      const [candidate] = context.records.data.records;
+      expect(candidate).toMatchObject({ id: "idea-pool", summary: "Записаться в бассейн", revision: 1 });
+      const result = await context.ideas.append({
+        ideaId: candidate!.id,
+        expectedRevision: candidate!.revision,
+        text: "Записался; после бассейна сон был спокойный",
+      });
+      expect(result.status).toBe("applied");
+      return "Дополнил существующую запись про бассейн.";
+    });
+    await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
+    setNow("2026-07-15T09:30:00.000Z");
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "По бассейну: записался, сон был спокойный" })).resolves.toMatchObject({
+      response: "Дополнил существующую запись про бассейн.",
+      selectedProcessIds: ["core", "inbox_capture"],
+      effect: "business_write_committed",
+    });
+    await expect(ideas.list("maxim")).resolves.toEqual([
+      expect.objectContaining({
+        id: "idea-pool",
+        summary: "Записаться в бассейн\n\nЗаписался; после бассейна сон был спокойный",
+        revision: 2,
+        lastActivityAt: "2026-07-15T09:30:00.000Z",
+      }),
+    ]);
+  });
+
+  it("does not add ceremony when visible records have no clear match", async () => {
+    let sawExistingUnrelatedRecord = false;
+    const { service, ideas } = createService(async (_input, context) => {
+      sawExistingUnrelatedRecord = context.records.data.records.some(({ summary }) => summary.includes("бассейн"));
+      return (await context.captureIdea({
+        project: "РЕМОНТ", type: "operations", summary: "Купить краску",
+        suggestedNextStep: "Выбрать цвет", needsProjectClarification: false,
+      })).response;
+    });
+    await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Запиши: купить краску" })).resolves.toMatchObject({
+      response: "Сохранил идею: Купить краску. Следующий шаг: Выбрать цвет.",
+    });
+    expect(sawExistingUnrelatedRecord).toBe(true);
+    await expect(ideas.list("maxim")).resolves.toHaveLength(2);
+  });
+
+  it("preserves the item by creating it when a duplicate choice is ambiguous", async () => {
+    const { service, ideas } = createService(async (_input, context) => {
+      expect(context.records.data.records).toEqual([expect.objectContaining({ id: "idea-pool" })]);
+      return (await context.captureIdea({
+        project: "Бассейн", type: "personal", summary: "После бассейна сон был спокойный",
+        suggestedNextStep: "Наблюдать ещё неделю", needsProjectClarification: false,
+      })).response;
+    });
+    await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "не уверен, как лучше" })).resolves.toMatchObject({
+      response: expect.stringContaining("Сохранил идею"),
+    });
+    await expect(ideas.list("maxim")).resolves.toHaveLength(2);
+  });
+
   it("collapses an unknown project to БЕЗ_ПРОЕКТА and asks for clarification", async () => {
     const { service, ideas } = createService(async (_input, context) => {
       const captured = await context.captureIdea({
@@ -126,6 +261,15 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       response: expect.stringContaining("К какому проекту её отнести?"), selectedProcessIds: ["core", "inbox_capture"],
     });
     await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Сохрани даже при сбое" }]);
+  });
+
+  it("durably captures the input when the agent finishes without any answer", async () => {
+    const { service, ideas } = createService(async () => "");
+
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Дополни заметку про ключ" })).resolves.toMatchObject({
+      response: expect.stringContaining("К какому проекту её отнести?"), selectedProcessIds: ["core", "inbox_capture"],
+    });
+    await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Дополни заметку про ключ" }]);
   });
 
   it("rejects an unknown participant before invoking the agent or persisting input", async () => {

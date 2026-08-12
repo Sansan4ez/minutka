@@ -563,6 +563,12 @@ describe("PostgreSQL storage contracts", () => {
     await expect(ideas.add({ id: "idea_blank_summary", userId: "idea_owner", project: "АССИСТЕНТ", type: "knowledge", summary: " ", status: "raw" })).rejects.toThrow("summary is required");
     await expect(ideas.update("idea_owner", "idea_owner_raw", { summary: "" })).rejects.toThrow("summary is required");
     await expect(ideas.update("idea_owner", "idea_owner_raw", { source: undefined })).resolves.toMatchObject({ source: { kind: "text", text: "raw" } });
+    const beforeAppend = await ideas.get("idea_owner", "idea_owner_raw");
+    await expect(ideas.append("other_owner", "idea_owner_raw", { expectedRevision: beforeAppend!.revision, text: "private" })).resolves.toEqual({ status: "not_found" });
+    await expect(ideas.append("idea_owner", "idea_owner_raw", { expectedRevision: beforeAppend!.revision + 1, text: "stale" })).resolves.toMatchObject({ status: "conflict", current: { summary: "raw" } });
+    await expect(ideas.append("idea_owner", "idea_owner_raw", { expectedRevision: beforeAppend!.revision, text: "added detail" })).resolves.toMatchObject({
+      status: "applied", idea: { summary: "raw\n\nadded detail", revision: beforeAppend!.revision + 1, lastActivityAt: expect.any(String) },
+    });
     const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
   });

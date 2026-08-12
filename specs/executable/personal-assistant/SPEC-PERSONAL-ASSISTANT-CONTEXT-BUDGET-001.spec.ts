@@ -37,12 +37,12 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * `vault/assistant`. Pinning the measured size moves the same failure into
  * `npm run verify` and makes any growth deliberate.
  *
- * Measured 2026-08-02 after removing duplicated authority, privacy, mutation,
- * and routing rules: 17 204 of 24 000 characters. Do not raise this pin merely
+ * Measured 2026-08-09 after documenting appendIdea's no-undo contract: 23 278
+ * of 24 000 characters, leaving 722 characters of headroom. Do not raise this pin merely
  * to make a red spec green: the growth policy remains a separate decision in
  * prs-7ohk.
  */
-const pinnedAgentManualCharacters = 21_960;
+const pinnedAgentManualCharacters = 23_278;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -339,6 +339,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(used, measured).toBeLessThanOrEqual(ceiling);
     expect(used, `${measured}. Growing the manual is a cost decision, not a formatting detail: see prs-7ohk before repinning.`)
       .toBeLessThanOrEqual(pinnedAgentManualCharacters);
+    expect(pinnedAgentManualCharacters, measured).toBeLessThanOrEqual(used);
   });
 });
 

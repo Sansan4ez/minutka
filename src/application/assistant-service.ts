@@ -37,6 +37,8 @@ import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder }
 import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
 import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
+import { ProjectLabelService, type AssistantProjectListResult } from "./project-labels.js";
+import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -54,11 +56,16 @@ export type AssistantAgentContext = {
   contextDocuments: AssistantContextDocumentCapabilities;
   /** Owner-bound task reads, level-0 writes with undo, and level-1 cancellation proposals. */
   tasks: AssistantTaskCapabilities;
-  /** Owner-bound idea search, confirmable deletion proposal, and short-window undo. */
+  /** Owner-bound idea search, level-0 append, confirmable deletion proposal, and short-window undo. */
   ideas: {
     search(input: Parameters<IdeaDeletionService["search"]>[1]): ReturnType<IdeaDeletionService["search"]>;
+    append(input: { ideaId: string; expectedRevision: number; text: string }): Promise<AppendIdeaResult>;
     propose(input: { ideaId: string; expectedRevision: number; reason?: string }): ReturnType<IdeaDeletionService["propose"]>;
     undo(input: { ideaId?: string; expectedRevision?: number }): ReturnType<IdeaDeletionService["undo"]>;
+  };
+  /** Owner-bound project-label read model across ideas and tasks. */
+  projects: {
+    list(input?: { limit?: number }): Promise<AssistantProjectListResult>;
   };
   /** Owner-bound daily schedule reads and reversible writes. */
   schedules: OwnerScheduleCapabilities;
@@ -110,10 +117,11 @@ export class AssistantService {
   private readonly contextBudget: ContextBudgetConfig;
   private readonly overflowRecoveryContextBudget: ContextBudgetConfig;
   private readonly usage: UsageRecorder;
+  private readonly projectLabels: ProjectLabelService;
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -127,6 +135,7 @@ export class AssistantService {
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
     // The recorder is stateless, so every service that spends tokens builds its
     // own; the soft-limit crossing is derived from the durable monthly total.
+    this.projectLabels = new ProjectLabelService(deps.ideaStore, deps.taskStore);
     this.usage = createUsageRecorder({
       usageStore: deps.usageStore,
       usageCostPolicy: deps.usageCostPolicy,
@@ -264,8 +273,12 @@ export class AssistantService {
       return new AssistantContextOverflowError(reason, { cause });
     };
     const captureIdea = async (idea: Omit<CaptureIdeaInput, "id" | "userId" | "source">) => {
+      const requestedProject = idea.project.trim();
+      const project = idea.needsProjectClarification || !requestedProject || requestedProject === NO_PROJECT
+        ? NO_PROJECT
+        : await this.projectLabels.canonicalize(userId, requestedProject);
       try {
-        captureResult = await this.deps.ingestionService.captureIdea({ ...idea, id: this.ids.ideaId(), userId, source });
+        captureResult = await this.deps.ingestionService.captureIdea({ ...idea, project, id: this.ids.ideaId(), userId, source });
       } catch (cause) {
         chatEffect.businessWrite = "outcome_unknown";
         throw new AssistantMutationOutcomeUnknownError({ cause });
@@ -310,8 +323,15 @@ export class AssistantService {
     };
     const ideas = {
       search: (input: { query?: string; limit?: number }) => {
-        if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
+        if (!this.deps.ideaDeletions) throw new Error("idea search is not configured");
         return this.deps.ideaDeletions.search(userId, input);
+      },
+      append: async (input: { ideaId: string; expectedRevision: number; text: string }) => {
+        if (!this.deps.ideaAppends) throw new Error("idea append is not configured");
+        const result = await this.deps.ideaAppends.append(userId, input);
+        observedExecutionTrace.push({ kind: "tool", toolName: "appendIdea" });
+        if (result.status === "applied" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        return result;
       },
       propose: async (input: { ideaId: string; expectedRevision: number; reason?: string }) => {
         if (!this.deps.ideaDeletions) throw new Error("idea deletion is not configured");
@@ -385,12 +405,16 @@ export class AssistantService {
         }
       },
     };
+    const projects = {
+      list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput),
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
       mutations: this.deps.taskMutations,
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
+      canonicalizeProject: (project) => this.projectLabels.canonicalize(userId, project),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
       onProposal: ((pending, taskTitle) => {
@@ -429,6 +453,7 @@ export class AssistantService {
       contextDocuments,
       tasks,
       ideas,
+      projects,
       schedules,
       markProcessUsed,
     } satisfies AssistantAgentContext;
@@ -532,10 +557,15 @@ export class AssistantService {
     if (applicationSignal.aborted && !attemptedTaskProposal && !persistedTaskProposal && currentChatEffectState() === "none") {
       throwAssistantAbortReason(applicationSignal);
     }
+    // An empty answer is the same as no answer; normalizing it here lets the
+    // capture gate below treat a silent turn as the loss it is.
+    if (response !== undefined && !response.trim()) response = undefined;
     // Infrastructure failures must not discard owner input. File uploads are
     // also a deterministic capture gate; semantic routing of successful text
-    // turns remains the agent's responsibility.
-    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob")) {
+    // turns remains the agent's responsibility. A turn that ends without text,
+    // effect, or pending action is the same kind of loss: the tool loop gave
+    // up, so the input is captured instead of surfacing as a bare failure.
+    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob" || response === undefined)) {
       const fallback = await captureIdea({
         project: NO_PROJECT,
         type: "knowledge",
@@ -543,15 +573,16 @@ export class AssistantService {
         suggestedNextStep: "Уточнить проект и следующий шаг.",
         needsProjectClarification: true,
       });
-      if (agentError !== undefined && !(agentError instanceof AssistantContextOverflowError)) response = fallback.response;
+      if (!(agentError instanceof AssistantContextOverflowError) && (agentError !== undefined || response === undefined)) response = fallback.response;
     }
-    if (response !== undefined && !response.trim()) response = undefined;
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (response !== undefined && pendingActionLimitReached && !response.includes(pendingActionGroupLimitUserMessage)) {
       response = `${response.trimEnd()}\n\n${pendingActionGroupLimitUserMessage}`;
     }
     if (agentError !== undefined && response === undefined) throw agentError;
-    if (response === undefined) throw new Error("Agent returned no response");
+    // Work already committed or awaiting confirmation must not be reported as a
+    // failure just because the agent stopped without a closing sentence.
+    if (response === undefined) response = missingAgentResponseUserMessage;
     const usageWarning = usage ? await this.recordUsageSafely({
       userId,
       requestId,
@@ -699,6 +730,8 @@ const downstreamTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ, но предложение задачи сохранено и готово к подтверждению или отклонению.";
 const downstreamWriteAndTaskProposalUserMessage =
   "Не удалось сформировать итоговый ответ. Изменение уже сохранено; предложение задачи готово к подтверждению или отклонению. Повторно отправлять запрос не нужно.";
+export const missingAgentResponseUserMessage =
+  "Не удалось сформировать итоговый ответ. Всё, что уже сохранено или подготовлено к подтверждению, не потеряно — проверьте записи и подтверждения; повторять запрос не нужно.";
 export const pendingActionGroupLimitUserMessage =
   `За один ответ можно показать не больше ${maximumPendingActionsPerTurn} подтверждений. Показал только эту часть; оставшиеся действия можно запросить следующим сообщением.`;
 
@@ -798,9 +831,11 @@ function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: Assist
 const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>> = {
   captureIdea: "inbox_capture",
   searchIdeas: "inbox_capture",
+  appendIdea: "inbox_capture",
   proposeIdeaDeletion: "inbox_capture",
   undoIdeaDeletion: "inbox_capture",
   undoTaskMutation: "day_focus",
+  listProjects: "inbox_capture",
 };
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {

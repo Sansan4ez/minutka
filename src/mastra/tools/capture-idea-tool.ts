@@ -25,7 +25,7 @@ const captureIdeaOutputSchema = z.strictObject({
 export function createCaptureIdeaTool(captureIdea: (input: z.infer<typeof captureIdeaInputSchema>) => Promise<CaptureIdeaResult>) {
   return createTool({
     id: "captureIdea",
-    description: "Save a classified owner idea. Use for every inbound idea before replying.",
+    description: "Save a classified owner idea after checking the visible /proc/records for a clear semantic match. If a match exists, ask whether to append or create separately instead of calling this tool immediately. If there is no clear match, save without an extra question.",
     inputSchema: captureIdeaInputSchema,
     outputSchema: captureIdeaOutputSchema,
     execute: async (input) => {

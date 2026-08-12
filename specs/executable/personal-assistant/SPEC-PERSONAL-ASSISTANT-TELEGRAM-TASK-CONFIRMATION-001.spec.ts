@@ -365,17 +365,49 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Uncertain rejection" }]);
   });
 
-  it("creates an explicitly requested context note and reports the logical path without a confirmation card", async () => {
+  it("offers to supplement a retrieved thematic document before creating a duplicate note", async () => {
     const { telegram, documents } = await harness(async (_input, context) => {
-      const saved = await context.contextDocuments.createNote({ title: "Meeting Notes", content: "# Meeting\n\nDecision" });
-      return saved.outcome === "created" ? `Сохранено: ${saved.path}` : "Заметка уже существует.";
+      const search = await context.documents.searchDocuments({ query: "бассейн", limit: 5 });
+      const match = search.matches[0];
+      if (!match) throw new Error("expected thematic match");
+      await context.documents.readDocument({ path: match.path });
+      return `Нашёл ${match.path}. Дополнить его или сохранить отдельную заметку рядом в 30_knowledge?`;
     });
+    await documents.put(owner.employeeId, "context/30_knowledge/pool.md", "# Бассейн\n\nТренировки");
 
-    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "сохрани это как заметку" });
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "сохрани заметку про бассейн" });
 
-    expect(telegram.sentMessages().at(-1)?.text).toContain("/proc/context/00_inbox/meeting-notes.md");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("/proc/context/30_knowledge/pool.md");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Дополнить его или сохранить отдельную");
     expect(telegram.sentMessages().some((message) => message.text.includes("Предложение:"))).toBe(false);
-    await expect(documents.get(owner.employeeId, "context/00_inbox/meeting-notes.md")).resolves.toMatchObject({ content: "# Meeting\n\nDecision" });
+    await expect(documents.listExact(owner.employeeId, "context/")).resolves.toHaveLength(1);
+  });
+
+  it("creates an explicitly separate context note in a related section and reports its logical neighbor", async () => {
+    const { telegram, documents } = await harness(async (_input, context) => {
+      const search = await context.documents.searchDocuments({ query: "бассейн", limit: 5 });
+      const neighbor = search.matches[0]?.path;
+      const saved = await context.contextDocuments.createNote({
+        title: "Сон после бассейна",
+        content: "# Сон после бассейна\n\nСон был спокойный",
+        destination: "30_knowledge",
+      });
+      return saved.outcome === "created"
+        ? `Сохранено: ${saved.path}, рядом с ${neighbor}. Можно восстановить предыдущую версию.`
+        : "Заметка уже существует.";
+    });
+    await documents.put(owner.employeeId, "context/30_knowledge/pool.md", "# Бассейн\n\nТренировки");
+
+    await telegram.sendText({ chatId: owner.chatId, userId: owner.userId, text: "сохрани как отдельную" });
+
+    const response = telegram.sentMessages().at(-1)?.text ?? "";
+    expect(response).toContain("/proc/context/30_knowledge/сон-после-бассейна.md");
+    expect(response).toContain("рядом с /proc/context/30_knowledge/pool.md");
+    expect(response).not.toMatch(/owner|object|bucket|confirmation/);
+    expect(telegram.sentMessages().some((message) => message.text.includes("Предложение:"))).toBe(false);
+    await expect(documents.get(owner.employeeId, "context/30_knowledge/сон-после-бассейна.md")).resolves.toMatchObject({
+      content: "# Сон после бассейна\n\nСон был спокойный",
+    });
   });
 
   it("renders a bounded context-document diff and confirms it exactly once", async () => {

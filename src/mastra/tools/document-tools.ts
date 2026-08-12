@@ -22,7 +22,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
   return {
     listDocuments: createTool({
       id: "listDocuments",
-      description: "List owner documents under /proc/context with bounded metadata and cursor pagination.",
+      description: "List owner documents under /proc/context with bounded metadata and cursor pagination. Use the supplied /proc/context machine index first; before a knowledge-base write, list the chosen allow-listed section as needed and read its exact-case INDEX.md when present.",
       strict: true,
       inputSchema: z.strictObject({
         prefix: z.string().optional(),
@@ -68,7 +68,7 @@ export function createDocumentTools(reader: ReturnType<typeof createOwnerDocumen
     }),
     searchDocuments: createTool({
       id: "searchDocuments",
-      description: "Search owner document paths metadata-first and contents under /proc/context; path matches require no body read, while content matches return bounded snippets subject to output-character and physical-scan-byte limits.",
+      description: "Search owner document paths metadata-first and contents under /proc/context. Before createContextNote, run 2–3 short query variants for the future note; one clear thematic match must be read and offered for supplementation instead of immediate creation. Path matches require no body read, while content matches return bounded snippets subject to output-character and physical-scan-byte limits.",
       strict: true,
       inputSchema: z.strictObject({
         query: z.string().min(2),

@@ -62,6 +62,22 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       ideas.set(key(existing.userId, id), updated);
       return { ...updated };
     },
+    async append(userId, id, input) {
+      const existing = ideas.get(key(userId, id));
+      if (!existing || existing.deletedAt !== undefined) return { status: "not_found" };
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision <= 0) throw new Error("expectedRevision must be a positive safe integer");
+      const text = input.text.trim();
+      if (!text) throw new Error("append text is required");
+      if (existing.revision !== input.expectedRevision) return { status: "conflict", current: { ...existing } };
+      const updated: Idea = {
+        ...existing,
+        summary: appendIdeaSummary(existing.summary, text),
+        lastActivityAt: clock.now(),
+        revision: existing.revision + 1,
+      };
+      ideas.set(key(existing.userId, id), updated);
+      return { status: "applied", idea: { ...updated } };
+    },
     async softDelete(userId, id, input) {
       const existing = ideas.get(key(userId, id));
       if (!existing) return { outcome: "not_found" };
@@ -89,6 +105,11 @@ export function createInMemoryIdeaStore(clock: Clock): IdeaStore {
       return { outcome: "restored", idea: { ...updated } };
     },
   };
+}
+
+function appendIdeaSummary(summary: string, text: string): string {
+  const existing = summary.trimEnd();
+  return existing ? `${existing}\n\n${text}` : text;
 }
 
 function validateLimit(limit: number | undefined): number | undefined {

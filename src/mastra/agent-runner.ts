@@ -1,4 +1,4 @@
-import type { AssistantAgentRunner } from "../application/assistant-service.js";
+import type { AssistantAgentContext, AssistantAgentRunner } from "../application/assistant-service.js";
 import type { Agent } from "@mastra/core/agent";
 import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
@@ -8,6 +8,7 @@ import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLog
 import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
+import { assistantProjectToolNames, createProjectTools } from "./tools/project-tools.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
@@ -15,6 +16,7 @@ export const assistantRuntimeToolsets = {
   contextDocuments: assistantContextDocumentMutationToolNames,
   ideas: assistantIdeaToolNames,
   tasks: assistantTaskToolNames,
+  projects: assistantProjectToolNames,
   schedules: assistantScheduleToolNames,
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -25,6 +27,7 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.contextDocuments,
   ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
+  ...assistantRuntimeToolsets.projects,
   ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
@@ -40,21 +43,26 @@ type AssistantAgentRunnerOptions = { operationalLogger?: ModelUsageWarningLogger
 export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
+export function createAssistantToolsets(context: AssistantAgentContext) {
+  return {
+    inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
+    documents: createDocumentTools(context.documents),
+    contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
+    ideas: createIdeaTools(context.ideas),
+    tasks: createTaskTools(context.tasks),
+    projects: createProjectTools(context.projects),
+    schedules: createScheduleTools(context.schedules),
+    diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
+  };
+}
+
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
 export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent, options: AssistantAgentRunnerOptions = {}): AssistantAgentRunner {
   return async (input, context, signal) => {
     const result: MastraGenerateResult = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
-      toolsets: {
-        inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
-        documents: createDocumentTools(context.documents),
-        contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
-        ideas: createIdeaTools(context.ideas),
-        tasks: createTaskTools(context.tasks),
-        schedules: createScheduleTools(context.schedules),
-        diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
-      },
+      toolsets: createAssistantToolsets(context),
       // `activeTools` is applied after all toolsets are resolved, so ambient
       // agent-level tools cannot be selected during the personal assistant run.
       activeTools: [...assistantActiveToolNames],
