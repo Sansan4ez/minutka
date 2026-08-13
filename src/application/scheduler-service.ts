@@ -23,6 +23,7 @@ export class SchedulerService {
     processId: string;
     timeOfDay: string;
     timezone: string;
+    daysOfWeek?: number;
     enabled?: boolean;
   }): Promise<ProcessSchedule> {
     const timezone = normalizeIanaTimezone(input.timezone);
@@ -31,10 +32,11 @@ export class SchedulerService {
     return this.store.save(userId, {
       id: input.id,
       processId: input.processId,
+      daysOfWeek: input.daysOfWeek,
       timeOfDay,
       timezone,
       enabled: input.enabled ?? true,
-      nextFireAt: nextDailyFireAt({ after: this.clock.now(), timeOfDay, timezone }),
+      nextFireAt: nextDailyFireAt({ after: this.clock.now(), timeOfDay, timezone, daysOfWeek: input.daysOfWeek }),
     });
   }
 

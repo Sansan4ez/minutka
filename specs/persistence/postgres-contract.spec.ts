@@ -1005,8 +1005,18 @@ describe("PostgreSQL storage contracts", () => {
     ]);
     await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(2);
     await expect(schedules.get("schedule_owner", "schedule-morning")).resolves.toMatchObject({ nextFireAt: "2026-07-31T06:00:00.000Z" });
+    await expect(schedules.save("schedule_owner", {
+      id: "schedule-tuesday", daysOfWeek: 0b0000010, kind: "process", processId: "day_focus", oneShot: false,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-08-01T06:00:00.000Z",
+    })).resolves.toMatchObject({ daysOfWeek: 0b0000010 });
+    const saturdayFires = await schedules.claimDue("2026-08-01T06:00:00.000Z");
+    expect(saturdayFires).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scheduleId: "schedule-tuesday", scheduledFor: "2026-08-01T06:00:00.000Z" }),
+    ]));
+    await expect(schedules.get("schedule_owner", "schedule-tuesday")).resolves.toMatchObject({ nextFireAt: "2026-08-04T06:00:00.000Z" });
     await expect(schedules.list("schedule_owner")).resolves.toMatchObject([
       { id: "schedule-morning", userId: "schedule_owner", daysOfWeek: 31, kind: "process", oneShot: true },
+      { id: "schedule-tuesday", userId: "schedule_owner", daysOfWeek: 2, kind: "process", oneShot: false },
       { id: "schedule-reminder", userId: "schedule_owner", daysOfWeek: 64, kind: "reminder", reminderText: "Позвонить маме", oneShot: false },
       { id: "schedule-legacy-defaults", userId: "schedule_owner", daysOfWeek: 127, kind: "process", oneShot: false },
     ]);
@@ -1016,10 +1026,10 @@ describe("PostgreSQL storage contracts", () => {
     await pool.end();
     pool = createPostgresPool(config);
     schedules = createPostgresScheduleStore(pool);
-    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(2);
-    await expect(schedules.listFires("schedule_owner", "schedule-morning")).resolves.toMatchObject([{
+    await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toHaveLength(saturdayFires.length);
+    await expect(schedules.listFires("schedule_owner", "schedule-morning")).resolves.toEqual(expect.arrayContaining([expect.objectContaining({
       daysOfWeek: 31, kind: "process", processId: "day_focus", oneShot: true,
-    }]);
+    })]));
     await expect(schedules.get("schedule_owner", "schedule-reminder")).resolves.toMatchObject({
       daysOfWeek: 64, kind: "reminder", reminderText: "Позвонить маме", oneShot: false,
     });
@@ -1030,6 +1040,11 @@ describe("PostgreSQL storage contracts", () => {
     await expect(schedules.completeFire("schedule_owner", {
       scheduleId: "schedule-legacy-defaults", scheduledFor: "2026-07-30T06:00:00.000Z", status: "succeeded",
     })).resolves.toMatchObject({ status: "succeeded" });
+    for (const fire of saturdayFires.filter((candidate) => candidate.scheduledFor !== "2026-07-30T06:00:00.000Z")) {
+      await expect(schedules.completeFire(fire.userId, {
+        scheduleId: fire.scheduleId, scheduledFor: fire.scheduledFor, status: "succeeded",
+      })).resolves.toMatchObject({ status: "succeeded" });
+    }
     await expect(schedules.claimDue("2026-07-30T06:00:00.000Z")).resolves.toEqual([]);
   });
 

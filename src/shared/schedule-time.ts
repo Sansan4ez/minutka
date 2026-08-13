@@ -16,20 +16,31 @@ export function normalizeDailyTime(value: string): string {
   return candidate;
 }
 
-/** Returns the first daily wall-clock occurrence strictly after an instant. */
-export function nextDailyFireAt(input: { after: string; timeOfDay: string; timezone: string }): string {
+export function normalizeDaysOfWeek(value: number | undefined): number {
+  const candidate = value ?? 127;
+  if (!Number.isSafeInteger(candidate) || candidate < 1 || candidate > 127) {
+    throw new Error("daysOfWeek must be between 1 and 127");
+  }
+  return candidate;
+}
+
+/** Returns the first allowed wall-clock occurrence strictly after an instant. */
+export function nextDailyFireAt(input: { after: string; timeOfDay: string; timezone: string; daysOfWeek?: number }): string {
   const after = new Date(input.after);
   if (Number.isNaN(after.valueOf())) throw new Error("after must be a valid timestamp");
   const timezone = normalizeIanaTimezone(input.timezone);
   if (!timezone) throw new Error("timezone must be a valid IANA timezone");
+  const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
   const [hour, minute] = normalizeDailyTime(input.timeOfDay).split(":").map(Number) as [number, number];
   const localDate = localParts(after, timezone);
 
-  // Three days is enough to cross a skipped local date while keeping the normal
-  // path allocation-free apart from Intl formatting. DST edge behavior is not
+  // Eight local dates cover a single-day mask up to the same weekday next week,
+  // with one extra candidate for a skipped local date. DST edge behavior is not
   // part of the pilot contract; nonexistent wall times are safely skipped.
-  for (let offset = 0; offset < 4; offset += 1) {
+  for (let offset = 0; offset < 8; offset += 1) {
     const date = new Date(Date.UTC(localDate.year, localDate.month - 1, localDate.day + offset));
+    const weekdayBit = 1 << ((date.getUTCDay() + 6) % 7);
+    if ((daysOfWeek & weekdayBit) === 0) continue;
     const target: LocalDateTime = {
       year: date.getUTCFullYear(),
       month: date.getUTCMonth() + 1,

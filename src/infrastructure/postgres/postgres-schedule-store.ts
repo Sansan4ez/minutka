@@ -5,7 +5,7 @@ import { mapPostgresError } from "../../application/persistence-error.js";
 import type { CompleteScheduleFireInput, SaveProcessScheduleInput, ScheduleStore } from "../../application/schedule-store.js";
 import type { ProcessSchedule, ScheduleFire } from "../../domain/schedule.js";
 import { normalizeIanaTimezone } from "../../shared/iana-timezone.js";
-import { nextDailyFireAt, normalizeDailyTime } from "../../shared/schedule-time.js";
+import { nextDailyFireAt, normalizeDailyTime, normalizeDaysOfWeek } from "../../shared/schedule-time.js";
 import { withTransaction } from "./postgres-pool.js";
 
 const scheduleSchema = z.strictObject({
@@ -102,6 +102,7 @@ export function createPostgresScheduleStore(pool: Pool): ScheduleStore {
               after: safeNow,
               timeOfDay: schedule.timeOfDay,
               timezone: schedule.timezone,
+              daysOfWeek: schedule.daysOfWeek,
             });
             await client.query(
               `UPDATE minutka_private.process_schedules
@@ -179,7 +180,7 @@ function normalizeScheduleInput(input: SaveProcessScheduleInput): ProcessSchedul
   const timezone = normalizeIanaTimezone(input.timezone);
   if (!timezone) throw new Error("timezone must be a valid IANA timezone");
   const action = normalizeScheduledAction(input);
-  return { ...input, ...action, id: requiredText(input.id, "schedule id"), daysOfWeek: daysOfWeek(input.daysOfWeek ?? 127),
+  return { ...input, ...action, id: requiredText(input.id, "schedule id"), daysOfWeek: normalizeDaysOfWeek(input.daysOfWeek),
     kind: input.kind ?? "process", oneShot: input.oneShot ?? false, timeOfDay: normalizeDailyTime(input.timeOfDay),
     timezone, nextFireAt: timestamp(input.nextFireAt, "nextFireAt") };
 }
@@ -193,10 +194,6 @@ function normalizeScheduledAction(input: SaveProcessScheduleInput): Pick<Process
   const reminderText = requiredText(input.reminderText ?? "", "reminder text");
   if (reminderText.length > 512) throw new Error("reminder text must be at most 512 characters");
   return { reminderText };
-}
-function daysOfWeek(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 127) throw new Error("daysOfWeek must be between 1 and 127");
-  return value;
 }
 function validateRestoredAction(value: { kind: string; processId?: string; reminderText?: string }, context: z.RefinementCtx): void {
   const valid = value.kind === "process"

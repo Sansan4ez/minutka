@@ -1,5 +1,5 @@
 import type { ProcessSchedule, ScheduleFire } from "../domain/schedule.js";
-import { nextDailyFireAt, normalizeDailyTime } from "../shared/schedule-time.js";
+import { nextDailyFireAt, normalizeDailyTime, normalizeDaysOfWeek } from "../shared/schedule-time.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assertUserId } from "./document-store.js";
 import type { Clock } from "./runtime-primitives.js";
@@ -65,7 +65,12 @@ export function createInMemoryScheduleStore(clock: Clock): ScheduleStore {
             createdAt: safeNow,
           });
         }
-        schedule.nextFireAt = nextDailyFireAt({ after: safeNow, timeOfDay: schedule.timeOfDay, timezone: schedule.timezone });
+        schedule.nextFireAt = nextDailyFireAt({
+          after: safeNow,
+          timeOfDay: schedule.timeOfDay,
+          timezone: schedule.timezone,
+          daysOfWeek: schedule.daysOfWeek,
+        });
         schedule.updatedAt = safeNow;
       }
       return [...fires.values()]
@@ -109,7 +114,7 @@ function normalizeScheduleInput(input: SaveProcessScheduleInput): ProcessSchedul
     ...input,
     ...action,
     id: requiredText(input.id, "schedule id"),
-    daysOfWeek: daysOfWeek(input.daysOfWeek ?? 127),
+    daysOfWeek: normalizeDaysOfWeek(input.daysOfWeek),
     kind: input.kind ?? "process",
     oneShot: input.oneShot ?? false,
     timeOfDay: normalizeDailyTime(input.timeOfDay),
@@ -128,11 +133,6 @@ function normalizeScheduledAction(input: SaveProcessScheduleInput): Pick<Process
   const reminderText = requiredText(input.reminderText ?? "", "reminder text");
   if (reminderText.length > 512) throw new Error("reminder text must be at most 512 characters");
   return { reminderText };
-}
-
-function daysOfWeek(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 127) throw new Error("daysOfWeek must be between 1 and 127");
-  return value;
 }
 
 type ProcessScheduleInput = Omit<ProcessSchedule, "userId" | "createdAt" | "updatedAt">;

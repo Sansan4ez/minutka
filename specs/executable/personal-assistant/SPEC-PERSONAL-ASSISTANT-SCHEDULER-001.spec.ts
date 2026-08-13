@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryScheduleStore } from "../../../src/application/in-memory-schedule-store.js";
 import { SchedulerService } from "../../../src/application/scheduler-service.js";
-import { nextDailyFireAt } from "../../../src/shared/schedule-time.js";
+import { nextDailyFireAt, normalizeDaysOfWeek } from "../../../src/shared/schedule-time.js";
 import { requireTelegramDeliverySession } from "../../../src/telegram/telegram-session-store.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
@@ -241,6 +241,63 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       timeOfDay: "09:00",
       timezone: "Asia/Tokyo",
     })).toBe("2026-01-16T00:00:00.000Z");
+  });
+
+  it("selects only weekdays allowed by the local day-of-week mask", () => {
+    expect(nextDailyFireAt({
+      after: "2026-07-31T07:00:00.000Z",
+      timeOfDay: "09:00",
+      timezone: "Europe/Moscow",
+      daysOfWeek: 0b0011111,
+    })).toBe("2026-08-03T06:00:00.000Z");
+    expect(nextDailyFireAt({
+      after: "2026-07-29T07:00:00.000Z",
+      timeOfDay: "09:00",
+      timezone: "Europe/Moscow",
+      daysOfWeek: 0b1000000,
+    })).toBe("2026-08-02T06:00:00.000Z");
+    expect(nextDailyFireAt({
+      after: "2026-08-01T07:00:00.000Z",
+      timeOfDay: "09:00",
+      timezone: "Europe/Moscow",
+      daysOfWeek: 0b0000010,
+    })).toBe("2026-08-04T06:00:00.000Z");
+  });
+
+  it("uses today's allowed occurrence when still ahead and waits seven days after it passes", () => {
+    expect(nextDailyFireAt({
+      after: "2026-07-29T05:30:00.000Z",
+      timeOfDay: "09:00",
+      timezone: "Europe/Moscow",
+      daysOfWeek: 0b0000100,
+    })).toBe("2026-07-29T06:00:00.000Z");
+    expect(nextDailyFireAt({
+      after: "2026-07-29T06:00:00.000Z",
+      timeOfDay: "09:00",
+      timezone: "Europe/Moscow",
+      daysOfWeek: 0b0000100,
+    })).toBe("2026-08-05T06:00:00.000Z");
+  });
+
+  it("keeps the all-days mask backward compatible and rejects invalid masks", () => {
+    const input = { after: "2026-01-15T06:00:00.000Z", timeOfDay: "09:00", timezone: "Europe/Moscow" };
+    expect(nextDailyFireAt(input)).toBe(nextDailyFireAt({ ...input, daysOfWeek: 127 }));
+    expect(normalizeDaysOfWeek(undefined)).toBe(127);
+    expect(() => normalizeDaysOfWeek(0)).toThrow("daysOfWeek must be between 1 and 127");
+    expect(() => normalizeDaysOfWeek(128)).toThrow("daysOfWeek must be between 1 and 127");
+    expect(() => normalizeDaysOfWeek(1.5)).toThrow("daysOfWeek must be between 1 and 127");
+  });
+
+  it("advances due schedules according to their day-of-week mask", async () => {
+    const clock = { now: () => "2026-07-31T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    await store.save("maxim", {
+      id: "weekday-focus", daysOfWeek: 0b0011111, processId: "day_focus",
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(store.claimDue(clock.now())).resolves.toHaveLength(1);
+    await expect(store.get("maxim", "weekday-focus")).resolves.toMatchObject({ nextFireAt: "2026-08-03T06:00:00.000Z" });
   });
 
   it("keeps schedule and fire records owner-scoped", async () => {
