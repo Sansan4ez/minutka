@@ -189,11 +189,22 @@ function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean
 function scheduleProcessLabel(processId: string): string {
   return processId === "day_focus" ? "Утренний фокус" : processId === "evening_reflection" ? "Вечерняя рефлексия" : processId;
 }
+function formatScheduleNextFireAt(nextFireAt: string, timezone: string): string {
+  const parts = new Map(new Intl.DateTimeFormat("ru-RU", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(nextFireAt)).map(({ type, value }) => [type, value]));
+  return `${parts.get("day")}.${parts.get("month")} ${parts.get("hour")}:${parts.get("minute")} (${timezone})`;
+}
 function renderScheduleList(schedules: Awaited<ReturnType<ReturnType<ServiceMinutkaClient["forEmployee"]>["listSchedules"]>>["schedules"]): string {
   if (!schedules.length) return emptyScheduleMessage;
   return ["Ваше расписание:", ...schedules.map((schedule) => [
     `• ${scheduleProcessLabel(schedule.processId)} — ${schedule.timeOfDay} (${schedule.timezone})`,
-    `  ${schedule.enabled ? "включено" : "выключено"}; следующее срабатывание: ${schedule.nextFireAt}`,
+    `  ${schedule.enabled ? "включено" : "выключено"}; следующее срабатывание: ${formatScheduleNextFireAt(schedule.nextFireAt, schedule.timezone)}`,
   ].join("\n"))].join("\n");
 }
 function previewText(value: { value: string; truncated: boolean }): string {
