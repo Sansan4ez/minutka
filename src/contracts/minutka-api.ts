@@ -19,7 +19,9 @@ export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent
 export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
 export const scheduleViewSchema = z.strictObject({
-  id: z.string().min(1), processId: assistantDiagnosticProcessIdSchema,
+  id: z.string().min(1), kind: z.enum(["process", "reminder"]),
+  processId: assistantDiagnosticProcessIdSchema.optional(), reminderText: z.string().min(1).max(512).optional(),
+  daysOfWeek: z.number().int().min(1).max(127), oneShot: z.boolean(),
   timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: timezoneSchema,
   enabled: z.boolean(), nextFireAt: z.iso.datetime(),
 });

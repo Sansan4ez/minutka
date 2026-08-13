@@ -7,7 +7,11 @@ import { timezoneSchema } from "../../contracts/minutka-api.js";
 
 export const scheduleViewSchema = z.strictObject({
   id: z.string().min(1),
-  processId: z.enum(assistantDiagnosticProcessIds),
+  kind: z.enum(["process", "reminder"]),
+  processId: z.enum(assistantDiagnosticProcessIds).optional(),
+  reminderText: z.string().min(1).max(512).optional(),
+  daysOfWeek: z.number().int().min(1).max(127),
+  oneShot: z.boolean(),
   timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u),
   timezone: timezoneSchema,
   enabled: z.boolean(),
@@ -29,7 +33,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
   return {
     listSchedules: createTool({
       id: "listSchedules",
-      description: "List the authenticated owner's daily assistant schedules and their next fire times.",
+      description: "List the authenticated owner's process and reminder schedules, including days and next fire times.",
       strict: true,
       inputSchema: z.strictObject({}),
       outputSchema: scheduleListOutputSchema,
@@ -38,12 +42,16 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
     }),
     setDailySchedule: createTool({
       id: "setDailySchedule",
-      description: "Create, change, or re-enable one supported daily assistant schedule. Time must use 24-hour HH:mm; timezone defaults to the owner profile.",
+      description: "Create, change, or re-enable a process or reminder schedule. For kind=reminder provide reminderText; oneShot uses the nearest future occurrence of HH:mm. Timezone defaults to the owner profile.",
       strict: true,
       inputSchema: z.strictObject({
-        processId: z.string().min(1),
+        kind: z.enum(["process", "reminder"]).optional(),
+        processId: z.string().min(1).optional(),
+        reminderText: z.string().min(1).max(512).optional(),
         timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u),
         timezone: timezoneSchema.optional(),
+        daysOfWeek: z.number().int().min(1).max(127).optional(),
+        oneShot: z.boolean().optional(),
       }),
       outputSchema: scheduleMutationOutputSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
@@ -52,7 +60,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
           return { status: "saved" as const, schedule: toScheduleView(await schedules.saveDailySchedule(input)) };
         } catch (error) {
           if (error instanceof UnsupportedAssistantScheduleProcessError) {
-            return { status: "unsupported_process" as const, message: `Процесс ${error.processId} нельзя добавить в расписание. Доступны: ${assistantDiagnosticProcessIds.join(", ")}.` };
+            return { status: "unsupported_process" as const, message: `Процесс ${error.processId || "не указан"} нельзя добавить в расписание. Доступны процессы ${assistantDiagnosticProcessIds.join(", ")} или kind=reminder с reminderText.` };
           }
           throw error;
         }

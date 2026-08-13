@@ -189,6 +189,13 @@ function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean
 function scheduleProcessLabel(processId: string): string {
   return processId === "day_focus" ? "Утренний фокус" : processId === "evening_reflection" ? "Вечерняя рефлексия" : processId;
 }
+function scheduleDaysLabel(daysOfWeek: number): string {
+  if (daysOfWeek === 127) return "каждый день";
+  if (daysOfWeek === 31) return "по будням";
+  if (daysOfWeek === 96) return "по выходным";
+  const labels = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  return labels.filter((_, index) => (daysOfWeek & (1 << index)) !== 0).join(", ");
+}
 function formatScheduleNextFireAt(nextFireAt: string, timezone: string): string {
   const parts = new Map(new Intl.DateTimeFormat("ru-RU", {
     timeZone: timezone,
@@ -202,10 +209,14 @@ function formatScheduleNextFireAt(nextFireAt: string, timezone: string): string 
 }
 function renderScheduleList(schedules: Awaited<ReturnType<ReturnType<ServiceMinutkaClient["forEmployee"]>["listSchedules"]>>["schedules"]): string {
   if (!schedules.length) return emptyScheduleMessage;
-  return ["Ваше расписание:", ...schedules.map((schedule) => [
-    `• ${scheduleProcessLabel(schedule.processId)} — ${schedule.timeOfDay} (${schedule.timezone})`,
-    `  ${schedule.enabled ? "включено" : "выключено"}; следующее срабатывание: ${formatScheduleNextFireAt(schedule.nextFireAt, schedule.timezone)}`,
-  ].join("\n"))].join("\n");
+  return ["Ваше расписание:", ...schedules.map((schedule) => {
+    const label = schedule.kind === "reminder" ? `Напоминание: ${schedule.reminderText}` : scheduleProcessLabel(schedule.processId!);
+    const cadence = `${scheduleDaysLabel(schedule.daysOfWeek)}${schedule.oneShot ? "; разовое" : ""}`;
+    return [
+      `• ${label} — ${schedule.timeOfDay} (${schedule.timezone}); ${cadence}`,
+      `  ${schedule.enabled ? "включено" : "выключено"}; следующее срабатывание: ${formatScheduleNextFireAt(schedule.nextFireAt, schedule.timezone)}`,
+    ].join("\n");
+  })].join("\n");
 }
 function previewText(value: { value: string; truncated: boolean }): string {
   return `${value.value}${value.truncated ? "… [сокращено]" : ""}`;

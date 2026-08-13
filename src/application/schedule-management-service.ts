@@ -1,16 +1,20 @@
 import { isAssistantDiagnosticProcessId, type AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
-import { nextDailyFireAt, normalizeDailyTime } from "../shared/schedule-time.js";
+import { nextDailyFireAt, normalizeDailyTime, normalizeDaysOfWeek } from "../shared/schedule-time.js";
 import { assertUserId } from "./document-store.js";
 import type { ProfileStore } from "./profile-store.js";
-import type { Clock } from "./runtime-primitives.js";
+import { randomIdGenerator, type Clock, type IdGenerator } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
 export type SaveDailyScheduleInput = {
-  processId: string;
+  kind?: "process" | "reminder";
+  processId?: string;
+  reminderText?: string;
   timeOfDay: string;
   timezone?: string;
+  daysOfWeek?: number;
+  oneShot?: boolean;
 };
 
 export type OwnerScheduleCapabilities = {
@@ -25,6 +29,7 @@ export class ScheduleManagementService {
     private readonly store: Pick<ScheduleStore, "list" | "get" | "save">,
     private readonly profiles: Pick<ProfileStore, "getProfile">,
     private readonly clock: Clock,
+    private readonly ids: Pick<IdGenerator, "scheduleId"> = randomIdGenerator,
   ) {}
 
   listSchedules(userId: string): Promise<ProcessSchedule[]> {
@@ -33,22 +38,30 @@ export class ScheduleManagementService {
 
   async saveDailySchedule(userId: string, input: SaveDailyScheduleInput): Promise<ProcessSchedule> {
     const safeUserId = assertUserId(userId);
-    if (!isAssistantDiagnosticProcessId(input.processId)) {
-      throw new UnsupportedAssistantScheduleProcessError(input.processId);
-    }
+    const kind = input.kind ?? "process";
+    const process = kind === "process" ? processAction(input) : undefined;
+    const action = process ?? reminderAction(input);
     const profile = await this.profiles.getProfile(safeUserId);
     if (!profile) throw new Error("completed owner profile is required to manage schedules");
     const timezone = normalizeIanaTimezone(input.timezone ?? profile.timezone);
     if (!timezone) throw new Error("timezone must be a valid IANA timezone");
     const timeOfDay = normalizeDailyTime(input.timeOfDay);
-    const existing = (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === input.processId);
+    const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
+    const oneShot = input.oneShot ?? false;
+    const existing = process
+      ? (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === process.processId)
+      : undefined;
+    const generatedScheduleId = this.ids.scheduleId ?? randomIdGenerator.scheduleId!;
     return this.store.save(safeUserId, {
-      id: existing?.id ?? dailyScheduleId(safeUserId, input.processId),
-      processId: input.processId,
+      id: existing?.id ?? (process ? dailyScheduleId(safeUserId, process.processId) : generatedScheduleId()),
+      daysOfWeek,
+      kind,
+      ...action,
+      oneShot,
       timeOfDay,
       timezone,
       enabled: true,
-      nextFireAt: nextDailyFireAt({ after: this.clock.now(), timeOfDay, timezone }),
+      nextFireAt: nextDailyFireAt({ after: this.clock.now(), timeOfDay, timezone, daysOfWeek }),
     });
   }
 
@@ -76,6 +89,21 @@ export class UnsupportedAssistantScheduleProcessError extends Error {
     super(`Unsupported assistant schedule process: ${processId}`);
     this.name = "UnsupportedAssistantScheduleProcessError";
   }
+}
+
+function processAction(input: SaveDailyScheduleInput): { processId: AssistantDiagnosticProcessId } {
+  const processId = input.processId ?? "";
+  if (!isAssistantDiagnosticProcessId(processId)) throw new UnsupportedAssistantScheduleProcessError(processId);
+  if (input.reminderText !== undefined) throw new Error("process schedule must not have reminderText");
+  return { processId };
+}
+
+function reminderAction(input: SaveDailyScheduleInput): { reminderText: string } {
+  if (input.processId !== undefined) throw new Error("reminder schedule must not have processId");
+  const reminderText = input.reminderText?.trim() ?? "";
+  if (!reminderText) throw new Error("reminderText is required for reminder schedules");
+  if ([...reminderText].length > 512) throw new Error("reminderText must be at most 512 characters");
+  return { reminderText };
 }
 
 function dailyScheduleId(userId: string, processId: AssistantDiagnosticProcessId): string {

@@ -214,7 +214,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       idGenerator: randomIdGenerator,
     });
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
-    const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock);
+    const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock, randomIdGenerator);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
