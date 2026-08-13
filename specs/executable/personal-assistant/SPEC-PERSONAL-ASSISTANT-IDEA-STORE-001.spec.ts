@@ -67,6 +67,16 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-STORE-001: owner-scoped idea bank", () =>
     });
   });
 
+  it("uses exactly one blank-line separator when the existing summary ends with a newline", async () => {
+    const store = createInMemoryIdeaStore({ now: () => "2026-07-15T09:00:00.000Z" });
+    await store.add({ id: "idea-newline", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться\n", status: "raw" });
+
+    await expect(store.append("maxim", "idea-newline", { expectedRevision: 1, text: "Записался" })).resolves.toMatchObject({
+      status: "applied",
+      idea: { summary: "Записаться\n\nЗаписался", revision: 2 },
+    });
+  });
+
   it("updates an idea in its owner scope and renews its activity timestamp", async () => {
     let now = "2026-07-01T00:00:00.000Z";
     const store = createInMemoryIdeaStore({ now: () => now });

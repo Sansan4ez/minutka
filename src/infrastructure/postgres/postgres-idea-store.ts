@@ -149,7 +149,7 @@ export function createPostgresIdeaStore(pool: Pool): IdeaStore {
       try {
         const result = await pool.query<Row>(
           `UPDATE minutka_private.ideas
-           SET summary=CASE WHEN btrim(summary)='' THEN $4 ELSE rtrim(summary) || E'\\n\\n' || $4 END, last_activity_at=now(), revision=revision+1
+           SET summary=CASE WHEN btrim(summary)='' THEN $4 ELSE rtrim(summary, E' \\t\\n\\r\\f\\v') || E'\\n\\n' || $4 END, last_activity_at=now(), revision=revision+1
            WHERE user_id=$1 AND idea_id=$2 AND deleted_at IS NULL AND revision=$3
            RETURNING *`,
           [userId, id, input.expectedRevision, text],

@@ -548,7 +548,7 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, "other_owner", "invite_other_owner");
     const ideas = createPostgresIdeaStore(pool);
     await ideas.add({ id: "idea_owner_raw", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "raw", source: { kind: "text", text: "raw" }, status: "raw" });
-    await ideas.add({ id: "idea_owner_discussed", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "discussed", status: "discussed" });
+    await ideas.add({ id: "idea_owner_discussed", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "discussed\n", status: "discussed" });
     await ideas.add({ id: "idea_owner_planned", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "planned", status: "planned" });
     await ideas.add({ id: "idea_other", userId: "other_owner", project: "Секрет", type: "development", summary: "private", status: "raw" });
     await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() - interval '8 days' WHERE idea_id IN ('idea_owner_raw', 'idea_owner_discussed', 'idea_owner_planned', 'idea_other')");
@@ -572,6 +572,10 @@ describe("PostgreSQL storage contracts", () => {
     await expect(ideas.append("idea_owner", "idea_owner_raw", { expectedRevision: beforeAppend!.revision + 1, text: "stale" })).resolves.toMatchObject({ status: "conflict", current: { summary: "raw" } });
     await expect(ideas.append("idea_owner", "idea_owner_raw", { expectedRevision: beforeAppend!.revision, text: "added detail" })).resolves.toMatchObject({
       status: "applied", idea: { summary: "raw\n\nadded detail", revision: beforeAppend!.revision + 1, lastActivityAt: expect.any(String) },
+    });
+    const beforeNewlineAppend = await ideas.get("idea_owner", "idea_owner_discussed");
+    await expect(ideas.append("idea_owner", "idea_owner_discussed", { expectedRevision: beforeNewlineAppend!.revision, text: "added after newline" })).resolves.toMatchObject({
+      status: "applied", idea: { summary: "discussed\n\nadded after newline", revision: beforeNewlineAppend!.revision + 1 },
     });
     const updated = await ideas.update("idea_owner", "idea_owner_raw", { status: "done" });
     expect(updated).toMatchObject({ status: "done", lastActivityAt: expect.any(String) });
