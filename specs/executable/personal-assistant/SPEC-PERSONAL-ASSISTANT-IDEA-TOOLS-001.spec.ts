@@ -105,7 +105,7 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
     const output = await execute(tools.appendIdea, {
       ideaId: "idea-pool",
       expectedRevision: 1,
-      text: "Записался; после бассейна сон был спокойный",
+      text: "  Записался; после бассейна сон был спокойный  ",
     });
     const parsed = parseOutput<{ status: string; idea: Record<string, unknown> }>(tools.appendIdea, output);
 
@@ -133,6 +133,19 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
     });
     await expect(execute(tools.appendIdea, { ideaId: "missing", expectedRevision: 1, text: "Private" })).resolves.toEqual({ status: "not_found" });
     await expect(ideas.get("owner", "idea-1")).resolves.toMatchObject({ summary: "Original", revision: 2 });
+  });
+
+  it("rejects invalid append input consistently for existing and missing ideas", async () => {
+    const { ideas } = setup();
+    const appends = new IdeaAppendService(ideas);
+    await ideas.add({ id: "idea-1", userId: "owner", project: "ASSISTANT", type: "knowledge", summary: "Original", status: "raw" });
+
+    for (const ideaId of ["idea-1", "missing"]) {
+      await expect(appends.append("owner", { ideaId, expectedRevision: 1, text: "  " }))
+        .rejects.toThrow("append text is required");
+      await expect(appends.append("owner", { ideaId, expectedRevision: 0, text: "Valid" }))
+        .rejects.toThrow("expectedRevision must be a positive safe integer");
+    }
   });
 
   it.each([
