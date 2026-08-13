@@ -55,7 +55,11 @@ export function createInMemoryScheduleStore(clock: Clock): ScheduleStore {
           fires.set(key, {
             scheduleId: schedule.id,
             userId: schedule.userId,
-            processId: schedule.processId,
+            daysOfWeek: schedule.daysOfWeek,
+            kind: schedule.kind,
+            ...(schedule.processId === undefined ? {} : { processId: schedule.processId }),
+            ...(schedule.reminderText === undefined ? {} : { reminderText: schedule.reminderText }),
+            oneShot: schedule.oneShot,
             scheduledFor,
             status: "pending",
             createdAt: safeNow,
@@ -97,18 +101,41 @@ export function createInMemoryScheduleStore(clock: Clock): ScheduleStore {
   };
 }
 
-function normalizeScheduleInput(input: SaveProcessScheduleInput): SaveProcessScheduleInput {
+function normalizeScheduleInput(input: SaveProcessScheduleInput): ProcessScheduleInput {
   const timezone = normalizeIanaTimezone(input.timezone);
   if (!timezone) throw new Error("timezone must be a valid IANA timezone");
+  const action = normalizeScheduledAction(input);
   return {
     ...input,
+    ...action,
     id: requiredText(input.id, "schedule id"),
-    processId: requiredText(input.processId, "process id"),
+    daysOfWeek: daysOfWeek(input.daysOfWeek ?? 127),
+    kind: input.kind ?? "process",
+    oneShot: input.oneShot ?? false,
     timeOfDay: normalizeDailyTime(input.timeOfDay),
     timezone,
     nextFireAt: timestamp(input.nextFireAt, "nextFireAt"),
   };
 }
+
+function normalizeScheduledAction(input: SaveProcessScheduleInput): Pick<ProcessScheduleInput, "processId" | "reminderText"> {
+  const kind = input.kind ?? "process";
+  if (kind === "process") {
+    if (input.reminderText !== undefined) throw new Error("process schedule must not have reminderText");
+    return { processId: requiredText(input.processId ?? "", "process id") };
+  }
+  if (input.processId !== undefined) throw new Error("reminder schedule must not have processId");
+  const reminderText = requiredText(input.reminderText ?? "", "reminder text");
+  if (reminderText.length > 512) throw new Error("reminder text must be at most 512 characters");
+  return { reminderText };
+}
+
+function daysOfWeek(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 127) throw new Error("daysOfWeek must be between 1 and 127");
+  return value;
+}
+
+type ProcessScheduleInput = Omit<ProcessSchedule, "userId" | "createdAt" | "updatedAt">;
 
 function validateCompletion(input: CompleteScheduleFireInput): void {
   if (input.status === "succeeded" && input.errorCode !== undefined) throw new Error("succeeded fire must not have errorCode");

@@ -1,10 +1,15 @@
 export type ScheduleFireStatus = "pending" | "succeeded" | "failed";
+export type ScheduledActionKind = "process" | "reminder";
 
-/** Durable daily process schedule owned by one authenticated user. */
+/** Durable daily schedule owned by one authenticated user. */
 export type ProcessSchedule = {
   id: string;
   userId: string;
-  processId: string;
+  daysOfWeek: number;
+  kind: ScheduledActionKind;
+  processId?: string;
+  reminderText?: string;
+  oneShot: boolean;
   timeOfDay: string;
   timezone: string;
   enabled: boolean;
@@ -17,7 +22,11 @@ export type ProcessSchedule = {
 export type ScheduleFire = {
   scheduleId: string;
   userId: string;
-  processId: string;
+  daysOfWeek: number;
+  kind: ScheduledActionKind;
+  processId?: string;
+  reminderText?: string;
+  oneShot: boolean;
   scheduledFor: string;
   status: ScheduleFireStatus;
   createdAt: string;

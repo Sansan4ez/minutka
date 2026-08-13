@@ -2,8 +2,8 @@ import type { ProcessSchedule, ScheduleFire } from "../domain/schedule.js";
 
 export type SaveProcessScheduleInput = Pick<
   ProcessSchedule,
-  "id" | "processId" | "timeOfDay" | "timezone" | "enabled" | "nextFireAt"
->;
+  "id" | "processId" | "reminderText" | "timeOfDay" | "timezone" | "enabled" | "nextFireAt"
+> & Partial<Pick<ProcessSchedule, "daysOfWeek" | "kind" | "oneShot">>;
 
 export type CompleteScheduleFireInput = {
   scheduleId: string;

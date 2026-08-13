@@ -9,22 +9,26 @@ import { nextDailyFireAt, normalizeDailyTime } from "../../shared/schedule-time.
 import { withTransaction } from "./postgres-pool.js";
 
 const scheduleSchema = z.strictObject({
-  id: z.string().min(1), userId: z.string().min(1), processId: z.string().min(1),
-  timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: z.string().min(1),
+  id: z.string().min(1), userId: z.string().min(1), daysOfWeek: z.number().int().min(1).max(127),
+  kind: z.enum(["process", "reminder"]), processId: z.string().min(1).optional(), reminderText: z.string().min(1).max(512).optional(),
+  oneShot: z.boolean(), timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: z.string().min(1),
   enabled: z.boolean(), nextFireAt: z.iso.datetime(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
-});
+}).superRefine(validateRestoredAction);
 const fireSchema = z.strictObject({
-  scheduleId: z.string().min(1), userId: z.string().min(1), processId: z.string().min(1),
-  scheduledFor: z.iso.datetime(), status: z.enum(["pending", "succeeded", "failed"]),
+  scheduleId: z.string().min(1), userId: z.string().min(1), daysOfWeek: z.number().int().min(1).max(127),
+  kind: z.enum(["process", "reminder"]), processId: z.string().min(1).optional(), reminderText: z.string().min(1).max(512).optional(),
+  oneShot: z.boolean(), scheduledFor: z.iso.datetime(), status: z.enum(["pending", "succeeded", "failed"]),
   createdAt: z.iso.datetime(), completedAt: z.iso.datetime().optional(), errorCode: z.string().min(1).optional(),
-});
+}).superRefine(validateRestoredAction);
 
 type ScheduleRow = {
-  schedule_id: string; user_id: string; process_id: string; time_of_day: string; timezone: string;
+  schedule_id: string; user_id: string; days_of_week: number; kind: string; process_id: string | null;
+  reminder_text: string | null; one_shot: boolean; time_of_day: string; timezone: string;
   enabled: boolean; next_fire_at: Date; created_at: Date; updated_at: Date;
 };
 type FireRow = {
-  schedule_id: string; user_id: string; process_id: string; scheduled_for: Date;
+  schedule_id: string; user_id: string; days_of_week: number; kind: string; process_id: string | null;
+  reminder_text: string | null; one_shot: boolean; scheduled_for: Date;
   status: string; created_at: Date; completed_at: Date | null; error_code: string | null;
 };
 
@@ -36,14 +40,16 @@ export function createPostgresScheduleStore(pool: Pool): ScheduleStore {
       try {
         const result = await pool.query<ScheduleRow>(
           `INSERT INTO minutka_private.process_schedules
-             (schedule_id,user_id,process_id,time_of_day,timezone,enabled,next_fire_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7::timestamptz)
+             (schedule_id,user_id,days_of_week,kind,process_id,reminder_text,one_shot,time_of_day,timezone,enabled,next_fire_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::timestamptz)
            ON CONFLICT (schedule_id) DO UPDATE SET
-             process_id=EXCLUDED.process_id,time_of_day=EXCLUDED.time_of_day,timezone=EXCLUDED.timezone,
-             enabled=EXCLUDED.enabled,next_fire_at=EXCLUDED.next_fire_at,updated_at=now()
+             days_of_week=EXCLUDED.days_of_week,kind=EXCLUDED.kind,process_id=EXCLUDED.process_id,
+             reminder_text=EXCLUDED.reminder_text,one_shot=EXCLUDED.one_shot,time_of_day=EXCLUDED.time_of_day,
+             timezone=EXCLUDED.timezone,enabled=EXCLUDED.enabled,next_fire_at=EXCLUDED.next_fire_at,updated_at=now()
            WHERE process_schedules.user_id=EXCLUDED.user_id
            RETURNING *`,
-          [normalized.id, safeUserId, normalized.processId, normalized.timeOfDay, normalized.timezone,
+          [normalized.id, safeUserId, normalized.daysOfWeek, normalized.kind, normalized.processId ?? null,
+            normalized.reminderText ?? null, normalized.oneShot, normalized.timeOfDay, normalized.timezone,
             normalized.enabled, normalized.nextFireAt],
         );
         if (!result.rows[0]) throw { code: "23505" };
@@ -86,10 +92,11 @@ export function createPostgresScheduleStore(pool: Pool): ScheduleStore {
             const schedule = restoreSchedule(row);
             await client.query(
               `INSERT INTO minutka_private.schedule_fires
-                 (schedule_id,user_id,process_id,scheduled_for)
-               VALUES ($1,$2,$3,$4::timestamptz)
+                 (schedule_id,user_id,days_of_week,kind,process_id,reminder_text,one_shot,scheduled_for)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz)
                ON CONFLICT (schedule_id,scheduled_for) DO NOTHING`,
-              [schedule.id, schedule.userId, schedule.processId, schedule.nextFireAt],
+              [schedule.id, schedule.userId, schedule.daysOfWeek, schedule.kind, schedule.processId ?? null,
+                schedule.reminderText ?? null, schedule.oneShot, schedule.nextFireAt],
             );
             const nextFireAt = nextDailyFireAt({
               after: safeNow,
@@ -156,22 +163,48 @@ export function createPostgresScheduleStore(pool: Pool): ScheduleStore {
 }
 
 function restoreSchedule(row: ScheduleRow): ProcessSchedule {
-  return scheduleSchema.parse({ id: row.schedule_id, userId: row.user_id, processId: row.process_id,
-    timeOfDay: row.time_of_day, timezone: row.timezone, enabled: row.enabled,
+  return scheduleSchema.parse({ id: row.schedule_id, userId: row.user_id, daysOfWeek: row.days_of_week, kind: row.kind,
+    ...(row.process_id ? { processId: row.process_id } : {}), ...(row.reminder_text ? { reminderText: row.reminder_text } : {}),
+    oneShot: row.one_shot, timeOfDay: row.time_of_day, timezone: row.timezone, enabled: row.enabled,
     nextFireAt: row.next_fire_at.toISOString(), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
 }
 function restoreFire(row: FireRow): ScheduleFire {
-  return fireSchema.parse({ scheduleId: row.schedule_id, userId: row.user_id, processId: row.process_id,
-    scheduledFor: row.scheduled_for.toISOString(), status: row.status, createdAt: row.created_at.toISOString(),
+  return fireSchema.parse({ scheduleId: row.schedule_id, userId: row.user_id, daysOfWeek: row.days_of_week, kind: row.kind,
+    ...(row.process_id ? { processId: row.process_id } : {}), ...(row.reminder_text ? { reminderText: row.reminder_text } : {}),
+    oneShot: row.one_shot, scheduledFor: row.scheduled_for.toISOString(), status: row.status, createdAt: row.created_at.toISOString(),
     ...(row.completed_at ? { completedAt: row.completed_at.toISOString() } : {}),
     ...(row.error_code ? { errorCode: row.error_code } : {}) });
 }
-function normalizeScheduleInput(input: SaveProcessScheduleInput): SaveProcessScheduleInput {
+function normalizeScheduleInput(input: SaveProcessScheduleInput): ProcessScheduleInput {
   const timezone = normalizeIanaTimezone(input.timezone);
   if (!timezone) throw new Error("timezone must be a valid IANA timezone");
-  return { ...input, id: requiredText(input.id, "schedule id"), processId: requiredText(input.processId, "process id"),
-    timeOfDay: normalizeDailyTime(input.timeOfDay), timezone, nextFireAt: timestamp(input.nextFireAt, "nextFireAt") };
+  const action = normalizeScheduledAction(input);
+  return { ...input, ...action, id: requiredText(input.id, "schedule id"), daysOfWeek: daysOfWeek(input.daysOfWeek ?? 127),
+    kind: input.kind ?? "process", oneShot: input.oneShot ?? false, timeOfDay: normalizeDailyTime(input.timeOfDay),
+    timezone, nextFireAt: timestamp(input.nextFireAt, "nextFireAt") };
 }
+function normalizeScheduledAction(input: SaveProcessScheduleInput): Pick<ProcessScheduleInput, "processId" | "reminderText"> {
+  const kind = input.kind ?? "process";
+  if (kind === "process") {
+    if (input.reminderText !== undefined) throw new Error("process schedule must not have reminderText");
+    return { processId: requiredText(input.processId ?? "", "process id") };
+  }
+  if (input.processId !== undefined) throw new Error("reminder schedule must not have processId");
+  const reminderText = requiredText(input.reminderText ?? "", "reminder text");
+  if (reminderText.length > 512) throw new Error("reminder text must be at most 512 characters");
+  return { reminderText };
+}
+function daysOfWeek(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 127) throw new Error("daysOfWeek must be between 1 and 127");
+  return value;
+}
+function validateRestoredAction(value: { kind: string; processId?: string; reminderText?: string }, context: z.RefinementCtx): void {
+  const valid = value.kind === "process"
+    ? value.processId !== undefined && value.reminderText === undefined
+    : value.reminderText !== undefined && value.processId === undefined;
+  if (!valid) context.addIssue({ code: "custom", message: "scheduled action fields do not match kind" });
+}
+type ProcessScheduleInput = Omit<ProcessSchedule, "userId" | "createdAt" | "updatedAt">;
 function validateCompletion(input: CompleteScheduleFireInput): void {
   if (input.status === "succeeded" && input.errorCode !== undefined) throw new Error("succeeded fire must not have errorCode");
   if (input.status === "failed") requiredText(input.errorCode ?? "", "errorCode");

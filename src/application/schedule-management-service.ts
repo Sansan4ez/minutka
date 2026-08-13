@@ -41,7 +41,7 @@ export class ScheduleManagementService {
     const timezone = normalizeIanaTimezone(input.timezone ?? profile.timezone);
     if (!timezone) throw new Error("timezone must be a valid IANA timezone");
     const timeOfDay = normalizeDailyTime(input.timeOfDay);
-    const existing = (await this.store.list(safeUserId)).find((schedule) => schedule.processId === input.processId);
+    const existing = (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === input.processId);
     return this.store.save(safeUserId, {
       id: existing?.id ?? dailyScheduleId(safeUserId, input.processId),
       processId: input.processId,
@@ -58,7 +58,11 @@ export class ScheduleManagementService {
     if (!existing) return null;
     return this.store.save(safeUserId, {
       id: existing.id,
-      processId: existing.processId,
+      daysOfWeek: existing.daysOfWeek,
+      kind: existing.kind,
+      ...(existing.processId === undefined ? {} : { processId: existing.processId }),
+      ...(existing.reminderText === undefined ? {} : { reminderText: existing.reminderText }),
+      oneShot: existing.oneShot,
       timeOfDay: existing.timeOfDay,
       timezone: existing.timezone,
       enabled: false,

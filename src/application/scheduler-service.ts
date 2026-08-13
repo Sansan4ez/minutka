@@ -5,7 +5,7 @@ import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { Clock } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
-export type ScheduledProcessRunner = (fire: ScheduleFire & { processId: AssistantDiagnosticProcessId }) => Promise<void>;
+export type ScheduledProcessRunner = (fire: ScheduleFire & { kind: "process"; processId: AssistantDiagnosticProcessId }) => Promise<void>;
 export type SchedulerOperationalLogger = (entry: { fire: ScheduleFire; errorCode: string; error: unknown }) => void;
 
 export class SchedulerService {
@@ -59,8 +59,10 @@ export class SchedulerService {
 
   private async runFire(fire: ScheduleFire, runner: ScheduledProcessRunner): Promise<void> {
     try {
-      if (!isAssistantDiagnosticProcessId(fire.processId)) throw new UnsupportedScheduledProcessError();
-      await runner({ ...fire, processId: fire.processId });
+      if (fire.kind !== "process" || !fire.processId || !isAssistantDiagnosticProcessId(fire.processId)) {
+        throw new UnsupportedScheduledProcessError();
+      }
+      await runner({ ...fire, kind: "process", processId: fire.processId });
       await this.store.completeFire(fire.userId, {
         scheduleId: fire.scheduleId,
         scheduledFor: fire.scheduledFor,

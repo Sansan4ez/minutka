@@ -45,6 +45,33 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     ]);
   });
 
+  it("roundtrips expanded schedule fields and copies the action into the fire ledger", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    await expect(store.save("maxim", {
+      id: "weekly-reminder", daysOfWeek: 5, kind: "reminder", reminderText: "Позвонить маме", oneShot: true,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    })).resolves.toMatchObject({
+      daysOfWeek: 5, kind: "reminder", reminderText: "Позвонить маме", oneShot: true,
+    });
+
+    await expect(store.claimDue(clock.now())).resolves.toMatchObject([{
+      scheduleId: "weekly-reminder", daysOfWeek: 5, kind: "reminder", reminderText: "Позвонить маме", oneShot: true,
+    }]);
+  });
+
+  it("defaults existing process writes to every day and recurring behavior", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    await expect(store.save("maxim", {
+      id: "legacy-process", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      enabled: true, nextFireAt: clock.now(),
+    })).resolves.toMatchObject({ daysOfWeek: 127, kind: "process", processId: "day_focus", oneShot: false });
+    await expect(store.claimDue(clock.now())).resolves.toMatchObject([{
+      daysOfWeek: 127, kind: "process", processId: "day_focus", oneShot: false,
+    }]);
+  });
+
   it("materializes one due fire and does not duplicate it on repeated ticks or service restart", async () => {
     let now = "2026-07-30T05:59:00.000Z";
     const clock = { now: () => now };
@@ -143,7 +170,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
   it("marks a missing Telegram delivery target without rejecting the scheduler tick", async () => {
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
-    const logged: Array<{ errorCode: string; processId: string }> = [];
+    const logged: Array<{ errorCode: string; processId: string | undefined }> = [];
     const scheduler = new SchedulerService(
       store,
       clock,
@@ -165,7 +192,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
   it("marks Telegram delivery failure without rejecting the scheduler tick", async () => {
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
-    const logged: Array<{ errorCode: string; processId: string }> = [];
+    const logged: Array<{ errorCode: string; processId: string | undefined }> = [];
     const scheduler = new SchedulerService(
       store,
       clock,
