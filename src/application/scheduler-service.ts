@@ -5,7 +5,12 @@ import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { Clock } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
-export type ScheduledProcessRunner = (fire: ScheduleFire & { kind: "process"; processId: AssistantDiagnosticProcessId }) => Promise<void>;
+type ScheduledFireContext = Omit<ScheduleFire, "kind" | "processId" | "reminderText">;
+export type ScheduledActionFire = ScheduledFireContext & (
+  | { kind: "process"; processId: AssistantDiagnosticProcessId }
+  | { kind: "reminder"; text: string }
+);
+export type ScheduledProcessRunner = (fire: ScheduledActionFire) => Promise<void>;
 export type SchedulerOperationalLogger = (entry: { fire: ScheduleFire; errorCode: string; error: unknown }) => void;
 
 export class SchedulerService {
@@ -61,10 +66,15 @@ export class SchedulerService {
 
   private async runFire(fire: ScheduleFire, runner: ScheduledProcessRunner): Promise<void> {
     try {
-      if (fire.kind !== "process" || !fire.processId || !isAssistantDiagnosticProcessId(fire.processId)) {
-        throw new UnsupportedScheduledProcessError();
+      const { processId: _processId, reminderText: _reminderText, ...context } = fire;
+      if (fire.kind === "reminder") {
+        if (!fire.reminderText) throw new UnsupportedScheduledProcessError();
+        await runner({ ...context, kind: "reminder", text: fire.reminderText });
+      } else {
+        if (!fire.processId || !isAssistantDiagnosticProcessId(fire.processId)) throw new UnsupportedScheduledProcessError();
+        await runner({ ...context, kind: "process", processId: fire.processId });
       }
-      await runner({ ...fire, kind: "process", processId: fire.processId });
+      if (fire.oneShot) await this.disableSchedule(fire);
       await this.store.completeFire(fire.userId, {
         scheduleId: fire.scheduleId,
         scheduledFor: fire.scheduledFor,
@@ -88,6 +98,23 @@ export class SchedulerService {
       catch { /* logging must not stop the scheduler tick */ }
     }
   }
+
+  private async disableSchedule(fire: ScheduleFire): Promise<void> {
+    const schedule = await this.store.get(fire.userId, fire.scheduleId);
+    if (!schedule?.enabled) return;
+    await this.store.save(fire.userId, {
+      id: schedule.id,
+      daysOfWeek: schedule.daysOfWeek,
+      kind: schedule.kind,
+      ...(schedule.processId === undefined ? {} : { processId: schedule.processId }),
+      ...(schedule.reminderText === undefined ? {} : { reminderText: schedule.reminderText }),
+      oneShot: schedule.oneShot,
+      timeOfDay: schedule.timeOfDay,
+      timezone: schedule.timezone,
+      enabled: false,
+      nextFireAt: schedule.nextFireAt,
+    });
+  }
 }
 
 class UnsupportedScheduledProcessError extends Error {
@@ -100,5 +127,5 @@ function scheduleErrorCode(error: unknown): string {
 }
 
 function logSchedulerFailure(entry: { fire: ScheduleFire; errorCode: string }): void {
-  console.warn(`Scheduled process failed (${entry.errorCode}; schedule=${entry.fire.scheduleId}; process=${entry.fire.processId}).`);
+  console.warn(`Scheduled action failed (${entry.errorCode}; schedule=${entry.fire.scheduleId}; kind=${entry.fire.kind}).`);
 }

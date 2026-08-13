@@ -7,6 +7,8 @@ import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-run
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { DefaultScheduleProvisioner } from "../../../src/application/default-schedules.js";
 import type { AssistantChatResult } from "../../../src/application/assistant-service.js";
+import { renderTelegramMarkdown } from "../../../src/telegram/telegram-renderer.js";
+import { createTelegramScheduledActionRunner } from "../../../src/runtime/scheduled-action-delivery.js";
 
 class TelegramUnavailableError extends Error {
   constructor() { super("Telegram is unavailable"); this.name = "TelegramUnavailableError"; }
@@ -107,6 +109,142 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await expect(restarted.tick()).resolves.toEqual([]);
   });
 
+  it("delivers an owner reminder without calling the agent or recording usage", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    let agentCalls = 0;
+    const usageRecords: unknown[] = [];
+    const deliveries: Array<{ chatId: string; userId: string; result: AssistantChatResult }> = [];
+    const runner = createTelegramScheduledActionRunner({
+      assistant: {
+        async runScheduledProcess() {
+          agentCalls += 1;
+          usageRecords.push({ source: "chat" });
+          throw new Error("agent must not run for reminders");
+        },
+      },
+      telegramSessionStore: {
+        async getDeliveryByEmployee(userId) {
+          return userId === "maxim"
+            ? { employeeId: userId, chatId: "owner-chat", threadId: "owner-thread", createdAt: clock.now(), updatedAt: clock.now() }
+            : undefined;
+        },
+      },
+      telegramShell: {
+        async deliverProactive(chatId, result, userId) { deliveries.push({ chatId, userId, result }); },
+      },
+    });
+    const scheduler = new SchedulerService(store, clock, runner);
+    await store.save("maxim", {
+      id: "drink-water", kind: "reminder", reminderText: "Выпить <воды> & отдохнуть", oneShot: false,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toMatchObject([{ kind: "reminder", reminderText: "Выпить <воды> & отдохнуть" }]);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({
+      chatId: "owner-chat",
+      userId: "maxim",
+      result: { response: "Выпить <воды> & отдохнуть", selectedProcessIds: ["core"], pendingActions: [], effect: "none" },
+    });
+    expect(agentCalls).toBe(0);
+    expect(usageRecords).toEqual([]);
+    expect(renderTelegramMarkdown(deliveries[0]!.result.response)).toEqual([{
+      text: "Выпить &lt;воды&gt; &amp; отдохнуть",
+      parseMode: "HTML",
+    }]);
+    await expect(store.listFires("maxim", "drink-water")).resolves.toMatchObject([{ status: "succeeded" }]);
+  });
+
+  it("logs reminder delivery failure and leaves the schedule enabled", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    const logged: Array<{ errorCode: string; kind: string }> = [];
+    const scheduler = new SchedulerService(
+      store,
+      clock,
+      async () => { throw new TelegramUnavailableError(); },
+      ({ fire, errorCode }) => logged.push({ errorCode, kind: fire.kind }),
+    );
+    await store.save("maxim", {
+      id: "failed-reminder", kind: "reminder", reminderText: "Позвонить маме", oneShot: true,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toHaveLength(1);
+    expect(logged).toEqual([{ errorCode: "TelegramUnavailableError", kind: "reminder" }]);
+    await expect(store.listFires("maxim", "failed-reminder")).resolves.toMatchObject([{
+      status: "failed", errorCode: "TelegramUnavailableError",
+    }]);
+    await expect(store.get("maxim", "failed-reminder")).resolves.toMatchObject({ enabled: true });
+  });
+
+  it("disables a successful one-shot reminder and excludes it from the next claim", async () => {
+    let now = "2026-07-30T06:00:00.000Z";
+    const clock = { now: () => now };
+    const store = createInMemoryScheduleStore(clock);
+    const deliveries: string[] = [];
+    const scheduler = new SchedulerService(store, clock, async (fire) => {
+      if (fire.kind === "reminder") deliveries.push(fire.text);
+    });
+    await store.save("maxim", {
+      id: "zoom-once", kind: "reminder", reminderText: "Подключиться к зуму", oneShot: true,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toHaveLength(1);
+    expect(deliveries).toEqual(["Подключиться к зуму"]);
+    await expect(store.get("maxim", "zoom-once")).resolves.toMatchObject({ enabled: false, oneShot: true });
+    now = "2026-07-31T06:00:00.000Z";
+    await expect(scheduler.tick()).resolves.toEqual([]);
+  });
+
+  it("leaves a one-shot fire pending and the schedule enabled when disabling fails", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const base = createInMemoryScheduleStore(clock);
+    const store = {
+      ...base,
+      async save(userId: string, input: Parameters<typeof base.save>[1]) {
+        if (!input.enabled) throw new Error("disable failed");
+        return base.save(userId, input);
+      },
+    };
+    const scheduler = new SchedulerService(store, clock, async () => undefined);
+    await base.save("maxim", {
+      id: "zoom-disable-fails", kind: "reminder", reminderText: "Подключиться к зуму", oneShot: true,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+
+    await expect(scheduler.tick()).resolves.toHaveLength(1);
+    await expect(base.listFires("maxim", "zoom-disable-fails")).resolves.toMatchObject([{
+      status: "failed", errorCode: "Error",
+    }]);
+    await expect(base.get("maxim", "zoom-disable-fails")).resolves.toMatchObject({ enabled: true });
+  });
+
+  it("delivers only the claimed reminder owner and keeps another owner isolated", async () => {
+    const clock = { now: () => "2026-07-30T06:00:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    const deliveries: Array<{ userId: string; text: string }> = [];
+    const scheduler = new SchedulerService(store, clock, async (fire) => {
+      if (fire.kind === "reminder") deliveries.push({ userId: fire.userId, text: fire.text });
+    });
+    await store.save("owner-a", {
+      id: "owner-a-reminder", kind: "reminder", reminderText: "Секрет владельца A", oneShot: false,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: clock.now(),
+    });
+    await store.save("owner-b", {
+      id: "owner-b-reminder", kind: "reminder", reminderText: "Секрет владельца B", oneShot: false,
+      timeOfDay: "10:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T07:00:00.000Z",
+    });
+
+    await expect(scheduler.tick()).resolves.toHaveLength(1);
+    expect(deliveries).toEqual([{ userId: "owner-a", text: "Секрет владельца A" }]);
+    await expect(store.listFires("owner-a")).resolves.toHaveLength(1);
+    await expect(store.listFires("owner-b")).resolves.toEqual([]);
+    await expect(store.list("owner-b")).resolves.toMatchObject([{ reminderText: "Секрет владельца B" }]);
+  });
+
   it("runs day_focus through the deterministic facade trigger and records a successful outcome", async () => {
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
@@ -121,6 +259,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     };
     const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
+      if (fire.kind !== "process") throw new Error("unexpected reminder action");
       const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "day_focus" });
       await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });
@@ -151,6 +290,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     };
     const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
+      if (fire.kind !== "process") throw new Error("unexpected reminder action");
       const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "evening_reflection" });
       await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });

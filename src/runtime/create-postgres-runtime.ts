@@ -37,7 +37,7 @@ import { createPostgresTaskStore } from "../infrastructure/postgres/postgres-tas
 import { createPostgresScheduleStore } from "../infrastructure/postgres/postgres-schedule-store.js";
 import { createPostgresUsageStore } from "../infrastructure/postgres/postgres-usage-store.js";
 import { SchedulerService } from "../application/scheduler-service.js";
-import { requireTelegramDeliverySession, telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
+import { telegramActionMessageClaimLeaseMilliseconds, telegramActionMessageRetentionMilliseconds } from "../telegram/telegram-session-store.js";
 import { extractOnboardingProfileWithAgent } from "../mastra/onboarding-profile-extractor.js";
 import { evaluateRequestIntegrity } from "../mastra/request-integrity-guard.js";
 import { summarizeThreadWithAgent } from "../mastra/thread-summarizer.js";
@@ -59,6 +59,7 @@ import { ScheduleManagementService } from "../application/schedule-management-se
 import { ContextDocumentService, contextDocumentConfirmationTtlMilliseconds } from "../application/context-document-service.js";
 import { createPostgresContextDocumentConfirmationStore } from "../infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
+import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -243,16 +244,11 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments);
-    const scheduler = new SchedulerService(scheduleStore, systemClock, async (fire) => {
-      if (!input.telegramShell) throw new TelegramDeliveryNotConfiguredError();
-      const delivery = requireTelegramDeliverySession(await telegramSessionStore.getDeliveryByEmployee(fire.userId));
-      const result = await assistant.runScheduledProcess({
-        userId: fire.userId,
-        threadId: delivery.threadId,
-        processId: fire.processId,
-      });
-      await input.telegramShell.deliverProactive(delivery.chatId, result, fire.userId);
-    });
+    const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({
+      assistant,
+      telegramSessionStore,
+      telegramShell: input.telegramShell,
+    }));
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
       void runRetentionCleanupJobs(retentionCleanupJobs);
@@ -289,8 +285,4 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       shutdown: async () => { if (scheduleTick) clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
-}
-
-class TelegramDeliveryNotConfiguredError extends Error {
-  constructor() { super("Telegram delivery is not configured."); this.name = "TelegramDeliveryNotConfiguredError"; }
 }
