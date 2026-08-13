@@ -28,7 +28,7 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/undo-task-mutation.md` | `undoTaskMutation` | Yes, reversible internal write | Level 0: no prior confirmation | Latest eligible canonical task mutation of authenticated owner | Restore the previous task/idea state within the undo window. |
 | `/bin/list-projects.md` | `listProjects` | No | No | Authenticated owner's idea and task labels only | List bounded canonical project labels with record counts. |
 | `/bin/list-schedules.md` | `listSchedules` | No | No | Authenticated owner's schedules only | List owner-free process/reminder views, recurrence, and next fire times. |
-| `/bin/set-daily-schedule.md` | `setDailySchedule` | Yes, reversible internal write | Level 0: no prior confirmation | Owner bound by `AssistantService`; process ids are closed and reminder text is bounded | Create, change, or re-enable a process or reminder schedule, including days and one-shot. |
+| `/bin/set-daily-schedule.md` | `setDailySchedule` | Yes, reversible internal write | Level 0: no prior confirmation | Owner bound by `AssistantService`; exact schedule ids are owner-scoped, process ids are closed, and reminder text is bounded | Create, change, or re-enable a process or reminder schedule, including days and one-shot. |
 | `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible internal write | Level 0: no prior confirmation | Authenticated owner and exact schedule id | Disable a schedule without deleting its fire history. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
 

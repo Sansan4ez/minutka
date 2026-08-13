@@ -34,7 +34,13 @@ import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 import type { ModelTokenUsage, UsageCostPolicy, UsageStore } from "./usage-store.js";
 import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder } from "./usage-recorder.js";
-import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities, type ScheduleManagementService } from "./schedule-management-service.js";
+import {
+  AssistantScheduleKindChangeError,
+  AssistantScheduleNotFoundError,
+  UnsupportedAssistantScheduleProcessError,
+  type OwnerScheduleCapabilities,
+  type ScheduleManagementService,
+} from "./schedule-management-service.js";
 import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
 import { ProjectLabelService, type AssistantProjectListResult } from "./project-labels.js";
@@ -388,7 +394,9 @@ export class AssistantService {
           if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
           return schedule;
         } catch (cause) {
-          if (cause instanceof UnsupportedAssistantScheduleProcessError) throw cause;
+          if (cause instanceof UnsupportedAssistantScheduleProcessError
+            || cause instanceof AssistantScheduleNotFoundError
+            || cause instanceof AssistantScheduleKindChangeError) throw cause;
           chatEffect.businessWrite = "outcome_unknown";
           throw new AssistantMutationOutcomeUnknownError({ cause });
         }

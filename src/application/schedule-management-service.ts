@@ -8,6 +8,7 @@ import { randomIdGenerator, type Clock, type IdGenerator } from "./runtime-primi
 import type { ScheduleStore } from "./schedule-store.js";
 
 export type SaveDailyScheduleInput = {
+  scheduleId?: string;
   kind?: "process" | "reminder";
   processId?: string;
   reminderText?: string;
@@ -39,6 +40,9 @@ export class ScheduleManagementService {
   async saveDailySchedule(userId: string, input: SaveDailyScheduleInput): Promise<ProcessSchedule> {
     const safeUserId = assertUserId(userId);
     const kind = input.kind ?? "process";
+    const targetedSchedule = input.scheduleId === undefined ? undefined : await this.store.get(safeUserId, input.scheduleId);
+    if (input.scheduleId !== undefined && !targetedSchedule) throw new AssistantScheduleNotFoundError(input.scheduleId);
+    if (targetedSchedule && targetedSchedule.kind !== kind) throw new AssistantScheduleKindChangeError(targetedSchedule.kind, kind);
     const process = kind === "process" ? processAction(input) : undefined;
     const action = process ?? reminderAction(input);
     const profile = await this.profiles.getProfile(safeUserId);
@@ -48,9 +52,9 @@ export class ScheduleManagementService {
     const timeOfDay = normalizeDailyTime(input.timeOfDay);
     const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
     const oneShot = input.oneShot ?? false;
-    const existing = process
+    const existing = targetedSchedule ?? (process
       ? (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === process.processId)
-      : undefined;
+      : undefined);
     const generatedScheduleId = this.ids.scheduleId ?? randomIdGenerator.scheduleId!;
     return this.store.save(safeUserId, {
       id: existing?.id ?? (process ? dailyScheduleId(safeUserId, process.processId) : generatedScheduleId()),
@@ -81,6 +85,20 @@ export class ScheduleManagementService {
       enabled: false,
       nextFireAt: existing.nextFireAt,
     });
+  }
+}
+
+export class AssistantScheduleNotFoundError extends Error {
+  constructor(readonly scheduleId: string) {
+    super(`Assistant schedule not found: ${scheduleId}`);
+    this.name = "AssistantScheduleNotFoundError";
+  }
+}
+
+export class AssistantScheduleKindChangeError extends Error {
+  constructor(readonly existingKind: ProcessSchedule["kind"], readonly requestedKind: ProcessSchedule["kind"]) {
+    super(`Schedule kind cannot be changed from ${existingKind} to ${requestedKind}; disable it and create a new schedule instead.`);
+    this.name = "AssistantScheduleKindChangeError";
   }
 }
 

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryScheduleStore } from "../../../src/application/in-memory-schedule-store.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
-import { ScheduleManagementService } from "../../../src/application/schedule-management-service.js";
+import {
+  AssistantScheduleKindChangeError,
+  AssistantScheduleNotFoundError,
+  ScheduleManagementService,
+} from "../../../src/application/schedule-management-service.js";
 import { createScheduleTools, scheduleListOutputSchema, scheduleMutationOutputSchema, scheduleViewSchema } from "../../../src/mastra/tools/schedule-tools.js";
 
 const now = "2026-07-30T05:00:00.000Z";
@@ -62,6 +66,35 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: owner schedule use-cases a
     await expect(service.saveDailySchedule("owner-a", { kind: "reminder", reminderText: "x".repeat(513), timeOfDay: "10:00" })).rejects.toThrow("at most 512");
   });
 
+  it("updates an exact owner reminder without duplicating it and rejects unsafe targets", async () => {
+    const { store, timezones, service } = setup();
+    timezones.set("owner-a", "Europe/Moscow");
+    timezones.set("owner-b", "Asia/Tokyo");
+
+    const reminder = await service.saveDailySchedule("owner-a", { kind: "reminder", reminderText: "Выпить воды", timeOfDay: "09:00" });
+    const updated = await service.saveDailySchedule("owner-a", {
+      scheduleId: reminder.id, kind: "reminder", reminderText: "Выпить воды", timeOfDay: "10:00",
+    });
+    expect(updated).toMatchObject({ id: reminder.id, kind: "reminder", timeOfDay: "10:00", enabled: true });
+    await expect(service.listSchedules("owner-a")).resolves.toHaveLength(1);
+
+    const foreign = await service.saveDailySchedule("owner-b", { kind: "reminder", reminderText: "Чужое", timeOfDay: "11:00" });
+    await expect(service.saveDailySchedule("owner-a", {
+      scheduleId: foreign.id, kind: "reminder", reminderText: "Утечка", timeOfDay: "12:00",
+    })).rejects.toBeInstanceOf(AssistantScheduleNotFoundError);
+    await expect(store.get("owner-b", foreign.id)).resolves.toMatchObject({ reminderText: "Чужое", timeOfDay: "11:00" });
+
+    const process = await service.saveDailySchedule("owner-a", { processId: "day_focus", timeOfDay: "08:30" });
+    await expect(service.saveDailySchedule("owner-a", {
+      scheduleId: process.id, kind: "reminder", reminderText: "Не процесс", timeOfDay: "08:30",
+    })).rejects.toBeInstanceOf(AssistantScheduleKindChangeError);
+
+    const secondReminder = await service.saveDailySchedule("owner-a", { kind: "reminder", reminderText: "Второе", timeOfDay: "13:00" });
+    expect(secondReminder.id).not.toBe(reminder.id);
+    await expect(service.disableSchedule("owner-a", process.id)).resolves.toMatchObject({ enabled: false });
+    await expect(service.saveDailySchedule("owner-a", { processId: "day_focus", timeOfDay: "08:45" })).resolves.toMatchObject({ id: process.id, enabled: true });
+  });
+
   it("keeps all three tool outputs schema-valid and owner-free", async () => {
     const { timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");
@@ -80,6 +113,15 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: owner schedule use-cases a
     expect(() => scheduleMutationOutputSchema.parse(saved)).not.toThrow();
     const reminder = await tools.setDailySchedule.execute?.({ kind: "reminder", reminderText: "<b>вода</b> 💧", timeOfDay: "15:00", oneShot: true }, {} as never);
     expect(() => scheduleMutationOutputSchema.parse(reminder)).not.toThrow();
+    const reminderId = (reminder as { status: "saved"; schedule: { id: string } }).schedule.id;
+    const changed = await tools.setDailySchedule.execute?.({ scheduleId: reminderId, kind: "reminder", reminderText: "<b>вода</b> 💧", timeOfDay: "16:00" }, {} as never);
+    expect(changed).toMatchObject({ status: "saved", schedule: { id: reminderId, timeOfDay: "16:00" } });
+    const missing = await tools.setDailySchedule.execute?.({ scheduleId: "missing", kind: "reminder", reminderText: "Вода", timeOfDay: "17:00" }, {} as never);
+    expect(missing).toEqual({ status: "not_found" });
+    expect(() => scheduleMutationOutputSchema.parse(missing)).not.toThrow();
+    const wrongKind = await tools.setDailySchedule.execute?.({ scheduleId: (saved as { status: "saved"; schedule: { id: string } }).schedule.id, kind: "reminder", reminderText: "Вода", timeOfDay: "17:00" }, {} as never);
+    expect(wrongKind).toMatchObject({ status: "unsupported_process" });
+    expect(() => scheduleMutationOutputSchema.parse(wrongKind)).not.toThrow();
     const listed = await tools.listSchedules.execute?.({}, {} as never);
     expect(() => scheduleListOutputSchema.parse(listed)).not.toThrow();
     const schedule = scheduleViewSchema.parse((listed as { schedules: unknown[] }).schedules[0]);

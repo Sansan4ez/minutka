@@ -1,6 +1,11 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { UnsupportedAssistantScheduleProcessError, type OwnerScheduleCapabilities } from "../../application/schedule-management-service.js";
+import {
+  AssistantScheduleKindChangeError,
+  AssistantScheduleNotFoundError,
+  UnsupportedAssistantScheduleProcessError,
+  type OwnerScheduleCapabilities,
+} from "../../application/schedule-management-service.js";
 import { assistantDiagnosticProcessIds } from "../../domain/assistant-process.js";
 import { toScheduleView } from "../../application/schedule-view.js";
 import { timezoneSchema } from "../../contracts/minutka-api.js";
@@ -45,6 +50,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
       description: "Create, change, or re-enable a process or reminder schedule. For kind=reminder provide reminderText; oneShot uses the nearest future occurrence of HH:mm. Timezone defaults to the owner profile.",
       strict: true,
       inputSchema: z.strictObject({
+        scheduleId: z.string().min(1).optional(),
         kind: z.enum(["process", "reminder"]).optional(),
         processId: z.string().min(1).optional(),
         reminderText: z.string().min(1).max(512).optional(),
@@ -59,8 +65,12 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
         try {
           return { status: "saved" as const, schedule: toScheduleView(await schedules.saveDailySchedule(input)) };
         } catch (error) {
+          if (error instanceof AssistantScheduleNotFoundError) return { status: "not_found" as const };
           if (error instanceof UnsupportedAssistantScheduleProcessError) {
             return { status: "unsupported_process" as const, message: `Процесс ${error.processId || "не указан"} нельзя добавить в расписание. Доступны процессы ${assistantDiagnosticProcessIds.join(", ")} или kind=reminder с reminderText.` };
+          }
+          if (error instanceof AssistantScheduleKindChangeError) {
+            return { status: "unsupported_process" as const, message: "Нельзя сменить вид расписания. Отключите старое расписание и создайте новое." };
           }
           throw error;
         }
