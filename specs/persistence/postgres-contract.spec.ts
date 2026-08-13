@@ -17,6 +17,7 @@ import { createInMemoryArtifactContentStore } from "../../src/application/in-mem
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
 import { createPostgresIdeaStore } from "../../src/infrastructure/postgres/postgres-idea-store.js";
 import { IdeaToTaskService } from "../../src/application/idea-to-task.js";
+import { ProjectLabelService } from "../../src/application/project-labels.js";
 import { createPostgresTaskStore } from "../../src/infrastructure/postgres/postgres-task-store.js";
 import { createPostgresScheduleStore } from "../../src/infrastructure/postgres/postgres-schedule-store.js";
 import { createPostgresUsageStore } from "../../src/infrastructure/postgres/postgres-usage-store.js";
@@ -549,9 +550,12 @@ describe("PostgreSQL storage contracts", () => {
     await ideas.add({ id: "idea_owner_raw", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "raw", source: { kind: "text", text: "raw" }, status: "raw" });
     await ideas.add({ id: "idea_owner_discussed", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "discussed", status: "discussed" });
     await ideas.add({ id: "idea_owner_planned", userId: "idea_owner", project: "АССИСТЕНТ", type: "development", summary: "planned", status: "planned" });
-    await ideas.add({ id: "idea_other", userId: "other_owner", project: "АССИСТЕНТ", type: "development", summary: "private", status: "raw" });
+    await ideas.add({ id: "idea_other", userId: "other_owner", project: "Секрет", type: "development", summary: "private", status: "raw" });
     await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() - interval '8 days' WHERE idea_id IN ('idea_owner_raw', 'idea_owner_discussed', 'idea_owner_planned', 'idea_other')");
 
+    const projects = await new ProjectLabelService(ideas, createPostgresTaskStore(pool)).list("idea_owner");
+    expect(projects.projects).toEqual(expect.arrayContaining([expect.objectContaining({ project: "АССИСТЕНТ" })]));
+    expect(projects.projects).not.toEqual(expect.arrayContaining([expect.objectContaining({ project: "Секрет" })]));
     await expect(ideas.list("idea_owner", { project: "АССИСТЕНТ", status: "raw" })).resolves.toMatchObject([{ id: "idea_owner_raw", source: { kind: "text", text: "raw" } }]);
     await pool.query("UPDATE minutka_private.ideas SET last_activity_at = now() WHERE idea_id = 'idea_owner_planned'");
     await expect(ideas.list("idea_owner", undefined, { limit: 1, order: "activity_desc" })).resolves.toMatchObject([{ id: "idea_owner_planned" }]);
