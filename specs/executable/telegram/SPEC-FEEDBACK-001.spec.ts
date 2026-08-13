@@ -587,6 +587,61 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.feedback).toContainEqual(expect.objectContaining({ targetMessageId: scheduled.messageId, rating: "positive", source: "telegram" }));
   });
 
+  it("6d. Reminder delivery has no feedback buttons, clears stale feedback, and preserves a live confirmation card", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await onboardTestEmployee(spec);
+    await telegram.start({ chatId: "chat_reminder", userId: "user_reminder", inviteCode: testInvite.inviteCode });
+    const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_reminder", userId: "user_reminder", callbackData: consentCallback! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_reminder", userId: "user_reminder", text: "Первый вопрос" });
+    const previous = telegram.sentMessages()[0]!;
+    telegram.clear();
+    await telegram.deliverReminder({ chatId: "chat_reminder", employeeId: testEmployee.employeeId, text: "Выпить воды" });
+
+    expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_reminder", messageId: previous.messageId, replyMarkup: undefined });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Выпить воды", replyMarkup: undefined }),
+    ]);
+
+    telegram.clear();
+    const pendingAction = {
+      confirmationId: "live-confirmation",
+      actionKind: "cancel" as const,
+      summary: "Отменить задачу",
+      expiresAt: "2026-07-29T09:15:00.000Z",
+      preview: {
+        kind: "cancel" as const,
+        taskId: { value: "task-live", truncated: false },
+        taskTitle: { value: "Живая задача", truncated: false },
+      },
+    };
+    await telegram.deliverProactive({
+      chatId: "chat_reminder",
+      employeeId: testEmployee.employeeId,
+      result: {
+        messageId: "pending-action-message",
+        response: "Предложение подготовлено.",
+        selectedProcessIds: ["core"],
+        outcome: { status: "completed" },
+        effect: "pending_action_created",
+        pendingActions: [pendingAction],
+      },
+    });
+    const confirmation = telegram.sentMessages().at(-1)!;
+    telegram.clear();
+
+    await telegram.deliverReminder({ chatId: "chat_reminder", employeeId: testEmployee.employeeId, text: "Позвонить маме" });
+
+    expect(telegram.replyMarkupEditCalls()).not.toContainEqual({ chatId: "chat_reminder", messageId: confirmation.messageId, replyMarkup: undefined });
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Позвонить маме", replyMarkup: undefined }),
+    ]);
+    expect(spec.world.feedback).toEqual([]);
+  });
+
   it("7 & 8. Repeated /start for already linked chat / different invite behavior", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);

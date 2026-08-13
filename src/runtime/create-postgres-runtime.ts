@@ -61,7 +61,7 @@ import { createPostgresContextDocumentConfirmationStore } from "../infrastructur
 import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
 import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
 
-export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive"> }) {
+export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
   // external resources or accepting traffic, then reuse the immutable snapshot.
   const agentInstructions = loadAssistantAgentInstructions();

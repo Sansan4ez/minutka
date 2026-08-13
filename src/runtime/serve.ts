@@ -34,10 +34,16 @@ async function main(): Promise<void> {
   const runtime = await createPostgresRuntime({
     assistantAgentRunner: createAssistantAgentRunner(personalAssistantAgent),
     env: process.env,
-    ...(telegramEnabled ? { telegramShell: { deliverProactive: (chatId: string, result: AssistantChatResult, employeeId: string) => {
-      if (!telegramShell) throw new Error("Telegram shell is not configured.");
-      return telegramShell.deliverProactive(chatId, result, employeeId);
-    } } } : {}),
+    ...(telegramEnabled ? { telegramShell: {
+      deliverProactive: (chatId: string, result: AssistantChatResult, employeeId: string) => {
+        if (!telegramShell) throw new Error("Telegram shell is not configured.");
+        return telegramShell.deliverProactive(chatId, result, employeeId);
+      },
+      deliverReminder: (chatId: string, text: string, employeeId: string) => {
+        if (!telegramShell) throw new Error("Telegram shell is not configured.");
+        return telegramShell.deliverReminder(chatId, text, employeeId);
+      },
+    } } : {}),
   });
   let listener: Awaited<ReturnType<typeof listenHttpServer>> | undefined; let bot: Telegraf | undefined; let launchCompleted: Promise<void> | undefined;
   try {

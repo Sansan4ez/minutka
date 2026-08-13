@@ -114,7 +114,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const store = createInMemoryScheduleStore(clock);
     let agentCalls = 0;
     const usageRecords: unknown[] = [];
-    const deliveries: Array<{ chatId: string; userId: string; result: AssistantChatResult }> = [];
+    const deliveries: Array<{ chatId: string; userId: string; text: string }> = [];
     const runner = createTelegramScheduledActionRunner({
       assistant: {
         async runScheduledProcess() {
@@ -131,7 +131,8 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
         },
       },
       telegramShell: {
-        async deliverProactive(chatId, result, userId) { deliveries.push({ chatId, userId, result }); },
+        async deliverProactive() { throw new Error("proactive process delivery must not run for reminders"); },
+        async deliverReminder(chatId, text, userId) { deliveries.push({ chatId, userId, text }); },
       },
     });
     const scheduler = new SchedulerService(store, clock, runner);
@@ -142,14 +143,14 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
 
     await expect(scheduler.tick()).resolves.toMatchObject([{ kind: "reminder", reminderText: "Выпить <воды> & отдохнуть" }]);
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({
+    expect(deliveries[0]).toEqual({
       chatId: "owner-chat",
       userId: "maxim",
-      result: { response: "Выпить <воды> & отдохнуть", selectedProcessIds: ["core"], pendingActions: [], effect: "none" },
+      text: "Выпить <воды> & отдохнуть",
     });
     expect(agentCalls).toBe(0);
     expect(usageRecords).toEqual([]);
-    expect(renderTelegramMarkdown(deliveries[0]!.result.response)).toEqual([{
+    expect(renderTelegramMarkdown(deliveries[0]!.text)).toEqual([{
       text: "Выпить &lt;воды&gt; &amp; отдохнуть",
       parseMode: "HTML",
     }]);

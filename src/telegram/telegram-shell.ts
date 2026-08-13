@@ -161,7 +161,7 @@ function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLengt
 function currentTimeInTimezone(timezone: string): string {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
 }
-type TelegramChatDeliveryResult = { messageId: string; response: string; pendingActions: AssistantPendingAction[] };
+type TelegramChatDeliveryResult = { messageId?: string; response: string; pendingActions: AssistantPendingAction[] };
 type ActivePendingAction = { action: AssistantPendingAction; messageId: number };
 type ActivePendingActionGroup = PendingActionGroup & { state: "delivered"; messageId: number };
 type GroupDecisionOutcome = { ordinal: PendingActionGroupOrdinal; state: "resolved" | "retryable"; line: string };
@@ -639,7 +639,8 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
     const pendingActions = chat.pendingActions ?? [];
     if (!chat.response.trim()) throw new Error("Agent returned an empty response");
-    const feedbackMarkup = { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", chat.messageId) }))] };
+    const feedbackMessageId = chat.messageId;
+    const feedbackMarkup = feedbackMessageId === undefined ? undefined : { inlineKeyboard: [["positive", "neutral", "negative"].map((rating) => ({ text: rating === "positive" ? "👍" : rating === "neutral" ? "👌" : "👎", callbackData: encodeFeedbackCallbackData(rating as "positive" | "neutral" | "negative", feedbackMessageId) }))] };
     if (pendingActions.length) {
       await removeActiveReplyMarkup(chatId);
       const delivery = await sendTaskProposal(chatId, { ...chat, pendingActions }, employeeId);
@@ -648,7 +649,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       return;
     }
     if (activePendingActions.has(chatId) || await pendingActionGroupStore.getLatestDelivered(employeeId)) await sendMarkdown(chatId, chat.response);
-    else await sendMarkdown(chatId, chat.response, { replyMarkup: feedbackMarkup });
+    else {
+      await removeActiveReplyMarkup(chatId);
+      await sendMarkdown(chatId, chat.response, feedbackMarkup ? { replyMarkup: feedbackMarkup } : undefined);
+    }
   }
   async function textDecisionAction(employeeId: string, pending: ActivePendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {
     return decidePendingAction(employeeId, pending.action, decision);
@@ -739,6 +743,9 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
   return {
     async deliverProactive(chatId: string, result: AssistantChatResult, employeeId: string) {
       await deliverChatResult(chatId, result, employeeId);
+    },
+    async deliverReminder(chatId: string, text: string, employeeId: string) {
+      await deliverChatResult(chatId, { response: text, pendingActions: [] }, employeeId);
     },
     async handleStart(chatId: string, inviteCode?: string, userId?: string) {
       await removeActiveReplyMarkup(chatId);
