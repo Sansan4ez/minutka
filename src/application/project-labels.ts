@@ -18,6 +18,17 @@ export type AssistantProjectListResult = {
   truncated: boolean;
 };
 
+type CollectedProjectLabels = {
+  grouped: Map<string, AssistantProjectView>;
+  sourceTruncated: boolean;
+};
+
+/** Request-scoped cache; never retain it between AssistantService.chat calls. */
+export type ProjectLabelCollectCache = {
+  ownerId?: string;
+  collected?: Promise<CollectedProjectLabels>;
+};
+
 /**
  * Owner-scoped view over project strings already attached to ideas and tasks.
  * A project is deliberately not a separate entity in the pilot data model.
@@ -28,25 +39,35 @@ export class ProjectLabelService {
     private readonly tasks?: Pick<TaskReader, "list">,
   ) {}
 
-  async list(ownerId: string, input: { limit?: number } = {}): Promise<AssistantProjectListResult> {
+  async list(ownerId: string, input: { limit?: number } = {}, cache?: ProjectLabelCollectCache): Promise<AssistantProjectListResult> {
     const limit = input.limit ?? assistantProjectListDefaultLimit;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > assistantProjectListMaximumLimit) {
       throw new Error(`project list limit must be between 1 and ${assistantProjectListMaximumLimit}`);
     }
-    const collected = await this.collect(ownerId);
+    const collected = await this.collect(ownerId, cache);
     const projects = [...collected.grouped.values()]
       .sort((left, right) => right.totalCount - left.totalCount || left.project.localeCompare(right.project, "ru"))
       .slice(0, limit);
     return { projects, truncated: collected.sourceTruncated || collected.grouped.size > limit };
   }
 
-  async canonicalize(ownerId: string, project: string): Promise<string> {
+  async canonicalize(ownerId: string, project: string, cache?: ProjectLabelCollectCache): Promise<string> {
     const normalized = normalizeProjectLabel(project);
     if (projectKey(normalized) === projectKey(NO_PROJECT)) return NO_PROJECT;
-    return (await this.collect(ownerId)).grouped.get(projectKey(normalized))?.project ?? normalized;
+    return (await this.collect(ownerId, cache)).grouped.get(projectKey(normalized))?.project ?? normalized;
   }
 
-  private async collect(ownerId: string): Promise<{ grouped: Map<string, AssistantProjectView>; sourceTruncated: boolean }> {
+  private collect(ownerId: string, cache?: ProjectLabelCollectCache): Promise<CollectedProjectLabels> {
+    if (!cache) return this.collectUncached(ownerId);
+    if (cache.ownerId !== undefined && cache.ownerId !== ownerId) {
+      throw new Error("project label cache cannot be shared between owners");
+    }
+    cache.ownerId = ownerId;
+    cache.collected ??= this.collectUncached(ownerId);
+    return cache.collected;
+  }
+
+  private async collectUncached(ownerId: string): Promise<CollectedProjectLabels> {
     const sourceLimit = assistantProjectSourceScanLimit + 1;
     const [ideas, tasks] = await Promise.all([
       this.ideas?.list(ownerId, undefined, { limit: sourceLimit, order: "created_asc" }) ?? [],

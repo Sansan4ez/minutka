@@ -43,7 +43,7 @@ import {
 } from "./schedule-management-service.js";
 import { createAssistantContextDocumentCapabilities, type AssistantContextDocumentCapabilities } from "./assistant-context-document-capabilities.js";
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
-import { ProjectLabelService, type AssistantProjectListResult } from "./project-labels.js";
+import { ProjectLabelService, type AssistantProjectListResult, type ProjectLabelCollectCache } from "./project-labels.js";
 import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
@@ -127,7 +127,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -141,7 +141,7 @@ export class AssistantService {
     this.chatProjectionBuilder = deps.chatProjectionBuilder;
     // The recorder is stateless, so every service that spends tokens builds its
     // own; the soft-limit crossing is derived from the durable monthly total.
-    this.projectLabels = new ProjectLabelService(deps.ideaStore, deps.taskStore);
+    this.projectLabels = deps.projectLabels ?? new ProjectLabelService(deps.ideaStore, deps.taskStore);
     this.usage = createUsageRecorder({
       usageStore: deps.usageStore,
       usageCostPolicy: deps.usageCostPolicy,
@@ -257,6 +257,7 @@ export class AssistantService {
       businessWrite: "none",
       pendingActionCreated: false,
     };
+    const projectLabelCache: ProjectLabelCollectCache = {};
     const currentChatEffectState = (): AssistantChatEffectState => chatEffect.businessWrite === "outcome_unknown"
       ? "outcome_unknown"
       : chatEffect.businessWrite === "committed"
@@ -282,7 +283,7 @@ export class AssistantService {
       const requestedProject = idea.project.trim();
       const project = idea.needsProjectClarification || !requestedProject || requestedProject === NO_PROJECT
         ? NO_PROJECT
-        : await this.projectLabels.canonicalize(userId, requestedProject);
+        : await this.projectLabels.canonicalize(userId, requestedProject, projectLabelCache);
       try {
         captureResult = await this.deps.ingestionService.captureIdea({ ...idea, project, id: this.ids.ideaId(), userId, source });
       } catch (cause) {
@@ -418,7 +419,7 @@ export class AssistantService {
       },
     };
     const projects = {
-      list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput),
+      list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput, projectLabelCache),
     };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
@@ -426,7 +427,7 @@ export class AssistantService {
       mutations: this.deps.taskMutations,
       ideaToTask: this.deps.ideaToTask,
       taskId: () => (this.ids.taskId ?? randomIdGenerator.taskId!)(),
-      canonicalizeProject: (project) => this.projectLabels.canonicalize(userId, project),
+      canonicalizeProject: (project) => this.projectLabels.canonicalize(userId, project, projectLabelCache),
       audit: { requestId, threadId, messageId },
       beforePersist: reserveTaskProposalSlot,
       onProposal: ((pending, taskTitle) => {

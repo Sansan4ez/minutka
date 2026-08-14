@@ -113,6 +113,34 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     const result = await taskSetup.service.chat({ userId: "owner", threadId: "task-thread", text: "создай задачу" });
     expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
   });
+
+  it("shares one project-label source scan across list, capture, and task proposal in a turn", async () => {
+    const { service, ideas, tasks } = setup(async (_input, context) => {
+      await context.projects.list();
+      await context.captureIdea({
+        project: "бассейн",
+        type: "personal",
+        summary: "Идея после просмотра проектов",
+        suggestedNextStep: "Продолжить",
+        needsProjectClarification: false,
+      });
+      await context.tasks.propose({ kind: "create", title: "Проверить воду", project: "бассейн", type: "personal" });
+      return "готово";
+    });
+    await ideas.add({ id: "existing-pool", userId: "owner", project: "Бассейн", type: "personal", summary: "Существующая", status: "raw" });
+    const ideaList = vi.spyOn(ideas, "list");
+    const taskList = vi.spyOn(tasks, "list");
+
+    const result = await service.chat({ userId: "owner", threadId: "compound-project-turn", text: "покажи, сохрани и создай задачу" });
+
+    const isProjectSourceScan = (call: unknown[]) => call[2] !== undefined
+      && (call[2] as { limit?: number; order?: string }).limit === 501
+      && (call[2] as { limit?: number; order?: string }).order === "created_asc";
+    expect(ideaList.mock.calls.filter(isProjectSourceScan)).toHaveLength(1);
+    expect(taskList.mock.calls.filter(isProjectSourceScan)).toHaveLength(1);
+    expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
+    await expect(ideas.list("owner", { project: "Бассейн" })).resolves.toHaveLength(2);
+  });
   it("resolves an omitted task revision into the pending proposal and still detects a later conflict", async () => {
     const { service, confirmations, tasks } = setup(async (_input, context) => {
       const [task] = await context.tasks.list();

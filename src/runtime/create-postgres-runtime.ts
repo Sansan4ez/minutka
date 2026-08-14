@@ -169,7 +169,6 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       documentStore,
       blobStore,
       ideaStore,
-      canonicalizeProject: (userId, project) => projectLabels.canonicalize(userId, project),
       maximumContextDocumentBytes: contextBudget.documentTools.maximumDocumentBytes,
     });
     const usageStore = createPostgresUsageStore(pool);
@@ -228,6 +227,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
+      projectLabels,
       taskStore,
       taskMutations,
       ideaToTask,

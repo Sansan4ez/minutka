@@ -15,3 +15,5 @@ A bounded array of canonical project labels with `ideaCount`, `taskCount`, and `
 ## Boundary
 
 Read-only. `AssistantService` binds the authenticated owner. A project remains a string label on ideas and tasks; this tool does not create a project entity.
+
+The source scan intentionally considers only the first 500 ideas and first 500 tasks in `created_asc` order. This preserves deterministic canonical spelling but means labels introduced only in newer records beyond that boundary are not discovered.
