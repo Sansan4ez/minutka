@@ -51,7 +51,9 @@ Related:
 
 «Минутка» создаётся клонированием текущего репозитория **до** любой очистки. В клоне продукт строится на живом рантайме ассистента (`AssistantService` + vault-процессы + typed use-cases), а не реанимацией legacy-контура: `MinutkaService.chat()`, `ConversationDecisionRouter` и legacy-manual-каталог не возвращаются в прод и служат референсом (consent-тексты, insight extraction, workday guardrails).
 
-Что клон получает бесплатно: транспорты Telegram/HTTP/CLI, invite/consent/onboarding/profile-контур, chat-runtime, извлечение insights, процессы утра/вечера (`day_focus`, `evening_reflection` в активном реестре vault), executable specs без LLM.
+Что клон получает бесплатно: транспорты Telegram/HTTP/CLI, invite/consent/onboarding/profile-контур, chat-runtime с agent-led routing, словари insight-типов (`src/domain/insights.ts`) и insight-store, executable specs без LLM.
+
+Что выглядит унаследованным, но им не является: **производителя insights в рантайме нет** (единственный писатель сидит в мёртвом legacy-чат-пути, процесс `insight_extraction` — в `legacy-registry.json`), а `day_focus` и `evening_reflection` из активного реестра под сбор рутин не подходят — первый планирует приоритеты владельца, второй не собирает структурированных значений. Механизм сбора «Минутка» проектирует заново: [RFC «Минутки»](./rfc-minutka-tenancy-and-reporting.md) §2.2 (typed-действие вместо экстрактора) и §2.7 (процесс сбора).
 
 Основной объём новой работы — мультитенантная ось: company → учебная группа → сотрудник → должность, обезличенный сбор данных для отчёта компании и правила выгрузки. Архитектурное решение зафиксировано отдельно: [RFC мультитенантного контура и обезличенной отчётности «Минутки»](./rfc-minutka-tenancy-and-reporting.md) — dual-write обезличенного следа без cross-owner-читателей, правило ≥5 на выгрузке, retention «до отчёта». На первом пилоте допустимы ручные операции: админка методолога как SQL/CLI-выгрузки, ручная подготовка отчёта, ручная настройка компаний и групп, перенос профилей вручную. Геймификация не проектируется до стабильного базового цикла.
 
