@@ -148,6 +148,29 @@ describe("SPEC-PERSONAL-ASSISTANT-IDEA-TOOLS-001: model-visible idea capabilitie
     }
   });
 
+  it("keeps the applied append result when audit persistence fails", async () => {
+    const { ideas } = setup();
+    await ideas.add({ id: "idea-1", userId: "owner", project: "ASSISTANT", type: "knowledge", summary: "Original", status: "raw" });
+    const appends = new IdeaAppendService(ideas, {
+      auditEventStore: {
+        async append() { throw new Error("audit unavailable"); },
+        async listCurrent() { return []; },
+        async listRecent() { return []; },
+      },
+      clock: { now: () => "2026-07-31T09:30:00.000Z" },
+      idGenerator: { auditEventId: () => "evt-append" },
+    });
+
+    await expect(appends.append("owner", {
+      ideaId: "idea-1",
+      expectedRevision: 1,
+      text: "Added details",
+    }, { requestId: "req-append", threadId: "thread-append", messageId: "msg-append" })).resolves.toMatchObject({
+      status: "applied",
+      idea: { id: "idea-1", revision: 2, summary: "Original\n\nAdded details" },
+    });
+  });
+
   it.each([
     ["not_found", { status: "not_found" }],
     ["conflict", { status: "conflict" }],

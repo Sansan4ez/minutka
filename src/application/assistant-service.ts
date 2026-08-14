@@ -334,7 +334,11 @@ export class AssistantService {
       },
       append: async (input: { ideaId: string; expectedRevision: number; text: string }) => {
         if (!this.deps.ideaAppends) throw new Error("idea append is not configured");
-        const result = await this.deps.ideaAppends.append(userId, input);
+        const result = await this.deps.ideaAppends.append(userId, input, {
+          requestId,
+          threadId,
+          messageId,
+        });
         observedExecutionTrace.push({ kind: "tool", toolName: "appendIdea" });
         if (result.status === "applied" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
         return result;

@@ -13,6 +13,7 @@ export type AuditEventType =
   | "feedback_received"
   | "agent_manual_load_failed"
   | "idea_captured"
+  | "idea_appended"
   | "idea_deletion_proposed"
   | "idea_deletion_decided"
   | "idea_deletion_undone"
@@ -56,6 +57,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   feedback_received: ["feedbackId", "rating", "source"],
   agent_manual_load_failed: [],
   idea_captured: ["ideaId", "recordType", "sourceKind"],
+  idea_appended: ["ideaId", "recordType"],
   idea_deletion_proposed: ["ideaId", "recordType", "result", "confirmationId"],
   idea_deletion_decided: ["ideaId", "recordType", "result", "confirmationId"],
   idea_deletion_undone: ["ideaId", "recordType", "result"],

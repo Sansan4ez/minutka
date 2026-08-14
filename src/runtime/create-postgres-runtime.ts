@@ -144,7 +144,11 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ideaStore = createPostgresIdeaStore(pool);
     const taskStore = createPostgresTaskStore(pool);
     const projectLabels = new ProjectLabelService(ideaStore, taskStore);
-    const ideaAppends = new IdeaAppendService(ideaStore);
+    const ideaAppends = new IdeaAppendService(ideaStore, {
+      auditEventStore,
+      clock: systemClock,
+      idGenerator: randomIdGenerator,
+    });
     const ideaDeletions = new IdeaDeletionService(
       ideaStore,
       createPostgresIdeaDeletionConfirmationStore(pool),

@@ -20,18 +20,20 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
     ideaStore: ideas,
   });
   const world = createInMemoryWorld(clock.now);
+  const auditEventStore = createInMemoryAuditEventStore(world);
+  const idGenerator = {
+    requestId: () => "req-1", messageId: () => "msg-1", insightId: () => "ins-1", feedbackId: () => "fb-1", ideaId: () => "idea-1", auditEventId: () => "evt-1",
+  };
   const service = new AssistantService(runner, {
     documentStore: documents,
     conversationStore: createInMemoryConversationStore(world),
     ingestionService: ingestion,
     ideaStore: ideas,
-    ideaAppends: new IdeaAppendService(ideas),
-    auditEventStore: createInMemoryAuditEventStore(world),
+    ideaAppends: new IdeaAppendService(ideas, { auditEventStore, clock, idGenerator }),
+    auditEventStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
-    idGenerator: {
-      requestId: () => "req-1", messageId: () => "msg-1", insightId: () => "ins-1", feedbackId: () => "fb-1", ideaId: () => "idea-1", auditEventId: () => "evt-1",
-    },
+    idGenerator,
   });
   return { service, ideas, documents, world, setNow: (value: string) => { now = value; } };
 }
@@ -191,6 +193,37 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
         lastActivityAt: "2026-07-15T09:30:00.000Z",
       }),
     ]);
+  });
+
+  it("writes one content-free audit event only when an idea append is applied", async () => {
+    const appendText = "Прямой приватный текст дополнения";
+    const { service, ideas, world } = createService(async (_input, context) => {
+      const [idea] = context.records.data.records;
+      const applied = await context.ideas.append({ ideaId: idea!.id, expectedRevision: idea!.revision, text: appendText });
+      expect(applied.status).toBe("applied");
+      const conflict = await context.ideas.append({ ideaId: idea!.id, expectedRevision: idea!.revision, text: "stale private text" });
+      expect(conflict.status).toBe("conflict");
+      const missing = await context.ideas.append({ ideaId: "missing", expectedRevision: 1, text: "missing private text" });
+      expect(missing.status).toBe("not_found");
+      return "Дополнил.";
+    });
+    await ideas.add({ id: "idea-pool", userId: "maxim", project: "Бассейн", type: "personal", summary: "Записаться в бассейн", status: "raw" });
+
+    await service.chat({ userId: "maxim", threadId: "telegram:append-audit", text: "Дополни запись" });
+
+    expect(world.auditEvents.filter(({ type }) => type === "idea_appended")).toEqual([
+      expect.objectContaining({
+        requestId: "req-1",
+        employeeId: "maxim",
+        threadId: "telegram:append-audit",
+        messageId: "msg-1",
+        metadata: { ideaId: "idea-pool", recordType: "personal" },
+      }),
+    ]);
+    const serializedAudit = JSON.stringify(world.auditEvents);
+    expect(serializedAudit).not.toContain(appendText);
+    expect(serializedAudit).not.toContain("stale private text");
+    expect(serializedAudit).not.toContain("missing private text");
   });
 
   it("does not add ceremony when visible records have no clear match", async () => {
