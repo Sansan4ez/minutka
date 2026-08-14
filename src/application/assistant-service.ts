@@ -258,6 +258,7 @@ export class AssistantService {
       pendingActionCreated: false,
     };
     const projectLabelCache: ProjectLabelCollectCache = {};
+    const invalidateProjectLabels = () => { projectLabelCache.collected = undefined; };
     const currentChatEffectState = (): AssistantChatEffectState => chatEffect.businessWrite === "outcome_unknown"
       ? "outcome_unknown"
       : chatEffect.businessWrite === "committed"
@@ -291,6 +292,7 @@ export class AssistantService {
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
       const captured = captureResult;
+      invalidateProjectLabels();
       observedExecutionTrace.push({ kind: "tool", toolName: "captureIdea" });
       if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
       if (this.deps.auditEventStore) {
@@ -441,7 +443,10 @@ export class AssistantService {
         const index = pendingActionSlots.findIndex((candidate) => candidate.kind === "task" && candidate.pending.confirmationId === pending.confirmationId);
         if (index >= 0) pendingActionSlots.splice(index, 1);
         chatEffect.pendingActionCreated = pendingActionSlots.length > 0;
-        if (result.status === "applied" && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        if (result.status === "applied") {
+          invalidateProjectLabels();
+          if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        }
       }) satisfies AssistantTaskCapabilityCallbacks["onResolved"],
     });
     const systemContextBudget = buildAssistantSystemContextBudget(personalContext, records, this.deps.agentInstructions, renderResponsePolicy(responsePolicy), profileAndHistory, text, this.contextBudget, requiredProcessId);

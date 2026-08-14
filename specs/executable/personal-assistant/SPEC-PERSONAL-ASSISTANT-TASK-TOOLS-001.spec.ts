@@ -26,6 +26,7 @@ function setup(
     wrapCaptureIdea?: (captureIdea: IngestionService["captureIdea"]) => IngestionService["captureIdea"];
     wrapConversationStore?: (store: ConversationStore) => ConversationStore;
     exposeIdeaStore?: boolean;
+    autoApplyTaskMutations?: boolean;
     applicationTimeoutMs?: number;
   } = {},
 ) {
@@ -55,7 +56,12 @@ function setup(
       : { ...ingestion, captureIdea: options.wrapCaptureIdea(ingestion.captureIdea) },
     ...(options.exposeIdeaStore === false ? {} : { ideaStore: ideas }),
     taskStore: tasks,
-    taskMutations: { propose: confirmations.propose.bind(confirmations) },
+    taskMutations: options.autoApplyTaskMutations
+      ? {
+          propose: confirmations.propose.bind(confirmations),
+          autoApply: confirmations.autoApply.bind(confirmations),
+        }
+      : { propose: confirmations.propose.bind(confirmations) },
     ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
     auditEventStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }),
@@ -114,7 +120,54 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
   });
 
-  it("shares one project-label source scan across list, capture, and task proposal in a turn", async () => {
+  it("refreshes project labels after capture before listing or proposing a task", async () => {
+    let listedAfterCapture: unknown;
+    const { service, ideas } = setup(async (_input, context) => {
+      await context.captureIdea({
+        project: "Бассейн",
+        type: "personal",
+        summary: "Новый проект",
+        suggestedNextStep: "Продолжить",
+        needsProjectClarification: false,
+      });
+      listedAfterCapture = await context.projects.list();
+      await context.tasks.propose({ kind: "create", title: "Проверить воду", project: "бассейн", type: "personal" });
+      return "готово";
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "capture-before-read", text: "сохрани, покажи проекты и создай задачу" });
+
+    expect(listedAfterCapture).toEqual({
+      projects: [{ project: "Бассейн", ideaCount: 1, taskCount: 0, totalCount: 1 }],
+      truncated: false,
+    });
+    expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
+    await expect(ideas.list("owner", { project: "Бассейн" })).resolves.toHaveLength(1);
+  });
+
+  it("refreshes project labels after an applied task before capturing an idea", async () => {
+    let capturedProject: string | undefined;
+    const { service, ideas, tasks } = setup(async (_input, context) => {
+      const taskResult = await context.tasks.propose({ kind: "create", title: "Проверить воду", project: "Бассейн", type: "personal" });
+      expect(taskResult).toMatchObject({ status: "applied", task: { project: "Бассейн" } });
+      capturedProject = (await context.captureIdea({
+        project: "бассейн",
+        type: "personal",
+        summary: "Идея после задачи",
+        suggestedNextStep: "Продолжить",
+        needsProjectClarification: false,
+      })).idea.project;
+      return "готово";
+    }, { autoApplyTaskMutations: true });
+
+    await service.chat({ userId: "owner", threadId: "task-before-capture", text: "создай задачу и сохрани идею" });
+
+    expect(capturedProject).toBe("Бассейн");
+    await expect(tasks.list("owner", { project: "Бассейн" })).resolves.toHaveLength(1);
+    await expect(ideas.list("owner", { project: "Бассейн" })).resolves.toHaveLength(1);
+  });
+
+  it("shares one project-label source scan between reads until a write invalidates it", async () => {
     const { service, ideas, tasks } = setup(async (_input, context) => {
       await context.projects.list();
       await context.captureIdea({
@@ -136,8 +189,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     const isProjectSourceScan = (call: unknown[]) => call[2] !== undefined
       && (call[2] as { limit?: number; order?: string }).limit === 501
       && (call[2] as { limit?: number; order?: string }).order === "created_asc";
-    expect(ideaList.mock.calls.filter(isProjectSourceScan)).toHaveLength(1);
-    expect(taskList.mock.calls.filter(isProjectSourceScan)).toHaveLength(1);
+    expect(ideaList.mock.calls.filter(isProjectSourceScan)).toHaveLength(2);
+    expect(taskList.mock.calls.filter(isProjectSourceScan)).toHaveLength(2);
     expect(result.pendingActions[0]).toMatchObject({ preview: { kind: "create", project: { value: "Бассейн", truncated: false } } });
     await expect(ideas.list("owner", { project: "Бассейн" })).resolves.toHaveLength(2);
   });
