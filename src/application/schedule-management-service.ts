@@ -120,7 +120,6 @@ function reminderAction(input: SaveDailyScheduleInput): { reminderText: string }
   if (input.processId !== undefined) throw new Error("reminder schedule must not have processId");
   const reminderText = input.reminderText?.trim() ?? "";
   if (!reminderText) throw new Error("reminderText is required for reminder schedules");
-  if ([...reminderText].length > 512) throw new Error("reminderText must be at most 512 characters");
   return { reminderText };
 }
 
