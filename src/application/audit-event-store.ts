@@ -74,6 +74,8 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   employee_data_deleted: [],
 };
 
+export const auditEventTypes = Object.keys(allowedMetadataKeys) as AuditEventType[];
+
 /** Enforces per-event allow-lists before an audit record reaches a store. */
 export function safeAuditMetadata(type: AuditEventType, metadata: SafeAuditMetadata): SafeAuditMetadata {
   const allowed = new Set(allowedMetadataKeys[type]);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInMemoryTaskMutationConfirmationStore } from "../../../src/application/in-memory-task-mutation-confirmation-store.js";
 import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
@@ -244,6 +244,39 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-CONFIRMATION-001: durable task confirmati
     expect(serialized).not.toContain("АССИСТЕНТ");
     expect(serialized).not.toContain("payload");
     expect(serialized).not.toContain("ownerId");
+  });
+
+  it("logs an audit failure without changing task undo semantics", async () => {
+    let now = "2026-07-28T09:00:00.000Z";
+    const tasks = createInMemoryTaskStore({ now: () => now });
+    const service = new TaskMutationConfirmationService(
+      createInMemoryTaskMutationConfirmationStore(tasks),
+      { now: () => now },
+      {
+        confirmationId: () => "confirmation-undo-audit",
+        auditEventStore: {
+          async append() { throw new Error("PRIVATE_AUDIT_FAILURE"); },
+          async listCurrent() { return []; },
+          async listRecent() { return []; },
+        },
+        idGenerator: createDeterministicIdGenerator(),
+      },
+    );
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const pending = await service.propose("owner", createProposal);
+      now = "2026-07-28T09:01:00.000Z";
+      await expect(service.confirm("owner", pending.confirmationId)).resolves.toMatchObject({ status: "confirmed" });
+      warning.mockClear();
+
+      now = "2026-07-28T09:02:00.000Z";
+      await expect(service.undo("owner")).resolves.toMatchObject({ status: "undone", task: { id: "task-1" } });
+      await expect(tasks.get("owner", "task-1")).resolves.toBeNull();
+      expect(warning).toHaveBeenCalledWith("Assistant task mutation undo audit failed (Error).");
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("PRIVATE_AUDIT_FAILURE");
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("rejects update proposals whose patch has no defined fields before persistence", async () => {

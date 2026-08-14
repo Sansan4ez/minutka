@@ -271,7 +271,8 @@ export class TaskMutationConfirmationService {
           } : {}),
         }),
       });
-    } catch {
+    } catch (error) {
+      console.warn(`Assistant task mutation undo audit failed (${error instanceof Error ? error.name : "UnknownError"}).`);
       // Audit is diagnostic and must not change undo semantics.
     }
   }
