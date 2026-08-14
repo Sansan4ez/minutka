@@ -1147,13 +1147,20 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
   it("10d. Reopens consent when a linked owner has only an obsolete privacy acceptance", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    const identity = { chatId: "chat_reconsent", userId: "user_reconsent" };
+    const acceptedAt = world.now();
     await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent" });
     await runtime.service.openInvite({ inviteCode: "invite_reconsent" });
-    world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt: world.now(), explanationShownAt: world.now(), source: "test" });
+    world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
     await runtime.telegramSessionStore.claim({
-      identity: { chatId: "chat_reconsent", userId: "user_reconsent" },
-      session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", createdAt: world.now(), updatedAt: world.now() },
+      identity,
+      session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", createdAt: acceptedAt, updatedAt: acceptedAt },
     });
+    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_reconsent", acceptedAt, privacyVersion: "privacy-v1" });
+    expect(await runtime.telegramSessionStore.getByIdentity(identity)).toEqual(expect.objectContaining({
+      consentAcceptedAt: acceptedAt,
+      consentPrivacyVersion: "privacy-v1",
+    }));
     const sent: string[] = [];
     const shell = createTelegramShell({
       privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
@@ -1164,7 +1171,32 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       },
     });
 
-    await shell.handleStart("chat_reconsent", undefined, "user_reconsent");
+    await shell.handleStart(identity.chatId, undefined, identity.userId);
+    expect(sent).toEqual([privacyExplanation]);
+  });
+
+  it("10e. Reopens consent when a linked owner has not accepted privacy", async () => {
+    const world = createSpecWorld(dummyAgentRunner).world;
+    const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
+    const identity = { chatId: "chat_missing_consent", userId: "user_missing_consent" };
+    await runtime.service.issueInvite({ employeeId: "emp_missing_consent", inviteCode: "invite_missing_consent" });
+    await runtime.service.openInvite({ inviteCode: "invite_missing_consent" });
+    await runtime.telegramSessionStore.claim({
+      identity,
+      session: { employeeId: "emp_missing_consent", threadId: "emp_missing_consent", createdAt: world.now(), updatedAt: world.now() },
+    });
+    expect(await runtime.telegramSessionStore.getByIdentity(identity)).not.toHaveProperty("consentAcceptedAt");
+    const sent: string[] = [];
+    const shell = createTelegramShell({
+      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      sessionStore: runtime.telegramSessionStore,
+      replyPort: {
+        async sendMessage(_chatId, text) { sent.push(text); return { messageId: sent.length }; },
+        async editReplyMarkup() {}, async sendChatAction() {}, async answerCallbackQuery() {},
+      },
+    });
+
+    await shell.handleStart(identity.chatId, undefined, identity.userId);
     expect(sent).toEqual([privacyExplanation]);
   });
 

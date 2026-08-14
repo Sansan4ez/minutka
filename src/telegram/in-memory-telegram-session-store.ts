@@ -1,9 +1,13 @@
 import { PersistenceError } from "../application/persistence-error.js";
-import { currentPrivacyVersion } from "../domain/privacy.js";
+import { currentPrivacyVersion, type PrivacyVersion } from "../domain/privacy.js";
 import type { TelegramIdentity, TelegramSession, TelegramSessionClaimResult, TelegramSessionStore } from "./telegram-session-store.js";
 
+export type InMemoryTelegramSessionStore = Omit<TelegramSessionStore, "markConsentAccepted"> & {
+  markConsentAccepted(input: Parameters<TelegramSessionStore["markConsentAccepted"]>[0] & { privacyVersion?: PrivacyVersion }): Promise<void>;
+};
+
 /** Executable-spec session adapter; persistent runtime uses PostgreSQL digests. */
-export function createInMemoryTelegramSessionStore(options: { deliveryTargetsLinked?: boolean } = {}): TelegramSessionStore {
+export function createInMemoryTelegramSessionStore(options: { deliveryTargetsLinked?: boolean } = {}): InMemoryTelegramSessionStore {
   const store = new Map<string, { identity: TelegramIdentity; session: TelegramSession; deliveryChatId?: string; onboardingConfirmationDeliveryKey?: string; onboardingConfirmationClaim?: { deliveryKey: string; claimedAt: string }; actionMessages: Map<number, { claimedAt: string; completed: boolean }> }>();
   return {
     async getByIdentity(identity) {
@@ -49,12 +53,12 @@ export function createInMemoryTelegramSessionStore(options: { deliveryTargetsLin
         if (entry.session.employeeId === employeeId) store.delete(chatId);
       }
     },
-    async markConsentAccepted({ identity, employeeId, acceptedAt }) {
+    async markConsentAccepted({ identity, employeeId, acceptedAt, privacyVersion = currentPrivacyVersion }) {
       const found = store.get(identity.chatId);
       if (!found || found.identity.userId !== identity.userId || found.session.employeeId !== employeeId) {
         throw new PersistenceError("session_not_found");
       }
-      found.session = { ...found.session, consentAcceptedAt: acceptedAt, consentPrivacyVersion: currentPrivacyVersion, updatedAt: acceptedAt };
+      found.session = { ...found.session, consentAcceptedAt: acceptedAt, consentPrivacyVersion: privacyVersion, updatedAt: acceptedAt };
     },
     async claimOnboardingConfirmationDelivery({ identity, employeeId, deliveryKey, claimedAt, staleBefore }) {
       const found = store.get(identity.chatId);
