@@ -1,8 +1,10 @@
-# Personal AI Assistant
+# Минутка
 
-Персональный AI-ассистент руководителя (Telegram-first, single-owner). Рабочий **прототип**: цель — лёгкая, простая, быстрая и потому надёжная архитектура. Построен на Mastra + TypeScript, переиспользует фундамент «Минутки».
+«Минутка» — сервис диагностики рутин сотрудников (Telegram-first, мультитенантный: компания → учебная группа → сотрудник → должность). Рабочий **прототип**: цель — лёгкая, простая, быстрая и потому надёжная архитектура. Построен на Mastra + TypeScript.
 
-**Целевая архитектура:** [docs/architecture/rfc-personal-assistant-architecture.md](docs/architecture/rfc-personal-assistant-architecture.md) + [docs/architecture/rfc-agent-led-routing.md](docs/architecture/rfc-agent-led-routing.md) (агент сам роутит по процессам в один ход — не пре-флайт-роутер).
+Репозиторий — **клон репозитория персонального ассистента** (`git@github.com:Sansan4ez/personal-assistant.git`, remote `assistant`), сделанный по [RFC линейки из трёх продуктов](docs/architecture/rfc-three-products-implementation.md) §2.2. Продукт строится на живом agent-led-рантайме ассистента; legacy-чат-контур «Минутки» (`MinutkaService.chat()`, `ConversationDecisionRouter`, legacy-manual) **не реанимируется** и служит только референсом формулировок. Ассистентские фичи, не нужные «Минутке», удаляются по мере развития — перечень определяют эпики в этом трекере.
+
+**Целевая архитектура:** [docs/architecture/rfc-minutka-tenancy-and-reporting.md](docs/architecture/rfc-minutka-tenancy-and-reporting.md) (мультитенантная ось, dual-write обезличенного следа, правило ≥5, retention «до отчёта») поверх унаследованного рантайма: [rfc-personal-assistant-architecture.md](docs/architecture/rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](docs/architecture/rfc-agent-led-routing.md) (агент сам роутит по процессам в один ход — не пре-флайт-роутер).
 
 ## Слои
 
@@ -19,7 +21,7 @@
 ## Ключевые папки
 
 - [`docs/`](docs) — [`architecture/`](docs/architecture) (RFC), [`CONVENTIONS.md`](docs/CONVENTIONS.md) (правила доков), [`plans/`](docs/plans) ([индекс](docs/plans/README.md); планы ведутся **эпиками в `br`**, папка держит только шаблон/README/TODO), [`product/`](docs/product) (бриф), [`runbooks/`](docs/runbooks).
-- [`vault/`](vault) — Agent Vault: [`assistant/`](vault/assistant) — роль ([`AGENTS.md`](vault/assistant/AGENTS.md)), навыки [`processes/`](vault/assistant/processes), typed-действия [`bin/`](vault/assistant/bin), проекции `proc/`; `user/` — приватный vault владельца (вынесен в отдельный Git-репозиторий).
+- [`vault/`](vault) — Agent Vault: [`assistant/`](vault/assistant) — роль ([`AGENTS.md`](vault/assistant/AGENTS.md)), навыки [`processes/`](vault/assistant/processes), typed-действия [`bin/`](vault/assistant/bin), проекции `proc/`. Приватного `vault/user/` владельца ассистента в клоне нет и он сюда не переносится.
 - [`specs/`](specs) — executable specs ([`executable/`](specs/executable)), [`persistence/`](specs/persistence), [`smoke/`](specs/smoke). Гоняются без LLM/сети через in-memory адаптеры.
 - [`migrations/`](migrations) — SQL-миграции PostgreSQL.
 - [`docs/researches/`](docs/researches) — исследовательские отчёты и RFC.
@@ -39,14 +41,14 @@ npm run telegram:dev   # локальный Telegram-бот (polling)
 
 ## Планка качества пилота (review policy)
 
-Действует [docs/architecture/rfc-pilot-quality-bar.md](docs/architecture/rfc-pilot-quality-bar.md): контур пилота — до 10–15 доверенных тестировщиков по приглашению оператора, single-owner, данные владельца не враждебны. Обязательно для всех агентов (разработка и ревью):
+Действует [docs/architecture/rfc-pilot-quality-bar.md](docs/architecture/rfc-pilot-quality-bar.md) (документ унаследован от ассистента и описывает single-owner-контур; для «Минутки» контур пилота — сотрудники приглашённой компании по инвайтам оператора, данные не враждебны). Обязательно для всех агентов (разработка и ревью):
 
 - **Один раунд ревью на эпик + один integration gate.** Повторный раунд — только по явному решению оператора; агент не открывает его сам.
-- **Триаж каждой находки одним вопросом:** нарушает красную линию (изоляция `userId`; запись только через typed use-cases; подтверждение внешних действий; сохранность durable-данных; секреты) или ломает пилотный сценарий? Да → задача в эпике. Нет → P3/P4 в post-pilot backlog, фазу не блокирует.
+- **Триаж каждой находки одним вопросом:** нарушает красную линию (изоляция `userId`; вторая ось изоляции company/group и правила видимости из [RFC «Минутки»](docs/architecture/rfc-minutka-tenancy-and-reporting.md) §2.3–2.4; запись только через typed use-cases; подтверждение внешних действий; сохранность durable-данных; секреты) или ломает пилотный сценарий? Да → задача в эпике. Нет → P3/P4 в post-pilot backlog, фазу не блокирует.
 - **Каждая задача называет misfit.** Задача, пришедшая не от живого тестировщика, заводится только со ссылкой на конкретное расхождение с уже записанным assumption — пункт RFC, брифа, процесса или код. «Было бы правильнее» и «понадобится потом» — не основание; такие задачи заводит только оператор.
 - **Вне скоупа до пересмотра планки:** Unicode smuggling, prompt-injection через собственные данные владельца, multi-instance гонки, fail-closed на каждой внутренней границе, allow-list'ы model-visible полей (кроме секретов).
 - **DoD фазы:** продуктовый сценарий работает end-to-end + `npm run verify` зелёный + красные линии. «Аудит не нашёл замечаний» в DoD не входит.
-- Уже написанную защитную обвязку не удалять и не наращивать; упрощения — в post-pilot cleanup (`prs-zgo`).
+- Уже написанную защитную обвязку не удалять и не наращивать; упрощения — в post-pilot cleanup этого репозитория (`prs-zgo` — задача репозитория ассистента, здесь её нет).
 
 ## Ограничения на тяжёлые операции
 

@@ -1,5 +1,5 @@
 {
-  description = "time-agent — Минутка AI dev environment";
+  description = "minutka — «Минутка» dev environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -18,7 +18,7 @@
         default = pkgs.mkShell {
           packages = [ pkgs.nodejs_22 ];
           shellHook = ''
-            echo "time-agent dev shell — node $(node --version), npm $(npm --version)"
+            echo "minutka dev shell — node $(node --version), npm $(npm --version)"
             if [ ! -d node_modules ]; then
               echo "node_modules missing — run: npm install"
             fi
@@ -31,7 +31,7 @@
           runner = name: script: {
             type = "app";
             program = toString (pkgs.writeShellApplication {
-              name = "time-agent-${name}";
+              name = "minutka-${name}";
               runtimeInputs = [ pkgs.nodejs_22 ];
               text = ''
                 if [ ! -d node_modules ]; then
@@ -40,7 +40,7 @@
                 fi
                 exec npm run ${script}
               '';
-            } + "/bin/time-agent-${name}");
+            } + "/bin/minutka-${name}");
           };
         in
         {
