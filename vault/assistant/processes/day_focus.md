@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-When the owner asks what to focus on today or now, requests a short plan, or wants to reprioritize current goals, ideas, and tasks.
+When the owner explicitly asks what to focus on today or now, requests a short plan, or wants to reprioritize current goals, ideas, and tasks. This process is not the scheduled morning touch for «Минутка»; morning activity collection uses `morning_activity_collection`.
 
 ## Inputs
 

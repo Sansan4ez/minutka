@@ -42,6 +42,18 @@
       ]
     },
     {
+      "id": "morning_activity_collection",
+      "path": "vault/assistant/processes/morning_activity_collection.md",
+      "appliesTo": [
+        "chat"
+      ],
+      "dependencies": [
+        "docs/architecture/rfc-minutka-tenancy-and-reporting.md#27-утренний-процесс-сбора",
+        "src/contracts/minutka-activity.ts",
+        "src/application/activity-collection.ts"
+      ]
+    },
+    {
       "id": "day_focus",
       "path": "vault/assistant/processes/day_focus.md",
       "appliesTo": [

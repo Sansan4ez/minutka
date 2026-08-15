@@ -6,7 +6,7 @@ import type { Clock } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
 export const defaultDailySchedules = [
-  { processId: "day_focus", timeOfDay: "09:00" },
+  { processId: "morning_activity_collection", timeOfDay: "09:00" },
   { processId: "evening_reflection", timeOfDay: "19:00" },
 ] as const satisfies readonly { processId: AssistantDiagnosticProcessId; timeOfDay: string }[];
 

@@ -36,6 +36,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("2–3 short literal `searchDocuments` queries");
     expect(instructions).toContain("say “не нашёл в базе”");
     expect(instructions).toContain("cite logical paths");
+    expect(instructions).toContain("Process file: morning_activity_collection");
+    expect(instructions).toContain('collectActivity` exactly once for each named activity');
     expect(instructions).toContain("Process file: day_focus");
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
@@ -153,6 +155,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...activePaths].filter((path) => legacyPaths.has(path))).toEqual([
       "vault/assistant/processes/inbox_capture.md",
     ]);
+    expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect([...legacyPaths]).not.toContain("vault/assistant/processes/evening_reflection.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);

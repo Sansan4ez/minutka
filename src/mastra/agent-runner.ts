@@ -9,6 +9,7 @@ import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
 import { assistantProjectToolNames, createProjectTools } from "./tools/project-tools.js";
+import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
 
 export const assistantRuntimeToolsets = {
   inbox: ["captureIdea"],
@@ -18,6 +19,7 @@ export const assistantRuntimeToolsets = {
   tasks: assistantTaskToolNames,
   projects: assistantProjectToolNames,
   schedules: assistantScheduleToolNames,
+  activities: [collectActivityToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
 
@@ -29,6 +31,7 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.tasks,
   ...assistantRuntimeToolsets.projects,
   ...assistantRuntimeToolsets.schedules,
+  ...assistantRuntimeToolsets.activities,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
@@ -52,6 +55,7 @@ export function createAssistantToolsets(context: AssistantAgentContext) {
     tasks: createTaskTools(context.tasks),
     projects: createProjectTools(context.projects),
     schedules: createScheduleTools(context.schedules),
+    activities: { collectActivity: createCollectActivityTool(context.collectActivity) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
   };
 }

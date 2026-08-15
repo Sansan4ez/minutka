@@ -6,7 +6,8 @@ Choose the applicable registered process by meaning in the main answer turn; the
 |---|---|---|
 | `inbox_capture` | Retain an idea/task/artifact or URL; project-only requests are not capture. | Retrieve before write; keep URL context/intent in one idea, never auto-fetch/promote, and ask “Что сделать со ссылкой?” after capturing a URL without intent. |
 | `knowledge_lookup` | Search the owner's knowledge base/notes, or explicitly save/add a knowledge-base note. | Retrieve before write; read close matches, supplement one clear document or create separately in a related allow-listed section, and disclose incomplete search. |
-| `day_focus` | Decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks. | At most three priorities and exactly one next action; reversible task changes apply immediately with worded undo, while cancellation remains confirmable. |
+| `morning_activity_collection` | Scheduled morning touch or an employee account of one to three activities since the previous touch. | Keep it conversational; call `collectActivity` once per named activity, omit unknown fields, and keep all free text in the private conversation record. |
+| `day_focus` | Explicitly decide what to focus on today/now, make a short plan, or reprioritize goals, ideas, and tasks; it is not the scheduled morning touch for «Минутка». | At most three priorities and exactly one next action; reversible task changes apply immediately with worded undo, while cancellation remains confirmable. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate tasks without proposal and confirmation. |
 
 If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.

@@ -45,6 +45,7 @@ import { createAssistantContextDocumentCapabilities, type AssistantContextDocume
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
 import { ProjectLabelService, type AssistantProjectListResult, type ProjectLabelCollectCache } from "./project-labels.js";
 import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
+import type { CollectActivityInput } from "../contracts/minutka-activity.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -75,6 +76,8 @@ export type AssistantAgentContext = {
   };
   /** Owner-bound daily schedule reads and reversible writes. */
   schedules: OwnerScheduleCapabilities;
+  /** Authenticated employee and tenant-bound structured activity write. */
+  collectActivity(activity: CollectActivityInput): Promise<{ activityId: string }>;
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -127,7 +130,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; companyId: string; groupId: string; roleId: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: ThreadCompactionService; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -423,6 +426,23 @@ export class AssistantService {
     const projects = {
       list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput, projectLabelCache),
     };
+    const collectActivity = async (activity: CollectActivityInput) => {
+      if (!this.deps.collectActivity) throw new Error("activity collection is not configured");
+      const participant = await this.deps.participantStore?.getParticipant(userId);
+      const companyId = participant?.companyId;
+      const groupId = participant?.groupId;
+      const roleId = participant?.roleId;
+      if (!companyId || !groupId || !roleId) throw new PersistenceError("profile_not_found");
+      try {
+        const result = await this.deps.collectActivity({ employeeId: userId, companyId, groupId, roleId, activity });
+        observedExecutionTrace.push({ kind: "tool", toolName: "collectActivity" });
+        if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        return result;
+      } catch (cause) {
+        chatEffect.businessWrite = "outcome_unknown";
+        throw new AssistantMutationOutcomeUnknownError({ cause });
+      }
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
@@ -473,6 +493,7 @@ export class AssistantService {
       ideas,
       projects,
       schedules,
+      collectActivity,
       markProcessUsed,
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
@@ -854,6 +875,7 @@ const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>
   undoIdeaDeletion: "inbox_capture",
   undoTaskMutation: "day_focus",
   listProjects: "inbox_capture",
+  collectActivity: "morning_activity_collection",
 };
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {

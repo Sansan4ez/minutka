@@ -30,7 +30,8 @@ The machine-readable registry is `/bin/registry.json`; executable specs keep it 
 | `/bin/list-schedules.md` | `listSchedules` | No | No | Authenticated owner's schedules only | List owner-free process/reminder views, recurrence, and next fire times. |
 | `/bin/set-daily-schedule.md` | `setDailySchedule` | Yes, reversible internal write | Level 0: no prior confirmation | Owner bound by `AssistantService`; exact schedule ids are owner-scoped, process ids are closed, and reminder text is bounded | Create, change, or re-enable a process or reminder schedule, including days and one-shot. |
 | `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible internal write | Level 0: no prior confirmation | Authenticated owner and exact schedule id | Disable a schedule without deleting its fire history. |
-| `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline read-only process; grants no capability. |
+| `/bin/collect-activity.md` | `collectActivity` | Yes, atomic private + anonymized write | Level 0: no prior confirmation | Employee and tenant ids bound by `AssistantService` | Record exactly one structured employee activity; omit unknown values and accept no free text. |
+| `/bin/mark-process-used.md` | `markProcessUsed` | No | No | Request-scoped closed process catalog | Record diagnostic evidence for an inline process; grants no capability. |
 
 For level-1 task, idea-deletion, and context-document operations, confirmation/rejection remains an authenticated application/transport command, not an agent tool. Verbal agreement and the parallel button path both resolve that same command; it accepts only the opaque confirmation id, loads and validates the canonical stored proposal server-side, persists terminal rejection, and executes at most once under the confirmation-store lock. Level-2 external or irreversible operations require the button path only.
 

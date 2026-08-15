@@ -61,6 +61,8 @@ import { ContextDocumentService, contextDocumentConfirmationTtlMilliseconds } fr
 import { createPostgresContextDocumentConfirmationStore } from "../infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
 import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
+import { CollectActivityService } from "../application/activity-collection.js";
+import { createPostgresActivityCollectionStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -220,6 +222,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock, randomIdGenerator);
+    const activityCollection = new CollectActivityService(createPostgresActivityCollectionStore(pool), systemClock);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -229,6 +232,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
+      collectActivity: (command) => activityCollection.collect(command),
       projectLabels,
       taskStore,
       taskMutations,

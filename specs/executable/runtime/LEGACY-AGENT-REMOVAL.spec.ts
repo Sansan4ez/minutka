@@ -242,6 +242,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
     expect(Object.keys(generateOptions?.toolsets?.projects ?? {})).toEqual([...assistantRuntimeToolsets.projects]);
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
+    expect(Object.keys(generateOptions?.toolsets?.activities ?? {})).toEqual([...assistantRuntimeToolsets.activities]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
 

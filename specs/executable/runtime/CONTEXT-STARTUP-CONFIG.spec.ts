@@ -9,6 +9,7 @@ import { loadContextPriorityManifest } from "../../../src/application/context-pr
 import { renderEmptyAssistantContextSection } from "../../../src/application/assistant-context-renderer.js";
 import { renderEmptyContextTreeIndex } from "../../../src/application/context-tree-index.js";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { assistantDiagnosticProcessIds } from "../../../src/domain/assistant-process.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "../../../src/application/assistant-static-context.js";
 import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import * as postgresPoolModule from "../../../src/infrastructure/postgres/postgres-pool.js";
@@ -119,7 +120,9 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
   it("rejects a manual ceiling that holds the common manual but not its worst-case scheduled trigger before opening PostgreSQL", async () => {
     const manual = loadAssistantAgentInstructions();
     const manualCharacters = countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy()));
-    const renderedMinimum = countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy(), "evening_reflection"));
+    const renderedMinimum = Math.max(...assistantDiagnosticProcessIds.map((processId) =>
+      countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy(), processId))
+    ));
     const createPool = expectNoPostgresPool();
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");
 
@@ -152,7 +155,10 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
 
   it("accepts exact static and generated minimums and proceeds to the external-resource boundary", async () => {
     const baseMinimum = countUnicodeCharacters(renderAssistantBaseInstructions());
-    const manualMinimum = countUnicodeCharacters(renderAssistantAgentManual(loadAssistantAgentInstructions(), renderMaximumResponsePolicy(), "evening_reflection"));
+    const manual = loadAssistantAgentInstructions();
+    const manualMinimum = Math.max(...assistantDiagnosticProcessIds.map((processId) =>
+      countUnicodeCharacters(renderAssistantAgentManual(manual, renderMaximumResponsePolicy(), processId))
+    ));
     const contextMinimum = countUnicodeCharacters(renderEmptyAssistantContextSection());
     const indexMinimum = countUnicodeCharacters(renderEmptyContextTreeIndex(4));
     const { createPostgresRuntime } = await import("../../../src/runtime/create-postgres-runtime.js");

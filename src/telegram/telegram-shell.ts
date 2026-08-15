@@ -188,7 +188,13 @@ function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean
   return action.actionKind === "cancel" || action.actionKind === "delete_idea" || action.actionKind === "move" || action.actionKind === "delete";
 }
 function scheduleProcessLabel(processId: string): string {
-  return processId === "day_focus" ? "Утренний фокус" : processId === "evening_reflection" ? "Вечерняя рефлексия" : processId;
+  return processId === "morning_activity_collection"
+    ? "Утренняя Минутка"
+    : processId === "day_focus"
+      ? "Фокус дня"
+      : processId === "evening_reflection"
+        ? "Вечерняя рефлексия"
+        : processId;
 }
 function scheduleDaysLabel(daysOfWeek: number): string {
   if (daysOfWeek === 127) return "каждый день";

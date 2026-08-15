@@ -49,7 +49,7 @@ describe("SPEC-SCHEDULE-COMMAND-001: deterministic Telegram /schedule", () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ chatId: "chat-0", parseMode: "HTML" });
-    expect(messages[0]!.text).toContain("Утренний фокус — 08:30 (Europe/Moscow); по будням");
+    expect(messages[0]!.text).toContain("Фокус дня — 08:30 (Europe/Moscow); по будням");
     expect(messages[0]!.text).toContain("Напоминание: &lt;b&gt;вода&lt;/b&gt; 💧 — 15:00 (Europe/Moscow); каждый день; разовое");
     expect(messages[0]!.text).toContain("следующее срабатывание: 30.07 08:30 (Europe/Moscow)");
     expect(messages[0]!.text).not.toContain("2026-07-30T05:30:00.000Z");

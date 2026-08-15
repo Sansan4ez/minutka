@@ -2,6 +2,7 @@ export const assistantProcessIds = [
   "core",
   "inbox_capture",
   "knowledge_lookup",
+  "morning_activity_collection",
   "day_focus",
   "evening_reflection",
 ] as const;
@@ -9,7 +10,7 @@ export const assistantProcessIds = [
 export type AssistantProcessId = (typeof assistantProcessIds)[number];
 
 /** Inline read-only processes that may emit diagnostic evidence without granting a capability. */
-export const assistantDiagnosticProcessIds = ["day_focus", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
+export const assistantDiagnosticProcessIds = ["morning_activity_collection", "day_focus", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
 export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds)[number];
 
 export function isAssistantProcessId(value: string): value is AssistantProcessId {
