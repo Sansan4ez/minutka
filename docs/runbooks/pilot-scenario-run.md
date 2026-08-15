@@ -69,7 +69,7 @@ done
 ```bash
 docker compose up -d postgres minio minio-init
 docker compose ps -a postgres minio minio-init
-curl -fsS http://127.0.0.1:9000/minio/health/ready
+curl -fsS http://127.0.0.1:9002/minio/health/ready
 ```
 
 Ожидается:

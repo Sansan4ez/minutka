@@ -5,13 +5,14 @@ services:
     command: server /data --console-address ":9001"
     ports:
       # S3 endpoint and console are host-local; never expose personal vault data publicly.
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      # Host ports are shifted off the assistant's 9000/9001 so both local stacks run at once.
+      - "127.0.0.1:9002:9000"
+      - "127.0.0.1:9003:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - personal-assistant-minio-data:/data
+      - minutka-minio-data:/data
     healthcheck:
       # The server image exposes this built-in readiness endpoint; unlike `mc`,
       # it requires neither a client binary nor an alias configuration.
@@ -32,7 +33,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in .env}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in .env}
-      MINIO_BUCKET: ${MINIO_BUCKET:-personal-assistant}
+      MINIO_BUCKET: ${MINIO_BUCKET:-minutka}
     volumes:
       - ./docker/minio/init.sh:/usr/local/bin/init-minio:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/init-minio"]
@@ -42,7 +43,8 @@ services:
     restart: unless-stopped
     ports:
       # Keep PostgreSQL private to this host; do not expose it on 0.0.0.0.
-      - "127.0.0.1:5432:5432"
+      # Host port is shifted off the assistant's 5432 so both local stacks run at once.
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
@@ -63,5 +65,5 @@ volumes:
   # An explicit stable name preserves data if the Compose project name changes.
   minutka-postgres-data:
     name: minutka-postgres-data
-  personal-assistant-minio-data:
-    name: personal-assistant-minio-data
+  minutka-minio-data:
+    name: minutka-minio-data
