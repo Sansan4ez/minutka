@@ -23,7 +23,7 @@ chmod 600 .env
 # MINUTKA_MIGRATOR_DB_PASSWORD, INVITE_CODE_PEPPER and
 # TELEGRAM_IDENTITY_PEPPER to distinct random values. Generate
 # INTEGRATION_ENC_KEY with `openssl rand -base64 32`. Also publish the
-# privacy-v2 policy snapshot and set PRIVACY_POLICY_V2_URL to its public URL.
+# privacy-v3 policy snapshot and set PRIVACY_POLICY_V3_URL to its public URL.
 ```
 
 2. Initialise PostgreSQL and wait for the healthcheck:
@@ -63,7 +63,7 @@ DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
 INTEGRATION_ENC_KEY=<exactly 32 random bytes encoded as base64>
-PRIVACY_POLICY_V2_URL=https://privacy.example.com/privacy-v2.html
+PRIVACY_POLICY_V3_URL=https://privacy.example.com/privacy-v3.html
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_INVITES=emp_1:one-time-invite
 ```
@@ -79,11 +79,11 @@ identities, SQL parameters containing personal data, or raw provider errors.
 `INTEGRATION_ENC_KEY` never crosses the Node.js process boundary; PostgreSQL
 stores only the AES-256-GCM ciphertext.
 
-`PRIVACY_POLICY_V2_URL` is mandatory deployment configuration, with no repository
-fallback. Before accepting owners, publish the exact `privacy-v2` policy snapshot
+`PRIVACY_POLICY_V3_URL` is mandatory deployment configuration, with no repository
+fallback. Before accepting employees, publish the exact `privacy-v3` policy snapshot
 at an anonymously accessible HTTPS URL and verify it from outside the deployment
-network. A normal canonical URL must include `privacy-v2` as a path segment or
-filename (for example `/privacy-v2.html`). GitHub and raw GitHub document URLs
+network. A normal canonical URL must include `privacy-v3` as a path segment or
+filename (for example `/privacy-v3.html`). GitHub and raw GitHub document URLs
 are accepted only when the document is pinned to a full 40-character commit SHA;
 mutable references such as `blob/main` and tags are rejected at startup. Query
 parameters, fragments, embedded credentials, and non-HTTPS URLs are rejected.

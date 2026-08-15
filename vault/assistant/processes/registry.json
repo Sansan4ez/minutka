@@ -54,6 +54,19 @@
       ]
     },
     {
+      "id": "consent_and_privacy",
+      "path": "vault/assistant/processes/consent_and_privacy.md",
+      "appliesTo": [
+        "chat"
+      ],
+      "dependencies": [
+        "docs/architecture/rfc-minutka-tenancy-and-reporting.md#26-consent",
+        "src/application/activity-collection.ts",
+        "src/application/company-reporting.ts",
+        "src/application/profile-store.ts"
+      ]
+    },
+    {
       "id": "day_focus",
       "path": "vault/assistant/processes/day_focus.md",
       "appliesTo": [

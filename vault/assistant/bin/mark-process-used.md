@@ -6,7 +6,7 @@ Record request-scoped diagnostic evidence that the agent actually applied an all
 
 ## Inputs
 
-A closed product process id accepted by the tool schema. The active process ids are `morning_activity_collection`, `day_focus`, and `evening_reflection`.
+A closed product process id accepted by the tool schema. The active process ids are `morning_activity_collection`, `consent_and_privacy`, `day_focus`, and `evening_reflection`.
 
 ## Output
 

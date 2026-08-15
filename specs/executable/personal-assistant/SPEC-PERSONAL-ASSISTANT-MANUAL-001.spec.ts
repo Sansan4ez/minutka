@@ -38,6 +38,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("cite logical paths");
     expect(instructions).toContain("Process file: morning_activity_collection");
     expect(instructions).toContain('collectActivity` exactly once for each named activity');
+    expect(instructions).toContain("Process file: consent_and_privacy");
+    expect(instructions).toContain("The ≥5 rule limits company visibility only");
+    expect(instructions).toContain("the company anonymized slice remains until the report and is then removed as a whole");
     expect(instructions).toContain("Process file: day_focus");
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
@@ -79,7 +82,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).not.toContain("Active process:");
     expect(instructions).not.toContain("SO-CoT");
     expect(instructions).not.toContain("constrained decision router");
-    expect(instructions).not.toMatch(/company and methodologist|minimum group size|workday_guardrails|insight_extraction/i);
+    expect(instructions).not.toMatch(/workday_guardrails|insight_extraction/i);
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
@@ -152,11 +155,13 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(draftPaths.size).toBe(draftRegistry.drafts.length);
     expect([...draftPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
     expect([...draftPaths].filter((path) => activePaths.has(path) || legacyPaths.has(path))).toEqual([]);
+    expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect([...activePaths].filter((path) => legacyPaths.has(path))).toEqual([
       "vault/assistant/processes/inbox_capture.md",
+      "vault/assistant/processes/consent_and_privacy.md",
     ]);
-    expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
-    expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect([...legacyPaths]).not.toContain("vault/assistant/processes/evening_reflection.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);
     expect(findUnclassifiedProcessFiles(processFiles, activePaths, draftPaths, legacyPaths)).toEqual([]);

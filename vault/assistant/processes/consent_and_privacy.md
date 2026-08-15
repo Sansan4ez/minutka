@@ -2,48 +2,61 @@
 
 ## When this process applies
 
-Use during onboarding, when the owner asks what is stored, which providers receive data, how external actions are controlled, or about retention, export, deletion, and any other privacy concern. Also use when another selected process needs explicit privacy support.
+Use during connection and onboarding, and whenever an employee asks what «Минутка» stores, what enters the anonymized trace, who sees it, how the company threshold works, how long data is kept, or what can be deleted.
 
 ## Inputs
 
 - `/proc/consent`: current consent state and privacy version.
-- `/proc/profile`: only sanitized profile context when needed.
-- `/docs/privacy-boundary.md`: current allow-listed runtime privacy explanation.
+- `/proc/profile`: only the authenticated employee's sanitized profile context when needed.
+- `/docs/privacy-boundary.md`: runtime handling of private conversation history and providers.
 - `/AGENTS.md`: core privacy baseline.
 
 ## Process
 
-1. Answer privacy questions directly and calmly.
-2. Explain the actual owner-scoped data contour: conversation history, profile, context documents, typed records, and uploaded artifacts.
-3. State that request text and selected context go to the configured LLM provider; voice audio goes separately to the configured STT provider and is not retained by this application.
-4. State that the agent has no direct database, object-storage, shell, or arbitrary-file access; external effects require explicit owner confirmation and a typed application action.
-5. Be explicit that legal retention periods, full export, and complete deletion procedures are not yet approved product capabilities. Link to `/docs/privacy-boundary.md` for the current boundary without promising future behavior.
-6. Keep the answer short and return to the owner's current need.
+1. Show the connection consent text below verbatim before acceptance; substitute only the immutable policy URL.
+2. For later questions, distinguish personal data, the anonymized trace, the methodologist, and company aggregates. The ≥5 rule limits company visibility only; the trusted methodologist can inspect all anonymized rows, including rare slices.
+3. Never promise point deletion of an anonymized row. Personal data can be deleted; the company anonymized slice remains until the report and is then removed as a whole.
+
+## Connection consent text
+
+<!-- minutka-consent:start -->
+Подтверждая согласие, вы разрешаете «Минутке» обрабатывать данные для диагностики рабочих рутин.
+
+1. В личном контуре сохраняются история диалога, профиль и активности. В обезличенный след уходят только должность, категория активности/рутины, диапазон времени, система и дата — без имени, идентификатора сотрудника и свободного текста.
+2. Вы видите все свои данные. Доверенный внутренний методолог видит обезличенные записи и агрегаты без имён и свободного текста. Компания получает только агрегаты и паттерны, прошедшие правило минимального размера.
+3. Компания видит группу или срез только при наличии не менее 5 участников и не менее 5 обезличенных записей. Редкие должности объединяются в «прочее» либо скрываются как недостаточные данные.
+4. Обезличенные данные хранятся до подготовки и передачи отчёта компании, затем срез компании удаляется целиком. Связи с сотрудником в строке нет, поэтому найти и удалить её точечно или пересчитать нельзя.
+5. Вы можете потребовать удалить личные данные профиля. Уже созданные обезличенные строки при этом не удаляются, потому что связи с вами в них нет.
+6. Правило не менее 5 ограничивает только то, что видит компания. Методолог видит все обезличенные записи, включая редкие срезы, но без имён, идентификаторов сотрудников и свободного текста.
+
+Текст запросов и нужный контекст передаются LLM-провайдеру. Голос отдельно передаётся STT-провайдеру для расшифровки; приложение не сохраняет аудио. Внешние действия требуют явного подтверждения.
+
+Текущие границы обработки данных: {{privacyPolicyUrl}}
+<!-- minutka-consent:end -->
 
 ## Outputs
 
-- A clear privacy answer.
-- Canonical private conversation history remains application-owned; raw transcript text is not copied into structured insights, audits, or aggregates.
-- No direct personal identifiers in structured insights.
-- No cross-owner disclosure of individual records.
+- The exact connection consent text before acceptance.
+- A clear privacy answer consistent with the same boundary after onboarding.
+- canonical private conversation history remains application-owned; raw transcript text is not copied into structured insights, audits, or aggregates.
+- No direct personal identifiers in structured insights or the anonymized activity trace.
 
 ## Privacy notes
 
-- Do not store direct personal identifiers in insights.
-- Do not expose Telegram IDs, emails, phone numbers, external IDs, or raw transcripts outside canonical private conversation history.
-- Use cautious language about future deletion/review controls: promised direction, not a completed UI if not implemented.
+The anonymized trace contains closed structured values only. It contains no employee key, raw transcript, label, rationale, obstacle wording, or exact timestamp. Company-facing reads enforce the threshold in code; methodologist access is intentionally broader but remains anonymized.
 
 ## Anti-patterns
 
-- Claiming that any third party cannot inspect provider-side data unless the configured provider contract proves it.
-- Presenting unimplemented retention, export, or complete deletion controls as available.
-- Hiding privacy limitations behind vague legal language.
-- Asking the employee for more personal details than needed.
+- Saying that only company aggregates of five or more people can ever be seen: the methodologist can see all anonymized rows, including rare slices.
+- Saying that an employee deletion removes their anonymized rows.
+- Promising exact-time data, free-text analysis in the anonymized trace, automatic point deletion, or company access to raw rows.
+- Hiding the methodologist boundary behind vague legal language.
 
 ## Dependencies
 
 Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
 
-- `docs/product/Final_Description.md#44-data-and-privacy-requirements`
-- `docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации`
-- `docs/architecture/minutka-foundation.md`
+- `docs/architecture/rfc-minutka-tenancy-and-reporting.md#26-consent`
+- `src/application/activity-collection.ts`
+- `src/application/company-reporting.ts`
+- `src/application/profile-store.ts`

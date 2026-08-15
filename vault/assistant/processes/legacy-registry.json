@@ -39,9 +39,10 @@
         "chat"
       ],
       "dependencies": [
-        "docs/product/Final_Description.md#44-data-and-privacy-requirements",
-        "docs/product/virtual-simulation.md#scenario-10-система-формирует-безопасные-агрегаты-для-панели-и-будущей-карты-автоматизации",
-        "docs/architecture/minutka-foundation.md"
+        "docs/architecture/rfc-minutka-tenancy-and-reporting.md#26-consent",
+        "src/application/activity-collection.ts",
+        "src/application/company-reporting.ts",
+        "src/application/profile-store.ts"
       ]
     },
     {

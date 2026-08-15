@@ -41,7 +41,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * typed action: 26 793 of 29 000 characters. The increase is deliberate product
  * policy required by mnt-minutka-core-launch-uvp.8.
  */
-const pinnedAgentManualCharacters = 26_793;
+const pinnedAgentManualCharacters = 31_246;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -171,13 +171,13 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
-    const config = createContextBudgetConfig({ total: 79_096 });
+    const config = createContextBudgetConfig({ total: 82_096 });
     const result = applyContextBudget({
       config,
       userInput: "request",
       sections: [
         { sourceId: "base_instructions", content: "B".repeat(2_000) },
-        { sourceId: "agent_manual", content: "M".repeat(29_000) },
+        { sourceId: "agent_manual", content: "M".repeat(32_000) },
         { sourceId: "profile", content: "P".repeat(4_000) },
         { sourceId: "context", content: "C".repeat(24_000) },
         { sourceId: "context_index", content: `index${"I".repeat(5_995)}` },
@@ -188,7 +188,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     expect(result.omittedSourceIds).toEqual(["records"]);
     expect(result.contextSourceCharacters).toEqual({
       base_instructions: 2_000,
-      agent_manual: 29_000,
+      agent_manual: 32_000,
       profile: 4_000,
       context: 24_000,
       context_index: 6_000,
