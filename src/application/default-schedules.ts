@@ -1,4 +1,4 @@
-import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
+import type { AssistantScheduledProcessId } from "../domain/assistant-process.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { nextDailyFireAt } from "../shared/schedule-time.js";
@@ -8,7 +8,7 @@ import type { ScheduleStore } from "./schedule-store.js";
 export const defaultDailySchedules = [
   { processId: "morning_activity_collection", timeOfDay: "09:00" },
   { processId: "evening_reflection", timeOfDay: "19:00" },
-] as const satisfies readonly { processId: AssistantDiagnosticProcessId; timeOfDay: string }[];
+] as const satisfies readonly { processId: AssistantScheduledProcessId; timeOfDay: string }[];
 
 export type DefaultScheduleProvisionResult = {
   created: boolean;

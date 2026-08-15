@@ -28,7 +28,7 @@ import type { OnboardingProgress } from "./onboarding-types.js";
 import type { TaskMutationAuditContext, TaskMutationConfirmationService } from "./task-mutation-confirmation.js";
 import type { StructuredInsight } from "../domain/insights.js";
 import type { UserProfile } from "../domain/employee.js";
-import type { AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
+import type { AssistantScheduledProcessId } from "../domain/assistant-process.js";
 import type { ConversationThreadService } from "./conversation-thread-service.js";
 import type { IdeaDeletionAuditContext, IdeaDeletionService } from "./idea-deletion.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
@@ -120,7 +120,7 @@ export class PersonalAssistantService {
     return this.schedules.disableSchedule(userId, scheduleId);
   }
 
-  runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantDiagnosticProcessId }): Promise<AssistantChatResult> {
+  runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantScheduledProcessId }): Promise<AssistantChatResult> {
     return this.conversationService.chat({
       userId: input.userId,
       threadId: input.threadId,
@@ -189,7 +189,7 @@ export class PersonalAssistantService {
   deleteArtifact(ownerId: string, artifactId: string): Promise<ArtifactReference | null> { return this.artifactStore.delete(ownerId, artifactId); }
 }
 
-function scheduledProcessPrompt(processId: AssistantDiagnosticProcessId): string {
+function scheduledProcessPrompt(processId: AssistantScheduledProcessId): string {
   if (processId === "morning_activity_collection") return "Проведи короткое утреннее касание по процессу morning_activity_collection: предложи сотруднику рассказать об одной-трёх активностях с прошлого касания, их примерной длительности, системах и помехах без обязательной анкеты.";
   if (processId === "day_focus") return "Сформируй фокус на сегодня по процессу day_focus.";
   if (processId === "evening_reflection") return "Проведи вечернюю рефлексию по процессу evening_reflection: мягко предложи владельцу подвести итоги дня, назвать препятствия и выбрать один небольшой шаг на завтра.";

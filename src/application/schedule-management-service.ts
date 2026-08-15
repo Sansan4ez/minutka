@@ -1,4 +1,4 @@
-import { isAssistantDiagnosticProcessId, type AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
+import { isAssistantScheduledProcessId, type AssistantScheduledProcessId } from "../domain/assistant-process.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { nextDailyFireAt, normalizeDailyTime, normalizeDaysOfWeek } from "../shared/schedule-time.js";
@@ -109,9 +109,9 @@ export class UnsupportedAssistantScheduleProcessError extends Error {
   }
 }
 
-function processAction(input: SaveDailyScheduleInput): { processId: AssistantDiagnosticProcessId } {
+function processAction(input: SaveDailyScheduleInput): { processId: AssistantScheduledProcessId } {
   const processId = input.processId ?? "";
-  if (!isAssistantDiagnosticProcessId(processId)) throw new UnsupportedAssistantScheduleProcessError(processId);
+  if (!isAssistantScheduledProcessId(processId)) throw new UnsupportedAssistantScheduleProcessError(processId);
   if (input.reminderText !== undefined) throw new Error("process schedule must not have reminderText");
   return { processId };
 }
@@ -123,6 +123,6 @@ function reminderAction(input: SaveDailyScheduleInput): { reminderText: string }
   return { reminderText };
 }
 
-function dailyScheduleId(userId: string, processId: AssistantDiagnosticProcessId): string {
+function dailyScheduleId(userId: string, processId: AssistantScheduledProcessId): string {
   return `${userId}:${processId}-daily`;
 }

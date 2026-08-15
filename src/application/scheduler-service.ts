@@ -1,5 +1,5 @@
 import type { ProcessSchedule, ScheduleFire } from "../domain/schedule.js";
-import { isAssistantDiagnosticProcessId, type AssistantDiagnosticProcessId } from "../domain/assistant-process.js";
+import { isAssistantScheduledProcessId, type AssistantScheduledProcessId } from "../domain/assistant-process.js";
 import { nextDailyFireAt, normalizeDailyTime } from "../shared/schedule-time.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { Clock } from "./runtime-primitives.js";
@@ -7,7 +7,7 @@ import type { ScheduleStore } from "./schedule-store.js";
 
 type ScheduledFireContext = Omit<ScheduleFire, "kind" | "processId" | "reminderText">;
 export type ScheduledActionFire = ScheduledFireContext & (
-  | { kind: "process"; processId: AssistantDiagnosticProcessId }
+  | { kind: "process"; processId: AssistantScheduledProcessId }
   | { kind: "reminder"; text: string }
 );
 export type ScheduledProcessRunner = (fire: ScheduledActionFire) => Promise<void>;
@@ -71,7 +71,7 @@ export class SchedulerService {
         if (!fire.reminderText) throw new UnsupportedScheduledProcessError();
         await runner({ ...context, kind: "reminder", text: fire.reminderText });
       } else {
-        if (!fire.processId || !isAssistantDiagnosticProcessId(fire.processId)) throw new UnsupportedScheduledProcessError();
+        if (!fire.processId || !isAssistantScheduledProcessId(fire.processId)) throw new UnsupportedScheduledProcessError();
         await runner({ ...context, kind: "process", processId: fire.processId });
       }
       if (fire.oneShot) await this.disableSchedule(fire);

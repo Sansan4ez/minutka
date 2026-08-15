@@ -2,7 +2,7 @@ import { z } from "zod";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters, pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
-import { assistantDiagnosticProcessIds, assistantProcessIds } from "../domain/assistant-process.js";
+import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledProcessIds } from "../domain/assistant-process.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -18,9 +18,10 @@ export const timezoneSchema = z.string().min(1).max(64).transform((value, contex
 export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
 export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
+export const assistantScheduledProcessIdSchema = z.enum(assistantScheduledProcessIds);
 export const scheduleViewSchema = z.strictObject({
   id: z.string().min(1), kind: z.enum(["process", "reminder"]),
-  processId: assistantDiagnosticProcessIdSchema.optional(), reminderText: z.string().min(1).max(512).optional(),
+  processId: assistantScheduledProcessIdSchema.optional(), reminderText: z.string().min(1).max(512).optional(),
   daysOfWeek: z.number().int().min(1).max(127), oneShot: z.boolean(),
   timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: timezoneSchema,
   enabled: z.boolean(), nextFireAt: z.iso.datetime(),

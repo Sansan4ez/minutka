@@ -66,6 +66,15 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: owner schedule use-cases a
     await expect(service.saveDailySchedule("owner-a", { kind: "reminder", reminderText: "x".repeat(513), timeOfDay: "10:00" })).rejects.toThrow("at most 512");
   });
 
+  it("rejects a diagnostic process that is never scheduled at the boundary, not when the timer fires", async () => {
+    const { service } = setup();
+
+    // consent_and_privacy emits diagnostic evidence inside a conversation and has
+    // no scheduled prompt; accepting it here would fail only once the timer fired.
+    await expect(service.saveDailySchedule("owner-a", { processId: "consent_and_privacy" as never, timeOfDay: "09:00" }))
+      .rejects.toThrow(/consent_and_privacy/u);
+  });
+
   it("updates an exact owner reminder without duplicating it and rejects unsafe targets", async () => {
     const { store, timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");
