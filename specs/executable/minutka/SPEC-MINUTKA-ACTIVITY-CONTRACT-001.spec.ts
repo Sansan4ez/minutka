@@ -67,7 +67,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivityInputSchema.safeParse({ interferesWith: "работой" }).success).toBe(false);
   });
 
-  it("models one activity per invocation without arrays or batch fields", () => {
+  it("models one activity and at most one classification per invocation", () => {
     const parsed = collectActivityInputSchema.parse({
       taskCategory: "meetings",
       durationBucket: "30_60m",
@@ -76,6 +76,10 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
 
     expect(parsed).toEqual({ taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" });
     expect(collectActivityInputSchema.safeParse({ activities: [parsed] }).success).toBe(false);
+    expect(collectActivityInputSchema.safeParse({
+      taskCategory: "meetings",
+      routinePattern: "meeting_overload",
+    }).success).toBe(false);
   });
 
   it("accepts incomplete activities and never inserts defaults", () => {

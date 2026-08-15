@@ -32,6 +32,8 @@ import { ContextDocumentService } from "../../src/application/context-document-s
 import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
+import { createPostgresActivityCollectionStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
+import { CollectActivityService } from "../../src/application/activity-collection.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -79,6 +81,87 @@ describe("PostgreSQL storage contracts", () => {
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
+  });
+
+  it("dual-writes one private activity and one unlinkable reporting row atomically", async () => {
+    const companyId = "company_activity";
+    const groupId = "group_activity";
+    const roleId = "role_activity";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Activity Co')
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Pilot', daterange('2026-08-01', '2026-09-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $2, 'Analyst') ON CONFLICT (id) DO NOTHING`,
+      [roleId, companyId],
+    );
+    await issueProfileReadyParticipant(pool, "activity_owner", "invite_activity_owner");
+    await migrationPool.query("DELETE FROM minutka_reporting.anonymized_activities WHERE company_id=$1", [companyId]);
+    await migrationPool.query("DELETE FROM minutka_private.activities WHERE company_id=$1", [companyId]);
+
+    const service = new CollectActivityService(
+      createPostgresActivityCollectionStore(pool),
+      { now: () => "2026-08-15T22:17:35.000Z" },
+      () => "activity_pg_one",
+    );
+    await service.collect({
+      employeeId: "activity_owner",
+      companyId,
+      groupId,
+      roleId,
+      activity: { taskCategory: "reporting", durationBucket: "1_2h", system: "spreadsheets" },
+    });
+
+    expect((await pool.query("SELECT count(*)::int AS count FROM minutka_private.activities WHERE activity_id='activity_pg_one'")).rows[0]?.count).toBe(1);
+    const anonymized = await pool.query(
+      "SELECT company_id, group_id, role_id, kind, value, duration_bucket, system, activity_date::text FROM minutka_reporting.anonymized_activities WHERE company_id=$1",
+      [companyId],
+    );
+    expect(anonymized.rows).toEqual([{
+      company_id: companyId,
+      group_id: groupId,
+      role_id: roleId,
+      kind: "task_category",
+      value: "reporting",
+      duration_bucket: "1_2h",
+      system: "spreadsheets",
+      activity_date: "2026-08-15",
+    }]);
+
+    const triggerName = "spec_fail_anonymized_activity";
+    await migrationPool.query(
+      `CREATE OR REPLACE FUNCTION minutka_reporting.spec_fail_anonymized_activity()
+       RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced anonymized failure'; END $$;
+       DROP TRIGGER IF EXISTS ${triggerName} ON minutka_reporting.anonymized_activities;
+       CREATE TRIGGER ${triggerName} BEFORE INSERT ON minutka_reporting.anonymized_activities
+       FOR EACH ROW EXECUTE FUNCTION minutka_reporting.spec_fail_anonymized_activity();`,
+    );
+    try {
+      const failingService = new CollectActivityService(
+        createPostgresActivityCollectionStore(pool),
+        { now: () => "2026-08-16T08:00:00.000Z" },
+        () => "activity_pg_rollback",
+      );
+      await expect(failingService.collect({
+        employeeId: "activity_owner",
+        companyId,
+        groupId,
+        roleId,
+        activity: { routinePattern: "manual_reporting" },
+      })).rejects.toMatchObject({ code: "persistence_unavailable" });
+      expect((await pool.query("SELECT count(*)::int AS count FROM minutka_private.activities WHERE activity_id='activity_pg_rollback'")).rows[0]?.count).toBe(0);
+    } finally {
+      await migrationPool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON minutka_reporting.anonymized_activities`);
+      await migrationPool.query("DROP FUNCTION IF EXISTS minutka_reporting.spec_fail_anonymized_activity() CASCADE");
+    }
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {

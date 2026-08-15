@@ -22,6 +22,13 @@ export const collectActivityInputSchema = z.strictObject({
   energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
   durationBucket: activityDurationBucketSchema.optional(),
   system: activitySystemSchema.optional(),
+}).refine((activity) => [
+  activity.taskCategory,
+  activity.routinePattern,
+  activity.automationCandidate,
+  activity.energyStressMarker,
+].filter((value) => value !== undefined).length <= 1, {
+  message: "one activity can contain at most one insight classification",
 });
 
 export type CollectActivityInput = z.infer<typeof collectActivityInputSchema>;
