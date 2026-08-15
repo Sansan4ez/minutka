@@ -5,6 +5,7 @@ import type { AuditEventRecord } from "./audit-event-store.js";
 import type { FeedbackRecord } from "../domain/feedback.js";
 import type { OnboardingDraft } from "./onboarding-types.js";
 import type { ThreadSummary } from "./thread-summary-store.js";
+import type { InMemoryTenantDirectories } from "./in-memory-tenant-directory-store.js";
 
 export type ChatMessage = {
   id: string;
@@ -25,6 +26,7 @@ export type InMemoryWorld = {
   consents: Consent[];
   profiles: UserProfile[];
   onboardingDrafts: OnboardingDraft[];
+  tenantDirectories: InMemoryTenantDirectories;
   insights: StructuredInsight[];
   feedback: FeedbackRecord[];
   counters: { message: number; participant: number; insight: number; feedback: number };
@@ -43,6 +45,10 @@ export function createInMemoryWorld(
     consents: [],
     profiles: [],
     onboardingDrafts: [],
+    tenantDirectories: {
+      groups: [{ id: "default_group", companyId: "default_company" }],
+      roles: [{ id: "default_role", companyId: "default_company", name: "Участник" }],
+    },
     insights: [],
     feedback: [],
     counters: { message: 0, participant: 0, insight: 0, feedback: 0 },

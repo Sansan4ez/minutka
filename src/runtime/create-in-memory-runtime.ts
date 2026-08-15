@@ -3,6 +3,7 @@ import { createInMemoryConversationStore } from "../application/in-memory-conver
 import { createInMemoryFeedbackStore } from "../application/in-memory-feedback-store.js";
 import { createInMemoryInsightStore } from "../application/in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "../application/in-memory-profile-store.js";
+import { createInMemoryTenantDirectoryStore } from "../application/in-memory-tenant-directory-store.js";
 import { createInMemoryDocumentStore } from "../application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../application/in-memory-blob-store.js";
 import { createIngestionService } from "../application/ingestion-service.js";
@@ -76,6 +77,7 @@ export function createInMemoryRuntime(input: {
   };
   const service = new MinutkaService(input.agentRunner, {
     profileStore,
+    tenantDirectoryStore: createInMemoryTenantDirectoryStore(world.tenantDirectories),
     onboardingDraftStore: createInMemoryOnboardingDraftStore(world),
     conversationStore: createInMemoryConversationStore(world),
     insightStore: createInMemoryInsightStore(world),
@@ -90,6 +92,7 @@ export function createInMemoryRuntime(input: {
     privacyExplanation: executableSpecPrivacyExplanation,
     onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
     defaultScheduleProvisioner: new DefaultScheduleProvisioner(scheduleStore, clock),
+    defaultTenantBinding: { companyId: "default_company", groupId: "default_group", roleId: "default_role" },
     clock,
     idGenerator: createDeterministicIdGenerator(),
     ...deps,

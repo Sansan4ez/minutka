@@ -5,6 +5,7 @@ import { PersistenceError, mapPostgresError } from "../../application/persistenc
 
 type DraftRow = {
   employee_id: string;
+  role_id: string | null;
   preferred_name: string | null;
   assistant_name: string | null;
   address_form: OnboardingDraft["addressForm"] | null;
@@ -17,6 +18,7 @@ type DraftRow = {
 };
 const toDraft = (row: DraftRow): OnboardingDraft => ({
   employeeId: row.employee_id,
+  ...(row.role_id ? { roleId: row.role_id } : {}),
   ...(row.preferred_name ? { preferredName: row.preferred_name } : {}),
   ...(row.assistant_name ? { assistantName: row.assistant_name } : {}),
   ...(row.address_form ? { addressForm: row.address_form } : {}),
@@ -28,9 +30,9 @@ const toDraft = (row: DraftRow): OnboardingDraft => ({
   createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), expiresAt: row.expires_at.toISOString(),
 });
 
-const columns = "employee_id, preferred_name, assistant_name, address_form, persona, response_length, timezone, status, pending_field, revision, created_at, updated_at, expires_at";
+const columns = "employee_id, role_id, preferred_name, assistant_name, address_form, persona, response_length, timezone, status, pending_field, revision, created_at, updated_at, expires_at";
 function values(draft: OnboardingDraft, expectedRevision?: number): unknown[] {
-  return [draft.employeeId, draft.preferredName ?? null, draft.assistantName ?? null, draft.addressForm ?? null,
+  return [draft.employeeId, draft.roleId ?? null, draft.preferredName ?? null, draft.assistantName ?? null, draft.addressForm ?? null,
     draft.persona ?? null, draft.responseLength ?? null, draft.timezone ?? null, draft.status, draft.pendingField ?? null,
     draft.revision, draft.createdAt, draft.updatedAt, draft.expiresAt, expectedRevision ?? null];
 }
@@ -55,18 +57,18 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
       try {
         const result = await pool.query<DraftRow>(
           `INSERT INTO minutka_private.onboarding_drafts (${columns})
-           SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+           SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
            WHERE EXISTS (
              SELECT 1 FROM minutka_private.participants
              WHERE employee_id = $1 AND status <> 'profile_completed'
            )
            ON CONFLICT (employee_id) DO UPDATE SET
-             preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
+             role_id=EXCLUDED.role_id, preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
              address_form=EXCLUDED.address_form, persona=EXCLUDED.persona,
              response_length=EXCLUDED.response_length, timezone=EXCLUDED.timezone,
              status=EXCLUDED.status, pending_field=EXCLUDED.pending_field, revision=EXCLUDED.revision,
              updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at
-           WHERE ($14::integer IS NULL OR minutka_private.onboarding_drafts.revision = $14)
+           WHERE ($15::integer IS NULL OR minutka_private.onboarding_drafts.revision = $15)
              AND minutka_private.onboarding_drafts.expires_at > now()
            RETURNING *`, values(draft, expectedRevision),
         );
@@ -78,18 +80,18 @@ export function createPostgresOnboardingDraftStore(pool: Pool): OnboardingDraftS
       try {
         const result = await pool.query<DraftRow>(
           `INSERT INTO minutka_private.onboarding_drafts (${columns})
-           SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+           SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
            WHERE EXISTS (
              SELECT 1 FROM minutka_private.participants
              WHERE employee_id = $1 AND status <> 'profile_completed'
            )
            ON CONFLICT (employee_id) DO UPDATE SET
-             preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
+             role_id=EXCLUDED.role_id, preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
              address_form=EXCLUDED.address_form, persona=EXCLUDED.persona,
              response_length=EXCLUDED.response_length, timezone=EXCLUDED.timezone,
              status=EXCLUDED.status, pending_field=EXCLUDED.pending_field, revision=EXCLUDED.revision,
              created_at=EXCLUDED.created_at, updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at
-           RETURNING *`, values(draft).slice(0, 13),
+           RETURNING *`, values(draft).slice(0, 14),
         );
         if (!result.rows[0]) throw new PersistenceError("persistence_conflict");
         return toDraft(result.rows[0]);

@@ -12,6 +12,8 @@ export type ProfileStore = {
   issueInvite(input: {
     employeeId: string;
     inviteCode: string;
+    companyId?: string;
+    groupId?: string;
     issuedAt: string;
   }): Promise<IssueInviteResult>;
   openInvite(input: {

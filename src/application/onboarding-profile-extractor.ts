@@ -47,6 +47,7 @@ export function extractDeterministicOnboardingPatch(input: {
   patch.timezone = extractTimezone(text);
 
   const pending = input.currentDraft.pendingField;
+  if (pending === "roleId") return normalizeOnboardingProfilePatch(patch);
   if (pending === "preferredName" && !patch.preferredName) patch.preferredName = cleanName(text);
   if (pending === "assistantName" && !patch.assistantName) patch.assistantName = cleanName(text);
   if (pending === "addressForm" && !patch.addressForm) patch.addressForm = addressForm(text);

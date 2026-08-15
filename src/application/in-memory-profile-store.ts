@@ -37,7 +37,7 @@ export function createInMemoryProfileStore(
   inviteIndexes.set(world, employeeByInviteCode);
 
   return {
-    async issueInvite({ employeeId, inviteCode, issuedAt }) {
+    async issueInvite({ employeeId, inviteCode, companyId, groupId, issuedAt }) {
       const existingEmployeeForInvite = employeeByInviteCode.get(inviteCode);
       if (existingEmployeeForInvite) {
         const participant = world.participants.find((candidate) => candidate.employeeId === existingEmployeeForInvite);
@@ -52,6 +52,8 @@ export function createInMemoryProfileStore(
       if (existingByEmployee) return { participant: existingByEmployee, created: false, inviteMatches: false };
       const participant: Participant = {
         employeeId,
+        ...(companyId ? { companyId } : {}),
+        ...(groupId ? { groupId } : {}),
         status: "invite_issued",
         createdAt: issuedAt,
         updatedAt: issuedAt,
@@ -116,6 +118,7 @@ export function createInMemoryProfileStore(
       upsertByEmployeeId(world.profiles, profile);
       upsertByEmployeeId(world.participants, {
         ...participant,
+        ...(profile.roleId ? { roleId: profile.roleId } : {}),
         status: "profile_completed",
         updatedAt: completedAt,
       });

@@ -24,6 +24,7 @@ import { createPostgresInsightStore } from "../infrastructure/postgres/postgres-
 import { migrationStatus } from "../infrastructure/postgres/postgres-migrator.js";
 import { createPostgresPool } from "../infrastructure/postgres/postgres-pool.js";
 import { createPostgresProfileStore } from "../infrastructure/postgres/postgres-profile-store.js";
+import { createPostgresTenantDirectoryStore } from "../infrastructure/postgres/postgres-tenant-directory-store.js";
 import { createPostgresOnboardingDraftStore } from "../infrastructure/postgres/postgres-onboarding-draft-store.js";
 import { createPostgresIdeaStore } from "../infrastructure/postgres/postgres-idea-store.js";
 import { createPostgresArtifactStore } from "../infrastructure/postgres/postgres-artifact-store.js";
@@ -158,6 +159,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const scheduleStore = createPostgresScheduleStore(pool);
     const stores = {
       profileStore: createPostgresProfileStore(pool, config.inviteCodePepper),
+      tenantDirectoryStore: createPostgresTenantDirectoryStore(pool),
       onboardingDraftStore,
       conversationStore: createPostgresConversationStore(pool),
       threadSummaryStore: createPostgresThreadSummaryStore(pool),

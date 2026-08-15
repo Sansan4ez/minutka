@@ -31,6 +31,9 @@ export const threadIdSchema = z.string().min(1).max(128);
 
 export const userProfileSchema = z.strictObject({
   employeeId: employeeIdSchema,
+  companyId: z.string().min(1),
+  groupId: z.string().min(1),
+  roleId: z.string().min(1),
   preferredName: z.string().min(1).max(128),
   assistantName: z.string().min(1).max(128),
   addressForm: addressFormSchema,
@@ -169,8 +172,8 @@ export const structuredInsightSchema = z.discriminatedUnion("kind", [
 export const listInsightsRequestSchema = z.strictObject({ threadId: threadIdSchema.optional(), kind: insightKindSchema.optional() });
 
 const onboardingStatusSchema = z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]);
-export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512) });
-export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
+export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512), companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128) });
+export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), companyId: z.string().min(1), groupId: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
 export const participantSummarySchema = z.strictObject({ employeeId: employeeIdSchema, status: onboardingStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
 export const listParticipantsRequestSchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -224,15 +227,15 @@ export const acceptConsentResponseSchema = z.strictObject({ employeeId: employee
 export const completeOnboardingRequestSchema = z.strictObject({
   preferredName: z.string().min(1).max(128).optional(), assistantName: z.string().min(1).max(128).optional(), addressForm: addressFormSchema.optional(), timezone: timezoneSchema.optional(),
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
-  role: z.string().min(1).optional(), typicalTasks: z.array(z.string().min(1)).min(1).max(7).optional(), aiLevel: aiLevelSchema.optional(),
+  roleId: z.string().min(1).max(128).optional(), selfDescription: z.string().min(1).max(2_000).optional(), role: z.string().min(1).optional(), typicalTasks: z.array(z.string().min(1)).min(1).max(7).optional(), aiLevel: aiLevelSchema.optional(),
 });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
-export const onboardingFieldSchema = z.enum(["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);
+export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);
 export const onboardingAnswerRequestSchema = z.strictObject({ text: chatInputTextSchema });
 export const onboardingProgressSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
-  z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["addressForm", "persona", "responseLength", "timezone"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(2), allowFreeText: z.boolean().optional() }),
-  z.strictObject({ status: z.literal("needs_confirmation"), deliveryKey: z.string().min(1).max(128), summary: z.strictObject({ preferredName: z.string().min(1), assistantName: z.string().min(1), addressForm: z.string().min(1), persona: z.string().min(1), responseLength: z.string().min(1), timezone: timezoneSchema }) }),
+  z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["roleId", "addressForm", "persona", "responseLength", "timezone"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(1), allowFreeText: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("needs_confirmation"), deliveryKey: z.string().min(1).max(128), summary: z.strictObject({ roleId: z.string().min(1), preferredName: z.string().min(1), assistantName: z.string().min(1), addressForm: z.string().min(1), persona: z.string().min(1), responseLength: z.string().min(1), timezone: timezoneSchema }) }),
   z.strictObject({ status: z.literal("needs_correction"), prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("completed"), result: completeOnboardingResponseSchema }),
 ]);
