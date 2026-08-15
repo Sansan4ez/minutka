@@ -4,6 +4,9 @@ import { mastra } from "../../../src/mastra/index.js";
 import { createTaskTools } from "../../../src/mastra/tools/task-tools.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets, createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
+import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
+
+const collectActivity = (async () => ({ activityId: "activity" })) as AssistantAgentContext["collectActivity"];
 
 const source = (path: string) => readFileSync(path, "utf8");
 
@@ -142,6 +145,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       profileAndHistory: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture" },
+      collectActivity,
       tasks: {
         async list() { return []; },
         async propose() {
@@ -310,6 +314,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     profileAndHistory: {} as never,
     records: {} as never,
     source: { kind: "text", text: "usage" },
+    collectActivity,
     captureIdea: async () => { throw new Error("not used"); },
     contextDocuments: {} as never,
     documents: {
