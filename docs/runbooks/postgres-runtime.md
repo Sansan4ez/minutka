@@ -53,11 +53,13 @@ docker compose down --volumes
 ## Configuration
 
 ```dotenv
-DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka
-TEST_DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5432/minutka_test
-MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5432/minutka
-TEST_MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5432/minutka_test
+DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5433/minutka
+TEST_DATABASE_URL=postgresql://minutka_runtime:...@127.0.0.1:5433/minutka_test
+MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5433/minutka
+TEST_MIGRATION_DATABASE_URL=postgresql://minutka_migrator:...@127.0.0.1:5433/minutka_test
 DATABASE_SSL_MODE=disable # local container only; pilot uses require
+# Compose публикует PostgreSQL на 5433: порт сдвинут с ассистентского 5432,
+# чтобы оба локальных стека работали одновременно. Внутри контейнера — 5432.
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
 INTEGRATION_ENC_KEY=<exactly 32 random bytes encoded as base64>

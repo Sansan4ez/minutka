@@ -18,10 +18,10 @@ MINIO_ROOT_USER=minio-admin-local
 MINIO_ROOT_PASSWORD=<strong-random-root-password>
 MINIO_ACCESS_KEY=personal-assistant-app
 MINIO_SECRET_KEY=<strong-random-application-secret>
-MINIO_BUCKET=personal-assistant
+MINIO_BUCKET=minutka
 
 MINIO_ENDPOINT=127.0.0.1
-MINIO_PORT=9000
+MINIO_PORT=9002
 MINIO_USE_SSL=false
 ```
 
@@ -55,7 +55,7 @@ docker compose up -d minio minio-init
 ```bash
 docker compose ps -a minio minio-init
 docker compose logs --tail=100 minio minio-init
-curl -fsS http://127.0.0.1:9000/minio/health/ready
+curl -fsS http://127.0.0.1:9002/minio/health/ready
 ```
 
 Ожидаемый результат:
@@ -71,7 +71,7 @@ curl -fsS http://127.0.0.1:9000/minio/health/ready
 Открыть в браузере:
 
 ```text
-http://127.0.0.1:9001
+http://127.0.0.1:9003
 ```
 
 Для входа использовать:
@@ -137,7 +137,7 @@ docker compose stop minio
 docker compose up -d minio minio-init
 ```
 
-Данные сохраняются в named volume `personal-assistant-minio-data`.
+Данные сохраняются в named volume `minutka-minio-data`.
 
 ## Полный сброс локального MinIO
 
@@ -148,14 +148,14 @@ docker compose up -d minio minio-init
 ```bash
 docker compose stop minio
 docker compose rm -f minio minio-init
-docker volume rm personal-assistant-minio-data
+docker volume rm minutka-minio-data
 docker compose up -d minio minio-init
 ```
 
 Перед удалением volume проверить его имя:
 
 ```bash
-docker volume ls | grep personal-assistant-minio-data
+docker volume ls | grep minutka-minio-data
 ```
 
 ## Диагностика
@@ -189,7 +189,7 @@ docker compose up -d minio minio-init
 
 ```bash
 docker compose ps minio
-curl -fsS http://127.0.0.1:9000/minio/health/ready
+curl -fsS http://127.0.0.1:9002/minio/health/ready
 ```
 
-S3 API использует порт `9000`, веб-Console — порт `9001`. Для удалённого хоста нужен SSH tunnel из раздела выше.
+Локально S3 API опубликован на порту `9002`, веб-Console — на `9003`: они сдвинуты с ассистентских `9000`/`9001`, чтобы оба стека работали одновременно. Внутри контейнера и на удалённом хосте порты остаются `9000`/`9001` — для него нужен SSH tunnel из раздела выше.
