@@ -35,6 +35,7 @@ import type { ProcessSchedule } from "../domain/schedule.js";
 import type { SaveDailyScheduleInput, ScheduleManagementService } from "./schedule-management-service.js";
 import type { MonthlyUsage, UsageStore } from "./usage-store.js";
 import type { ContextDocumentAuditContext, ContextDocumentService } from "./context-document-service.js";
+import type { CompanyReportingService } from "./company-reporting.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -75,6 +76,7 @@ export class PersonalAssistantService {
     private readonly schedules?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">,
     private readonly usage?: Pick<UsageStore, "getMonthly">,
     private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject" | "listVersions" | "restoreVersion">,
+    private readonly companyReporting?: Pick<CompanyReportingService, "exportGroup">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -82,6 +84,10 @@ export class PersonalAssistantService {
   getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
     if (!this.usage) throw new Error("usage reporting is not configured");
     return this.usage.getMonthly(userId, month);
+  }
+  exportCompanyReport(input: { companyId: string; groupId: string }) {
+    if (!this.companyReporting) throw new Error("company reporting is not configured");
+    return this.companyReporting.exportGroup(input);
   }
   openInvite(input: OpenInviteInput): Promise<OpenInviteResult> { return this.identityService.openInvite(input); }
   recordPrivacyExplanationShown(input: RecordPrivacyExplanationShownInput): Promise<void> { return this.identityService.recordPrivacyExplanationShown(input); }

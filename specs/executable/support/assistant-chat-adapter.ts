@@ -31,6 +31,7 @@ export function createSpecHttpApplication(
     issueInvite: (input) => service.issueInvite(input),
     listParticipants: (input) => service.listParticipants(input),
     getMonthlyUsage: async () => { throw new Error("usage reporting is not configured in this spec adapter"); },
+    exportCompanyReport: async () => { throw new Error("company reporting is not configured in this spec adapter"); },
     openInvite: (input) => service.openInvite(input),
     getProfile: (input) => service.getProfile(input),
     acceptConsent: (input) => service.acceptConsent(input),

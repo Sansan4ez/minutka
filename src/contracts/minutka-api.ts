@@ -185,6 +185,41 @@ export const listParticipantsResponseSchema = z.strictObject({
 });
 export const usageMonthSchema = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u, "month must use YYYY-MM");
 export const adminUsageRequestSchema = z.strictObject({ employeeId: employeeIdSchema, month: usageMonthSchema });
+export const companyReportRequestSchema = z.strictObject({
+  companyId: z.string().min(1).max(128),
+  groupId: z.string().min(1).max(128),
+});
+const companyReportRefusalReasonSchema = z.strictObject({
+  code: z.enum(["insufficient_participants", "insufficient_rows"]),
+  actual: z.number().int().nonnegative(),
+  required: z.number().int().positive(),
+});
+const companyReportAggregateSchema = z.strictObject({
+  kind: insightKindSchema.optional(),
+  value: z.string().min(1).optional(),
+  durationBucket: z.enum(["lt_15m", "15_30m", "30_60m", "1_2h", "2_4h", "gt_4h"]).optional(),
+  system: z.enum(["bitrix24", "one_c", "spreadsheets", "email", "messengers", "crm", "task_tracker", "paper_or_verbal", "other"]).optional(),
+  date: z.iso.date(),
+  rows: z.number().int().positive(),
+});
+const companyReportRoleSliceSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("exported"), roleId: z.string().min(1), participantCount: z.number().int().nonnegative(),
+    rowCount: z.number().int().nonnegative(), aggregates: z.array(companyReportAggregateSchema),
+  }),
+  z.strictObject({ status: z.literal("refused"), roleId: z.string().min(1), reasons: z.array(companyReportRefusalReasonSchema).min(1) }),
+]);
+export const companyReportResponseSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("exported"), companyId: z.string().min(1), groupId: z.string().min(1),
+    participantCount: z.number().int().nonnegative(), rowCount: z.number().int().nonnegative(),
+    roleSlices: z.array(companyReportRoleSliceSchema),
+  }),
+  z.strictObject({
+    status: z.literal("refused"), companyId: z.string().min(1), groupId: z.string().min(1),
+    reasons: z.array(companyReportRefusalReasonSchema).min(1),
+  }),
+]);
 const usageTotalsResponseSchema = z.strictObject({
   inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), totalTokens: z.number().int().nonnegative(),
   estimatedCostUsdMicros: z.number().int().nonnegative(), records: z.number().int().nonnegative(), cachedInputTokens: z.number().int().nonnegative(),
@@ -265,6 +300,8 @@ export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema
 export type ListParticipantsRequest = z.infer<typeof listParticipantsRequestSchema>;
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
 export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
+export type CompanyReportRequest = z.infer<typeof companyReportRequestSchema>;
+export type CompanyReportResponse = z.infer<typeof companyReportResponseSchema>;
 export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;
 export type ContextDocumentVersionsRequest = z.infer<typeof contextDocumentVersionsRequestSchema>;
 export type ContextDocumentVersionsResponse = z.infer<typeof contextDocumentVersionsResponseSchema>;

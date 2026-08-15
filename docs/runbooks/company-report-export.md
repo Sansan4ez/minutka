@@ -1,0 +1,37 @@
+# Выгрузка отчёта компании
+
+Компания получает только агрегаты обезличенного следа, прошедшие правило из [RFC §2.4](../architecture/rfc-minutka-tenancy-and-reporting.md#24-правило-5--на-чтении-в-коде). Сырые строки `minutka_reporting.anonymized_activities` доступны доверенному методологу, но не являются выгрузкой для компании.
+
+## Порог пилота
+
+Оба значения определены рядом в `src/application/company-reporting.ts`:
+
+```text
+COMPANY_REPORT_MIN_PARTICIPANTS = 5
+COMPANY_REPORT_MIN_ROWS = 5
+```
+
+Срез выходит в отчёт только при выполнении обоих условий:
+
+1. участников в срезе не меньше `COMPANY_REPORT_MIN_PARTICIPANTS`;
+2. обезличенных строк в срезе не меньше `COMPANY_REPORT_MIN_ROWS`.
+
+Число участников берётся из `minutka_private.participants` по `company_id`, `group_id` и `role_id`. Оно не вычисляется из обезличенных строк: строка не содержит ключа сотрудника, поэтому несколько строк могут принадлежать одному человеку.
+
+## Поведение выгрузки
+
+Оператор запускает выгрузку через HTTP-backed CLI:
+
+```bash
+npm run cli -- admin company-report --company company_acme --group group_acme_2026_09
+```
+
+Use-case `CompanyReportingService.exportGroup({ companyId, groupId })`:
+
+- всегда загружает справочные числа и обезличенные строки с явными `companyId` и `groupId`;
+- при непройденном пороге группы возвращает `status: "refused"` и причины `insufficient_participants` и/или `insufficient_rows`;
+- для должности с числом участников меньше пяти заменяет `roleId` на `other`, не раскрывая исходную должность компании;
+- для должности или объединённого `other`, где строк меньше минимума, возвращает явный отказ для среза вместо пустого или усечённого результата;
+- возвращает только агрегаты с числом строк, а не сырые обезличенные записи.
+
+Если контракт пилота требует более строгих порогов, измените обе константы в одном модуле, обновите этот runbook и executable spec `SPEC-MINUTKA-COMPANY-REPORT-001` в одной поставке.

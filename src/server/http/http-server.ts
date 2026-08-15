@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -31,6 +31,7 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "issueInvite"
   | "listParticipants"
   | "getMonthlyUsage"
+  | "exportCompanyReport"
   | "listContextDocumentVersions"
   | "restoreContextDocumentVersion"
   | "openInvite"
@@ -144,6 +145,14 @@ export function createHttpServer(options: HttpServerOptions): Server {
         const input = parse(listParticipantsRequestSchema, query(url));
         status = 200;
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listParticipants(input)), id);
+      }
+      const adminCompanyReport = url.pathname.match(/^\/v1\/admin\/companies\/([^/]+)\/report$/);
+      if (req.method === "GET" && adminCompanyReport) {
+        template = "/v1/admin/companies/:companyId/report";
+        requireKind(principal, "operator");
+        const input = parse(companyReportRequestSchema, { companyId: decodeURIComponent(adminCompanyReport[1]), groupId: url.searchParams.get("groupId") });
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.exportCompanyReport(input)), id);
       }
       const adminUsage = url.pathname.match(/^\/v1\/admin\/employees\/([^/]+)\/usage$/);
       if (req.method === "GET" && adminUsage) {

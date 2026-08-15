@@ -52,6 +52,12 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       stdout.push(JSON.stringify(page));
       if (page.nextCursor) stdout.push(`Next page: npm run cli -- admin list-participants${o.limit === undefined ? "" : ` --limit ${o.limit}`} --after ${page.nextCursor}`);
     }));
+  admin.addCommand(new Command("company-report")
+    .requiredOption("--company <companyId>")
+    .requiredOption("--group <groupId>")
+    .action(async (o: { company: string; group: string }) => {
+      stdout.push(JSON.stringify(await adminClient.exportCompanyReport({ companyId: o.company, groupId: o.group })));
+    }));
   admin.addCommand(new Command("usage")
     .requiredOption("--employee <employeeId>")
     .option("--month <YYYY-MM>", "Usage month in UTC", currentUsageMonth())

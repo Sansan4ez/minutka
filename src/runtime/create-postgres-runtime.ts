@@ -63,6 +63,8 @@ import { createPostgresPendingActionGroupStore } from "../infrastructure/postgre
 import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
 import { CollectActivityService } from "../application/activity-collection.js";
 import { createPostgresActivityCollectionStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
+import { CompanyReportingService } from "../application/company-reporting.js";
+import { createPostgresCompanyReportStore } from "../infrastructure/postgres/postgres-company-report-store.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -253,7 +255,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments);
+    const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting);
     const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({
       assistant,
       telegramSessionStore,
