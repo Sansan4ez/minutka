@@ -3,6 +3,7 @@ import type {
   AnonymizedActivityRecord,
   PersonalActivityRecord,
 } from "./activity-collection.js";
+import type { CompanyAnonymizedActivityRetentionStore } from "./company-anonymized-activity-retention.js";
 
 export type InMemoryActivityCollectionState = {
   personalActivities: PersonalActivityRecord[];
@@ -16,7 +17,7 @@ export function createInMemoryActivityCollectionState(): InMemoryActivityCollect
 export function createInMemoryActivityCollectionStore(
   state: InMemoryActivityCollectionState,
   options: { failAnonymizedWrite?: () => boolean } = {},
-): ActivityCollectionStore {
+): ActivityCollectionStore & CompanyAnonymizedActivityRetentionStore {
   return {
     async saveActivityPair(input) {
       // Stage before publishing either side so failure cannot expose a partial pair.
@@ -25,6 +26,12 @@ export function createInMemoryActivityCollectionStore(
       if (options.failAnonymizedWrite?.()) throw new Error("anonymized activity write failed");
       state.personalActivities.push(personal);
       state.anonymizedActivities.push(anonymized);
+    },
+    async deleteByCompany(companyId) {
+      const retained = state.anonymizedActivities.filter((activity) => activity.companyId !== companyId);
+      const deletedRows = state.anonymizedActivities.length - retained.length;
+      state.anonymizedActivities.splice(0, state.anonymizedActivities.length, ...retained);
+      return deletedRows;
     },
   };
 }

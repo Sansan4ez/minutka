@@ -34,6 +34,8 @@ import { createPostgresContextDocumentConfirmationStore } from "../../src/infras
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
 import { createPostgresActivityCollectionStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService } from "../../src/application/activity-collection.js";
+import { CompanyAnonymizedActivityRetentionService } from "../../src/application/company-anonymized-activity-retention.js";
+import { createPostgresCompanyAnonymizedActivityRetentionStore } from "../../src/infrastructure/postgres/postgres-company-anonymized-activity-retention-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -162,6 +164,58 @@ describe("PostgreSQL storage contracts", () => {
       await migrationPool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON minutka_reporting.anonymized_activities`);
       await migrationPool.query("DROP FUNCTION IF EXISTS minutka_reporting.spec_fail_anonymized_activity() CASCADE");
     }
+  });
+
+  it("purges only one company's anonymized slice", async () => {
+    const companyA = "company_retention_a";
+    const companyB = "company_retention_b";
+    const groupA = "group_retention_a";
+    const groupB = "group_retention_b";
+    const roleA = "role_retention_a";
+    const roleB = "role_retention_b";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name)
+       VALUES ($1, 'Retention A'), ($2, 'Retention B')
+       ON CONFLICT (id) DO NOTHING`,
+      [companyA, companyB],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Pilot A', daterange('2026-08-01', '2026-09-01', '[)')),
+              ($3, $4, 'Pilot B', daterange('2026-08-01', '2026-09-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupA, companyA, groupB, companyB],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $2, 'Role A'), ($3, $4, 'Role B')
+       ON CONFLICT (id) DO NOTHING`,
+      [roleA, companyA, roleB, companyB],
+    );
+    await migrationPool.query(
+      "DELETE FROM minutka_reporting.anonymized_activities WHERE company_id = ANY($1::text[])",
+      [[companyA, companyB]],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reporting.anonymized_activities
+        (company_id, group_id, role_id, kind, value, activity_date)
+       VALUES ($1, $2, $3, 'task_category', 'reporting', '2026-08-15'),
+              ($1, $2, $3, 'task_category', 'reporting', '2026-08-16'),
+              ($4, $5, $6, 'task_category', 'reporting', '2026-08-15')`,
+      [companyA, groupA, roleA, companyB, groupB, roleB],
+    );
+
+    const retention = new CompanyAnonymizedActivityRetentionService(
+      createPostgresCompanyAnonymizedActivityRetentionStore(pool),
+    );
+    await expect(retention.purgeCompany({ companyId: companyA })).resolves.toEqual({
+      companyId: companyA,
+      deletedRows: 2,
+    });
+    expect((await pool.query(
+      "SELECT company_id, count(*)::int AS count FROM minutka_reporting.anonymized_activities WHERE company_id = ANY($1::text[]) GROUP BY company_id",
+      [[companyA, companyB]],
+    )).rows).toEqual([{ company_id: companyB, count: 1 }]);
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {
@@ -1204,7 +1258,13 @@ describe("PostgreSQL storage contracts", () => {
     const deletionAuditCountBefore = Number((await pool.query<{ count: string }>("SELECT count(*) FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb")).rows[0]!.count);
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const drafts = createPostgresOnboardingDraftStore(pool);
-    await profiles.issueInvite({ employeeId: "emp_delete", inviteCode: "invite_delete", issuedAt: now });
+    await profiles.issueInvite({
+      employeeId: "emp_delete",
+      inviteCode: "invite_delete",
+      companyId: "company_activity",
+      groupId: "group_activity",
+      issuedAt: now,
+    });
     await profiles.openInvite({ inviteCode: "invite_delete", openedAt: now, explanationShownAt: now });
     await profiles.acceptConsent({ employeeId: "emp_delete", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
     // Drafts are intentionally rejected after profile completion. Persist this
@@ -1213,7 +1273,7 @@ describe("PostgreSQL storage contracts", () => {
     await drafts.save({ employeeId: "emp_delete", status: "collecting", pendingField: "preferredName", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
     await profiles.completeProfile({
       completedAt: now,
-      profile: { employeeId: "emp_delete", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+      profile: { employeeId: "emp_delete", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", roleId: "role_activity", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
     });
     const conversations = createPostgresConversationStore(pool);
     await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
@@ -1246,6 +1306,23 @@ describe("PostgreSQL storage contracts", () => {
       body: { size: 7, openStream: () => Readable.from("private") },
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
+    const deletionParticipant = await profiles.getParticipant("emp_delete");
+    if (!deletionParticipant?.companyId || !deletionParticipant.groupId || !deletionParticipant.roleId) throw new Error("deletion participant is missing tenant binding");
+    const anonymizedBeforeDelete = Number((await pool.query<{ count: string }>(
+      "SELECT count(*) FROM minutka_reporting.anonymized_activities WHERE company_id = $1",
+      [deletionParticipant.companyId],
+    )).rows[0]!.count);
+    await new CollectActivityService(
+      createPostgresActivityCollectionStore(pool),
+      { now: () => now },
+      () => "activity_employee_delete_retained",
+    ).collect({
+      employeeId: "emp_delete",
+      companyId: deletionParticipant.companyId,
+      groupId: deletionParticipant.groupId,
+      roleId: deletionParticipant.roleId,
+      activity: { taskCategory: "reporting" },
+    });
     await profiles.deleteEmployeePersonalData("emp_delete");
     for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "telegram_action_messages", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
@@ -1257,6 +1334,10 @@ describe("PostgreSQL storage contracts", () => {
     expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect(Number((await pool.query<{ count: string }>(
+      "SELECT count(*) FROM minutka_reporting.anonymized_activities WHERE company_id = $1",
+      [deletionParticipant.companyId],
+    )).rows[0]!.count)).toBe(anonymizedBeforeDelete + 1);
     const deletionAuditCountAfter = Number((await pool.query<{ count: string }>("SELECT count(*) FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb")).rows[0]!.count);
     expect(deletionAuditCountAfter).toBe(deletionAuditCountBefore + 1);
   });
