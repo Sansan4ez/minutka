@@ -20,7 +20,7 @@ import type { ConsentAcceptanceStore } from "../application/consent-acceptance-s
 import type { ConversationDecisionRouter } from "../application/conversation-decision-router.js";
 import type { InsightExtractor } from "../application/insight-extractor.js";
 import type { DocumentStore } from "../application/document-store.js";
-import { createPrivacyExplanation } from "../domain/privacy.js";
+import { createPrivacyExplanation } from "../application/consent-process-loader.js";
 import { createInMemoryScheduleStore } from "../application/in-memory-schedule-store.js";
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 import type { ScheduleStore } from "../application/schedule-store.js";

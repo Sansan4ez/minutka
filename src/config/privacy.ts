@@ -1,4 +1,5 @@
-import { currentPrivacyVersion, createPrivacyExplanation } from "../domain/privacy.js";
+import { createPrivacyExplanation } from "../application/consent-process-loader.js";
+import { currentPrivacyVersion } from "../domain/privacy.js";
 
 // The version already carries the `privacy-` prefix that the name starts with;
 // stripping it keeps PRIVACY_POLICY_V3_URL rather than doubling the prefix.
