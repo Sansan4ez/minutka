@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import { PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import type { PostgresConfig } from "./postgres-config.js";
 
 export type SqlExecutor = Pick<Pool, "query"> | Pick<PoolClient, "query">;
@@ -24,18 +25,37 @@ export async function withTransaction<T>(pool: Pool, callback: (client: PoolClie
   let releaseError: Error | undefined;
   try {
     await client.query("BEGIN");
-    const result = await callback(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
+    let result: T;
     try {
-      await client.query("ROLLBACK");
-    } catch {
-      // A client that cannot roll back may be protocol-corrupted; evict it.
-      releaseError = error instanceof Error ? error : new Error("transaction rollback failed");
+      result = await callback(client);
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // No COMMIT was sent, so the write is known not to have committed even
+        // when the broken client must be evicted instead of reused.
+        releaseError = error instanceof Error ? error : new Error("transaction rollback failed");
+      }
+      throw error;
     }
-    throw error;
+    try {
+      await client.query("COMMIT");
+    } catch (error) {
+      if (hasPostgresSqlState(error)) {
+        // The server observed and rejected COMMIT (for example, a deferred
+        // constraint), so the transaction did not commit.
+        throw error;
+      }
+      releaseError = error instanceof Error ? error : new Error("transaction commit outcome is unknown");
+      throw new PersistenceOutcomeUnknownError({ cause: error });
+    }
+    return result;
   } finally {
     client.release(releaseError);
   }
+}
+
+function hasPostgresSqlState(error: unknown): boolean {
+  return typeof (error as { code?: unknown } | undefined)?.code === "string"
+    && /^[0-9A-Z]{5}$/u.test((error as { code: string }).code);
 }

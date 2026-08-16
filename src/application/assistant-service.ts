@@ -13,7 +13,7 @@ import type { IdeaSource, IdeaStore } from "./idea-store.js";
 import { pendingIdeaDeletionAction, type IdeaDeletionService, type PendingIdeaDeletion, type PendingIdeaDeletionAction } from "./idea-deletion.js";
 import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js";
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
-import { PersistenceError } from "./persistence-error.js";
+import { PersistenceError, PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
 import { boundRecentHistory, type RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { renderRecentHistoryProjection, renderRuntimeProfileProjection, renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
@@ -439,6 +439,7 @@ export class AssistantService {
         if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
         return result;
       } catch (cause) {
+        if (!(cause instanceof PersistenceOutcomeUnknownError)) throw cause;
         chatEffect.businessWrite = "outcome_unknown";
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }

@@ -18,6 +18,14 @@ export class PersistenceError extends Error {
   }
 }
 
+/** A non-idempotent transaction was submitted, but its commit was not observed. */
+export class PersistenceOutcomeUnknownError extends Error {
+  constructor(options: { cause?: unknown } = {}) {
+    super("Persistence transaction outcome is unknown.", options);
+    this.name = "PersistenceOutcomeUnknownError";
+  }
+}
+
 type PostgresError = { code?: string; constraint?: string };
 
 /** Maps driver errors at the infrastructure boundary; SQL text never escapes it. */

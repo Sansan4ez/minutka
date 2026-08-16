@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { ActivityCollectionStore } from "../../application/activity-collection.js";
-import { mapPostgresError } from "../../application/persistence-error.js";
+import { mapPostgresError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
 
 export function createPostgresActivityCollectionStore(pool: Pool): ActivityCollectionStore {
@@ -46,6 +46,7 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
           );
         });
       } catch (error) {
+        if (error instanceof PersistenceOutcomeUnknownError) throw error;
         throw mapPostgresError(error);
       }
     },

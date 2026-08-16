@@ -9,8 +9,12 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { PersistenceError, PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 
-function harness() {
+function harness(options: {
+  collectActivity?: (command: Parameters<CollectActivityService["collect"]>[0]) => Promise<{ activityId: string }>;
+  runner?: ConstructorParameters<typeof AssistantService>[0];
+} = {}) {
   const clock = { now: () => "2026-08-15T07:00:00.000Z" };
   const world = createInMemoryWorld(clock.now);
   world.participants.push({
@@ -33,18 +37,18 @@ function harness() {
       return () => `activity_${++index}`;
     })(),
   );
-  const service = new AssistantService(async (_input, context) => {
+  const service = new AssistantService(options.runner ?? (async (_input, context) => {
     context.markProcessUsed("morning_activity_collection");
     await context.collectActivity({ taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" });
     await context.collectActivity({ taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" });
     await context.collectActivity({ taskCategory: "coordination" });
     return { text: "Записал три активности.", executionTrace: [] };
-  }, {
+  }), {
     documentStore: documents,
     conversationStore,
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock) }),
     participantStore: createInMemoryProfileStore(world),
-    collectActivity: (command) => activityCollection.collect(command),
+    collectActivity: options.collectActivity ?? ((command) => activityCollection.collect(command)),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
@@ -75,6 +79,38 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
     });
     expect(state.anonymizedActivities[2]).not.toHaveProperty("durationBucket");
     expect(state.anonymizedActivities[2]).not.toHaveProperty("system");
+  });
+
+  it("reports a rolled-back storage failure as an ordinary retryable save error", async () => {
+    const failure = new PersistenceError("persistence_conflict");
+    const { service } = harness({
+      runner: async (_input, context) => {
+        await context.collectActivity({ taskCategory: "reporting" });
+        return "unreachable";
+      },
+      collectActivity: async () => { throw failure; },
+    });
+
+    await expect(service.chat({ userId: "employee_a", threadId: "thread_a", text: "Запиши отчёт." })).rejects.toBe(failure);
+  });
+
+  it("keeps outcome_unknown when the activity transaction commit cannot be observed", async () => {
+    const { service } = harness({
+      runner: async (_input, context) => {
+        try {
+          await context.collectActivity({ taskCategory: "reporting" });
+        } catch {
+          return "tool error was swallowed";
+        }
+        return "unreachable";
+      },
+      collectActivity: async () => { throw new PersistenceOutcomeUnknownError(); },
+    });
+
+    await expect(service.chat({ userId: "employee_a", threadId: "thread_a", text: "Запиши отчёт." })).rejects.toMatchObject({
+      name: "AssistantMutationOutcomeUnknownError",
+      code: "mutation_outcome_unknown",
+    });
   });
 
   it("keeps the free employee account in private conversation history and out of anonymized rows", async () => {

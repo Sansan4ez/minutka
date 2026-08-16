@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { Pool, PoolClient } from "pg";
 import { CollectActivityService } from "../../../src/application/activity-collection.js";
 import {
   createInMemoryActivityCollectionState,
   createInMemoryActivityCollectionStore,
 } from "../../../src/application/in-memory-activity-collection-store.js";
+import { withTransaction } from "../../../src/infrastructure/postgres/postgres-pool.js";
 
 const migrationPath = "migrations/0047_create_activity_dual_write.sql";
 
@@ -128,6 +130,38 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
     })]);
   });
 
+  it("distinguishes a rejected write from an unobserved commit", async () => {
+    const rejected = new Error("constraint rejected");
+    const rejectedClient = transactionClient(async (sql) => {
+      if (sql === "INSERT") throw rejected;
+    });
+    await expect(withTransaction(transactionPool(rejectedClient), async (client) => {
+      await client.query("INSERT");
+    })).rejects.toBe(rejected);
+    expect(rejectedClient.queries).toEqual(["BEGIN", "INSERT", "ROLLBACK"]);
+
+    const deferredConstraint = Object.assign(new Error("deferred constraint rejected"), { code: "23514" });
+    const commitRejectedClient = transactionClient(async (sql) => {
+      if (sql === "COMMIT") throw deferredConstraint;
+    });
+    await expect(withTransaction(transactionPool(commitRejectedClient), async (client) => {
+      await client.query("INSERT");
+    })).rejects.toBe(deferredConstraint);
+    expect(commitRejectedClient.queries).toEqual(["BEGIN", "INSERT", "COMMIT"]);
+
+    const commitLost = new Error("connection lost after COMMIT was sent");
+    const uncertainClient = transactionClient(async (sql) => {
+      if (sql === "COMMIT") throw commitLost;
+    });
+    await expect(withTransaction(transactionPool(uncertainClient), async (client) => {
+      await client.query("INSERT");
+    })).rejects.toMatchObject({
+      name: "PersistenceOutcomeUnknownError",
+      cause: commitLost,
+    });
+    expect(uncertainClient.queries).toEqual(["BEGIN", "INSERT", "COMMIT"]);
+  });
+
   it("uses one transaction for both PostgreSQL inserts", () => {
     const source = readFileSync("src/infrastructure/postgres/postgres-activity-collection-store.ts", "utf8");
     expect(source.match(/withTransaction\(/gu)).toHaveLength(1);
@@ -135,3 +169,20 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
     expect(source).toContain("INSERT INTO minutka_reporting.anonymized_activities");
   });
 });
+
+function transactionClient(onQuery: (sql: string) => Promise<void>): PoolClient & { queries: string[] } {
+  const queries: string[] = [];
+  return {
+    queries,
+    async query(sql: string) {
+      queries.push(sql);
+      await onQuery(sql);
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  } as unknown as PoolClient & { queries: string[] };
+}
+
+function transactionPool(client: PoolClient): Pool {
+  return { async connect() { return client; } } as unknown as Pool;
+}
