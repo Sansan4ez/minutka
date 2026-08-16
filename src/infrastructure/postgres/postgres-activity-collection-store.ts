@@ -10,17 +10,18 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
         await withTransaction(pool, async (client) => {
           await client.query(
             `INSERT INTO minutka_private.activities
-              (activity_id, employee_id, company_id, group_id, role_id, kind, value,
-               duration_bucket, system, recorded_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              (activity_id, employee_id, company_id, group_id, role_id, task_category,
+               obstacle_kind, obstacle_value, duration_bucket, system, recorded_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
             [
               personal.activityId,
               personal.employeeId,
               personal.companyId,
               personal.groupId,
               personal.roleId,
-              personal.kind ?? null,
-              personal.value ?? null,
+              personal.taskCategory ?? null,
+              personal.obstacle?.kind ?? null,
+              personal.obstacle?.value ?? null,
               personal.durationBucket ?? null,
               personal.system ?? null,
               personal.recordedAt,
@@ -28,14 +29,16 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
           );
           await client.query(
             `INSERT INTO minutka_reporting.anonymized_activities
-              (company_id, group_id, role_id, kind, value, duration_bucket, system, activity_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+              (company_id, group_id, role_id, task_category, obstacle_kind, obstacle_value,
+               duration_bucket, system, activity_date)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
             [
               anonymized.companyId,
               anonymized.groupId,
               anonymized.roleId,
-              anonymized.kind ?? null,
-              anonymized.value ?? null,
+              anonymized.taskCategory ?? null,
+              anonymized.obstacle?.kind ?? null,
+              anonymized.obstacle?.value ?? null,
               anonymized.durationBucket ?? null,
               anonymized.system ?? null,
               anonymized.date,

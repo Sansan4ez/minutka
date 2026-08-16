@@ -34,8 +34,9 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       "company_id",
       "group_id",
       "role_id",
-      "kind",
-      "value",
+      "task_category",
+      "obstacle_kind",
+      "obstacle_value",
       "duration_bucket",
       "system",
       "activity_date",
@@ -61,6 +62,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
     });
     await collectForEmployee({
       taskCategory: "reporting",
+      routinePattern: "manual_reporting",
       durationBucket: "1_2h",
       system: "spreadsheets",
     });
@@ -70,8 +72,8 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
-      kind: "task_category",
-      value: "reporting",
+      taskCategory: "reporting",
+      obstacle: { kind: "routine_pattern", value: "manual_reporting" },
       durationBucket: "1_2h",
       system: "spreadsheets",
       date: "2026-08-15",
@@ -101,11 +103,15 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
     expect(state.anonymizedActivities).toEqual([]);
   });
 
-  it("does not fan one activity out into multiple anonymized rows", async () => {
+  it("does not fan one activity out when category and obstacle coexist", async () => {
     const state = createInMemoryActivityCollectionState();
-    const service = new CollectActivityService(createInMemoryActivityCollectionStore(state));
+    const service = new CollectActivityService(
+      createInMemoryActivityCollectionStore(state),
+      { now: () => "2026-08-15T22:17:35.000Z" },
+      () => "activity_combined",
+    );
 
-    await expect(service.collect({
+    await service.collect({
       employeeId: "employee_a",
       companyId: "company_a",
       groupId: "group_a",
@@ -114,9 +120,12 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
         taskCategory: "reporting",
         automationCandidate: "report_generation",
       },
-    })).rejects.toThrow("one activity can contain at most one insight classification");
-    expect(state.personalActivities).toEqual([]);
-    expect(state.anonymizedActivities).toEqual([]);
+    });
+    expect(state.personalActivities).toHaveLength(1);
+    expect(state.anonymizedActivities).toEqual([expect.objectContaining({
+      taskCategory: "reporting",
+      obstacle: { kind: "automation_candidate", value: "report_generation" },
+    })]);
   });
 
   it("uses one transaction for both PostgreSQL inserts", () => {

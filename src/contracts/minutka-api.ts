@@ -3,6 +3,7 @@ import { currentPrivacyVersion } from "../domain/privacy.js";
 import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters, pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledProcessIds } from "../domain/assistant-process.js";
+import { automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -195,9 +196,14 @@ const companyReportRefusalReasonSchema = z.strictObject({
   actual: z.number().int().nonnegative(),
   required: z.number().int().positive(),
 });
+const companyReportObstacleSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("routine_pattern"), value: z.enum(routinePatternTypes) }),
+  z.strictObject({ kind: z.literal("automation_candidate"), value: z.enum(automationCandidateTypes) }),
+  z.strictObject({ kind: z.literal("energy_stress_marker"), value: z.enum(energyStressMarkerTypes) }),
+]);
 const companyReportAggregateSchema = z.strictObject({
-  kind: insightKindSchema.optional(),
-  value: z.string().min(1).optional(),
+  taskCategory: z.enum(taskCategories).optional(),
+  obstacle: companyReportObstacleSchema.optional(),
   durationBucket: z.enum(["lt_15m", "15_30m", "30_60m", "1_2h", "2_4h", "gt_4h"]).optional(),
   system: z.enum(["bitrix24", "one_c", "spreadsheets", "email", "messengers", "crm", "task_tracker", "paper_or_verbal", "other"]).optional(),
   date: z.iso.date(),

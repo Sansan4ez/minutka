@@ -168,20 +168,21 @@ describe("PostgreSQL storage contracts", () => {
       companyId,
       groupId,
       roleId,
-      activity: { taskCategory: "reporting", durationBucket: "1_2h", system: "spreadsheets" },
+      activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
     });
 
     expect((await pool.query("SELECT count(*)::int AS count FROM minutka_private.activities WHERE activity_id='activity_pg_one'")).rows[0]?.count).toBe(1);
     const anonymized = await pool.query(
-      "SELECT company_id, group_id, role_id, kind, value, duration_bucket, system, activity_date::text FROM minutka_reporting.anonymized_activities WHERE company_id=$1",
+      "SELECT company_id, group_id, role_id, task_category, obstacle_kind, obstacle_value, duration_bucket, system, activity_date::text FROM minutka_reporting.anonymized_activities WHERE company_id=$1",
       [companyId],
     );
     expect(anonymized.rows).toEqual([{
       company_id: companyId,
       group_id: groupId,
       role_id: roleId,
-      kind: "task_category",
-      value: "reporting",
+      task_category: "reporting",
+      obstacle_kind: "routine_pattern",
+      obstacle_value: "manual_reporting",
       duration_bucket: "1_2h",
       system: "spreadsheets",
       activity_date: "2026-08-15",
@@ -247,10 +248,10 @@ describe("PostgreSQL storage contracts", () => {
     );
     await migrationPool.query(
       `INSERT INTO minutka_reporting.anonymized_activities
-        (company_id, group_id, role_id, kind, value, activity_date)
-       VALUES ($1, $2, $3, 'task_category', 'reporting', '2026-08-15'),
-              ($1, $2, $3, 'task_category', 'reporting', '2026-08-16'),
-              ($4, $5, $6, 'task_category', 'reporting', '2026-08-15')`,
+        (company_id, group_id, role_id, task_category, activity_date)
+       VALUES ($1, $2, $3, 'reporting', '2026-08-15'),
+              ($1, $2, $3, 'reporting', '2026-08-16'),
+              ($4, $5, $6, 'reporting', '2026-08-15')`,
       [companyA, groupA, roleA, companyB, groupB, roleB],
     );
 

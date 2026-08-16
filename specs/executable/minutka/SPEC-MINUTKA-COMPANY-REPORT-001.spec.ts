@@ -29,8 +29,7 @@ function reportingRows(companyId: string, groupId: string, roleId: string, count
     companyId,
     groupId,
     roleId,
-    kind: "task_category" as const,
-    value: "reporting" as const,
+    taskCategory: "reporting" as const,
     durationBucket: "30_60m" as const,
     system: "spreadsheets" as const,
     date: "2026-08-15",
@@ -109,6 +108,29 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: company export privacy threshold", ()
         { status: "refused", roleId: "role_a", reasons: [{ code: "insufficient_rows", actual: 4, required: COMPANY_REPORT_MIN_ROWS }] },
         { status: "exported", roleId: "role_b", rowCount: 5 },
       ],
+    });
+  });
+
+  it("groups category and obstacle as dimensions of the same row", async () => {
+    const participants = Array.from({ length: 5 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
+    const rows = reportingRows("company_a", "group_a", "role_a", 5).map((row, index) => index < 3
+      ? { ...row, obstacle: { kind: "routine_pattern" as const, value: "manual_reporting" as const } }
+      : row);
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+
+    expect(result).toMatchObject({
+      status: "exported",
+      roleSlices: [{
+        status: "exported",
+        aggregates: expect.arrayContaining([
+          expect.objectContaining({
+            taskCategory: "reporting",
+            obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+            rows: 3,
+          }),
+          expect.objectContaining({ taskCategory: "reporting", rows: 2 }),
+        ]),
+      }],
     });
   });
 

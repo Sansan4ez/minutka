@@ -25,8 +25,8 @@ export type CompanyReportRefusalReason = {
 };
 
 export type CompanyReportAggregate = {
-  kind?: AnonymizedActivityRecord["kind"];
-  value?: AnonymizedActivityRecord["value"];
+  taskCategory?: AnonymizedActivityRecord["taskCategory"];
+  obstacle?: AnonymizedActivityRecord["obstacle"];
   durationBucket?: AnonymizedActivityRecord["durationBucket"];
   system?: AnonymizedActivityRecord["system"];
   date: string;
@@ -158,8 +158,8 @@ function aggregateActivities(activities: AnonymizedActivityRecord[]): CompanyRep
   const aggregates = new Map<string, CompanyReportAggregate>();
   for (const activity of activities) {
     const dimensions = {
-      ...(activity.kind === undefined ? {} : { kind: activity.kind }),
-      ...(activity.value === undefined ? {} : { value: activity.value }),
+      ...(activity.taskCategory === undefined ? {} : { taskCategory: activity.taskCategory }),
+      ...(activity.obstacle === undefined ? {} : { obstacle: activity.obstacle }),
       ...(activity.durationBucket === undefined ? {} : { durationBucket: activity.durationBucket }),
       ...(activity.system === undefined ? {} : { system: activity.system }),
       date: activity.date,

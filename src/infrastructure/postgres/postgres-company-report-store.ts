@@ -10,8 +10,9 @@ type ActivityRow = {
   company_id: string;
   group_id: string;
   role_id: string;
-  kind: AnonymizedActivityRecord["kind"] | null;
-  value: AnonymizedActivityRecord["value"] | null;
+  task_category: AnonymizedActivityRecord["taskCategory"] | null;
+  obstacle_kind: NonNullable<AnonymizedActivityRecord["obstacle"]>["kind"] | null;
+  obstacle_value: NonNullable<AnonymizedActivityRecord["obstacle"]>["value"] | null;
   duration_bucket: AnonymizedActivityRecord["durationBucket"] | null;
   system: AnonymizedActivityRecord["system"] | null;
   activity_date: string | Date;
@@ -36,7 +37,8 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
             [companyId, groupId],
           );
           const activityResult = await client.query<ActivityRow>(
-            `SELECT company_id, group_id, role_id, kind, value, duration_bucket, system, activity_date
+            `SELECT company_id, group_id, role_id, task_category, obstacle_kind, obstacle_value,
+                    duration_bucket, system, activity_date
              FROM minutka_reporting.anonymized_activities
              WHERE company_id = $1 AND group_id = $2`,
             [companyId, groupId],
@@ -61,8 +63,10 @@ function toActivity(row: ActivityRow): AnonymizedActivityRecord {
     companyId: row.company_id,
     groupId: row.group_id,
     roleId: row.role_id,
-    ...(row.kind === null ? {} : { kind: row.kind }),
-    ...(row.value === null ? {} : { value: row.value }),
+    ...(row.task_category === null ? {} : { taskCategory: row.task_category }),
+    ...(row.obstacle_kind === null || row.obstacle_value === null
+      ? {}
+      : { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as NonNullable<AnonymizedActivityRecord["obstacle"]> }),
     ...(row.duration_bucket === null ? {} : { durationBucket: row.duration_bucket }),
     ...(row.system === null ? {} : { system: row.system }),
     date: row.activity_date instanceof Date

@@ -67,18 +67,24 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivityInputSchema.safeParse({ interferesWith: "работой" }).success).toBe(false);
   });
 
-  it("models one activity and at most one classification per invocation", () => {
+  it("models one activity with a category and one optional obstacle", () => {
     const parsed = collectActivityInputSchema.parse({
-      taskCategory: "meetings",
-      durationBucket: "30_60m",
-      system: "messengers",
+      taskCategory: "reporting",
+      routinePattern: "manual_reporting",
+      durationBucket: "1_2h",
+      system: "spreadsheets",
     });
 
-    expect(parsed).toEqual({ taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" });
+    expect(parsed).toEqual({
+      taskCategory: "reporting",
+      routinePattern: "manual_reporting",
+      durationBucket: "1_2h",
+      system: "spreadsheets",
+    });
     expect(collectActivityInputSchema.safeParse({ activities: [parsed] }).success).toBe(false);
     expect(collectActivityInputSchema.safeParse({
-      taskCategory: "meetings",
-      routinePattern: "meeting_overload",
+      routinePattern: "manual_reporting",
+      automationCandidate: "report_generation",
     }).success).toBe(false);
   });
 

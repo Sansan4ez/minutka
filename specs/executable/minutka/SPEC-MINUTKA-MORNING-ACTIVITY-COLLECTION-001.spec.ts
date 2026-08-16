@@ -36,7 +36,7 @@ function harness() {
   const service = new AssistantService(async (_input, context) => {
     context.markProcessUsed("morning_activity_collection");
     await context.collectActivity({ taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" });
-    await context.collectActivity({ taskCategory: "reporting", durationBucket: "1_2h", system: "spreadsheets" });
+    await context.collectActivity({ taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" });
     await context.collectActivity({ taskCategory: "coordination" });
     return { text: "Записал три активности.", executionTrace: [] };
   }, {
@@ -70,8 +70,7 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
-      kind: "task_category",
-      value: "coordination",
+      taskCategory: "coordination",
       date: "2026-08-15",
     });
     expect(state.anonymizedActivities[2]).not.toHaveProperty("durationBucket");
@@ -105,7 +104,8 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
     expect(defaults).toContain('{ processId: "morning_activity_collection", timeOfDay: "09:00" }');
     expect(defaults).not.toContain('{ processId: "day_focus", timeOfDay: "09:00" }');
     expect(process).toContain("Call `collectActivity` exactly once for each named activity");
-    expect(process).toContain("If duration, system, or classification is unknown, omit it");
+    expect(process).toContain("Put the activity category and its obstacle in the same call");
+    expect(process).toContain("If duration, system, category, or obstacle is unknown, omit it");
     expect(process).toContain("The application keeps the full employee message in the private conversation record");
   });
 });

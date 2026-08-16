@@ -9,17 +9,15 @@ import type {
   ActivitySystem,
   AutomationCandidateType,
   EnergyStressMarkerType,
-  InsightKind,
   RoutinePatternType,
   TaskCategory,
 } from "../domain/insights.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
-export type ActivityInsightValue =
-  | TaskCategory
-  | RoutinePatternType
-  | AutomationCandidateType
-  | EnergyStressMarkerType;
+export type ActivityObstacle =
+  | { kind: "routine_pattern"; value: RoutinePatternType }
+  | { kind: "automation_candidate"; value: AutomationCandidateType }
+  | { kind: "energy_stress_marker"; value: EnergyStressMarkerType };
 
 export type PersonalActivityRecord = {
   activityId: string;
@@ -27,8 +25,8 @@ export type PersonalActivityRecord = {
   companyId: string;
   groupId: string;
   roleId: string;
-  kind?: InsightKind;
-  value?: ActivityInsightValue;
+  taskCategory?: TaskCategory;
+  obstacle?: ActivityObstacle;
   durationBucket?: ActivityDurationBucket;
   system?: ActivitySystem;
   recordedAt: string;
@@ -42,8 +40,8 @@ export type AnonymizedActivityRecord = {
   companyId: string;
   groupId: string;
   roleId: string;
-  kind?: InsightKind;
-  value?: ActivityInsightValue;
+  taskCategory?: TaskCategory;
+  obstacle?: ActivityObstacle;
   durationBucket?: ActivityDurationBucket;
   system?: ActivitySystem;
   date: string;
@@ -77,7 +75,7 @@ export class CollectActivityService {
 
   async collect(command: CollectActivityCommand): Promise<{ activityId: string }> {
     const input = collectActivityCommandSchema.parse(command);
-    const classification = activityClassification(input.activity);
+    const obstacle = activityObstacle(input.activity);
     const recordedAt = this.clock.now();
     const activityId = this.activityId();
 
@@ -87,14 +85,16 @@ export class CollectActivityService {
       companyId: input.companyId,
       groupId: input.groupId,
       roleId: input.roleId,
-      ...classification,
+      ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
+      ...(obstacle === undefined ? {} : { obstacle }),
       recordedAt,
     };
     const anonymized: AnonymizedActivityRecord = {
       companyId: input.companyId,
       groupId: input.groupId,
       roleId: input.roleId,
-      ...classification,
+      ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
+      ...(obstacle === undefined ? {} : { obstacle }),
       date: calendarDate(recordedAt),
     };
     if (input.activity.durationBucket !== undefined) {
@@ -117,24 +117,17 @@ export class CollectActivityService {
   }
 }
 
-function activityClassification(activity: CollectActivityInput): {
-  kind?: InsightKind;
-  value?: ActivityInsightValue;
-} {
-  const classifications: Array<{ kind: InsightKind; value: ActivityInsightValue }> = [];
-  if (activity.taskCategory !== undefined) {
-    classifications.push({ kind: "task_category", value: activity.taskCategory });
-  }
+function activityObstacle(activity: CollectActivityInput): ActivityObstacle | undefined {
   if (activity.routinePattern !== undefined) {
-    classifications.push({ kind: "routine_pattern", value: activity.routinePattern });
+    return { kind: "routine_pattern", value: activity.routinePattern };
   }
   if (activity.automationCandidate !== undefined) {
-    classifications.push({ kind: "automation_candidate", value: activity.automationCandidate });
+    return { kind: "automation_candidate", value: activity.automationCandidate };
   }
   if (activity.energyStressMarker !== undefined) {
-    classifications.push({ kind: "energy_stress_marker", value: activity.energyStressMarker });
+    return { kind: "energy_stress_marker", value: activity.energyStressMarker };
   }
-  return classifications[0] ?? {};
+  return undefined;
 }
 
 function calendarDate(instant: string): string {
