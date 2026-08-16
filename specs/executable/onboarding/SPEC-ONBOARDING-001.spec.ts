@@ -378,6 +378,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       world.events.find((event) => event.type === "UserProfileUpdated"),
     ).toMatchObject({
       changedFields: [
+        "roleId",
         "preferredName",
         "assistantName",
         "addressForm",

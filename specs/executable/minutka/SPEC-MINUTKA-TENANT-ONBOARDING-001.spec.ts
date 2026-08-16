@@ -4,6 +4,7 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 
 const migrationPath = "migrations/0048_bind_invites_to_tenant.sql";
+const roleUpdateMigrationPath = "migrations/0051_cascade_profile_role_updates.sql";
 
 async function consent(runtime: ReturnType<typeof createInMemoryRuntime>, employeeId: string) {
   await runtime.service.openInvite({ inviteCode: `invite_${employeeId}` });
@@ -63,6 +64,33 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
     expect(completed.profile).toMatchObject({ companyId: "company_a", groupId: "group_a", roleId: "role_a" });
   });
 
+  it("updates a completed profile when only the company role changes", async () => {
+    const world = createInMemoryWorld();
+    world.tenantDirectories.groups.push({ id: "group_a", companyId: "company_a" });
+    world.tenantDirectories.roles.push(
+      { id: "role_a", companyId: "company_a", name: "Логист" },
+      { id: "role_b", companyId: "company_a", name: "Руководитель логистики" },
+    );
+    const runtime = createInMemoryRuntime({ world, agentRunner: async () => "ok" });
+    await runtime.service.issueInvite({ employeeId: "employee_role_change", inviteCode: "invite_employee_role_change", companyId: "company_a", groupId: "group_a" });
+    await consent(runtime, "employee_role_change");
+
+    await runtime.service.completeOnboarding({
+      employeeId: "employee_role_change",
+      roleId: "role_a",
+      persona: "efficiency",
+    });
+    const updated = await runtime.service.completeOnboarding({
+      employeeId: "employee_role_change",
+      roleId: "role_b",
+      persona: "efficiency",
+    });
+
+    expect(updated).toMatchObject({ completion: "new", profile: { roleId: "role_b" } });
+    expect(world.profiles).toContainEqual(expect.objectContaining({ employeeId: "employee_role_change", roleId: "role_b" }));
+    expect(world.participants).toContainEqual(expect.objectContaining({ employeeId: "employee_role_change", roleId: "role_b" }));
+  });
+
   it("keeps free-text self-description personal and outside anonymized storage", async () => {
     const world = createInMemoryWorld();
     world.tenantDirectories.groups.push({ id: "group_a", companyId: "company_a" });
@@ -90,5 +118,7 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
     expect(sql).toContain("ADD COLUMN role_id text");
     expect(sql).toContain("REFERENCES minutka_reference.training_groups(company_id, id)");
     expect(sql).toContain("REFERENCES minutka_reference.roles(company_id, id)");
+    const roleUpdateSql = readFileSync(roleUpdateMigrationPath, "utf8");
+    expect(roleUpdateSql).toMatch(/profiles_employee_role_fk[\s\S]*ON UPDATE CASCADE/u);
   });
 });

@@ -727,7 +727,7 @@ function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false
   if (field === "preferredName") return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться?" };
   return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
 }
-const trackedProfileFields = ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
+const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
   return trackedProfileFields.filter((field) =>
     // Omitted optional data is not a change on initial creation, while a later

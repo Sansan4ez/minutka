@@ -85,6 +85,55 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("updates a completed profile role together with another profile field", async () => {
+    const companyId = "company_profile_role_update";
+    const groupId = "group_profile_role_update";
+    const initialRoleId = "role_profile_initial";
+    const updatedRoleId = "role_profile_updated";
+    const employeeId = "employee_profile_role_update";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Profile Role Update Co')
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Pilot', daterange('2026-08-01', '2026-09-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $3, 'Initial role'), ($2, $3, 'Updated role')
+       ON CONFLICT (id) DO NOTHING`,
+      [initialRoleId, updatedRoleId, companyId],
+    );
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId, inviteCode: "invite_profile_role_update", companyId, groupId, issuedAt: now });
+    await profiles.openInvite({ inviteCode: "invite_profile_role_update", openedAt: now, explanationShownAt: now });
+    await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v3", acceptedAt: now, explanationShownAt: now, source: "test" });
+    await profiles.completeProfile({
+      completedAt: now,
+      profile: { employeeId, companyId, groupId, roleId: initialRoleId, preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", persona: "efficiency", responseLength: "short", createdAt: now, updatedAt: now },
+    });
+
+    const updatedAt = "2026-07-12T00:01:00.000Z";
+    await expect(profiles.completeProfile({
+      completedAt: updatedAt,
+      profile: { employeeId, companyId, groupId, roleId: updatedRoleId, preferredName: "Lead Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", persona: "efficiency", responseLength: "short", createdAt: now, updatedAt },
+    })).resolves.toMatchObject({ wasCompleted: true, profile: { roleId: updatedRoleId, preferredName: "Lead Manager" } });
+
+    expect((await profiles.getProfile(employeeId))).toMatchObject({ roleId: updatedRoleId, preferredName: "Lead Manager" });
+    expect((await profiles.getParticipant(employeeId))).toMatchObject({ roleId: updatedRoleId });
+    expect((await pool.query<{ profile_role_id: string; participant_role_id: string }>(
+      `SELECT p.role_id AS profile_role_id, participant.role_id AS participant_role_id
+       FROM minutka_private.profiles p
+       JOIN minutka_private.participants participant USING (employee_id)
+       WHERE p.employee_id = $1`,
+      [employeeId],
+    )).rows[0]).toEqual({ profile_role_id: updatedRoleId, participant_role_id: updatedRoleId });
+  });
+
   it("dual-writes one private activity and one unlinkable reporting row atomically", async () => {
     const companyId = "company_activity";
     const groupId = "group_activity";
