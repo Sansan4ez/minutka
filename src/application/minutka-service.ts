@@ -448,13 +448,17 @@ export class MinutkaService {
     return this.onboardingProgressWithRoles(await this.stores.onboardingDraftStore.replace(draft));
   }
 
-  private async selectOnboardingRole(current: OnboardingDraft, roleIdInput: string): Promise<OnboardingProgress> {
+  private async selectOnboardingRole(current: OnboardingDraft, roleInput: string): Promise<OnboardingProgress> {
     const participant = await this.requireParticipant(current.employeeId);
     const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
-    const roleId = roleIdInput.trim();
-    if (!companyId || !await this.stores.tenantDirectoryStore.getRole({ companyId, roleId })) throw new Error("roleId must belong to the participant company");
+    const roles = companyId ? await this.stores.tenantDirectoryStore.listRoles(companyId) : [];
+    const normalizedInput = roleInput.trim();
+    const roleById = roles.find((role) => role.id === normalizedInput);
+    const rolesByName = roles.filter((role) => role.name.localeCompare(normalizedInput, "ru", { sensitivity: "accent" }) === 0);
+    const selectedRole = roleById ?? (rolesByName.length === 1 ? rolesByName[0] : undefined);
+    if (!selectedRole) return this.roleSelectionProgress(roles, true);
     const next = makeOnboardingDraft(current, {
-      roleId,
+      roleId: selectedRole.id,
       preferredName: current.preferredName,
       assistantName: current.assistantName,
       addressForm: current.addressForm,
@@ -466,12 +470,27 @@ export class MinutkaService {
   }
 
   private async onboardingProgressWithRoles(draft: OnboardingDraft): Promise<OnboardingProgress> {
-    if (draft.pendingField !== "roleId") return onboardingProgress(draft);
     const participant = await this.requireParticipant(draft.employeeId);
     const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
-    const roles = await this.stores.tenantDirectoryStore.listRoles(companyId);
+    if (draft.pendingField === "roleId") return this.roleSelectionProgress(await this.stores.tenantDirectoryStore.listRoles(companyId));
+    if (isCompleteOnboardingDraft(draft)) {
+      const role = await this.stores.tenantDirectoryStore.getRole({ companyId, roleId: draft.roleId });
+      if (!role) throw new Error("roleId must belong to the participant company");
+      return onboardingProgress(draft, false, role.name);
+    }
+    return onboardingProgress(draft);
+  }
+
+  private roleSelectionProgress(roles: Awaited<ReturnType<TenantDirectoryStore["listRoles"]>>, unrecognized = false): OnboardingProgress {
     if (roles.length === 0) throw new Error("participant company has no roles");
-    return { status: "needs_choice", field: "roleId", prompt: "Выберите вашу должность.", choices: roles.map((role) => role.id) };
+    return {
+      status: "needs_choice",
+      field: "roleId",
+      prompt: unrecognized ? "Не нашёл такую должность. Выберите должность из списка." : "Выберите вашу должность.",
+      choices: roles.map((role) => role.name),
+      choiceValues: roles.map((role) => role.id),
+      allowFreeText: true,
+    };
   }
 
   private async provisionDefaultSchedules(profile: UserProfile): Promise<void> {
@@ -716,8 +735,11 @@ async function extractOnboardingPatchWithTimeout(
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
-function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false): OnboardingProgress {
-  if (isCompleteOnboardingDraft(draft)) return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { roleId: draft.roleId, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
+function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false, roleName?: string): OnboardingProgress {
+  if (isCompleteOnboardingDraft(draft)) {
+    if (!roleName) throw new Error("role name is required for onboarding confirmation");
+    return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { roleId: draft.roleId, roleName, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
+  }
   const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "preferredName";
   if (field === "roleId") throw new Error("role selection requires tenant directory context");
   if (field === "addressForm") return { status: "needs_choice", field, prompt: "Обращаться к вам на ты или на вы?", choices: ["На ты", "На вы"] };

@@ -142,8 +142,7 @@ async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: stri
   const refresh = setInterval(() => { void sendTyping(); }, typingRefreshMilliseconds);
   try { return await action(); } finally { clearInterval(refresh); }
 }
-function onboardingChoiceValue(field: "roleId" | "addressForm" | "persona" | "responseLength" | "timezone", choice: string): string {
-  if (field === "roleId") return choice;
+function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLength" | "timezone", choice: string): string {
   const values: Record<string, string> = field === "addressForm"
     ? { "На ты": "informal", "На вы": "formal" }
     : field === "persona"
@@ -383,7 +382,11 @@ async function sendVoiceTranscript(replyPort: TelegramReplyPort, chatId: string,
 async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: string, progress: OnboardingProgressResult, confirmationDelivery?: { claim(deliveryKey: string): Promise<{ status: "claimed"; claimedAt: string } | { status: "already_claimed" }>; complete(deliveryKey: string, claimedAt: string): Promise<void>; release(deliveryKey: string, claimedAt: string): Promise<void> }, sendMarkdown?: (chatId: string, markdown: string) => Promise<TelegramSentMessage>): Promise<void> {
   if (progress.status === "needs_answer") { await replyPort.sendMessage(chatId, progress.prompt); return; }
   if (progress.status === "needs_choice") {
-    const choices = progress.choices.map((choice) => ({ text: choice, callbackData: onboardingCallbackData(progress.field, onboardingChoiceValue(progress.field, choice)) })).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
+    if (progress.choiceValues && progress.choiceValues.length !== progress.choices.length) throw new Error("onboarding choice labels and values must have equal length");
+    const choices = progress.choices.map((choice, index) => {
+      const value = progress.choiceValues?.[index] ?? (progress.field === "roleId" ? choice : onboardingChoiceValue(progress.field, choice));
+      return { text: choice, callbackData: onboardingCallbackData(progress.field, value) };
+    }).filter((choice): choice is { text: string; callbackData: string } => Boolean(choice.callbackData));
     const inlineKeyboard = progress.field === "timezone"
       ? [choices.slice(0, 2), choices.slice(2, 4), choices.slice(4, 6), choices.slice(6, 8), choices.slice(8)]
       : choices.map((choice) => [choice]);
@@ -399,7 +402,7 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
     }
     const summary = progress.summary;
     try {
-      await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- должность: ${summary.roleId};`, `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone} (сейчас у вас ${currentTimeInTimezone(summary.timezone)}).`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+      await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- должность: ${summary.roleName};`, `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone} (сейчас у вас ${currentTimeInTimezone(summary.timezone)}).`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
       if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.complete(progress.deliveryKey, claim.claimedAt);
     } catch (error) {
       if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.release(progress.deliveryKey, claim.claimedAt).catch((releaseError) => logShellError("onboarding confirmation claim release", releaseError));

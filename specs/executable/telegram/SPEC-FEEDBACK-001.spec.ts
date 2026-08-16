@@ -720,7 +720,37 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0]).toHaveLength(3);
   });
 
-  it("10a. Keeps repeated confirmation input responsive and concurrent confirm callbacks idempotent", async () => {
+  it("10a. Shows role names in buttons and confirmation while callbacks keep role ids", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    spec.world.tenantDirectories.groups.push({ id: "pilot_group", companyId: "pilot_company" });
+    spec.world.tenantDirectories.roles.push({ id: "role_acme_logistics", companyId: "pilot_company", name: "Логист" });
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee", "issue-invite",
+      "--invite", "invite_named_role",
+      "--employee", "emp_named_role",
+      "--company", "pilot_company",
+      "--group", "pilot_group",
+    ]);
+    await telegram.start({ chatId: "chat_named_role", inviteCode: "invite_named_role" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    await telegram.clickCallback({ chatId: "chat_named_role", callbackData: consent! });
+    telegram.clear();
+
+    await telegram.sendText({ chatId: "chat_named_role", text: "неизвестная должность" });
+    const rolePrompt = telegram.sentMessages()[0];
+    expect(rolePrompt.text).toContain("Не нашёл такую должность");
+    expect(rolePrompt.replyMarkup?.inlineKeyboard).toEqual([[{ text: "Логист", callbackData: "ob:roleId:role_acme_logistics" }]]);
+
+    await telegram.clickCallback({ chatId: "chat_named_role", callbackData: "ob:roleId:role_acme_logistics", messageId: rolePrompt.messageId });
+    telegram.clear();
+    await telegram.sendText({ chatId: "chat_named_role", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    expect(telegram.sentMessages()[0].text).toContain("- должность: Логист;");
+    expect(telegram.sentMessages()[0].text).not.toContain("role_acme_logistics");
+    expect(spec.world.onboardingDrafts[0]).toMatchObject({ roleId: "role_acme_logistics", status: "awaiting_confirmation" });
+  });
+
+  it("10b. Keeps repeated confirmation input responsive and concurrent confirm callbacks idempotent", async () => {
     const spec = createSpecWorld(dummyAgentRunner);
     const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
     await spec.cli.run(["employee", "issue-invite", "--invite", "invite_confirmation_dedupe", "--employee", "emp_confirmation_dedupe"]);

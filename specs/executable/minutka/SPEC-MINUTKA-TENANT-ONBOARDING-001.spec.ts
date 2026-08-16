@@ -64,6 +64,53 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
     expect(completed.profile).toMatchObject({ companyId: "company_a", groupId: "group_a", roleId: "role_a" });
   });
 
+  it("shows role names, accepts an unambiguous name or id, and re-prompts unknown or ambiguous text", async () => {
+    const world = createInMemoryWorld();
+    world.tenantDirectories.groups.push({ id: "group_a", companyId: "company_a" });
+    world.tenantDirectories.roles.push(
+      { id: "role_logistician", companyId: "company_a", name: "Логист" },
+      { id: "role_manager", companyId: "company_a", name: "Руководитель" },
+      { id: "role_manager_duplicate", companyId: "company_a", name: "Руководитель" },
+    );
+    const runtime = createInMemoryRuntime({ world, agentRunner: async () => "ok" });
+    await runtime.service.issueInvite({ employeeId: "employee_role_choice", inviteCode: "invite_employee_role_choice", companyId: "company_a", groupId: "group_a" });
+    await consent(runtime, "employee_role_choice");
+
+    const initial = await runtime.service.submitOnboardingAnswer({ employeeId: "employee_role_choice", text: "неизвестная должность" });
+    expect(initial).toMatchObject({
+      status: "needs_choice",
+      field: "roleId",
+      choices: ["Логист", "Руководитель", "Руководитель"],
+      choiceValues: ["role_logistician", "role_manager", "role_manager_duplicate"],
+      allowFreeText: true,
+    });
+    expect(initial).toMatchObject({ prompt: expect.stringContaining("Не нашёл такую должность") });
+    expect(world.onboardingDrafts[0]).toMatchObject({ pendingField: "roleId" });
+    expect(world.onboardingDrafts[0].roleId).toBeUndefined();
+
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "employee_role_choice", text: "Руководитель" })).resolves.toMatchObject({
+      status: "needs_choice",
+      field: "roleId",
+      prompt: expect.stringContaining("Выберите должность из списка"),
+    });
+    expect(world.onboardingDrafts[0]).toMatchObject({ pendingField: "roleId" });
+    expect(world.onboardingDrafts[0].roleId).toBeUndefined();
+
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "employee_role_choice", text: "ЛОГИСТ" })).resolves.toMatchObject({
+      status: "needs_answer",
+      field: "preferredName",
+    });
+    expect(world.onboardingDrafts[0]).toMatchObject({ roleId: "role_logistician", pendingField: "preferredName" });
+
+    await runtime.service.issueInvite({ employeeId: "employee_role_id", inviteCode: "invite_employee_role_id", companyId: "company_a", groupId: "group_a" });
+    await consent(runtime, "employee_role_id");
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "employee_role_id", text: "role_manager" })).resolves.toMatchObject({
+      status: "needs_answer",
+      field: "preferredName",
+    });
+    expect(world.onboardingDrafts).toContainEqual(expect.objectContaining({ employeeId: "employee_role_id", roleId: "role_manager" }));
+  });
+
   it("updates a completed profile when only the company role changes", async () => {
     const world = createInMemoryWorld();
     world.tenantDirectories.groups.push({ id: "group_a", companyId: "company_a" });
