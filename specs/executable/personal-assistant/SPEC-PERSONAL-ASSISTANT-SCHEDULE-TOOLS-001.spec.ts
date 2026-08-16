@@ -18,7 +18,8 @@ function setup() {
     async getProfile(employeeId: string) {
       const timezone = timezones.get(employeeId);
       return timezone ? {
-        employeeId, preferredName: employeeId, assistantName: "Ассистент", addressForm: "informal" as const,
+        employeeId, companyId: "default_company", groupId: "default_group", roleId: "default_role",
+        preferredName: employeeId, assistantName: "Ассистент", addressForm: "informal" as const,
         persona: "efficiency" as const, responseLength: "balanced" as const, timezone, createdAt: now, updatedAt: now,
       } : undefined;
     },

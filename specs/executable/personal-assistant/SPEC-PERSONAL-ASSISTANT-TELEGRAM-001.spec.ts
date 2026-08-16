@@ -15,7 +15,7 @@ async function setup(input: { saveError?: Error; capacityError?: Error } = {}) {
   await runtime.service.issueInvite({ employeeId: "maxim", inviteCode: "invite", companyId: "default_company", groupId: "default_group" });
   await runtime.service.redeemTelegramInvite({ inviteCode: "invite", identity: { chatId: "1", userId: "user-1" } });
   await runtime.service.acceptConsent({ employeeId: "maxim", accepted: true, source: "test", telegramIdentity: { chatId: "1", userId: "user-1" } });
-  await runtime.service.completeOnboarding({ roleId: "default_role", employeeId: "maxim", role: "Owner", typicalTasks: ["ideas"], persona: "efficiency", aiLevel: "advanced" });
+  await runtime.service.completeOnboarding({ roleId: "default_role", employeeId: "maxim", selfDescription: "Owner", persona: "efficiency" });
 
   const calls: AssistantChatInput[] = [];
   const saved: SaveArtifactInput[] = [];

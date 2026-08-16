@@ -1,6 +1,8 @@
 export type InviteSeed = {
   employeeId: string;
   inviteCode: string;
+  companyId: string;
+  groupId: string;
 };
 
 /** Parses local-only bootstrap invites before the durable Telegram runtime starts. */
@@ -8,18 +10,15 @@ export function parseInviteSeeds(value: string | undefined): InviteSeed[] {
   if (!value?.trim()) return [];
 
   const seeds = value.split(",").map((entry) => {
-    const separator = entry.indexOf(":");
-    if (separator < 1 || separator === entry.length - 1) {
-      throw new Error("TELEGRAM_INVITES must use employeeId:inviteCode entries");
+    const fields = entry.split(":").map((field) => field.trim());
+    if (fields.length !== 4) {
+      throw new Error("TELEGRAM_INVITES must use employeeId:inviteCode:companyId:groupId entries");
     }
-    return {
-      employeeId: entry.slice(0, separator).trim(),
-      inviteCode: entry.slice(separator + 1).trim(),
-    };
+    return { employeeId: fields[0]!, inviteCode: fields[1]!, companyId: fields[2]!, groupId: fields[3]! };
   });
 
-  if (seeds.some((seed) => !seed.employeeId || !seed.inviteCode)) {
-    throw new Error("TELEGRAM_INVITES contains an empty employeeId or inviteCode");
+  if (seeds.some((seed) => !seed.employeeId || !seed.inviteCode || !seed.companyId || !seed.groupId)) {
+    throw new Error("TELEGRAM_INVITES contains an empty employeeId, inviteCode, companyId, or groupId");
   }
   if (new Set(seeds.map((seed) => seed.employeeId)).size !== seeds.length) {
     throw new Error("TELEGRAM_INVITES contains duplicate employeeIds");

@@ -65,7 +65,7 @@ TELEGRAM_IDENTITY_PEPPER=<separate random secret>
 INTEGRATION_ENC_KEY=<exactly 32 random bytes encoded as base64>
 PRIVACY_POLICY_V3_URL=https://privacy.example.com/privacy-v3.html
 TELEGRAM_BOT_TOKEN=...
-TELEGRAM_INVITES=emp_1:one-time-invite
+TELEGRAM_INVITES=emp_1:one-time-invite:company_1:group_1
 ```
 
 Use different migration-owner and application-role credentials in pilot. The

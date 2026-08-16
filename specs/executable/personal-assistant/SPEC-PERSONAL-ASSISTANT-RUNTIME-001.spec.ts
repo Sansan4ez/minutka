@@ -27,7 +27,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
     await legacy.service.issueInvite({ employeeId: "maxim", inviteCode: "invite", companyId: "default_company", groupId: "default_group" });
     await legacy.service.redeemTelegramInvite({ inviteCode: "invite", identity: { chatId: "1", userId: "user-1" } });
     await legacy.service.acceptConsent({ employeeId: "maxim", accepted: true, source: "test", telegramIdentity: { chatId: "1", userId: "user-1" } });
-    await legacy.service.completeOnboarding({ roleId: "default_role", employeeId: "maxim", role: "Owner", typicalTasks: ["ideas"], persona: "efficiency", aiLevel: "advanced" });
+    await legacy.service.completeOnboarding({ roleId: "default_role", employeeId: "maxim", selfDescription: "Owner", persona: "efficiency" });
 
     const clock = { now: world.now };
     const documents = createInMemoryDocumentStore(clock);

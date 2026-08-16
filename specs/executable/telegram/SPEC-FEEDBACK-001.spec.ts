@@ -43,14 +43,14 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     return "Я робот-помощник Минутка.";
   };
 
-  it("0. Invite bootstrap parser accepts unique employeeId:inviteCode pairs only", () => {
-    expect(parseInviteSeeds("emp_1:invite_a,emp_2:invite_b")).toEqual([
-      { employeeId: "emp_1", inviteCode: "invite_a" },
-      { employeeId: "emp_2", inviteCode: "invite_b" },
+  it("0. Invite bootstrap parser accepts unique tenant-bound invite entries only", () => {
+    expect(parseInviteSeeds("emp_1:invite_a:company_a:group_a,emp_2:invite_b:company_b:group_b")).toEqual([
+      { employeeId: "emp_1", inviteCode: "invite_a", companyId: "company_a", groupId: "group_a" },
+      { employeeId: "emp_2", inviteCode: "invite_b", companyId: "company_b", groupId: "group_b" },
     ]);
-    expect(() => parseInviteSeeds("emp_1:invite_a,emp_1:invite_b")).toThrow(/duplicate employeeIds/);
-    expect(() => parseInviteSeeds("emp_1:invite_a,emp_2:invite_a")).toThrow(/duplicate inviteCodes/);
-    expect(() => parseInviteSeeds("not-a-pair")).toThrow(/employeeId:inviteCode/);
+    expect(() => parseInviteSeeds("emp_1:invite_a:company_a:group_a,emp_1:invite_b:company_b:group_b")).toThrow(/duplicate employeeIds/);
+    expect(() => parseInviteSeeds("emp_1:invite_a:company_a:group_a,emp_2:invite_a:company_b:group_b")).toThrow(/duplicate inviteCodes/);
+    expect(() => parseInviteSeeds("not-an-entry")).toThrow(/employeeId:inviteCode:companyId:groupId/);
   });
 
   it("1. /start without invite code returns welcome message and does not register session", async () => {

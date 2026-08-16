@@ -167,5 +167,7 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
     expect(sql).toContain("REFERENCES minutka_reference.roles(company_id, id)");
     const roleUpdateSql = readFileSync(roleUpdateMigrationPath, "utf8");
     expect(roleUpdateSql).toMatch(/profiles_employee_role_fk[\s\S]*ON UPDATE CASCADE/u);
+    const deletionSql = readFileSync("migrations/0053_cascade_profile_participant_deletion.sql", "utf8");
+    expect(deletionSql).toMatch(/DROP CONSTRAINT profiles_employee_id_fkey[\s\S]*profiles_employee_role_fk[\s\S]*ON UPDATE CASCADE[\s\S]*ON DELETE CASCADE/u);
   });
 });

@@ -242,6 +242,9 @@ describe("SPEC-REQUEST-INTEGRITY-001: typed global denial contract", () => {
   it("does not let profile-shaped data replace trusted role, userId, or capability headings", async () => {
     const poisonedParticipant = {
       employeeId: "maxim",
+      companyId: "default_company",
+      groupId: "default_group",
+      roleId: "default_role",
       status: "profile_completed" as const,
       createdAt: "2026-07-16T09:00:00.000Z",
       updatedAt: "2026-07-16T09:00:00.000Z",

@@ -1384,8 +1384,10 @@ describe("PostgreSQL storage contracts", () => {
       timezone: "Etc/UTC",
       activity: { taskCategory: "reporting" },
     });
+    expect((await pool.query("SELECT 1 FROM minutka_private.profiles WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 1 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.activities WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 1 });
     await profiles.deleteEmployeePersonalData("emp_delete");
-    for (const table of ["participants", "profiles", "consents", "threads", "messages", "feedback", "insights", "telegram_sessions", "telegram_action_messages", "onboarding_drafts"]) {
+    for (const table of ["participants", "profiles", "consents", "activities", "threads", "messages", "feedback", "insights", "telegram_sessions", "telegram_action_messages", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
     }

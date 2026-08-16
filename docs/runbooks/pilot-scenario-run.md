@@ -17,6 +17,7 @@
 | Дата начала | |
 | Оператор | |
 | Commit / версия deployment | |
+| Persistence-гейт (UTC, commit, `35 passed`) | |
 | `employeeId` тестировщика | |
 | Telegram username тестировщика | |
 | Username бота | |
@@ -86,6 +87,17 @@ npm run db:status
 ```
 
 Не направлять этот прогон или persistence specs на чужую/production-базу без явного разрешения оператора.
+
+Перед первым production invite обязательно прогнать persistence-гейт на отдельной чистой тестовой базе. Это условие запуска проверяет реальные PostgreSQL FK, атомарный dual-write и каскадное удаление завершённого профиля с личной активностью:
+
+```bash
+set -a; . ./.env; set +a
+# TEST_DATABASE_URL и TEST_MIGRATION_DATABASE_URL должны указывать на отдельную
+# пустую test-базу, а не на runtime/production database.
+npm run verify:persistence
+```
+
+Ожидается зелёный прогон без skipped/failed tests. Зафиксировать дату, commit и итог в протоколе запуска; после изменения миграций или persistence-адаптеров прогон повторить. `npm run verify` не заменяет этот gate, потому что не подключается к PostgreSQL.
 
 ### 3. Импорт базы знаний тестировщика (если она участвует в проверке)
 
