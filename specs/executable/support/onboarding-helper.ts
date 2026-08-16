@@ -1,11 +1,9 @@
 import type { SpecWorld } from "./spec-harness.js";
-import { testEmployee, testInvite, testProfile } from "./fixtures.js";
+import { testEmployee, testInvite, testProfile, testTenant } from "./fixtures.js";
 
 type TestOnboardingProfile = {
-  role: string;
-  typicalTasks: string[];
+  selfDescription: string;
   persona: "support" | "efficiency";
-  aiLevel: "beginner" | "intermediate" | "advanced";
   responseLength: "short" | "balanced" | "detailed";
 };
 
@@ -32,27 +30,18 @@ export async function onboardTestEmployee(
     "--yes",
   ]);
 
-  const args = [
+  return spec.cli.json([
     "employee",
     "complete-onboarding",
     "--employee",
     testEmployee.employeeId,
-    "--role",
-    profile.role,
-  ];
-
-  for (const task of profile.typicalTasks) {
-    args.push("--task", task);
-  }
-
-  args.push(
+    "--role-id",
+    testTenant.roleId,
+    "--self-description",
+    profile.selfDescription,
     "--persona",
     profile.persona,
-    "--ai-level",
-    profile.aiLevel,
     "--response-length",
     profile.responseLength,
-  );
-
-  return spec.cli.json(args);
+  ]);
 }

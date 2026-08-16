@@ -9,11 +9,18 @@ export const testInvite = {
   inviteCode: "invite_test_1",
 };
 
+export const testTenant = {
+  companyId: "default_company",
+  groupId: "default_group",
+  roleId: "default_role",
+};
+
 export const testProfile = {
+  selfDescription: "Руководитель проектов",
   role: "Руководитель проектов",
   typicalTasks: ["встречи", "отчёты", "координация подрядчиков"],
-  persona: "efficiency" as const,
   aiLevel: "intermediate" as const,
+  persona: "efficiency" as const,
   responseLength: "short" as const,
 };
 

@@ -275,9 +275,10 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
         }),
       },
     });
-    await runtime.service.issueInvite({ employeeId: "owner", inviteCode: "invite_owner" });
+    await runtime.service.issueInvite({ employeeId: "owner", inviteCode: "invite_owner", companyId: "default_company", groupId: "default_group" });
     await runtime.service.openInvite({ inviteCode: "invite_owner" });
     await runtime.service.acceptConsent({ employeeId: "owner", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "default_role" });
 
     await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "Зови меня Алексей" });
 

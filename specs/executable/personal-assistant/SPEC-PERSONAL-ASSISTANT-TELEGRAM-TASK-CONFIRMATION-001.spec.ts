@@ -29,10 +29,10 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
   const clock = { now: () => now };
   const legacy = createInMemoryRuntime({ agentRunner: async () => "legacy", deps: createDefaultSpecDeps() });
   legacy.world.now = clock.now;
-  await legacy.service.issueInvite({ employeeId: owner.employeeId, inviteCode: owner.inviteCode });
+  await legacy.service.issueInvite({ employeeId: owner.employeeId, inviteCode: owner.inviteCode, companyId: "default_company", groupId: "default_group" });
   await legacy.service.redeemTelegramInvite({ inviteCode: owner.inviteCode, identity: { chatId: owner.chatId, userId: owner.userId } });
   await legacy.service.acceptConsent({ employeeId: owner.employeeId, accepted: true, source: "test", telegramIdentity: { chatId: owner.chatId, userId: owner.userId } });
-  await legacy.service.completeOnboarding({ employeeId: owner.employeeId, role: "Owner", typicalTasks: ["planning"], persona: "efficiency", aiLevel: "advanced" });
+  await legacy.service.completeOnboarding({ roleId: "default_role", employeeId: owner.employeeId, role: "Owner", typicalTasks: ["planning"], persona: "efficiency", aiLevel: "advanced" });
   const documents = createInMemoryDocumentStore(clock);
   const ideas = createInMemoryIdeaStore(clock);
   const tasks = createInMemoryTaskStore(clock);

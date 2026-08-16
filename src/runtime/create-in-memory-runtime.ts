@@ -92,7 +92,6 @@ export function createInMemoryRuntime(input: {
     privacyExplanation: executableSpecPrivacyExplanation,
     onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
     defaultScheduleProvisioner: new DefaultScheduleProvisioner(scheduleStore, clock),
-    defaultTenantBinding: { companyId: "default_company", groupId: "default_group", roleId: "default_role" },
     clock,
     idGenerator: createDeterministicIdGenerator(),
     ...deps,

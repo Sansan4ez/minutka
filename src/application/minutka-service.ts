@@ -1,4 +1,4 @@
-import type { AddressForm, AiLevel, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import type { AddressForm, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
@@ -48,7 +48,7 @@ export type AgentRunContext = {
   selectedProcessIds?: AgentManualProcessId[];
 };
 export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promise<string>;
-export type IssueInviteInput = { employeeId: string; inviteCode: string; companyId?: string; groupId?: string };
+export type IssueInviteInput = { employeeId: string; inviteCode: string; companyId: string; groupId: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; companyId: string; groupId: string; status: OnboardingStatus; created: boolean };
 export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "createdAt" | "updatedAt">;
 export type ParticipantPage = { participants: ParticipantSummary[]; nextCursor?: string };
@@ -78,11 +78,8 @@ export type CompleteOnboardingInput = {
   employeeId: string;
   preferredName?: string; assistantName?: string; addressForm?: AddressForm; timezone?: string;
   persona: Persona; responseLength?: ResponseLengthPreference; preferredCheckinsPerDay?: 1 | 2 | 3;
-  /** Legacy direct-completion fields retained for backward-compatible clients. */
-  roleId?: string;
+  roleId: string;
   selfDescription?: string;
-  /** Legacy personal-only fields retained for backward-compatible internal callers. */
-  role?: string; typicalTasks?: string[]; aiLevel?: AiLevel;
 };
 export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string };
 export type SubmitOnboardingAnswerInput = { employeeId: string; text: string };
@@ -121,8 +118,6 @@ export type MinutkaServiceDeps = {
   /** Exact versioned text shown before accepting the current privacy version. */
   privacyExplanation?: string;
   defaultScheduleProvisioner?: DefaultScheduleProvisioner;
-  /** Executable-spec compatibility only; production transports require tenant fields. */
-  defaultTenantBinding?: { companyId: string; groupId: string; roleId: string };
 };
 
 /** Transport- and storage-independent application use cases. */
@@ -164,8 +159,8 @@ export class MinutkaService {
   async issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> {
     const employeeId = input.employeeId.trim();
     const inviteCode = input.inviteCode.trim();
-    const companyId = (input.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "").trim();
-    const groupId = (input.groupId ?? this.deps.defaultTenantBinding?.groupId ?? "").trim();
+    const companyId = input.companyId.trim();
+    const groupId = input.groupId.trim();
     if (!employeeId) throw new Error("employeeId is required");
     if (!inviteCode) throw new Error("inviteCode is required");
     if (!companyId) throw new Error("companyId is required");
@@ -297,10 +292,9 @@ export class MinutkaService {
     const participant = await this.requireParticipant(input.employeeId);
     if (!hasCurrentConsent(await this.stores.profileStore.getConsent(input.employeeId))) throw new PersistenceError("consent_required");
     this.validateProfileInput(input);
-    const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
-    const groupId = participant.groupId ?? this.deps.defaultTenantBinding?.groupId ?? "";
-    const roleId = (input.roleId ?? this.deps.defaultTenantBinding?.roleId ?? "").trim();
-    if (!companyId || !groupId) throw new Error("participant tenant binding is required");
+    const companyId = participant.companyId;
+    const groupId = participant.groupId;
+    const roleId = input.roleId.trim();
     if (!await this.stores.tenantDirectoryStore.getRole({ companyId, roleId })) throw new Error("roleId must belong to the participant company");
     const normalizedTimezone = input.timezone === undefined ? undefined : normalizeIanaTimezone(input.timezone);
     const requestId = this.ids.requestId();
@@ -317,9 +311,7 @@ export class MinutkaService {
       persona: input.persona,
       responseLength: input.responseLength ?? "balanced",
       timezone: normalizedTimezone ?? existing?.timezone ?? "Etc/UTC",
-      ...(input.selfDescription?.trim() ? { role: input.selfDescription.trim() } : input.role?.trim() ? { role: input.role.trim() } : existing?.role ? { role: existing.role } : {}),
-      ...(input.typicalTasks ? { typicalTasks: input.typicalTasks.map((task) => task.trim()) } : existing?.typicalTasks ? { typicalTasks: existing.typicalTasks } : {}),
-      ...(input.aiLevel ? { aiLevel: input.aiLevel } : existing?.aiLevel ? { aiLevel: existing.aiLevel } : {}),
+      ...(input.selfDescription?.trim() ? { role: input.selfDescription.trim() } : existing?.role ? { role: existing.role } : {}),
       preferredCheckinsPerDay: input.preferredCheckinsPerDay,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -437,21 +429,14 @@ export class MinutkaService {
     const current = await this.stores.onboardingDraftStore.get(employeeId);
     // An explicit reset intentionally wins over an in-flight answer; keeping
     // revisions monotonic prevents that stale CAS write from reviving old data.
-    const participant = await this.requireParticipant(employeeId);
-    const compatibilityRoleId = (participant.companyId ?? this.deps.defaultTenantBinding?.companyId) === this.deps.defaultTenantBinding?.companyId
-      && (participant.groupId ?? this.deps.defaultTenantBinding?.groupId) === this.deps.defaultTenantBinding?.groupId
-      ? this.deps.defaultTenantBinding?.roleId
-      : undefined;
-    const draft: OnboardingDraft = compatibilityRoleId
-      ? { employeeId, roleId: compatibilityRoleId, status: "collecting", pendingField: "preferredName", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) }
-      : { employeeId, status: "collecting", pendingField: "roleId", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
+    const draft: OnboardingDraft = { employeeId, status: "collecting", pendingField: "roleId", revision: (current?.revision ?? 0) + 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
     return this.onboardingProgressWithRoles(await this.stores.onboardingDraftStore.replace(draft));
   }
 
   private async selectOnboardingRole(current: OnboardingDraft, roleInput: string): Promise<OnboardingProgress> {
     const participant = await this.requireParticipant(current.employeeId);
-    const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
-    const roles = companyId ? await this.stores.tenantDirectoryStore.listRoles(companyId) : [];
+    const companyId = participant.companyId;
+    const roles = await this.stores.tenantDirectoryStore.listRoles(companyId);
     const normalizedInput = roleInput.trim();
     const roleById = roles.find((role) => role.id === normalizedInput);
     const rolesByName = roles.filter((role) => role.name.localeCompare(normalizedInput, "ru", { sensitivity: "accent" }) === 0);
@@ -471,7 +456,7 @@ export class MinutkaService {
 
   private async onboardingProgressWithRoles(draft: OnboardingDraft): Promise<OnboardingProgress> {
     const participant = await this.requireParticipant(draft.employeeId);
-    const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
+    const companyId = participant.companyId;
     if (draft.pendingField === "roleId") return this.roleSelectionProgress(await this.stores.tenantDirectoryStore.listRoles(companyId));
     if (isCompleteOnboardingDraft(draft)) {
       const role = await this.stores.tenantDirectoryStore.getRole({ companyId, roleId: draft.roleId });
@@ -640,17 +625,10 @@ export class MinutkaService {
     const existing = await this.stores.onboardingDraftStore.get(employeeId);
     if (existing) return existing;
     const participant = await this.requireParticipant(employeeId);
-    const companyId = participant.companyId ?? this.deps.defaultTenantBinding?.companyId ?? "";
-    const roles = await this.stores.tenantDirectoryStore.listRoles(companyId);
+    const roles = await this.stores.tenantDirectoryStore.listRoles(participant.companyId);
     if (roles.length === 0) throw new Error("participant company has no roles");
-    const compatibilityRoleId = companyId === this.deps.defaultTenantBinding?.companyId
-      && (participant.groupId ?? this.deps.defaultTenantBinding?.groupId) === this.deps.defaultTenantBinding?.groupId
-      ? this.deps.defaultTenantBinding?.roleId
-      : undefined;
     const now = this.clock.now();
-    const created: OnboardingDraft = compatibilityRoleId
-      ? { employeeId, roleId: compatibilityRoleId, status: "collecting", pendingField: "preferredName", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) }
-      : { employeeId, status: "collecting", pendingField: "roleId", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
+    const created: OnboardingDraft = { employeeId, status: "collecting", pendingField: "roleId", revision: 1, createdAt: now, updatedAt: now, expiresAt: onboardingExpiry(now) };
     try { return await this.stores.onboardingDraftStore.save(created, 0); }
     catch (error) {
       if (!(error instanceof PersistenceError) || error.code !== "persistence_conflict") throw error;
@@ -664,13 +642,8 @@ export class MinutkaService {
     if (input.preferredName !== undefined && !input.preferredName.trim()) throw new Error("preferredName is required");
     if (input.assistantName !== undefined && !input.assistantName.trim()) throw new Error("assistantName is required");
     if (input.timezone !== undefined && normalizeIanaTimezone(input.timezone) === undefined) throw new Error("timezone must be a valid IANA timezone");
-    if (!(input.roleId ?? this.deps.defaultTenantBinding?.roleId ?? "").trim()) throw new Error("roleId is required");
+    if (!input.roleId?.trim()) throw new Error("roleId is required");
     if (input.selfDescription !== undefined && !input.selfDescription.trim()) throw new Error("selfDescription must be non-empty");
-    if (input.role !== undefined && !input.role.trim()) throw new Error("role must be non-empty");
-    if (input.typicalTasks !== undefined) {
-      const tasks = input.typicalTasks.map((task) => task.trim());
-      if (tasks.length < 1 || tasks.length > 7 || tasks.some((task) => !task)) throw new Error("typicalTasks must contain 1 to 7 non-empty tasks");
-    }
   }
 }
 
@@ -749,7 +722,7 @@ function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false
   if (field === "preferredName") return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться?" };
   return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
 }
-const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "preferredCheckinsPerDay"] as const;
+const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "preferredCheckinsPerDay"] as const;
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
   return trackedProfileFields.filter((field) =>
     // Omitted optional data is not a change on initial creation, while a later

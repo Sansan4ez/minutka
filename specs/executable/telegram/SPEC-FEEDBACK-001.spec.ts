@@ -321,6 +321,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "new_chat", userId: "new_user", inviteCode: testInvite.inviteCode });
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "new_chat", userId: "new_user", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("new_chat");
 
     await telegram.sendText({ chatId: "new_chat", userId: "new_user", text: "Старый контекст" });
     const before = {
@@ -355,6 +356,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "typing_chat", userId: "typing_user", inviteCode: testInvite.inviteCode });
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "typing_chat", userId: "typing_user", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("typing_chat");
     telegram.clear();
 
     await telegram.sendText({ chatId: "typing_chat", userId: "typing_user", text: "Помоги с приоритетами." });
@@ -503,6 +505,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
       .callbackData;
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("chat_1");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Какая сегодня погода?" });
 
@@ -531,6 +534,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallback = consentMessage.replyMarkup?.inlineKeyboard[0][0].callbackData;
 
     await telegram.clickCallback({ chatId: "chat_cleanup", callbackData: consentCallback!, messageId: consentMessage.messageId });
+    await telegram.chooseDefaultRole("chat_cleanup");
     expect(telegram.replyMarkupEditCalls()).toContainEqual({ chatId: "chat_cleanup", messageId: consentMessage.messageId, replyMarkup: undefined });
 
     telegram.clear();
@@ -556,6 +560,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_proactive", userId: "user_proactive", inviteCode: testInvite.inviteCode });
     const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_proactive", userId: "user_proactive", callbackData: consentCallback! });
+    await telegram.chooseDefaultRole("chat_proactive");
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_proactive", userId: "user_proactive", text: "Первый вопрос" });
@@ -594,6 +599,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_reminder", userId: "user_reminder", inviteCode: testInvite.inviteCode });
     const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_reminder", userId: "user_reminder", callbackData: consentCallback! });
+    await telegram.chooseDefaultRole("chat_reminder");
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_reminder", userId: "user_reminder", text: "Первый вопрос" });
@@ -651,6 +657,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_1", inviteCode: testInvite.inviteCode });
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("chat_1");
 
     // Repeated /start with same invite
     telegram.clear();
@@ -696,6 +703,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallback = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     expect(consentCallback).toBe("tg:consent:emp_uncompleted");
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallback! });
+    await telegram.chooseDefaultRole("chat_1");
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Привет" });
@@ -735,6 +743,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_named_role", inviteCode: "invite_named_role" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_named_role", callbackData: consent! });
+    await telegram.clickCallback({ chatId: "chat_named_role", callbackData: "ob:roleId:role_acme_logistics" });
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_named_role", text: "неизвестная должность" });
@@ -757,6 +766,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_confirmation_dedupe", inviteCode: "invite_confirmation_dedupe" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_confirmation_dedupe", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_confirmation_dedupe");
     telegram.clear();
 
     const completeAnswer = "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow";
@@ -786,6 +796,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_confirmation_retry", inviteCode: "invite_confirmation_retry" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_confirmation_retry", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_confirmation_retry");
     telegram.clear();
 
     const completeAnswer = "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow";
@@ -804,6 +815,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_stale_confirmation", inviteCode: "invite_stale_confirmation" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_stale_confirmation", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_stale_confirmation");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_stale_confirmation", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     const confirmation = telegram.sentMessages()[0];
@@ -820,7 +832,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
   it("10ac. Recovers an abandoned consent action claim after the Telegram shell restarts", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
-    await runtime.service.issueInvite({ employeeId: "emp_consent_crash", inviteCode: "invite_consent_crash" });
+    await runtime.service.issueInvite({ employeeId: "emp_consent_crash", inviteCode: "invite_consent_crash", companyId: "default_company", groupId: "default_group" });
     const firstShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
     await firstShell.start({ chatId: "chat_consent_crash", inviteCode: "invite_consent_crash" });
     const prompt = firstShell.sentMessages()[0];
@@ -844,7 +856,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
   it("10aca. Keeps completed consent keyboards idempotent after the Telegram shell restarts", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
-    await runtime.service.issueInvite({ employeeId: "emp_consent_restart", inviteCode: "invite_consent_restart" });
+    await runtime.service.issueInvite({ employeeId: "emp_consent_restart", inviteCode: "invite_consent_restart", companyId: "default_company", groupId: "default_group" });
     const firstShell = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
     await firstShell.start({ chatId: "chat_consent_restart", inviteCode: "invite_consent_restart" });
     const prompt = firstShell.sentMessages()[0];
@@ -879,11 +891,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
         },
       },
     });
-    await runtime.service.issueInvite({ employeeId: "emp_confirm_retry", inviteCode: "invite_confirm_retry" });
+    await runtime.service.issueInvite({ employeeId: "emp_confirm_retry", inviteCode: "invite_confirm_retry", companyId: "default_company", groupId: "default_group" });
     const telegram = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
     await telegram.start({ chatId: "chat_confirm_retry", inviteCode: "invite_confirm_retry" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_confirm_retry", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_confirm_retry");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_confirm_retry", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     const confirmation = telegram.sentMessages()[0];
@@ -918,11 +931,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
         },
       },
     });
-    await runtime.service.issueInvite({ employeeId: "emp_confirm_claim_race", inviteCode: "invite_confirm_claim_race" });
+    await runtime.service.issueInvite({ employeeId: "emp_confirm_claim_race", inviteCode: "invite_confirm_claim_race", companyId: "default_company", groupId: "default_group" });
     const telegram = new TelegramDriver(world, dummyAgentRunner, {}, true, undefined, runtime);
     await telegram.start({ chatId: "chat_confirm_claim_race", inviteCode: "invite_confirm_claim_race" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_confirm_claim_race", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_confirm_claim_race");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_confirm_claim_race", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     const confirmation = telegram.sentMessages()[0];
@@ -972,6 +986,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_correction", inviteCode: "invite_correction" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_correction", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_correction");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_correction", text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     const edit = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][1];
@@ -993,6 +1008,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_ai_button", inviteCode: "invite_ai_button" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_ai_button", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_ai_button");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_ai_button", text: "Меня зовут Максим. Тебя зовут Спарк. Общаемся на ты, стиль деловой." });
     const short = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0];
@@ -1010,6 +1026,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_timezone_button", inviteCode: "invite_timezone_button" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_timezone_button", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_timezone_button");
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_timezone_button", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
@@ -1031,6 +1048,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_timezone_retry", inviteCode: "invite_timezone_retry" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_timezone_retry", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_timezone_retry");
     telegram.clear();
     await telegram.sendText({ chatId: "chat_timezone_retry", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
     telegram.clear();
@@ -1049,6 +1067,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_callback_text_race", inviteCode: "invite_callback_text_race" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_callback_text_race", callbackData: consent! });
+    await telegram.chooseDefaultRole("chat_callback_text_race");
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_callback_text_race", text: "Меня зовут Максим. Тебя зовут Спарк." });
@@ -1071,7 +1090,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
   it("10bb. Keeps the chat busy until both callbacks from a double-click finish", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
-    await runtime.service.issueInvite({ employeeId: "emp_callback_double", inviteCode: "invite_callback_double" });
+    await runtime.service.issueInvite({ employeeId: "emp_callback_double", inviteCode: "invite_callback_double", companyId: "default_company", groupId: "default_group" });
     const sent: Array<{ messageId: number; text: string; replyMarkup?: { inlineKeyboard: Array<Array<{ callbackData: string }>> } }> = [];
     const callbacks: Array<{ callbackQueryId: string; text?: string }> = [];
     let firstAnswerStarted!: () => void;
@@ -1179,7 +1198,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
     const identity = { chatId: "chat_reconsent", userId: "user_reconsent" };
     const acceptedAt = world.now();
-    await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent" });
+    await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent", companyId: "default_company", groupId: "default_group" });
     await runtime.service.openInvite({ inviteCode: "invite_reconsent" });
     world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
     await runtime.telegramSessionStore.claim({
@@ -1209,7 +1228,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
     const identity = { chatId: "chat_missing_consent", userId: "user_missing_consent" };
-    await runtime.service.issueInvite({ employeeId: "emp_missing_consent", inviteCode: "invite_missing_consent" });
+    await runtime.service.issueInvite({ employeeId: "emp_missing_consent", inviteCode: "invite_missing_consent", companyId: "default_company", groupId: "default_group" });
     await runtime.service.openInvite({ inviteCode: "invite_missing_consent" });
     await runtime.telegramSessionStore.claim({
       identity,
@@ -1323,6 +1342,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
       .callbackData;
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("chat_1");
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "trigger failure" });
@@ -1342,6 +1362,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
       .callbackData;
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("chat_1");
 
     telegram.clear();
     await telegram.sendText({ chatId: "chat_1", text: "Длинный ответ" });
@@ -1362,6 +1383,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const consentCallbackData = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0]
       .callbackData;
     await telegram.clickCallback({ chatId: "chat_1", callbackData: consentCallbackData! });
+    await telegram.chooseDefaultRole("chat_1");
 
     // Empty text
     telegram.clear();

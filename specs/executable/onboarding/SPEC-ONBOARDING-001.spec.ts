@@ -20,7 +20,7 @@ import {
   expectProfile,
   registerSpecMetadata,
 } from "../support/spec-harness.js";
-import { testEmployee, testInvite, testProfile } from "../support/fixtures.js";
+import { testEmployee, testInvite, testProfile, testTenant } from "../support/fixtures.js";
 
 registerSpecMetadata({
   id: "SPEC-ONBOARDING-001",
@@ -118,7 +118,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "--employee",
       testEmployee.employeeId,
       "--role",
-      testProfile.role,
+      testProfile.selfDescription,
       "--task",
       "встречи",
       "--task",
@@ -134,13 +134,11 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     ]);
 
     expect(onboarding.profile.persona).toBe("efficiency");
-    expect(onboarding.profile.aiLevel).toBe("intermediate");
+    expect(onboarding.profile.aiLevel).toBeUndefined();
     expect(onboarding.firstResponse).toContain("приоритет");
     expectProfile(spec, testEmployee.employeeId, {
-      role: testProfile.role,
-      typicalTasks: testProfile.typicalTasks,
+      role: testProfile.selfDescription,
       persona: "efficiency",
-      aiLevel: "intermediate",
       responseLength: "short",
     });
 
@@ -151,8 +149,8 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       testEmployee.employeeId,
     ]);
 
-    expect(profile.role).toBe(testProfile.role);
-    expect(profile.typicalTasks).toEqual(testProfile.typicalTasks);
+    expect(profile.role).toBe(testProfile.selfDescription);
+    expect(profile.typicalTasks).toBeUndefined();
 
     await spec.cli.json([
       "employee",
@@ -170,7 +168,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
         (run) =>
           run.context?.purpose === "onboarding_first_response" &&
           run.context.systemContext?.includes("Эффективность") &&
-          run.context.systemContext.includes(testProfile.role) &&
+          run.context.systemContext.includes(testProfile.selfDescription) &&
           run.context.systemContext.includes("Etc/UTC") &&
           run.context.systemContext.includes("экономии времени"),
       ),
@@ -246,7 +244,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "--employee",
       testEmployee.employeeId,
       "--role",
-      testProfile.role,
+      testProfile.selfDescription,
       "--task",
       "встречи",
       "--persona",
@@ -287,7 +285,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
         "--employee",
         "emp_no_consent",
         "--role",
-        testProfile.role,
+        testProfile.selfDescription,
         "--task",
         "встречи",
         "--persona",
@@ -307,7 +305,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "--employee",
       testEmployee.employeeId,
       "--role",
-      testProfile.role,
+      testProfile.selfDescription,
       "--task",
       "встречи",
       "--persona",
@@ -358,6 +356,8 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     await service.issueInvite({
       inviteCode: "invite_timestamp",
       employeeId: "emp_timestamp",
+      companyId: "default_company",
+      groupId: "default_group",
     });
     await service.openInvite({ inviteCode: "invite_timestamp" });
     await service.acceptConsent({
@@ -367,10 +367,9 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     });
     await service.completeOnboarding({
       employeeId: "emp_timestamp",
-      role: testProfile.role,
-      typicalTasks: ["встречи"],
+      roleId: testTenant.roleId,
+      selfDescription: testProfile.selfDescription,
       persona: "support",
-      aiLevel: "beginner",
     });
 
     expect(world.consents[0]).toMatchObject({
@@ -389,8 +388,6 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
         "responseLength",
         "timezone",
         "role",
-        "typicalTasks",
-        "aiLevel",
       ],
     });
   });

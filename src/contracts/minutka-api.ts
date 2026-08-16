@@ -269,7 +269,7 @@ export const acceptConsentResponseSchema = z.strictObject({ employeeId: employee
 export const completeOnboardingRequestSchema = z.strictObject({
   preferredName: z.string().min(1).max(128).optional(), assistantName: z.string().min(1).max(128).optional(), addressForm: addressFormSchema.optional(), timezone: timezoneSchema.optional(),
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
-  roleId: z.string().min(1).max(128).optional(), selfDescription: z.string().min(1).max(2_000).optional(), role: z.string().min(1).optional(), typicalTasks: z.array(z.string().min(1)).min(1).max(7).optional(), aiLevel: aiLevelSchema.optional(),
+  roleId: z.string().min(1).max(128), selfDescription: z.string().min(1).max(2_000).optional(),
 });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
 export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);

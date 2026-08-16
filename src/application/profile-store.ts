@@ -12,8 +12,8 @@ export type ProfileStore = {
   issueInvite(input: {
     employeeId: string;
     inviteCode: string;
-    companyId?: string;
-    groupId?: string;
+    companyId: string;
+    groupId: string;
     issuedAt: string;
   }): Promise<IssueInviteResult>;
   openInvite(input: {
@@ -29,7 +29,7 @@ export type ProfileStore = {
   completeProfile(input: {
     profile: UserProfile;
     completedAt: string;
-    /** Legacy direct completion may update an existing profile; draft confirmation may not. */
+    /** Direct completion may update an existing profile; draft confirmation may not. */
     allowUpdate?: boolean;
     /** Atomically removes temporary onboarding data when profile completion commits. */
     deleteOnboardingDraft?: boolean;

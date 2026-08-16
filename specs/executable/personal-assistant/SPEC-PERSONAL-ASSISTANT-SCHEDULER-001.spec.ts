@@ -38,7 +38,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       id: "owner_moscow:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "10:30", timezone: "Europe/Moscow",
       enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z",
     });
-    await expect(runtime.service.completeOnboarding({ employeeId: "owner_moscow", persona: "efficiency", timezone: "Europe/Moscow" })).resolves.toMatchObject({ completion: "already" });
+    await expect(runtime.service.completeOnboarding({ employeeId: "owner_moscow", roleId: "default_role", persona: "efficiency", timezone: "Europe/Moscow" })).resolves.toMatchObject({ completion: "already" });
     const restartedProvisioner = new DefaultScheduleProvisioner(runtime.scheduleStore, { now: () => "2026-01-16T05:30:00.000Z" });
     await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({ created: false });
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
@@ -455,8 +455,8 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
 });
 
 async function onboard(runtime: ReturnType<typeof createInMemoryRuntime>, employeeId: string, timezone: string): Promise<void> {
-  await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}` });
+  await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, companyId: "default_company", groupId: "default_group" });
   await runtime.service.openInvite({ inviteCode: `invite_${employeeId}` });
   await runtime.service.acceptConsent({ employeeId, accepted: true, source: "test" });
-  await runtime.service.completeOnboarding({ employeeId, persona: "efficiency", timezone });
+  await runtime.service.completeOnboarding({ employeeId, roleId: "default_role", persona: "efficiency", timezone });
 }

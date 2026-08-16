@@ -22,18 +22,19 @@ import { listenHttpServer, type RunningHttpServer } from "../../../src/server/ht
 import type { UsageStore } from "../../../src/application/usage-store.js";
 
 const employeeToken = "a".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64); const running: RunningHttpServer[] = []; const silent = () => undefined;
+const testTenantBinding = { companyId: "default_company", groupId: "default_group" } as const;
 afterEach(async () => { await Promise.all(running.splice(0).map((server) => server.close())); });
 
 describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
   it("uses the same state as the listener and derives employee identity from its token", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
     const application = createApplication(runtime, "first response");
-    await application.issueInvite({ employeeId: "emp_cli", inviteCode: "invite_cli" });
+    await application.issueInvite({ employeeId: "emp_cli", inviteCode: "invite_cli", ...testTenantBinding });
     const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map([["emp_cli", employeeToken]]) } }); running.push(server);
     const client = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: employeeToken }));
     expect((await runMinutkaCli(client, ["employee", "open-invite", "--invite", "invite_cli"])).exitCode).toBe(0);
     expect((await runMinutkaCli(client, ["employee", "accept-consent", "--yes"])).exitCode).toBe(0);
-    const onboarding = await runMinutkaCli(client, ["employee", "complete-onboarding", "--role", "manager", "--task", "planning", "--persona", "support", "--ai-level", "beginner"]);
+    const onboarding = await runMinutkaCli(client, ["employee", "complete-onboarding", "--role-id", "default_role", "--self-description", "manager", "--persona", "support"]);
     expect(onboarding.exitCode).toBe(0);
     const chat = await runMinutkaCli(client, ["employee", "chat", "--thread", "thread_cli", "--text", "hello"]);
     expect(chat.exitCode).toBe(0); const messageId = JSON.parse(chat.stdout.at(-1) ?? "{}").messageId;
@@ -52,8 +53,8 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map() } }); running.push(server);
     const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
 
-    const first = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--bot", "pilot_test_bot"]);
-    const second = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_second"], { TELEGRAM_BOT_USERNAME: "@pilot_test_bot" });
+    const first = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--company", "default_company", "--group", "default_group", "--bot", "pilot_test_bot"]);
+    const second = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_second", "--company", "default_company", "--group", "default_group"], { TELEGRAM_BOT_USERNAME: "@pilot_test_bot" });
     expect(first.exitCode).toBe(0); expect(second.exitCode).toBe(0);
     const firstCode = new URL(first.stdout[1]).searchParams.get("start");
     const secondCode = new URL(second.stdout[1]).searchParams.get("start");
@@ -64,7 +65,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     let listCalls = 0;
     const originalListParticipants = client.listParticipants.bind(client);
     client.listParticipants = async (...args) => { listCalls += 1; return originalListParticipants(...args); };
-    const repeated = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--bot", "pilot_test_bot"]);
+    const repeated = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--company", "default_company", "--group", "default_group", "--bot", "pilot_test_bot"]);
     expect(repeated.exitCode).toBe(1); expect(repeated.stderr.at(-1)).toContain("employee already has an active invite"); expect(repeated.stdout).toEqual([]);
     expect(listCalls).toBe(0);
     expect((await client.listParticipants()).participants.find(({ employeeId }) => employeeId === "emp_first")).toBeDefined();
@@ -172,10 +173,10 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     let instant = 0;
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => new Date(Date.UTC(2026, 0, 1, 0, 0, instant++)).toISOString()) });
     const application = createApplication(runtime, "unused");
-    for (let index = 0; index < 25; index += 1) await application.issueInvite({ employeeId: `emp_${String(index).padStart(3, "0")}`, inviteCode: `invite_${index}` });
+    for (let index = 0; index < 25; index += 1) await application.issueInvite({ employeeId: `emp_${String(index).padStart(3, "0")}`, inviteCode: `invite_${index}`, ...testTenantBinding });
     await application.openInvite({ inviteCode: "invite_0" });
     await application.acceptConsent({ employeeId: "emp_000", accepted: true, source: "cli" });
-    await application.completeOnboarding({ employeeId: "emp_000", preferredName: "Private Name", assistantName: "Spark", addressForm: "informal", timezone: "Europe/Moscow", persona: "support" });
+    await application.completeOnboarding({ employeeId: "emp_000", roleId: "default_role", preferredName: "Private Name", assistantName: "Spark", addressForm: "informal", timezone: "Europe/Moscow", persona: "support" });
     const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_000", employeeToken]]) } }); running.push(server);
 
     for (const token of [employeeToken, serviceToken]) {
@@ -199,7 +200,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     const originalCombined = [...firstPage.participants, ...secondPage.participants];
     expect(new Set(originalCombined.map((participant: { employeeId: string }) => participant.employeeId)).size).toBe(25);
 
-    await application.issueInvite({ employeeId: "emp_new", inviteCode: "invite_new" });
+    await application.issueInvite({ employeeId: "emp_new", inviteCode: "invite_new", ...testTenantBinding });
     const stableSecondPage = await client.listParticipants({ after: firstPage.nextCursor });
     const combined = [...firstPage.participants, ...stableSecondPage.participants];
     expect(stableSecondPage.participants).toHaveLength(6);

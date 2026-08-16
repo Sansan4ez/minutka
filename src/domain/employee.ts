@@ -19,8 +19,8 @@ export type OnboardingStatus =
 /** Persistent participant state. Invite codes are operation inputs, never participant data. */
 export type Participant = {
   employeeId: string;
-  companyId?: string;
-  groupId?: string;
+  companyId: string;
+  groupId: string;
   roleId?: string;
   status: OnboardingStatus;
   createdAt: string;
@@ -39,9 +39,9 @@ export type Consent = {
 
 export type UserProfile = {
   employeeId: string;
-  companyId?: string;
-  groupId?: string;
-  roleId?: string;
+  companyId: string;
+  groupId: string;
+  roleId: string;
   /** Structured identity and delivery preferences used outside LLM context. */
   preferredName: string;
   assistantName: string;
@@ -49,8 +49,9 @@ export type UserProfile = {
   persona: Persona;
   responseLength: ResponseLengthPreference;
   timezone: string;
-  /** Legacy context retained for existing profiles; new onboarding does not require it. */
+  /** Personal self-description; never copied into anonymized reporting rows. */
   role?: string;
+  /** Stored legacy profile context; no longer accepted by Minutka onboarding. */
   typicalTasks?: string[];
   aiLevel?: AiLevel;
   preferredCheckinsPerDay?: 1 | 2 | 3;

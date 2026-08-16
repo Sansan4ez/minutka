@@ -9,8 +9,8 @@ import { withTransaction } from "./postgres-pool.js";
 
 type ParticipantRow = {
   employee_id: string;
-  company_id: string | null;
-  group_id: string | null;
+  company_id: string;
+  group_id: string;
   role_id: string | null;
   status: Participant["status"];
   privacy_explanation_shown_at: Date | null;
@@ -26,9 +26,9 @@ type ConsentRow = {
 };
 type ProfileRow = {
   employee_id: string;
-  company_id: string | null;
-  group_id: string | null;
-  role_id: string | null;
+  company_id: string;
+  group_id: string;
+  role_id: string;
   preferred_name: string;
   assistant_name: string;
   address_form: UserProfile["addressForm"];
@@ -50,8 +50,8 @@ const profileColumns = `p.employee_id, participant.company_id, participant.group
 
 const toParticipant = (row: ParticipantRow): Participant => ({
   employeeId: row.employee_id,
-  ...(row.company_id ? { companyId: row.company_id } : {}),
-  ...(row.group_id ? { groupId: row.group_id } : {}),
+  companyId: row.company_id,
+  groupId: row.group_id,
   ...(row.role_id ? { roleId: row.role_id } : {}),
   status: row.status,
   ...(row.privacy_explanation_shown_at ? { privacyExplanationShownAt: row.privacy_explanation_shown_at.toISOString() } : {}),
@@ -67,9 +67,9 @@ const toConsent = (row: ConsentRow): Consent => ({
 });
 const toProfile = (row: ProfileRow): UserProfile => ({
   employeeId: row.employee_id,
-  ...(row.company_id ? { companyId: row.company_id } : {}),
-  ...(row.group_id ? { groupId: row.group_id } : {}),
-  ...(row.role_id ? { roleId: row.role_id } : {}),
+  companyId: row.company_id,
+  groupId: row.group_id,
+  roleId: row.role_id,
   preferredName: row.preferred_name,
   assistantName: row.assistant_name,
   addressForm: row.address_form,

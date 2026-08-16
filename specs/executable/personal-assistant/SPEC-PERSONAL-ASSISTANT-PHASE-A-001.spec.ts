@@ -81,9 +81,9 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const documents = createInMemoryDocumentStore({ now: world.now });
     const tasks = createInMemoryTaskStore({ now: world.now });
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
-    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now(), companyId: "default_company", groupId: "default_group" });
     await profiles.completeProfile({ completedAt: world.now(), profile: {
-      employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
+      employeeId: "maxim", companyId: "default_company", groupId: "default_group", roleId: "default_role", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
       persona: "efficiency", responseLength: "short", timezone: "Asia/Moscow", createdAt: world.now(), updatedAt: world.now(),
     } });
     await tasks.create("maxim", { id: "task-local", project: "PLAN", type: "operations", title: "Закрыть вчерашнюю задачу", status: "open", dueDate: "2026-07-28" });
@@ -131,12 +131,12 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const conversations = createInMemoryConversationStore(world);
     const documents = createInMemoryDocumentStore({ now: world.now });
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
-    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now(), companyId: "default_company", groupId: "default_group" });
     await ingestion.saveContextDocument({ userId: "maxim", path: "context/10_user_memory/01_личная_конституция.md", content: "CORE_CONTEXT" });
     await profiles.completeProfile({
       completedAt: world.now(),
       profile: {
-        employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
+        employeeId: "maxim", companyId: "default_company", groupId: "default_group", roleId: "default_role", preferredName: "Максим", assistantName: "Генри", addressForm: "informal",
         persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow",
         role: "Руководитель", typicalTasks: ["планирование"], aiLevel: "advanced", preferredCheckinsPerDay: 2,
         createdAt: world.now(), updatedAt: world.now(),
@@ -175,8 +175,8 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const conversations = createInMemoryConversationStore(world);
     const documents = createInMemoryDocumentStore({ now: world.now });
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
-    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
-    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now(), companyId: "default_company", groupId: "default_group" });
+    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", companyId: "default_company", groupId: "default_group", roleId: "default_role", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
     const buildProjection = () => createRuntimeProjectionBuilder({
       profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
       feedbackStore: createInMemoryFeedbackStore(world), auditEventStore: createInMemoryAuditEventStore(world), clock: { now: world.now },
@@ -204,8 +204,8 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const conversations = createInMemoryConversationStore(world);
     const documents = createInMemoryDocumentStore({ now: world.now });
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
-    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now() });
-    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
+    await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now(), companyId: "default_company", groupId: "default_group" });
+    await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", companyId: "default_company", groupId: "default_group", roleId: "default_role", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
     for (let index = 0; index < 11; index++) await conversations.appendTurn({ messageId: `msg-${index}`, employeeId: "maxim", threadId: "thread", userText: index === 10 ? "x".repeat(7_000) : `turn-${index}`, agentResponse: `reply-${index}`, timestamp: world.now() });
     let receivedContext = "";
     const chatProjectionBuilder = createRuntimeProjectionBuilder({

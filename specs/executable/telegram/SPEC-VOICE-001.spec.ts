@@ -30,6 +30,7 @@ async function connectedDriver(voiceEnabled = true) {
   await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
   const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
   await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+  await telegram.chooseDefaultRole("voice_chat");
   telegram.clear();
   return { spec, telegram };
 }
@@ -73,6 +74,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+    await telegram.chooseDefaultRole("voice_chat");
     telegram.clear();
     let refresh: (() => void) | undefined;
     const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
@@ -202,6 +204,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+    await telegram.chooseDefaultRole("voice_chat");
     telegram.clear();
 
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "download-stalled", durationSeconds: 1, error: "download-hang" });
@@ -232,6 +235,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.start({ chatId: "onboarding_voice", userId: "onboarding_user", inviteCode: "voice_onboarding_invite" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "onboarding_voice", userId: "onboarding_user", callbackData: consent! });
+    await telegram.chooseDefaultRole("onboarding_voice", "onboarding_user");
     telegram.clear();
 
     await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
@@ -254,6 +258,7 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.start({ chatId: "voice_chat", userId: "voice_user", inviteCode: testInvite.inviteCode });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "voice_chat", userId: "voice_user", callbackData: consent! });
+    await telegram.chooseDefaultRole("voice_chat");
     telegram.clear();
 
     await telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "parallel_voice", durationSeconds: 1, transcript: "first" });

@@ -18,12 +18,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const testTenantBinding = { companyId: "default_company", groupId: "default_group" } as const;
+
 async function consentedRuntime(employeeId = "emp_conversational") {
   const world = createInMemoryWorld();
   const runtime = createInMemoryRuntime({ world, agentRunner: async () => "Добро пожаловать!" });
-  await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}` });
+  await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, ...testTenantBinding });
   await runtime.service.openInvite({ inviteCode: `invite_${employeeId}` });
   await runtime.service.acceptConsent({ employeeId, accepted: true, source: "test" });
+  await runtime.service.submitOnboardingAnswer({ employeeId, text: "default_role" });
   return runtime;
 }
 
@@ -228,6 +231,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(runtime.world.onboardingDrafts[0].preferredName).toBe("Максим");
 
     await runtime.service.resetOnboardingDraft({ employeeId: "emp_conversational" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "default_role" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: completeAnswer });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Зови меня Алексей" })).resolves.toMatchObject({
@@ -329,6 +333,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     const runtime = await consentedRuntime("emp_canonical_tz");
     await expect(runtime.service.completeOnboarding({
       employeeId: "emp_canonical_tz",
+      roleId: "default_role",
       preferredName: "Максим",
       assistantName: "Спарк",
       addressForm: "informal",
@@ -399,9 +404,10 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
     const world = createInMemoryWorld();
     const runtime = createInMemoryRuntime({ world, agentRunner: async () => "ok", deps: { onboardingProfileExtractor: async () => { throw new Error("provider unavailable"); } } });
-    await runtime.service.issueInvite({ employeeId: "emp_fallback", inviteCode: "invite_fallback" });
+    await runtime.service.issueInvite({ employeeId: "emp_fallback", inviteCode: "invite_fallback", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_fallback" });
     await runtime.service.acceptConsent({ employeeId: "emp_fallback", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: "default_role" });
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: completeAnswer })).toMatchObject({ status: "needs_confirmation" });
   });
 
@@ -409,9 +415,10 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     let agentRuns = 0;
     const world = createInMemoryWorld();
     const runtime = createInMemoryRuntime({ world, agentRunner: async () => { agentRuns += 1; return "ok"; } });
-    await runtime.service.issueInvite({ employeeId: "emp_confirm", inviteCode: "invite_confirm" });
+    await runtime.service.issueInvite({ employeeId: "emp_confirm", inviteCode: "invite_confirm", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_confirm" });
     await runtime.service.acceptConsent({ employeeId: "emp_confirm", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: "default_role" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: completeAnswer });
     await Promise.all([runtime.service.confirmOnboarding({ employeeId: "emp_confirm" }), runtime.service.confirmOnboarding({ employeeId: "emp_confirm" })]);
     expect(agentRuns).toBe(1);
@@ -441,9 +448,10 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
         },
       },
     });
-    await runtime.service.issueInvite({ employeeId: "emp_recovery", inviteCode: "invite_recovery" });
+    await runtime.service.issueInvite({ employeeId: "emp_recovery", inviteCode: "invite_recovery", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_recovery" });
     await runtime.service.acceptConsent({ employeeId: "emp_recovery", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_recovery", text: "default_role" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_recovery", text: completeAnswer });
 
     await expect(runtime.service.confirmOnboarding({ employeeId: "emp_recovery" })).rejects.toThrow("document store unavailable");
@@ -503,9 +511,10 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       agentRunner: async () => "ok",
       deps: { onboardingProfileExtractor: async (input) => { if (input.text === "Зови меня Алексей") { extractionStarted(); await release; } return extractDeterministicOnboardingPatch(input); } },
     });
-    await runtime.service.issueInvite({ employeeId: "emp_race", inviteCode: "invite_race" });
+    await runtime.service.issueInvite({ employeeId: "emp_race", inviteCode: "invite_race", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_race" });
     await runtime.service.acceptConsent({ employeeId: "emp_race", accepted: true, source: "test" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: "default_role" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: completeAnswer });
     const staleAnswer = runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: "Зови меня Алексей" });
     await started;

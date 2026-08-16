@@ -3,11 +3,9 @@ import { Command } from "commander";
 import type { AdminMinutkaClient, EmployeeMinutkaClient } from "../sdk/minutka-client.js";
 
 export type CliResult = { exitCode: number; stdout: string[]; stderr: string[] };
-function collect(value: string, previous: string[]) { return [...previous, value]; }
 function parseChoice<const T extends readonly string[]>(value: string, choices: T, label: string): T[number] { if (choices.includes(value)) return value; throw new Error(`${label} must be one of: ${choices.join(", ")}`); }
 function currentUsageMonth(): string { return new Date().toISOString().slice(0, 7); }
 const parsePersona = (value: string) => parseChoice(value, ["support", "efficiency"] as const, "persona");
-const parseAiLevel = (value: string) => parseChoice(value, ["beginner", "intermediate", "advanced"] as const, "ai-level");
 const parseResponseLength = (value: string) => parseChoice(value, ["short", "balanced", "detailed"] as const, "response-length");
 const parseInsightKind = (value: string) => parseChoice(value, ["task_category", "routine_pattern", "energy_stress_marker", "automation_candidate"] as const, "kind");
 
@@ -20,25 +18,25 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
   const employee = new Command("employee").description("Commands for the authenticated employee");
   employee.addCommand(new Command("open-invite").requiredOption("--invite <inviteCode>").action(async (o: { invite: string }) => { stdout.push(JSON.stringify(await employeeClient.openInvite({ inviteCode: o.invite }))); }));
   employee.addCommand(new Command("accept-consent").option("--yes").action(async (o: { yes?: boolean }) => { if (o.yes !== true) throw new Error("privacy consent must be explicitly accepted"); stdout.push(JSON.stringify(await employeeClient.acceptConsent({ accepted: true, source: "cli" }))); }));
-  employee.addCommand(new Command("complete-onboarding").option("--name <preferredName>").option("--assistant-name <assistantName>").option("--address-form <addressForm>", "informal|formal").option("--timezone <timezone>").option("--role-id <roleId>").option("--role <role>").option("--self-description <text>").option("--task <task>", "Typical task", collect, []).requiredOption("--persona <persona>", "support|efficiency", parsePersona).option("--ai-level <level>", "beginner|intermediate|advanced", parseAiLevel).option("--response-length <length>", "short|balanced|detailed", parseResponseLength).action(async (o: { preferredName?: string; assistantName?: string; addressForm?: "informal" | "formal"; timezone?: string; roleId?: string; role?: string; selfDescription?: string; task: string[]; persona: "support" | "efficiency"; aiLevel?: "beginner" | "intermediate" | "advanced"; responseLength?: "short" | "balanced" | "detailed" }) => { stdout.push(JSON.stringify(await employeeClient.completeOnboarding({ preferredName: o.preferredName, assistantName: o.assistantName, addressForm: o.addressForm, timezone: o.timezone, roleId: o.roleId, role: o.role, selfDescription: o.selfDescription, typicalTasks: o.task.length ? o.task : undefined, persona: o.persona, aiLevel: o.aiLevel, responseLength: o.responseLength }))); }));
+  employee.addCommand(new Command("complete-onboarding").option("--name <preferredName>").option("--assistant-name <assistantName>").option("--address-form <addressForm>", "informal|formal").option("--timezone <timezone>").requiredOption("--role-id <roleId>").option("--self-description <text>").requiredOption("--persona <persona>", "support|efficiency", parsePersona).option("--response-length <length>", "short|balanced|detailed", parseResponseLength).action(async (o: { preferredName?: string; assistantName?: string; addressForm?: "informal" | "formal"; timezone?: string; roleId: string; selfDescription?: string; persona: "support" | "efficiency"; responseLength?: "short" | "balanced" | "detailed" }) => { stdout.push(JSON.stringify(await employeeClient.completeOnboarding({ preferredName: o.preferredName, assistantName: o.assistantName, addressForm: o.addressForm, timezone: o.timezone, roleId: o.roleId, selfDescription: o.selfDescription, persona: o.persona, responseLength: o.responseLength }))); }));
   employee.addCommand(new Command("profile").action(async () => { stdout.push(JSON.stringify(await employeeClient.getProfile())); }));
   employee.addCommand(new Command("chat").option("--thread <threadId>", "Thread ID; specify the Telegram thread ID for cross-channel continuity", "default").requiredOption("--text <text>").action(async (o: { thread: string; text: string }) => { stdout.push(JSON.stringify(await employeeClient.chat({ threadId: o.thread, text: o.text }))); }));
   employee.addCommand(new Command("insights").option("--thread <threadId>").option("--kind <kind>", "Insight kind", parseInsightKind).action(async (o: { thread?: string; kind?: ReturnType<typeof parseInsightKind> }) => { stdout.push(JSON.stringify(await employeeClient.listInsights({ threadId: o.thread, kind: o.kind }))); }));
   employee.addCommand(new Command("feedback").option("--thread <threadId>", "Thread ID; specify the Telegram thread ID for cross-channel continuity", "default").requiredOption("--target-message <targetMessageId>").requiredOption("--rating <rating>").action(async (o: { thread: string; targetMessage: string; rating: string }) => { if (!["positive", "neutral", "negative"].includes(o.rating)) throw new Error("rating must be positive, neutral, or negative"); stdout.push(JSON.stringify(await employeeClient.submitFeedback({ threadId: o.thread, targetMessageId: o.targetMessage, rating: o.rating as "positive" | "neutral" | "negative", source: "cli" }))); }));
   program.addCommand(employee);
   const admin = new Command("admin").description("Operator commands");
-  admin.addCommand(new Command("issue-invite").requiredOption("--employee <employeeId>").requiredOption("--invite <inviteCode>").option("--company <companyId>").option("--group <groupId>").action(async (o: { employee: string; invite: string; company?: string; group?: string }) => { stdout.push(JSON.stringify(await adminClient.issueInvite({ employeeId: o.employee, inviteCode: o.invite, companyId: o.company ?? "default_company", groupId: o.group ?? "default_group" }))); }));
+  admin.addCommand(new Command("issue-invite").requiredOption("--employee <employeeId>").requiredOption("--invite <inviteCode>").requiredOption("--company <companyId>").requiredOption("--group <groupId>").action(async (o: { employee: string; invite: string; company: string; group: string }) => { stdout.push(JSON.stringify(await adminClient.issueInvite({ employeeId: o.employee, inviteCode: o.invite, companyId: o.company, groupId: o.group }))); }));
   admin.addCommand(new Command("invite")
     .requiredOption("--employee <employeeId>")
-    .option("--company <companyId>")
-    .option("--group <groupId>")
+    .requiredOption("--company <companyId>")
+    .requiredOption("--group <groupId>")
     .option("--bot <username>", "Telegram bot username; defaults to TELEGRAM_BOT_USERNAME")
-    .action(async (o: { employee: string; company?: string; group?: string; bot?: string }) => {
+    .action(async (o: { employee: string; company: string; group: string; bot?: string }) => {
       const botUsername = (o.bot ?? env.TELEGRAM_BOT_USERNAME ?? "").trim().replace(/^@/, "");
       if (!botUsername) throw new Error("--bot or TELEGRAM_BOT_USERNAME is required");
       if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) throw new Error("Telegram bot username must contain 5-32 letters, digits, or underscores");
       const inviteCode = randomBytes(32).toString("base64url");
-      const result = await adminClient.issueInvite({ employeeId: o.employee, inviteCode, companyId: o.company ?? "default_company", groupId: o.group ?? "default_group" });
+      const result = await adminClient.issueInvite({ employeeId: o.employee, inviteCode, companyId: o.company, groupId: o.group });
       if (!result.created) throw new Error("employee already has an invite; delete the unused participant before issuing a replacement");
       stdout.push(JSON.stringify({ employeeId: result.employeeId, status: result.status, created: result.created }));
       stdout.push(`https://t.me/${botUsername}?start=${inviteCode}`);

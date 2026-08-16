@@ -41,7 +41,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * typed action: 26 793 of 29 000 characters. The increase is deliberate product
  * policy required by mnt-minutka-core-launch-uvp.8.
  */
-const pinnedAgentManualCharacters = 31_246;
+const pinnedAgentManualCharacters = 31_364;
 
 const projection = {
   schemaVersion: 1 as const,

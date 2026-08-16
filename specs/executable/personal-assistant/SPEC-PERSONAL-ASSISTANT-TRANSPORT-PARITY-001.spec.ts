@@ -425,8 +425,8 @@ async function prepareOwner(
   inviteCode: string,
   telegramIdentity?: { chatId: string; userId: string },
 ): Promise<void> {
-  await service.issueInvite({ employeeId, inviteCode });
+  await service.issueInvite({ employeeId, inviteCode, companyId: "default_company", groupId: "default_group" });
   if (telegramIdentity) await service.redeemTelegramInvite({ inviteCode, identity: telegramIdentity });
   await service.acceptConsent({ employeeId, accepted: true, source: "test", ...(telegramIdentity ? { telegramIdentity } : {}) });
-  await service.completeOnboarding({ employeeId, role: "Owner", typicalTasks: ["planning"], persona: "efficiency", aiLevel: "advanced" });
+  await service.completeOnboarding({ roleId: "default_role", employeeId, role: "Owner", typicalTasks: ["planning"], persona: "efficiency", aiLevel: "advanced" });
 }

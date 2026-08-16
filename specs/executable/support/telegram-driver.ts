@@ -159,6 +159,7 @@ export class TelegramDriver {
   }
   async clickFeedback(input: { chatId: string; userId?: string; rating: FeedbackRating; targetMessageId: string; messageId?: number }): Promise<void> { await this.shell.handleCallback(input.chatId, `cb_${Date.now()}`, encodeFeedbackCallbackData(input.rating, input.targetMessageId), input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   async clickCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number }): Promise<void> { await this.deliverCallback(input); }
+  async chooseDefaultRole(chatId: string, userId?: string): Promise<void> { await this.sendText({ chatId, userId, text: "default_role" }); }
   async deliverCallback(input: { chatId: string; userId?: string; callbackData: string; messageId?: number; callbackQueryId?: string }): Promise<void> { await this.shell.handleCallback(input.chatId, input.callbackQueryId ?? `cb_${Date.now()}`, input.callbackData, input.userId ?? this.defaultUserId(input.chatId), input.messageId ?? this.latestActionMessageId(input.chatId)); }
   failNextMessageDelivery(): void { this.sendOutcomes.push("fail"); }
   failNextChatActionDelivery(): void { this.failNextChatAction = true; }

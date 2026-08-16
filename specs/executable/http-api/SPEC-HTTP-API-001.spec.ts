@@ -18,8 +18,8 @@ afterEach(async () => { await Promise.all(running.splice(0).map((server) => serv
 
 async function api() {
   const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
-  await runtime.service.issueInvite({ employeeId: "emp_a", inviteCode: "invite_a" });
-  await runtime.service.issueInvite({ employeeId: "emp_b", inviteCode: "invite_b" });
+  await runtime.service.issueInvite({ employeeId: "emp_a", inviteCode: "invite_a", companyId: "default_company", groupId: "default_group" });
+  await runtime.service.issueInvite({ employeeId: "emp_b", inviteCode: "invite_b", companyId: "default_company", groupId: "default_group" });
   const server = await listenHttpServer({ application: createSpecHttpApplication(runtime.service), port: 0, logger: () => undefined, auth: { serviceToken, adminToken, employeeTokens: new Map([["emp_a", employeeToken], ["emp_b", otherToken]]) } });
   running.push(server); return { runtime, url: server.url };
 }
@@ -46,7 +46,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("binds thread and feedback scope to bearer identity without revealing employee A data", async () => {
     const { url } = await api();
     await request(url, "/v1/me/consent", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accepted: true, source: "cli" }) });
-    await request(url, "/v1/me/onboarding", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "manager", typicalTasks: ["planning"], persona: "support", aiLevel: "beginner" }) });
+    await request(url, "/v1/me/onboarding", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roleId: "default_role", selfDescription: "manager", persona: "support" }) });
     const chat = await request(url, "/v1/me/threads/thread_a/messages", employeeToken, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "private" }) });
     const messageId = (await chat.json()).messageId;
     // Thread IDs are namespaced by employee in storage: B may create its own
@@ -76,7 +76,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const redeemed = await client.redeemTelegramInvite({ inviteCode: "invite_b", identity: { chatId: "service-chat", userId: "service-user" } });
     const employee = client.forEmployee(redeemed.employeeId);
     await employee.recordPrivacyExplanationShown(); await employee.acceptConsent({ accepted: true, source: "telegram", telegramIdentity: { chatId: "service-chat", userId: "service-user" } });
-    await employee.completeOnboarding({ role: "manager", typicalTasks: ["planning"], persona: "support", aiLevel: "beginner" });
+    await employee.completeOnboarding({ roleId: "default_role", selfDescription: "manager", persona: "support" });
     expect((await employee.getProfile()).employeeId).toBe("emp_b");
     const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello", inputModality: "voice" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
     expect(runtime.world.auditEvents.find((event) => event.type === "chat_received" && event.messageId === chat.messageId)?.metadata).toEqual({ inputModality: "voice" });
@@ -155,8 +155,10 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
     const employee = client.forEmployee("emp_a");
     await employee.acceptConsent({ accepted: true, source: "telegram" });
+    expect(await employee.submitOnboardingAnswer({ text: "default_role" })).toMatchObject({ status: "needs_answer", field: "preferredName" });
     expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_answer", field: "assistantName" });
-    expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_answer", field: "preferredName" });
+    expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_choice", field: "roleId" });
+    await employee.submitOnboardingAnswer({ text: "default_role" });
     await employee.submitOnboardingAnswer({ text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
     expect(await employee.submitOnboardingAnswer({ text: "Исправить" })).toMatchObject({ status: "needs_correction" });
     await employee.confirmOnboarding();

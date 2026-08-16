@@ -52,8 +52,8 @@ export function createInMemoryProfileStore(
       if (existingByEmployee) return { participant: existingByEmployee, created: false, inviteMatches: false };
       const participant: Participant = {
         employeeId,
-        ...(companyId ? { companyId } : {}),
-        ...(groupId ? { groupId } : {}),
+        companyId,
+        groupId,
         status: "invite_issued",
         createdAt: issuedAt,
         updatedAt: issuedAt,
@@ -118,7 +118,7 @@ export function createInMemoryProfileStore(
       upsertByEmployeeId(world.profiles, profile);
       upsertByEmployeeId(world.participants, {
         ...participant,
-        ...(profile.roleId ? { roleId: profile.roleId } : {}),
+        roleId: profile.roleId,
         status: "profile_completed",
         updatedAt: completedAt,
       });

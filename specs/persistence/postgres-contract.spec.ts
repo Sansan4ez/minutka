@@ -61,13 +61,16 @@ function audit(id: string, type: "invite_opened" | "consent_accepted", employeeI
 }
 
 async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgresPool>, employeeId: string, inviteCode: string) {
+  const companyId = "company_persistence_default";
+  const groupId = "group_persistence_default";
+  const roleId = "role_persistence_default";
   const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
-  await profiles.issueInvite({ employeeId, inviteCode, issuedAt: now });
+  await profiles.issueInvite({ employeeId, inviteCode, companyId, groupId, issuedAt: now });
   await profiles.openInvite({ inviteCode, openedAt: now, explanationShownAt: now });
   await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
   await profiles.completeProfile({
     completedAt: now,
-    profile: { employeeId, preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+    profile: { employeeId, companyId, groupId, roleId, preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
   });
 }
 
@@ -80,6 +83,9 @@ describe("PostgreSQL storage contracts", () => {
     // against an already-migrated database, exactly as it runs in production.
     await migratePostgres(migrationPool);
     await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants");
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ('company_persistence_default', 'Persistence Default Co') ON CONFLICT (id) DO NOTHING");
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ('group_persistence_default', 'company_persistence_default', 'Pilot', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING");
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ('role_persistence_default', 'company_persistence_default', 'Manager') ON CONFLICT (id) DO NOTHING");
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
@@ -347,13 +353,9 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("persists invite, profile, turn and stable feedback upsert after recreating the pool", async () => {
-    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await issueProfileReadyParticipant(pool, "emp_pg", "invite_pg");
     const conversations = createPostgresConversationStore(pool);
     const feedback = createPostgresFeedbackStore(pool);
-    await profiles.issueInvite({ employeeId: "emp_pg", inviteCode: "invite_pg", issuedAt: now });
-    await profiles.openInvite({ inviteCode: "invite_pg", openedAt: now, explanationShownAt: now });
-    await profiles.acceptConsent({ employeeId: "emp_pg", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
-    await profiles.completeProfile({ completedAt: now, profile: { employeeId: "emp_pg", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now } });
     await conversations.appendTurn({ messageId: "msg_pg", employeeId: "emp_pg", threadId: "thread_pg", userText: "morning", agentResponse: "reply", timestamp: now });
     const first = await feedback.saveFeedback({ id: "fb_original", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "positive", source: "test", updatedAt: now });
     const second = await feedback.saveFeedback({ id: "fb_retry", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "negative", source: "test", updatedAt: "2026-07-12T00:01:00.000Z" });
@@ -436,8 +438,7 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("atomically grants exactly one Telegram claim and writes its audit event", async () => {
-    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
-    await profiles.issueInvite({ employeeId: "emp_claim", inviteCode: "invite_claim", issuedAt: now });
+    await issueProfileReadyParticipant(pool, "emp_claim", "invite_claim");
     const redemption = createPostgresTelegramInviteRedemptionStore(pool, config.inviteCodePepper, config.telegramIdentityPepper);
     const [first, second] = await Promise.all([
       redemption.redeem({ inviteCode: "invite_claim", identity: { chatId: "chat_a", userId: "user_a" }, occurredAt: now, auditEvent: audit("evt_claim_a", "invite_opened") }),
@@ -647,19 +648,20 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("returns idempotent results for parallel issueInvite calls", async () => {
+    const companyId = "company_persistence_default";
+    const groupId = "group_persistence_default";
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
     const results = await Promise.all([
-      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", issuedAt: now }),
-      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", issuedAt: now }),
+      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", companyId, groupId, issuedAt: now }),
+      profiles.issueInvite({ employeeId: "emp_parallel_issue", inviteCode: "invite_parallel_issue", companyId, groupId, issuedAt: now }),
     ]);
     expect(results.filter((result) => result.created)).toHaveLength(1);
     expect(results.every((result) => result.participant.employeeId === "emp_parallel_issue" && result.inviteMatches)).toBe(true);
   });
 
   it("commits consent and its audit event together and replaces an obsolete version", async () => {
+    await issueProfileReadyParticipant(pool, "emp_consent", "invite_consent");
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
-    await profiles.issueInvite({ employeeId: "emp_consent", inviteCode: "invite_consent", issuedAt: now });
-    await profiles.openInvite({ inviteCode: "invite_consent", openedAt: now, explanationShownAt: now });
     await profiles.acceptConsent({ employeeId: "emp_consent", privacyVersion: "privacy-v1", acceptedAt: "2026-07-01T00:00:00.000Z", explanationShownAt: "2026-07-01T00:00:00.000Z", source: "test" });
     const consent = createPostgresConsentAcceptanceStore(pool);
     const accepted = await consent.accept({
@@ -715,8 +717,8 @@ describe("PostgreSQL storage contracts", () => {
 
   it("purges expired onboarding drafts and never revives one during a stale CAS write", async () => {
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId: "emp_draft", inviteCode: "invite_draft", companyId: "company_persistence_default", groupId: "group_persistence_default", issuedAt: now });
     const drafts = createPostgresOnboardingDraftStore(pool);
-    await profiles.issueInvite({ employeeId: "emp_draft", inviteCode: "invite_draft", issuedAt: now });
     const expired = { employeeId: "emp_draft", status: "collecting" as const, pendingField: "preferredName" as const, revision: 1, createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", expiresAt: "2000-02-01T00:00:00.000Z" };
     await drafts.save(expired, 0);
     const fresh = { ...expired, revision: 2, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" };
@@ -725,7 +727,7 @@ describe("PostgreSQL storage contracts", () => {
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     expect(await drafts.save({ ...fresh, revision: 1 }, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
     expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "assistantName" })).toMatchObject({ revision: 2, pendingField: "assistantName" });
-    await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
+    await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", companyId: "company_persistence_default", groupId: "group_persistence_default", roleId: "role_persistence_default", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     await expect(drafts.save({ ...fresh, revision: 3 }, 0)).rejects.toMatchObject({ code: "persistence_conflict" });
   });
@@ -1323,7 +1325,7 @@ describe("PostgreSQL storage contracts", () => {
     await drafts.save({ employeeId: "emp_delete", status: "collecting", pendingField: "preferredName", revision: 1, createdAt: "2099-01-01T00:00:00.000Z", updatedAt: "2099-01-01T00:00:00.000Z", expiresAt: "2099-02-01T00:00:00.000Z" }, 0);
     await profiles.completeProfile({
       completedAt: now,
-      profile: { employeeId: "emp_delete", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", roleId: "role_activity", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
+      profile: { employeeId: "emp_delete", companyId: "company_activity", groupId: "group_activity", roleId: "role_activity", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
     });
     const conversations = createPostgresConversationStore(pool);
     await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
