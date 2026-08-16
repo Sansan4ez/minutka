@@ -12,6 +12,7 @@ import type {
   RoutinePatternType,
   TaskCategory,
 } from "../domain/insights.js";
+import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
 export type ActivityObstacle =
@@ -60,6 +61,7 @@ const collectActivityCommandSchema = z.strictObject({
   companyId: z.string().trim().min(1),
   groupId: z.string().trim().min(1),
   roleId: z.string().trim().min(1),
+  timezone: z.string().trim().min(1),
   activity: collectActivityInputSchema,
 });
 
@@ -95,7 +97,7 @@ export class CollectActivityService {
       roleId: input.roleId,
       ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
       ...(obstacle === undefined ? {} : { obstacle }),
-      date: calendarDate(recordedAt),
+      date: calendarDateInIanaTimezone(recordedAt, input.timezone),
     };
     if (input.activity.durationBucket !== undefined) {
       personal.durationBucket = input.activity.durationBucket;
@@ -128,10 +130,4 @@ function activityObstacle(activity: CollectActivityInput): ActivityObstacle | un
     return { kind: "energy_stress_marker", value: activity.energyStressMarker };
   }
   return undefined;
-}
-
-function calendarDate(instant: string): string {
-  const parsed = new Date(instant);
-  if (Number.isNaN(parsed.valueOf())) throw new Error("clock returned an invalid instant");
-  return parsed.toISOString().slice(0, 10);
 }

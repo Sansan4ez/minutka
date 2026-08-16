@@ -23,10 +23,12 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
     async loadGroupSnapshot({ companyId, groupId }) {
       try {
         return await withTransaction(pool, async (client) => {
+          // Both group and role privacy gates count only participants who completed
+          // onboarding; invite-only accounts cannot contribute anonymized rows.
           const participantResult = await client.query<ParticipantCountRow>(
             `SELECT count(*)::text AS participant_count
              FROM minutka_private.participants
-             WHERE company_id = $1 AND group_id = $2`,
+             WHERE company_id = $1 AND group_id = $2 AND role_id IS NOT NULL`,
             [companyId, groupId],
           );
           const roleResult = await client.query<RoleCountRow>(

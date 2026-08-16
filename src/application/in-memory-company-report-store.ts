@@ -8,8 +8,10 @@ export function createInMemoryCompanyReportStore(input: {
 }): CompanyReportStore {
   return {
     async loadGroupSnapshot({ companyId, groupId }) {
+      // Match PostgreSQL: privacy gates count only participants who completed
+      // onboarding and therefore have a role that can own reporting rows.
       const participants = input.participants.filter(
-        (participant) => participant.companyId === companyId && participant.groupId === groupId,
+        (participant) => participant.companyId === companyId && participant.groupId === groupId && participant.roleId !== undefined,
       );
       const byRole = new Map<string, number>();
       for (const participant of participants) {

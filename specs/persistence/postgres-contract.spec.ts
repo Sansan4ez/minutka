@@ -174,6 +174,7 @@ describe("PostgreSQL storage contracts", () => {
       companyId,
       groupId,
       roleId,
+      timezone: "Etc/UTC",
       activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
     });
 
@@ -193,6 +194,12 @@ describe("PostgreSQL storage contracts", () => {
       system: "spreadsheets",
       activity_date: "2026-08-15",
     }]);
+    await expect(pool.query(
+      `INSERT INTO minutka_reporting.anonymized_activities
+         (company_id, group_id, role_id, obstacle_kind, obstacle_value, activity_date)
+       VALUES ($1, $2, $3, 'routine_pattern', 'free_text_value', '2026-08-15')`,
+      [companyId, groupId, roleId],
+    )).rejects.toMatchObject({ code: "23514" });
 
     const triggerName = "spec_fail_anonymized_activity";
     await migrationPool.query(
@@ -213,6 +220,7 @@ describe("PostgreSQL storage contracts", () => {
         companyId,
         groupId,
         roleId,
+        timezone: "Etc/UTC",
         activity: { routinePattern: "manual_reporting" },
       })).rejects.toMatchObject({ code: "persistence_unavailable" });
       expect((await pool.query("SELECT count(*)::int AS count FROM minutka_private.activities WHERE activity_id='activity_pg_rollback'")).rows[0]?.count).toBe(0);
@@ -1373,6 +1381,7 @@ describe("PostgreSQL storage contracts", () => {
       companyId: deletionParticipant.companyId,
       groupId: deletionParticipant.groupId,
       roleId: deletionParticipant.roleId,
+      timezone: "Etc/UTC",
       activity: { taskCategory: "reporting" },
     });
     await profiles.deleteEmployeePersonalData("emp_delete");

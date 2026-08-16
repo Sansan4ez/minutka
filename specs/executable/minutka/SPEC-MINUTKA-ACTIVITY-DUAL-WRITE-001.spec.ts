@@ -9,6 +9,7 @@ import {
 import { withTransaction } from "../../../src/infrastructure/postgres/postgres-pool.js";
 
 const migrationPath = "migrations/0047_create_activity_dual_write.sql";
+const obstacleValueMigrationPath = "migrations/0052_constrain_activity_obstacle_values.sql";
 
 function tableBody(sql: string, table: string): string {
   const escaped = table.replaceAll(".", "\\.");
@@ -48,6 +49,17 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
     expect(body).not.toMatch(/\b(?:timestamp|timestamptz|json|jsonb)\b/iu);
   });
 
+  it("constrains the obstacle value dictionary in both activity tables", () => {
+    const sql = readFileSync(obstacleValueMigrationPath, "utf8");
+
+    expect(sql).toContain("ADD CONSTRAINT activities_obstacle_value_check CHECK");
+    expect(sql).toContain("ADD CONSTRAINT anonymized_activities_obstacle_value_check CHECK");
+    expect(sql.match(/obstacle_value IN/gu)).toHaveLength(2);
+    expect(sql).toContain("'manual_reporting'");
+    expect(sql).toContain("'report_generation'");
+    expect(sql).toContain("'blocked_progress'");
+  });
+
   it("writes exactly one personal row and one anonymized row per activity", async () => {
     const state = createInMemoryActivityCollectionState();
     const service = new CollectActivityService(
@@ -61,6 +73,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
+      timezone: "Europe/Moscow",
     });
     await collectForEmployee({
       taskCategory: "reporting",
@@ -78,7 +91,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       obstacle: { kind: "routine_pattern", value: "manual_reporting" },
       durationBucket: "1_2h",
       system: "spreadsheets",
-      date: "2026-08-15",
+      date: "2026-08-16",
     }]);
     expect(state.anonymizedActivities[0]).not.toHaveProperty("employeeId");
     expect(state.anonymizedActivities[0]).not.toHaveProperty("activityId");
@@ -98,6 +111,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
+      timezone: "Europe/Moscow",
       activity: { routinePattern: "manual_reporting" },
     })).rejects.toThrow("anonymized activity write failed");
 
@@ -118,6 +132,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
+      timezone: "Europe/Moscow",
       activity: {
         taskCategory: "reporting",
         automationCandidate: "report_generation",

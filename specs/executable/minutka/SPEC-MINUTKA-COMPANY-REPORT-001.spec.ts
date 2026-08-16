@@ -62,6 +62,28 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: company export privacy threshold", ()
     });
   });
 
+  it("counts only onboarded participants for both the group and role privacy gates", async () => {
+    const invited: Participant = {
+      employeeId: "employee_invited",
+      companyId: "company_a",
+      groupId: "group_a",
+      status: "invite_issued",
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const participants = [
+      ...Array.from({ length: 4 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a")),
+      invited,
+    ];
+
+    const result = await service(participants).exportGroup({ companyId: "company_a", groupId: "group_a" });
+
+    expect(result).toMatchObject({
+      status: "refused",
+      reasons: [{ code: "insufficient_participants", actual: 4, required: COMPANY_REPORT_MIN_PARTICIPANTS }],
+    });
+  });
+
   it("takes participant counts from reference/private state rather than anonymized row volume", async () => {
     const participants = Array.from({ length: 4 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
     const result = await service(participants, reportingRows("company_a", "group_a", "role_a", 12))

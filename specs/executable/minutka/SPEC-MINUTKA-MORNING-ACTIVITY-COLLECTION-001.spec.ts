@@ -26,6 +26,20 @@ function harness(options: {
     createdAt: clock.now(),
     updatedAt: clock.now(),
   });
+  world.profiles.push({
+    employeeId: "employee_a",
+    companyId: "company_a",
+    groupId: "group_a",
+    roleId: "role_a",
+    preferredName: "Employee",
+    assistantName: "Assistant",
+    addressForm: "informal",
+    persona: "efficiency",
+    responseLength: "short",
+    timezone: "Europe/Moscow",
+    createdAt: clock.now(),
+    updatedAt: clock.now(),
+  });
   const documents = createInMemoryDocumentStore(clock);
   const conversationStore = createInMemoryConversationStore(world);
   const state = createInMemoryActivityCollectionState();
