@@ -89,13 +89,16 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.privacyExplanation).toContain("Доверенный внутренний методолог видит обезличенные записи и агрегаты");
     expect(invite.privacyExplanation).toContain("не менее 5 участников и не менее 5 обезличенных записей");
     expect(invite.privacyExplanation).toContain("затем срез компании удаляется целиком");
-    expect(invite.privacyExplanation).toContain("найти и удалить её точечно");
+    expect(invite.privacyExplanation).toContain("В самой обезличенной строке нет идентификатора сотрудника");
+    expect(invite.privacyExplanation).toContain("мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки");
     expect(invite.privacyExplanation).toContain("потребовать удалить личные данные");
+    expect(invite.privacyExplanation).toContain("персональный запрос не удаляет и не пересчитывает их");
     expect(invite.privacyExplanation).toContain("Правило не менее 5 ограничивает только то, что видит компания");
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
     expect(invite.privacyExplanation).toContain("STT-провайдеру");
     expect(invite.privacyExplanation).toContain("явного подтверждения");
     expect(invite.privacyExplanation).toContain(executableSpecPrivacyPolicyUrl);
+    expect(invite.privacyExplanation).not.toMatch(/найти и удалить её точечно или пересчитать нельзя/i);
     expect(invite.privacyExplanation).not.toMatch(/ваши данные видит только компания в агрегатах от пяти человек/i);
 
     const consent = await spec.cli.json<AcceptConsentResult>([
