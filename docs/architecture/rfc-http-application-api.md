@@ -1,5 +1,8 @@
 # RFC: HTTP application API and transport-neutral SDK
 
+> **Унаследованный фундамент клона.** Документ описывает runtime персонального ассистента, на котором построена «Минутка». Живые продуктовые решения, мультитенантная ось и privacy-границы «Минутки» задаёт [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md).
+
+
 ## Status
 
 **Implemented (Phase 4.2; personal-assistant facade актуализирован в A.2, 2026-07-16).** RFC вводит authenticated HTTP transport и transport-neutral SDK. В текущем product runtime HTTP router вызывает единый `PersonalAssistantService`: chat делегируется `AssistantService`, identity/onboarding use-cases остаются внутренними collaborators. Standalone CLI, Telegram shell и будущая web-поверхность используют один long-lived application runtime и persistent data.

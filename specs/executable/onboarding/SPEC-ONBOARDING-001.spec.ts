@@ -86,14 +86,16 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.privacyVersion).toBe(currentPrivacyVersion);
     expect(invite.privacyExplanation).toContain("история диалога");
     expect(invite.privacyExplanation).toContain("обезличенный след");
-    expect(invite.privacyExplanation).toContain("Доверенный внутренний методолог видит обезличенные записи и агрегаты");
+    expect(invite.privacyExplanation).toContain("Доверенный внутренний методолог видит обезличенные записи без имён и свободного текста");
     expect(invite.privacyExplanation).toContain("не менее 5 участников и не менее 5 обезличенных записей");
     expect(invite.privacyExplanation).toContain("затем срез компании удаляется целиком");
     expect(invite.privacyExplanation).toContain("В самой обезличенной строке нет идентификатора сотрудника");
     expect(invite.privacyExplanation).toContain("мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки");
     expect(invite.privacyExplanation).toContain("потребовать удалить личные данные");
     expect(invite.privacyExplanation).toContain("персональный запрос не удаляет и не пересчитывает их");
-    expect(invite.privacyExplanation).toContain("Правило не менее 5 ограничивает только то, что видит компания");
+    expect(invite.privacyExplanation).toContain("Правило не менее 5 ограничивает аналитические срезы компании");
+    expect(invite.privacyExplanation).toContain("методолог может сообщить руководителю компании только факт участия");
+    expect(invite.privacyExplanation).toContain("выбранное имя обращения без маскировки");
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
     expect(invite.privacyExplanation).toContain("STT-провайдеру");
     expect(invite.privacyExplanation).toContain("явного подтверждения");

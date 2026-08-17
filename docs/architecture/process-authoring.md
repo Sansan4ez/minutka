@@ -1,5 +1,8 @@
 # Process authoring contract
 
+> **Унаследованный фундамент клона.** Документ описывает runtime персонального ассистента, на котором построена «Минутка». Живые продуктовые решения, мультитенантная ось и privacy-границы «Минутки» задаёт [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md).
+
+
 This document is developer documentation for the personal assistant (contract inherited from Minutka). Runtime process files live in `vault/assistant/processes/` and are loaded by application code.
 
 Every process file must use this exact structure:

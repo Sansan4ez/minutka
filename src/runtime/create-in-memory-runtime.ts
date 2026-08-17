@@ -25,7 +25,7 @@ import { createInMemoryScheduleStore } from "../application/in-memory-schedule-s
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 import type { ScheduleStore } from "../application/schedule-store.js";
 
-export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v3.html";
+export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v4.html";
 export const executableSpecPrivacyExplanation = createPrivacyExplanation(executableSpecPrivacyPolicyUrl);
 
 export type InMemoryRuntime = {

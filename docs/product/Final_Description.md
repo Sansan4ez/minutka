@@ -1,6 +1,6 @@
 # Final Description — agent "Minutka"
 
-> **Historical («Минутка»).** Итоговое описание предыдущего проекта «Минутка»; сохранено как провенанс переиспользуемого фундамента. Текущий продукт — персональный AI-ассистент: [product-brief-personal-ai-assistant.md](./product-brief-personal-ai-assistant.md).
+> **Продуктовый baseline «Минутки».** Реализованные privacy-границы и пилотные не-цели уточняет [RFC мультитенантного контура](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
 ## 1. Product Summary
 
@@ -136,7 +136,7 @@ For the methodologist, Minutka should reduce manual work in running a two-week p
 
 - **Actor / goal:** Company leadership wants to understand automation opportunities and team-level work patterns.
 - **Action:** Leadership reviews the final automation map prepared by the methodologist.
-- **Expected result:** Leadership sees aggregated insights and recommendations, not raw conversations or individual employee data.
+- **Expected result:** Leadership sees aggregated insights and recommendations, not raw conversations or individual employee content. The only person-specific information the company may receive is the participation fact manually escalated by the methodologist under the program procedure.
 - **Success criterion:** The report supports business decisions while preserving trust in the program.
 
 ### Scenario 14 — Employee deletes personal data
@@ -283,7 +283,7 @@ Employee conversations, personal context, transcripts, emotional state, and task
 
 ### Aggregated company insight boundary
 
-Client leadership receives only aggregated and anonymized insights. A minimum group-size rule is stated in the source materials: if a group/category has fewer than 5 people, the data should not be shown because it may identify a person.
+Client leadership receives aggregated and anonymized insights under the minimum group-size rule: if a group/category has fewer than 5 people, analytical data is not shown. Separately, because the company organizes and pays for the program, the methodologist may manually communicate the participation fact for a named employee; this exception contains no conversation content, task quality, emotional state, or employee evaluation.
 
 ### Methodologist access boundary
 
@@ -304,7 +304,7 @@ Telegram is the employee entry shell. The backend should own AI processing, memo
 
 Speech recognition and language model services are outside or separately hosted from the product's own logic. Provider choice is open and should be evaluated for Russian quality, speed, cost, and privacy implications.
 
-External AI and speech providers may be used, but personal data must be excluded from the data sent to them as much as the product design allows. The future architecture should therefore include a privacy preparation step before external provider calls. At minimum, employee full name and phone number must be masked or excluded before sending data to external providers.
+External AI and speech providers may be used only within the disclosed runtime boundary. The employee's chosen display name is included in LLM context without masking so the agent can address the employee naturally; the consent text explicitly warns that request text and required context go to the LLM provider. Phone numbers and transport identifiers are not included in assistant projections or LLM context. Voice audio is sent separately to the configured STT provider and is not retained by the application.
 
 ### In-the-moment help boundary
 
@@ -388,8 +388,8 @@ These assumptions are used only to build the first architectural baseline and sh
 - The methodologist may see individual activity-based labels: "lagging" after two missed days and "dropped off" after three or more missed days.
 - If an employee deletes personal data, already anonymized aggregate data may remain, provided it cannot identify the employee.
 - The final client report is first assembled in the methodologist web panel; later export to PDF may be supported.
-- External AI providers may be used only with measures that exclude personal data from what is sent to them.
-- Employee full name and phone number must be masked or excluded before sending data to external AI providers.
+- External AI providers receive the request text and bounded context disclosed by consent; the employee's chosen display name is sent to the LLM provider without masking.
+- Phone numbers and transport identifiers are excluded from assistant projections; voice audio goes only to the configured STT provider and is not retained by the application.
 - In-the-moment help is allowed only for working-time discussion and work-related emotional state; unrelated questions should receive a gentle refusal and redirection.
 - Speech recognition and LLM providers are not final.
 - Mastra is the implementation baseline for the AI runtime, while the product boundaries in this document remain framework-independent.
@@ -398,7 +398,7 @@ These assumptions are used only to build the first architectural baseline and sh
 
 There are no remaining critical open questions for the Description stage.
 
-Future stages may still refine operational details, such as exact provider choice, exact report export mechanics, and whether additional identifiers besides full name and phone number should be masked before external AI-provider calls.
+Future stages may still refine operational details such as exact provider choice and report export mechanics. The pilot decision on the chosen display name is closed: it is sent to the LLM provider without masking, while phone numbers and transport identifiers remain outside assistant context.
 
 ## 14. Foundation for the Next Steps
 

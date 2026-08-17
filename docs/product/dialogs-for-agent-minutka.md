@@ -1,4 +1,4 @@
-> **Historical («Минутка»).** Сценарии диалогов предыдущего проекта «Минутка»; сохранены как провенанс. Текущий продукт — персональный AI-ассистент: [product-brief-personal-ai-assistant.md](./product-brief-personal-ai-assistant.md).
+> **Продуктовый референс «Минутки».** Канонический consent-текст и реализованные privacy-границы задают [процесс consent](../../vault/assistant/processes/consent_and_privacy.md) и [RFC мультитенантного контура](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
 ## **1\. Первое знакомство с ботом**
 

@@ -1,5 +1,8 @@
 # PostgreSQL durable runtime
 
+> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+
+
 Phase 4.1 uses PostgreSQL as the only persistent/pilot application backend.
 `InMemoryWorld` is an executable-spec fixture; `telegram:dev` does not silently
 fall back to it. `MINUTKA_RUNTIME_MODE` is deliberately unsupported: Telegram
@@ -23,7 +26,7 @@ chmod 600 .env
 # MINUTKA_MIGRATOR_DB_PASSWORD, INVITE_CODE_PEPPER and
 # TELEGRAM_IDENTITY_PEPPER to distinct random values. Generate
 # INTEGRATION_ENC_KEY with `openssl rand -base64 32`. Also publish the
-# privacy-v3 policy snapshot and set PRIVACY_POLICY_V3_URL to its public URL.
+# privacy-v4 policy snapshot and set PRIVACY_POLICY_V4_URL to its public URL.
 ```
 
 2. Initialise PostgreSQL and wait for the healthcheck:
@@ -63,7 +66,7 @@ DATABASE_SSL_MODE=disable # local container only; pilot uses require
 INVITE_CODE_PEPPER=<separate random secret>
 TELEGRAM_IDENTITY_PEPPER=<separate random secret>
 INTEGRATION_ENC_KEY=<exactly 32 random bytes encoded as base64>
-PRIVACY_POLICY_V3_URL=https://privacy.example.com/privacy-v3.html
+PRIVACY_POLICY_V4_URL=https://privacy.example.com/privacy-v4.html
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_INVITES=emp_1:one-time-invite:company_1:group_1
 ```
@@ -79,11 +82,11 @@ identities, SQL parameters containing personal data, or raw provider errors.
 `INTEGRATION_ENC_KEY` never crosses the Node.js process boundary; PostgreSQL
 stores only the AES-256-GCM ciphertext.
 
-`PRIVACY_POLICY_V3_URL` is mandatory deployment configuration, with no repository
-fallback. Before accepting employees, publish the exact `privacy-v3` policy snapshot
+`PRIVACY_POLICY_V4_URL` is mandatory deployment configuration, with no repository
+fallback. Before accepting employees, publish the exact `privacy-v4` policy snapshot
 at an anonymously accessible HTTPS URL and verify it from outside the deployment
-network. A normal canonical URL must include `privacy-v3` as a path segment or
-filename (for example `/privacy-v3.html`). GitHub and raw GitHub document URLs
+network. A normal canonical URL must include `privacy-v4` as a path segment or
+filename (for example `/privacy-v4.html`). GitHub and raw GitHub document URLs
 are accepted only when the document is pinned to a full 40-character commit SHA;
 mutable references such as `blob/main` and tags are rejected at startup. Query
 parameters, fragments, embedded credentials, and non-HTTPS URLs are rejected.

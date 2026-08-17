@@ -1,9 +1,12 @@
 # Production backup and restore
 
+> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+
+
 ## Назначение
 
 Production-host ежедневно сохраняет в
-`/var/backups/personal-assistant/<UTC timestamp>/` два production-источника
+`/var/backups/minutka/<UTC timestamp>/` два production-источника
 durable-данных:
 
 - `minutka.dump` — custom-format `pg_dump -Fc` PostgreSQL со всеми
@@ -43,7 +46,7 @@ PostgreSQL значения `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и
 
 ## Защита копий: осознанное решение пилота
 
-Backup **не шифруется в покое** — ни в `/var/backups/personal-assistant/` на
+Backup **не шифруется в покое** — ни в `/var/backups/minutka/` на
 production host, ни в snapshot'ах на off-site host. Защита копий состоит из
 двух слоёв: права файловой системы (каталог `0750
 personal-assistant:personal-assistant`, `UMask = 0027` у backup-сервиса,
@@ -96,7 +99,7 @@ ORDER BY table_name;
 SQL
 sudo systemctl start personal-assistant-backup.service
 sudo journalctl -u personal-assistant-backup.service --no-pager -n 100
-sudo find /var/backups/personal-assistant -maxdepth 4 -type f -printf "%m %U:%G %p\n" | sort | tail -n 30
+sudo find /var/backups/minutka -maxdepth 4 -type f -printf "%m %U:%G %p\n" | sort | tail -n 30
 sudo cat /var/lib/personal-assistant-observability/backup.last_success
 '
 ```
@@ -158,7 +161,7 @@ ssh admin@169.58.116.31 \
 ssh admin@169.58.116.31 '
 sudo rm -rf /var/lib/personal-assistant-restore-smoke/backup
 sudo install -d -m 0700 -o postgres -g postgres /var/lib/personal-assistant-restore-smoke/backup
-sudo cp -a /var/backups/personal-assistant/20260804T001500Z/. \
+sudo cp -a /var/backups/minutka/20260804T001500Z/. \
   /var/lib/personal-assistant-restore-smoke/backup/
 sudo chown -R postgres:postgres /var/lib/personal-assistant-restore-smoke/backup
 sudo systemctl start personal-assistant-restore-smoke.service
@@ -194,10 +197,10 @@ ssh-keyscan -H 169.58.116.31 >> ~/.ssh/known_hosts
 Публичный ключ `~/.ssh/id_personal_assistant_pull.pub` прописывается только в
 `site.backupPull.sshAuthorizedKeys`; админские ключи из
 `site.adminAuthorizedKeys` для pull не переиспользуются. Production ограничивает
-этот ключ forced command `rrsync -ro /var/backups/personal-assistant` и SSH
+этот ключ forced command `rrsync -ro /var/backups/minutka` и SSH
 опцией `restrict`: произвольная команда, запись на production, forwarding и PTY
 недоступны. Для клиента корень `/` в rsync соответствует разрешённому каталогу
-`/var/backups/personal-assistant` на production.
+`/var/backups/minutka` на production.
 
 Создать `/home/admin/.local/bin/pull-personal-assistant-backups`:
 

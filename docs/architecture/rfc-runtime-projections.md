@@ -2,7 +2,7 @@
 
 ## Status
 
-**Historical foundation: implemented in Phase 4.1; assistant projections supersede the legacy agent path.** This RFC specifies the original implementation of the dynamic parts of Minutka's logical Agent Vault namespace: `/proc`, `/run`, and the boundary with other namespace families. The active personal-assistant runtime uses owner-scoped projections assembled by `AssistantService`; legacy `minutkaAgent` was removed in A2.6. The document remains as provenance and does not introduce a real filesystem.
+**Historical foundation: implemented in Phase 4.1; the agent-led projections supersede the legacy agent path.** This RFC specifies the original implementation of the dynamic parts of Minutka's logical Agent Vault namespace: `/proc`, `/run`, and the boundary with other namespace families. The current «Минутка» clone reuses owner-scoped projections assembled by `AssistantService`; legacy `minutkaAgent` was removed in A2.6. The document remains as provenance and does not introduce a real filesystem. Live product boundaries are in [RFC «Минутки»](./rfc-minutka-tenancy-and-reporting.md).
 
 Related documents:
 

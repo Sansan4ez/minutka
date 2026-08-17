@@ -27,7 +27,7 @@ function startupEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     DATABASE_CONNECT_TIMEOUT_MS: "1",
     INVITE_CODE_PEPPER: "invite-pepper",
     TELEGRAM_IDENTITY_PEPPER: "telegram-pepper",
-    PRIVACY_POLICY_V3_URL: "https://example.com/privacy-v3.md",
+    PRIVACY_POLICY_V4_URL: "https://example.com/privacy-v4.md",
     ...overrides,
   };
 }

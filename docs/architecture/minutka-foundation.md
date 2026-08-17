@@ -2,7 +2,7 @@
 
 > ## ⚠️ Исторический документ (foundation), не активный roadmap
 >
-> Это мастер-план **старого продукта «Минутка»**. Проект пивотнул в **персонального ассистента** — текущая целевая архитектура: [rfc-personal-assistant-architecture.md](./rfc-personal-assistant-architecture.md) + [rfc-agent-led-routing.md](./rfc-agent-led-routing.md). Активный roadmap ведётся в **beads** (`br epic status`), см. [../plans/README.md](../plans/README.md). Фаза A ассистента реализована (коммит `500cc65`).
+> Это мастер-план **legacy-реализации «Минутки»**, оставленный как провенанс переиспользуемого кода. Текущий продукт этого репозитория — новая «Минутка» на унаследованном agent-led runtime; живая архитектура: [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md), а roadmap ведётся в собственном `mnt-*` трекере, см. [../plans/README.md](../plans/README.md).
 >
 > Документ **сохраняется как провенанс переиспользуемого фундамента**: фазы 1–5, 4.1, 4.2 сделаны (теги существуют, эпики закрыты в br), ассистент переиспользует application stores, identity/onboarding use-cases, Agent Vault и transport foundation. Legacy `minutkaAgent`, его production runner и HTTP chat fallback удалены в A2.6. Что **устарело относительно ассистента**:
 >

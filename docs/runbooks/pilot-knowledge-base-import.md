@@ -1,5 +1,8 @@
 # Внешний owner vault и импорт pilot knowledge base
 
+> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+
+
 Канонический owner workspace живёт вне application repository: `/home/admin/user_knowledge_base`. Это отдельный локальный приватный Git repository без шифрования и без автоматического remote push. Игнорируемый `vault/user/knowledge_base` — только локальный symlink для ergonomics; target, сам symlink и любые `INDEX.md` под ним не являются application source и не отслеживаются Git приложения.
 
 Команда импорта однократно bootstrap-ит этот workspace в owner-scoped `DocumentStore` (MinIO) под канонические storage keys `context/*`. После первого успешного импорта **MinIO — единственный source of truth базы знаний**. В runtime документы отображаются как короткие `/proc/context/*`: технический prefix `imported-knowledge-base` агенту не виден. Команда требует явный `PILOT_USER_ID`, не угадывает владельца и пишет только через `IngestionService`.

@@ -14,8 +14,8 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 ## Process
 
 1. Show the connection consent text below verbatim before acceptance; substitute only the immutable policy URL.
-2. For later questions, distinguish personal data, the anonymized trace, the methodologist, and company aggregates. The ≥5 rule limits company visibility only; the trusted methodologist can inspect all anonymized rows, including rare slices.
-3. Never promise point deletion of an anonymized row. Personal data can be deleted; the company anonymized slice remains until the report and is then removed as a whole.
+2. For later questions, distinguish personal content, the anonymized trace, person-specific participation facts, and company analytics. The ≥5 rule limits company analytics only; the trusted methodologist can inspect all anonymized rows and the closed participation set: connection status, last-touch date, and participation label.
+3. Never promise point deletion of an anonymized row. Personal data can be deleted; the company anonymized slice remains until the report and is then removed as a whole. Explain the three engagement tiers when relevant: agent reminder, methodologist contact, then manual escalation of the participation fact to company leadership.
 
 ## Connection consent text
 
@@ -23,13 +23,14 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 Подтверждая согласие, вы разрешаете «Минутке» обрабатывать данные для диагностики рабочих рутин.
 
 1. В личном контуре сохраняются история диалога, профиль и активности. В обезличенный след уходят только должность, категория активности/рутины, диапазон времени, система и дата — без имени, идентификатора сотрудника и свободного текста.
-2. Вы видите все свои данные. Доверенный внутренний методолог видит обезличенные записи и агрегаты без имён и свободного текста. Компания получает только агрегаты и паттерны, прошедшие правило минимального размера.
-3. Компания видит группу или срез только при наличии не менее 5 участников и не менее 5 обезличенных записей. Редкие должности объединяются в «прочее» либо скрываются как недостаточные данные.
+2. Вы видите все свои данные. Доверенный внутренний методолог видит обезличенные записи без имён и свободного текста, а поимённо — только статус подключения, дату последнего касания и метку участия. Содержание разговоров, конкретные задачи, эмоциональное состояние и оценку сотрудника методолог не видит.
+3. Аналитика компании по группе или срезу показывается только при наличии не менее 5 участников и не менее 5 обезличенных записей. Редкие должности объединяются в «прочее» либо скрываются как недостаточные данные. Отдельно методолог может вручную сообщить руководителю компании только факт участия или отсутствия участия конкретного сотрудника; машинного доступа компании к системе на пилоте нет.
 4. Обезличенные данные хранятся до подготовки и передачи отчёта компании, затем срез компании удаляется целиком. В самой обезличенной строке нет идентификатора сотрудника. По нашей политике мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки.
 5. Вы можете потребовать удалить личные данные профиля. Уже созданные обезличенные строки при этом сохраняются до удаления среза компании целиком: персональный запрос не удаляет и не пересчитывает их.
-6. Правило не менее 5 ограничивает только то, что видит компания. Методолог видит все обезличенные записи, включая редкие срезы, но без имён, идентификаторов сотрудников и свободного текста.
+6. Правило не менее 5 ограничивает аналитические срезы компании. Методолог видит все обезличенные записи, включая редкие срезы, и закрытый перечень фактов участия из п. 2.
+7. Если сотрудник перестаёт участвовать, сначала его мягко приглашает вернуться агент, затем связывается методолог; при дальнейшем отсутствии методолог может сообщить руководителю компании только факт участия или его отсутствия. Содержание разговора и выводы о сотруднике в эскалацию не входят.
 
-Текст запросов и нужный контекст передаются LLM-провайдеру. Голос отдельно передаётся STT-провайдеру для расшифровки; приложение не сохраняет аудио. Внешние действия требуют явного подтверждения.
+Текст запросов и нужный контекст, включая выбранное имя обращения без маскировки, передаются LLM-провайдеру. Телефон и Telegram-идентификаторы в этот контекст не входят. Голос отдельно передаётся STT-провайдеру для расшифровки; приложение не сохраняет аудио. Внешние действия требуют явного подтверждения.
 
 Текущие границы обработки данных: {{privacyPolicyUrl}}
 <!-- minutka-consent:end -->
@@ -47,6 +48,8 @@ The anonymized trace contains closed structured values only. It contains no empl
 
 ## Anti-patterns
 
+- Saying that the company sees only aggregates: the participation fact may be escalated manually to company leadership.
+- Saying that the methodologist sees only aggregates or never sees a named employee's participation: the closed participation set is person-specific.
 - Saying that only company aggregates of five or more people can ever be seen: the methodologist can see all anonymized rows, including rare slices.
 - Saying that an employee deletion removes their anonymized rows.
 - Promising exact-time data, free-text analysis in the anonymized trace, automatic point deletion, or company access to raw rows.

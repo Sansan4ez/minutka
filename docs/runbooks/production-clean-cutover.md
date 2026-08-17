@@ -1,5 +1,8 @@
 # Clean production bootstrap and Telegram cutover
 
+> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+
+
 ## Назначение
 
 Этот runbook запускает production как новый независимый pilot-контур. Он не
@@ -167,11 +170,11 @@ ssh admin@169.58.116.31 '
 set -euo pipefail
 sudo systemctl start personal-assistant-backup.service
 sudo journalctl -u personal-assistant-backup.service --no-pager -n 100
-latest="$(sudo find /var/backups/personal-assistant -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort | tail -n 1)"
+latest="$(sudo find /var/backups/minutka -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort | tail -n 1)"
 test -n "$latest"
-sudo test -s "/var/backups/personal-assistant/$latest/minutka.dump"
-sudo test -d "/var/backups/personal-assistant/$latest/minio/personal-assistant"
-sudo test ! -e "/var/backups/personal-assistant/$latest/user-knowledge-base.bundle"
+sudo test -s "/var/backups/minutka/$latest/minutka.dump"
+sudo test -d "/var/backups/minutka/$latest/minio/personal-assistant"
+sudo test ! -e "/var/backups/minutka/$latest/user-knowledge-base.bundle"
 sudo cat /var/lib/personal-assistant-observability/backup.last_success
 '
 ```

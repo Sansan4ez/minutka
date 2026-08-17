@@ -1,5 +1,8 @@
 # HTTP Application API runtime (Phase 4.2)
 
+> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+
+
 ## Start
 
 1. Prepare PostgreSQL and apply migrations:

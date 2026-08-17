@@ -1,6 +1,6 @@
 # Сравнение дефолтного агента Mastra и агента «Минутка»
 
-> **Статус:** historical — сравнение legacy-продукта «Минутка» с базовой моделью агента Mastra. Активная архитектура: [RFC персонального ассистента](./rfc-personal-assistant-architecture.md) + [agent-led routing](./rfc-agent-led-routing.md).
+> **Статус:** historical — сравнение legacy-реализации «Минутки» с базовой моделью агента Mastra. Живая архитектура текущей «Минутки»: [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md) поверх унаследованного [agent-led routing](./rfc-agent-led-routing.md).
 >
 > **Версия Mastra на момент фиксации:** `@mastra/core 1.50.1`, `mastra 1.18.2`.
 >

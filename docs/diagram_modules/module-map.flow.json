@@ -41,5 +41,7 @@
       }
     },
     "clusters": {}
-  }
+  },
+  "status": "historical",
+  "statusNote": "Legacy Minutka diagram; the methodologist web panel is outside the pilot target. See docs/architecture/rfc-minutka-tenancy-and-reporting.md §7."
 }

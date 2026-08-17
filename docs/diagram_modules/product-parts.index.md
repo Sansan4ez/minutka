@@ -1,5 +1,8 @@
 # Product Parts Index
 
+> **Статус: historical.** Диаграмма описывает legacy-концепцию «Минутки» и не является архитектурой пилота. Веб-панель методолога — не-цель пилота; справочники, участие и выгрузки обслуживаются через SQL/CLI по [RFC §7](../../architecture/rfc-minutka-tenancy-and-reporting.md#7-не-цели-и-когда-пересмотреть).
+
+
 ## Product Parts
 
 ### Product Part: telegram-bot-shell

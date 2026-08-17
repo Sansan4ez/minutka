@@ -2,7 +2,7 @@ import { createPrivacyExplanation } from "../application/consent-process-loader.
 import { currentPrivacyVersion } from "../domain/privacy.js";
 
 // The version already carries the `privacy-` prefix that the name starts with;
-// stripping it keeps PRIVACY_POLICY_V3_URL rather than doubling the prefix.
+// stripping it keeps PRIVACY_POLICY_V4_URL rather than doubling the prefix.
 export const privacyPolicyUrlEnvName = `PRIVACY_POLICY_${currentPrivacyVersion.replace(/^privacy-/u, "").toUpperCase()}_URL` as const;
 
 export type PrivacyConfig = {
@@ -11,7 +11,7 @@ export type PrivacyConfig = {
 };
 
 /**
- * Loads the canonical policy snapshot referenced by consent for privacy-v3.
+ * Loads the canonical policy snapshot referenced by the current consent version.
  *
  * Generic HTTPS endpoints must carry the privacy version in their path. GitHub
  * and raw GitHub document links are accepted only when pinned to a full commit
