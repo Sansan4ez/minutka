@@ -3,33 +3,32 @@ import { privacyConfigFromEnv, privacyPolicyUrlEnvName } from "../../../src/conf
 
 const pinnedCommit = "0123456789abcdef0123456789abcdef01234567";
 
-describe("privacy-v4 deployment policy URL", () => {
+describe("privacy-v5 deployment policy URL", () => {
   // Asserting the literal keeps the derived name in step with .env.example and
   // the runbook; indexing env by the exported constant alone cannot catch drift.
   it("reads the environment variable documented for deployment", () => {
-    expect(privacyPolicyUrlEnvName).toBe("PRIVACY_POLICY_V4_URL");
+    expect(privacyPolicyUrlEnvName).toBe("PRIVACY_POLICY_V5_URL");
   });
 
   it("builds the consent text from a canonical versioned HTTPS URL", () => {
     const config = privacyConfigFromEnv({
-      [privacyPolicyUrlEnvName]: "https://privacy.example.com/policies/privacy-v4.html",
+      [privacyPolicyUrlEnvName]: "https://privacy.example.com/policies/privacy-v5.html",
     });
 
-    expect(config.policyUrl).toBe("https://privacy.example.com/policies/privacy-v4.html");
+    expect(config.policyUrl).toBe("https://privacy.example.com/policies/privacy-v5.html");
     expect(config.explanation).toContain(config.policyUrl);
-    expect(config.explanation).toContain("обезличенный след");
-    expect(config.explanation).toContain("Доверенный внутренний методолог видит обезличенные записи без имён и свободного текста");
-    expect(config.explanation).toContain("не менее 5 участников и не менее 5 обезличенных записей");
-    expect(config.explanation).toContain("до подготовки и передачи отчёта компании");
-    expect(config.explanation).toContain("В самой обезличенной строке нет идентификатора сотрудника");
-    expect(config.explanation).toContain("мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки");
-    expect(config.explanation).toContain("потребовать удалить личные данные");
-    expect(config.explanation).toContain("персональный запрос не удаляет и не пересчитывает их");
-    expect(config.explanation).toContain("Правило не менее 5 ограничивает аналитические срезы компании");
-    expect(config.explanation).toContain("методолог может сообщить руководителю компании только факт участия");
-    expect(config.explanation).toContain("выбранное имя обращения без маскировки");
-    expect(config.explanation).not.toMatch(/найти и удалить её точечно или пересчитать нельзя/i);
-    expect(config.explanation).not.toMatch(/ваши данные видит только компания в агрегатах от пяти человек/i);
+    expect(config.explanation).toContain("за пару минут");
+    expect(config.explanation).toContain("личном контуре");
+    expect(config.explanation).toContain("Методолог видит обезличенные записи");
+    expect(config.explanation).toContain("Компания получает срезы только от 5 участников");
+    expect(config.explanation).toContain("LLM-провайдеру");
+    expect(config.explanation).toContain("Личные данные удаляются по запросу через оператора");
+    expect(config.explanation.length).toBeLessThanOrEqual(1_000);
+    expect(config.explanation).not.toMatch(/компания и методолог видят только агрегаты от пяти человек/i);
+    expect(config.explanation).not.toMatch(/вы видите все свои данные/i);
+    expect(config.fullExplanation).toContain(config.policyUrl);
+    expect(config.fullExplanation).toContain("мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки");
+    expect(config.fullExplanation).toContain("Правило не менее 5 ограничивает аналитические срезы компании");
   });
 
   it("accepts immutable GitHub document links pinned to a full commit SHA", () => {
@@ -42,11 +41,11 @@ describe("privacy-v4 deployment policy URL", () => {
 
   it.each([
     ["missing", undefined],
-    ["non-HTTPS", "http://privacy.example.com/privacy-v4.html"],
+    ["non-HTTPS", "http://privacy.example.com/privacy-v5.html"],
     ["unversioned path", "https://privacy.example.com/privacy.html"],
     ["mutable GitHub branch", "https://github.com/example/assistant/blob/main/privacy-boundary.md"],
     ["mutable raw GitHub branch", "https://raw.githubusercontent.com/example/assistant/main/privacy-boundary.md"],
-    ["query parameters", "https://privacy.example.com/privacy-v4.html?latest=true"],
+    ["query parameters", "https://privacy.example.com/privacy-v5.html?latest=true"],
   ])("rejects %s policy configuration", (_case, policyUrl) => {
     expect(() => privacyConfigFromEnv(policyUrl === undefined ? {} : { [privacyPolicyUrlEnvName]: policyUrl })).toThrow(privacyPolicyUrlEnvName);
   });

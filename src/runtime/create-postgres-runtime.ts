@@ -288,6 +288,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       telegramSessionStore,
       pendingActionGroupStore,
       privacyExplanation: privacy.explanation,
+      fullPrivacyExplanation: privacy.fullExplanation,
       artifactMaximumBytes: artifactConfig.saveLimits.maximumBytes,
       startScheduler,
       /** Safe liveness/readiness probe: exposes no database metadata. */

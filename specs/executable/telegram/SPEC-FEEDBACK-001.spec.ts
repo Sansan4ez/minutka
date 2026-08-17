@@ -6,7 +6,7 @@ import type { AgentRunner } from "../../../src/application/minutka-service.js";
 import { onboardTestEmployee } from "../support/onboarding-helper.js";
 import { decodeFeedbackCallbackData } from "../../../src/telegram/callback-data.js";
 import { parseInviteSeeds } from "../../../src/telegram/invite-seeds.js";
-import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
+import { createInMemoryRuntime, executableSpecFullPrivacyExplanation, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
 import { ConversationThreadService } from "../../../src/application/conversation-thread-service.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
@@ -213,6 +213,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const sent1 = telegram.sentMessages();
     expect(sent1).toHaveLength(1);
     expect(sent1[0].text).toBe(privacyExplanation);
+    expect(sent1[0].replyMarkup?.inlineKeyboard[0].map(({ text }) => text)).toEqual(["✅ Принимаю", "📄 Подробнее"]);
+
+    const detailsCallbackData = sent1[0].replyMarkup?.inlineKeyboard[0][1].callbackData || "";
+    expect(Buffer.byteLength(detailsCallbackData, "utf8")).toBeLessThanOrEqual(64);
+    await telegram.clickCallback({ chatId: "chat_1", userId: "user_123", callbackData: detailsCallbackData });
+    expect(telegram.sentMessages().at(-1)?.text).toBe(executableSpecFullPrivacyExplanation);
     expect(sent1[0].replyMarkup?.inlineKeyboard[0][0].text).toContain("Принимаю");
 
     // Click "Consent" button
@@ -226,8 +232,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     });
 
     const answers1 = telegram.callbackAnswers();
-    expect(answers1).toHaveLength(1);
-    expect(answers1[0].text).toBe("Согласие принято!");
+    expect(answers1).toHaveLength(2);
+    expect(answers1.at(-1)?.text).toBe("Согласие принято!");
 
     // Send text message after profile completion
     telegram.clear();
@@ -384,7 +390,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       expect.objectContaining({
         text: privacyExplanation,
         replyMarkup: expect.objectContaining({
-          inlineKeyboard: [[expect.objectContaining({ text: "✅ Принимаю" })]],
+          inlineKeyboard: [[expect.objectContaining({ text: "✅ Принимаю" }), expect.objectContaining({ text: "📄 Подробнее" })]],
         }),
       }),
     ]);
@@ -1116,7 +1122,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const secondAnswer = new Promise<void>((resolve) => { secondAnswerStarted = resolve; });
     const secondAnswerRelease = new Promise<void>((resolve) => { releaseSecondAnswer = resolve; });
     const shell = createTelegramShell({
-      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      privacyExplanation: executableSpecPrivacyExplanation, fullPrivacyExplanation: executableSpecFullPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
       sessionStore: runtime.telegramSessionStore,
       replyPort: {
         async sendMessage(_chatId, text, options) {
@@ -1228,7 +1234,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       expect.objectContaining({
         text: privacyExplanation,
         replyMarkup: expect.objectContaining({
-          inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_retry" })]],
+          inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_retry" }), expect.objectContaining({ callbackData: "tg:consent-details:emp_retry" })]],
         }),
       }),
     ]);
@@ -1256,7 +1262,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     }));
     const sent: string[] = [];
     const shell = createTelegramShell({
-      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      privacyExplanation: executableSpecPrivacyExplanation, fullPrivacyExplanation: executableSpecFullPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
       sessionStore: runtime.telegramSessionStore,
       replyPort: {
         async sendMessage(_chatId, text) { sent.push(text); return { messageId: sent.length }; },
@@ -1315,7 +1321,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(prompt).toEqual(expect.objectContaining({
       text: privacyExplanation,
       replyMarkup: expect.objectContaining({
-        inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_text_reconsent" })]],
+        inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_text_reconsent" }), expect.objectContaining({ callbackData: "tg:consent-details:emp_text_reconsent" })]],
       }),
     }));
     expect(spec.world.messages).toHaveLength(0);
@@ -1332,7 +1338,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       expect.objectContaining({ text: "Я робот-помощник Минутка." }),
     ]);
     expect(spec.world.consents).toEqual([
-      expect.objectContaining({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v4" }),
+      expect.objectContaining({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v5" }),
     ]);
   });
 
@@ -1349,7 +1355,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(await runtime.telegramSessionStore.getByIdentity(identity)).not.toHaveProperty("consentAcceptedAt");
     const sent: string[] = [];
     const shell = createTelegramShell({
-      privacyExplanation: executableSpecPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
+      privacyExplanation: executableSpecPrivacyExplanation, fullPrivacyExplanation: executableSpecFullPrivacyExplanation, client: new ServiceMinutkaClient(createInProcessServiceTransport(runtime.service, { kind: "service", serviceId: "telegram-spec" })),
       sessionStore: runtime.telegramSessionStore,
       replyPort: {
         async sendMessage(_chatId, text) { sent.push(text); return { messageId: sent.length }; },

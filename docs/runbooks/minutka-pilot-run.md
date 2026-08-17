@@ -33,7 +33,7 @@ set +a
 
 Отдельно проверить два значения, на которых прогон падает раньше первого шага:
 
-- **`PRIVACY_POLICY_V4_URL`.** Имя переменной выводится из текущей версии согласия (`src/config/privacy.ts`), поэтому `.env` от прежних прогонов с `PRIVACY_POLICY_V2_URL` не подходит: runtime падает fail-closed на старте. URL должен быть HTTPS, без query и fragment, и содержать `privacy-v4` в пути.
+- **`PRIVACY_POLICY_V5_URL`.** Имя переменной выводится из текущей версии согласия (`src/config/privacy.ts`), поэтому `.env` от прежних прогонов с `PRIVACY_POLICY_V4_URL` не подходит: runtime падает fail-closed на старте. URL должен быть HTTPS, без query и fragment, и содержать `privacy-v5` в пути.
 - **`MINUTKA_EMPLOYEE_TOKENS`** — пары `employeeId:token` через запятую, **минимум на двух сотрудников** одной учебной группы (второй нужен для шага 8). Токен — не меньше 32 символов; все токены принципалов должны различаться (`src/server/http/auth.ts`).
 
 ```bash
@@ -45,7 +45,7 @@ export MINUTKA_EMPLOYEE_TOKENS="$EMPLOYEE_ONE:$EMPLOYEE_ONE_TOKEN,$EMPLOYEE_TWO:
 
 for name in DATABASE_URL MIGRATION_DATABASE_URL INVITE_CODE_PEPPER \
   TELEGRAM_IDENTITY_PEPPER MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_BUCKET \
-  LLM_MODEL MINUTKA_ADMIN_TOKEN MINUTKA_SERVICE_TOKEN PRIVACY_POLICY_V4_URL \
+  LLM_MODEL MINUTKA_ADMIN_TOKEN MINUTKA_SERVICE_TOKEN PRIVACY_POLICY_V5_URL \
   MINUTKA_EMPLOYEE_TOKENS; do
   test -n "$(printenv "$name")" || { echo "Missing required variable: $name"; exit 1; }
 done
@@ -161,23 +161,23 @@ MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN" npm run cli -- admin invite \
 npm run cli -- employee open-invite --invite "$INVITE_CODE_ONE" | tail -n 1
 ```
 
-Сверить текст согласия с процессом между маркерами `minutka-consent` — они и есть источник текста (`src/application/consent-process-loader.ts`):
+Сверить короткий текст согласия с процессом между маркерами `minutka-consent-short` — он является текстом оферты на транспортной границе; полный текст между `minutka-consent-full` доступен в Telegram по кнопке «📄 Подробнее» (`src/application/consent-process-loader.ts`):
 
 ```bash
 npm run cli -- employee open-invite --invite "$INVITE_CODE_ONE" | tail -n 1 > /tmp/open-invite.json
 node -e '
 const fs=require("node:fs");
 const md=fs.readFileSync("vault/assistant/processes/consent_and_privacy.md","utf8");
-const s=md.indexOf("<!-- minutka-consent:start -->"), e=md.indexOf("<!-- minutka-consent:end -->");
-const expected=md.slice(s+"<!-- minutka-consent:start -->".length,e).trim()
-  .replace("{{privacyPolicyUrl}}",process.env.PRIVACY_POLICY_V4_URL);
+const s=md.indexOf("<!-- minutka-consent-short:start -->"), e=md.indexOf("<!-- minutka-consent-short:end -->");
+const expected=md.slice(s+"<!-- minutka-consent-short:start -->".length,e).trim()
+  .replace("{{privacyPolicyUrl}}",process.env.PRIVACY_POLICY_V5_URL);
 const actual=JSON.parse(fs.readFileSync("/tmp/open-invite.json","utf8"));
 console.log(JSON.stringify({privacyVersion:actual.privacyVersion,textMatches:actual.privacyExplanation===expected}));
 '
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee accept-consent --yes | tail -n 1
 ```
 
-**Признак `прошло`:** ответ `open-invite` содержит `privacyExplanation` и `"privacyVersion":"privacy-v4"`, сверка печатает `"textMatches":true`; `accept-consent` возвращает `privacy-v4` и непустой `acceptedAt`. Согласие без `--yes` отклоняется с причиной `privacy consent must be explicitly accepted`.
+**Признак `прошло`:** ответ `open-invite` содержит короткий `privacyExplanation` и `"privacyVersion":"privacy-v5"`, сверка печатает `"textMatches":true`; `accept-consent` возвращает `privacy-v5` и непустой `acceptedAt`. Согласие без `--yes` отклоняется с причиной `privacy consent must be explicitly accepted`.
 
 Повторить `open-invite` и `accept-consent` для второго сотрудника.
 

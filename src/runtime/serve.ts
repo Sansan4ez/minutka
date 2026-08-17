@@ -87,7 +87,7 @@ async function main(): Promise<void> {
           return activeBot.telegram.getFileLink(fileId);
         },
       });
-      telegramShell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, pendingActionGroupStore: runtime.pendingActionGroupStore, replyPort, privacyExplanation: runtime.privacyExplanation, artifactIntake: runtime.assistant, fileGateway, artifactMaximumBytes: runtime.artifactMaximumBytes, speechToText, voiceFileGateway });
+      telegramShell = createTelegramShell({ client, sessionStore: runtime.telegramSessionStore, pendingActionGroupStore: runtime.pendingActionGroupStore, replyPort, privacyExplanation: runtime.privacyExplanation, fullPrivacyExplanation: runtime.fullPrivacyExplanation, artifactIntake: runtime.assistant, fileGateway, artifactMaximumBytes: runtime.artifactMaximumBytes, speechToText, voiceFileGateway });
       bot = createTelegrafBot({ token, shell: telegramShell }); activeBot = bot;
     }
     const telegramBot = bot;

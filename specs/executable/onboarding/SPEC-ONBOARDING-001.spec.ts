@@ -25,6 +25,7 @@ import {
 } from "../support/spec-harness.js";
 import { testEmployee, testInvite, testProfile, testTenant } from "../support/fixtures.js";
 import { createOnboardingWelcome } from "../../../src/application/onboarding-welcome-loader.js";
+import { createPrivacyExplanation } from "../../../src/application/consent-process-loader.js";
 
 registerSpecMetadata({
   id: "SPEC-ONBOARDING-001",
@@ -85,24 +86,19 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.employeeId).toBe(testEmployee.employeeId);
     expect(invite.status).toBe("invite_opened");
     expect(invite.privacyVersion).toBe(currentPrivacyVersion);
-    expect(invite.privacyExplanation).toContain("история диалога");
-    expect(invite.privacyExplanation).toContain("обезличенный след");
-    expect(invite.privacyExplanation).toContain("Доверенный внутренний методолог видит обезличенные записи без имён и свободного текста");
-    expect(invite.privacyExplanation).toContain("не менее 5 участников и не менее 5 обезличенных записей");
-    expect(invite.privacyExplanation).toContain("затем срез компании удаляется целиком");
-    expect(invite.privacyExplanation).toContain("В самой обезличенной строке нет идентификатора сотрудника");
-    expect(invite.privacyExplanation).toContain("мы не ищем, не удаляем точечно и не пересчитываем отдельные обезличенные строки");
-    expect(invite.privacyExplanation).toContain("потребовать удалить личные данные");
-    expect(invite.privacyExplanation).toContain("персональный запрос не удаляет и не пересчитывает их");
-    expect(invite.privacyExplanation).toContain("Правило не менее 5 ограничивает аналитические срезы компании");
-    expect(invite.privacyExplanation).toContain("методолог может сообщить руководителю компании только факт участия");
-    expect(invite.privacyExplanation).toContain("выбранное имя обращения без маскировки");
+    expect(invite.privacyExplanation).toContain("за пару минут");
+    expect(invite.privacyExplanation).toContain("личном контуре");
+    expect(invite.privacyExplanation).toContain("должность, категория активности, примерная длительность, система и дата");
+    expect(invite.privacyExplanation).toContain("Методолог видит обезличенные записи");
+    expect(invite.privacyExplanation).toContain("Компания получает срезы только от 5 участников");
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
-    expect(invite.privacyExplanation).toContain("STT-провайдеру");
-    expect(invite.privacyExplanation).toContain("явного подтверждения");
+    expect(invite.privacyExplanation).toContain("голос — сервису расшифровки");
+    expect(invite.privacyExplanation).toContain("Личные данные удаляются по запросу через оператора");
     expect(invite.privacyExplanation).toContain(executableSpecPrivacyPolicyUrl);
-    expect(invite.privacyExplanation).not.toMatch(/найти и удалить её точечно или пересчитать нельзя/i);
-    expect(invite.privacyExplanation).not.toMatch(/ваши данные видит только компания в агрегатах от пяти человек/i);
+    expect(invite.privacyExplanation.length).toBeLessThanOrEqual(1_000);
+    expect(invite.privacyExplanation).not.toMatch(/компания и методолог видят только агрегаты от пяти человек/i);
+    expect(invite.privacyExplanation).not.toMatch(/вы видите все свои данные/i);
+    expect(invite.privacyExplanation).not.toMatch(/обезличенные строки .*удал/i);
 
     const consent = await spec.cli.json<AcceptConsentResult>([
       "employee",
@@ -248,6 +244,29 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "{{preferredName}}утро {{morningTime}}, вечер {{eveningTime}}",
       "<!-- minutka-welcome:end -->",
     ].join("\n")) })).toBe("Максим, утро 08:45, вечер 18:30");
+  });
+
+  it("requires both layered consent blocks and exactly one policy URL placeholder in each", () => {
+    const writeConsent = (content: string) => {
+      const root = mkdtempSync(join(tmpdir(), "minutka-consent-"));
+      mkdirSync(join(root, "vault/assistant/processes"), { recursive: true });
+      writeFileSync(join(root, "package.json"), "{}");
+      writeFileSync(join(root, "vault/assistant/processes/consent_and_privacy.md"), content);
+      return root;
+    };
+    const valid = [
+      "<!-- minutka-consent-short:start -->", "Коротко {{privacyPolicyUrl}}", "<!-- minutka-consent-short:end -->",
+      "<!-- minutka-consent-full:start -->", "Полностью {{privacyPolicyUrl}}", "<!-- minutka-consent-full:end -->",
+    ].join("\n");
+
+    expect(createPrivacyExplanation("https://example.test/privacy-v5.html", { repoRoot: writeConsent(valid) })).toEqual({
+      short: "Коротко https://example.test/privacy-v5.html",
+      full: "Полностью https://example.test/privacy-v5.html",
+    });
+    expect(() => createPrivacyExplanation("https://example.test/privacy-v5.html", { repoRoot: writeConsent(valid.replace(/<!-- minutka-consent-short:[^>]+ -->\n?/gu, "")) })).toThrow(/consent-short/);
+    expect(() => createPrivacyExplanation("https://example.test/privacy-v5.html", { repoRoot: writeConsent(valid.replace(/<!-- minutka-consent-full:[^>]+ -->\n?/gu, "")) })).toThrow(/consent-full/);
+    expect(() => createPrivacyExplanation("https://example.test/privacy-v5.html", { repoRoot: writeConsent(valid.replace("Коротко {{privacyPolicyUrl}}", "Коротко без ссылки")) })).toThrow(/short block.*exactly once/);
+    expect(() => createPrivacyExplanation("https://example.test/privacy-v5.html", { repoRoot: writeConsent(valid.replace("Полностью {{privacyPolicyUrl}}", "{{privacyPolicyUrl}} {{privacyPolicyUrl}}")) })).toThrow(/full block.*exactly once/);
   });
 
   it("requires re-consent when the stored privacy version is stale", async () => {

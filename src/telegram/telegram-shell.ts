@@ -126,13 +126,19 @@ function logArtifactRejection(reason: "object_limit" | "owner_quota" | "global_c
   console.warn(`Artifact save rejected (${reason}).`);
 }
 function consentCallbackData(employeeId: string): string | undefined { const callbackData = `tg:consent:${employeeId}`; return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined; }
+function consentDetailsCallbackData(employeeId: string): string | undefined { const callbackData = `tg:consent-details:${employeeId}`; return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined; }
 function onboardingCallbackData(action: "confirm" | "reset" | "roleId" | "communicationStyle" | "timezone", value?: string): string | undefined {
   const data = value ? `ob:${action}:${value}` : `ob:${action}`;
   return Buffer.byteLength(data, "utf8") <= maxTelegramCallbackDataBytes ? data : undefined;
 }
 async function sendConsentPrompt(replyPort: TelegramReplyPort, chatId: string, employeeId: string, explanation: string): Promise<TelegramSentMessage> {
-  const callbackData = consentCallbackData(employeeId); if (!callbackData) throw new Error("Telegram consent callback data exceeds the 64-byte limit");
-  return replyPort.sendMessage(chatId, explanation, { replyMarkup: { inlineKeyboard: [[{ text: "✅ Принимаю", callbackData }]] } });
+  const acceptCallbackData = consentCallbackData(employeeId);
+  const detailsCallbackData = consentDetailsCallbackData(employeeId);
+  if (!acceptCallbackData || !detailsCallbackData) throw new Error("Telegram consent callback data exceeds the 64-byte limit");
+  return replyPort.sendMessage(chatId, explanation, { replyMarkup: { inlineKeyboard: [[
+    { text: "✅ Принимаю", callbackData: acceptCallbackData },
+    { text: "📄 Подробнее", callbackData: detailsCallbackData },
+  ]] } });
 }
 async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: string, action: () => Promise<T>): Promise<T> {
   const sendTyping = async (): Promise<void> => {
@@ -441,12 +447,14 @@ export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatI
   for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; pendingActionGroupStore?: PendingActionGroupStore; replyPort: TelegramReplyPort; privacyExplanation: string; now?: () => string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; pendingActionGroupStore?: PendingActionGroupStore; replyPort: TelegramReplyPort; privacyExplanation: string; fullPrivacyExplanation?: string; now?: () => string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const pendingActionGroupStore = deps.pendingActionGroupStore ?? createInMemoryPendingActionGroupStore();
   const privacyExplanation = deps.privacyExplanation.trim();
+  const fullPrivacyExplanation = deps.fullPrivacyExplanation?.trim() ?? privacyExplanation;
   if (!privacyExplanation) throw new Error("privacyExplanation is required");
+  if (!fullPrivacyExplanation) throw new Error("fullPrivacyExplanation is required");
   const rawReplyPort = deps.replyPort;
   const voiceTimeoutMs = deps.voiceProcessingTimeoutMs ?? defaultVoiceProcessingTimeoutMs;
   const artifactMaximumBytes = deps.artifactMaximumBytes ?? maxTelegramArtifactFileSizeBytes;
@@ -927,6 +935,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       if (actionKey) callbackActionKeys.set(chatId, actionKey);
       try {
         const telegramIdentity = identity(chatId, userId); const session = await getLinkedSession(chatId, userId);
+        if (data.startsWith("tg:consent-details:")) {
+          const employeeId = data.slice("tg:consent-details:".length);
+          if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
+          if (session.consentAcceptedAt && session.consentPrivacyVersion === currentPrivacyVersion) return void await replyPort.answerCallbackQuery(callbackQueryId, "Согласие уже принято.");
+          await replyPort.answerCallbackQuery(callbackQueryId, "Полный текст отправлен в чат.");
+          await replyPort.sendMessage(chatId, fullPrivacyExplanation);
+          return;
+        }
         if (data.startsWith("tg:consent:")) {
           const employeeId = data.slice("tg:consent:".length); if (!session || session.employeeId !== employeeId) return void await replyPort.answerCallbackQuery(callbackQueryId, "Неверная сессия.");
           const handled = await runCallbackAction({ chatId, userId, employeeId, messageId, callbackQueryId, action: () => employeeClient(employeeId).acceptConsent({ accepted: true, source: "telegram", telegramIdentity }) });

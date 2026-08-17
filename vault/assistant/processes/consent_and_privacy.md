@@ -13,13 +13,30 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 
 ## Process
 
-1. Show the connection consent text below verbatim before acceptance; substitute only the immutable policy URL.
+1. Show the short connection consent text below verbatim before acceptance; substitute only the immutable policy URL. Make the full canonical text available before acceptance.
 2. For later questions, distinguish personal content, the anonymized trace, person-specific participation facts, and company analytics. The ≥5 rule limits company analytics only; the trusted methodologist can inspect all anonymized rows and the closed participation set: connection status, last-touch date, and participation label.
 3. Never promise point deletion of an anonymized row. For deletion, explain point 5 and pass the request to the operator. Explain the engagement tiers when relevant: agent reminder, methodologist contact, then manual escalation of the participation fact to company leadership.
 
-## Connection consent text
+## Short connection consent text
 
-<!-- minutka-consent:start -->
+<!-- minutka-consent-short:start -->
+«Минутка» — бот для короткой диагностики рабочих рутин. Утром и вечером он помогает за пару минут отметить, чем вы занимались и что отнимало время.
+
+Принимая, вы соглашаетесь с политикой по ссылке:
+• Разговоры, профиль и активности — в личном контуре; их содержание не видят компания и руководитель.
+• В общую статистику уходят только должность, категория активности, примерная длительность, система и дата — без имени и текста.
+• Методолог видит обезличенные записи, а поимённо — только факт подключения и дату последнего касания.
+• Компания получает срезы только от 5 участников, а поимённо — только факт участия.
+• Текст сообщений передаётся LLM-провайдеру, голос — сервису расшифровки; аудио не сохраняется.
+• Личные данные удаляются по запросу через оператора. Обезличенные строки остаются: в них нет идентификатора сотрудника.
+
+Полный текст доступен до принятия по кнопке «📄 Подробнее».
+Политика: {{privacyPolicyUrl}}
+<!-- minutka-consent-short:end -->
+
+## Full connection consent text
+
+<!-- minutka-consent-full:start -->
 Подтверждая согласие, вы разрешаете «Минутке» обрабатывать данные для диагностики рабочих рутин.
 
 1. В личном контуре сохраняются история диалога, профиль и активности. В обезличенный след уходят только должность, категория активности/рутины, диапазон времени, система и дата — без имени, идентификатора сотрудника и свободного текста.
@@ -33,7 +50,7 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 Текст запросов и нужный контекст, включая выбранное имя обращения без маскировки, передаются LLM-провайдеру. Телефон и Telegram-идентификаторы в этот контекст не входят. Голос отдельно передаётся STT-провайдеру для расшифровки; приложение не сохраняет аудио. Внешние действия требуют явного подтверждения.
 
 Текущие границы обработки данных: {{privacyPolicyUrl}}
-<!-- minutka-consent:end -->
+<!-- minutka-consent-full:end -->
 
 ## Outputs
 

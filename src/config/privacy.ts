@@ -2,12 +2,13 @@ import { createPrivacyExplanation } from "../application/consent-process-loader.
 import { currentPrivacyVersion } from "../domain/privacy.js";
 
 // The version already carries the `privacy-` prefix that the name starts with;
-// stripping it keeps PRIVACY_POLICY_V4_URL rather than doubling the prefix.
+// stripping it keeps PRIVACY_POLICY_V5_URL rather than doubling the prefix.
 export const privacyPolicyUrlEnvName = `PRIVACY_POLICY_${currentPrivacyVersion.replace(/^privacy-/u, "").toUpperCase()}_URL` as const;
 
 export type PrivacyConfig = {
   policyUrl: string;
   explanation: string;
+  fullExplanation: string;
 };
 
 /**
@@ -39,7 +40,8 @@ export function privacyConfigFromEnv(env: NodeJS.ProcessEnv): PrivacyConfig {
   }
 
   const policyUrl = url.toString();
-  return { policyUrl, explanation: createPrivacyExplanation(policyUrl) };
+  const explanation = createPrivacyExplanation(policyUrl);
+  return { policyUrl, explanation: explanation.short, fullExplanation: explanation.full };
 }
 
 function gitDocumentReference(url: URL): boolean | undefined {
