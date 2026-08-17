@@ -129,6 +129,29 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     expect(world.messages).toHaveLength(18);
   });
 
+  it("drains queued compaction work before a one-shot runtime closes its stores", async () => {
+    const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
+    const conversations = createInMemoryConversationStore(world);
+    const summaries = createInMemoryThreadSummaryStore(world);
+    await appendTurns(11, conversations);
+    let releaseSummary!: () => void;
+    const summaryMayFinish = new Promise<void>((resolve) => { releaseSummary = resolve; });
+    const compaction = createCompaction(world, conversations, summaries, async () => {
+      await summaryMayFinish;
+      return { text: structured("drained") };
+    });
+
+    void compaction.compact({ employeeId: "owner", threadId: "thread", requestId: "req-drain" });
+    let drained = false;
+    const draining = compaction.drain().then(() => { drained = true; });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(drained).toBe(false);
+    releaseSummary();
+    await draining;
+    expect((await summaries.get({ employeeId: "owner", threadId: "thread" }))?.text).toContain("drained");
+  });
+
   it("allows only one of two independent compactions to save the same first checkpoint", async () => {
     const world = createInMemoryWorld(() => "2026-07-26T01:00:00.000Z");
     const conversations = createInMemoryConversationStore(world);

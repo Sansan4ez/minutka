@@ -105,6 +105,7 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
     expect(packageJson.scripts["process:run"]).toBe("tsx src/runtime/run-scheduled-process.ts");
     expect(source).toContain("createPostgresRuntime");
     expect(source).toContain("application.runScheduledProcess");
+    expect(source).toMatch(/try \{\s+await runtime\.drainAssistantWork\(\);\s+\} finally \{\s+await runtime\.shutdown\(\);/u);
     expect(source).not.toMatch(/Telegram|telegramShell|ScheduleStore|scheduleStore|schedule_fires|process_schedules/u);
   });
 });

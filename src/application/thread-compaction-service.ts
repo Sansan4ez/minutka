@@ -13,6 +13,7 @@ import type { UsageRecorder } from "./usage-recorder.js";
 
 export type ThreadCompactionService = {
   compact(input: { employeeId: string; threadId: string; requestId: string }): Promise<void>;
+  drain(): Promise<void>;
 };
 
 export function createThreadCompactionService(deps: {
@@ -139,6 +140,11 @@ export function createThreadCompactionService(deps: {
         if (queues.get(key) === current) queues.delete(key);
       });
       return current;
+    },
+    async drain() {
+      while (queues.size > 0) {
+        await Promise.allSettled([...queues.values()]);
+      }
     },
   };
 }

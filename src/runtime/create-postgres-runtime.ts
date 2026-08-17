@@ -295,6 +295,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         try { await pool.query("SELECT 1"); return (await migrationStatus(pool)).pending.length === 0; }
         catch { return false; }
       },
+      drainAssistantWork: () => threadCompactionService.drain(),
       shutdown: async () => { if (scheduleTick) clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }

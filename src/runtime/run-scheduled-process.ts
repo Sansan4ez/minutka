@@ -87,7 +87,11 @@ async function main(): Promise<void> {
     const result = await runScheduledProcessOnDemand(runtime.assistant, input);
     process.stdout.write(`${result.response}\n`);
   } finally {
-    await runtime.shutdown();
+    try {
+      await runtime.drainAssistantWork();
+    } finally {
+      await runtime.shutdown();
+    }
   }
 }
 
