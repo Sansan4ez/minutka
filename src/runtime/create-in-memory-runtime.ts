@@ -57,7 +57,12 @@ export function createInMemoryRuntime(input: {
     blobStore: createInMemoryBlobStore(clock),
   });
   const profileStore = createInMemoryProfileStore(world, {
-    afterDelete: async (employeeId) => { await sessionStore.deleteByEmployee(employeeId); world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== employeeId); },
+    afterDelete: async (employeeId) => {
+      const onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId === employeeId).length;
+      await sessionStore.deleteByEmployee(employeeId);
+      world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== employeeId);
+      return { onboardingDrafts };
+    },
   });
   const auditEventStore = createInMemoryAuditEventStore(world);
   const scheduleStore = createInMemoryScheduleStore(clock);

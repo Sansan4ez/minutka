@@ -142,9 +142,9 @@ For the methodologist, Minutka should reduce manual work in running a two-week p
 ### Scenario 14 — Employee deletes personal data
 
 - **Actor / goal:** Employee wants control over personal information.
-- **Action:** Employee uses a deletion action in the Telegram bot.
-- **Expected result:** Personal data associated with the employee is deleted according to the product's privacy rules.
-- **Success criterion:** The employee can perform deletion clearly and without needing intervention from the client company.
+- **Action:** Employee requests deletion in the Telegram dialogue. Minutka explains the exact scope and passes the request to the trusted operator; the agent does not receive a deletion tool.
+- **Expected result:** After an explicit irreversible-action confirmation, the operator deletes the employee's profile, conversation history, personal activities and insights, schedules, personal documents and artifacts, Telegram binding, and onboarding drafts. Already anonymized company rows remain unlinkable and unchanged.
+- **Success criterion:** The employee can initiate deletion without intervention from the client company, receives a clear completion result from the operator, cannot reuse the old invite, and can return only through a new invite.
 
 ## 6. Top-Level Product Parts
 

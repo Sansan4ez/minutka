@@ -1,6 +1,6 @@
 import type { Participant } from "../domain/employee.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
-import type { ProfileStore } from "./profile-store.js";
+import type { EmployeePersonalDataDeletionCounts, ProfileStore } from "./profile-store.js";
 import { PersistenceError } from "./persistence-error.js";
 
 function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value: T) {
@@ -25,13 +25,42 @@ function worldAuditDeletionMarker(world: InMemoryWorld): void {
 
 const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
 
+function emptyDeletionCounts(): EmployeePersonalDataDeletionCounts {
+  return {
+    participants: 0,
+    profiles: 0,
+    consents: 0,
+    conversations: 0,
+    threadSummaries: 0,
+    messages: 0,
+    activities: 0,
+    insights: 0,
+    feedback: 0,
+    schedules: 0,
+    scheduleFires: 0,
+    telegramSessions: 0,
+    telegramActionMessages: 0,
+    onboardingDrafts: 0,
+    pendingActionGroups: 0,
+    ideas: 0,
+    ideaDeletionConfirmations: 0,
+    tasks: 0,
+    taskMutationConfirmations: 0,
+    contextDocumentConfirmations: 0,
+    artifacts: 0,
+    artifactContents: 0,
+    auditEvents: 0,
+    usageRecords: 0,
+  };
+}
+
 /**
  * Executable-spec store. Raw invite codes stay outside observable world state,
  * while adapters over the same fixture share the private lookup.
  */
 export function createInMemoryProfileStore(
   world: InMemoryWorld,
-  options: { afterDelete?: (employeeId: string) => Promise<void> } = {},
+  options: { afterDelete?: (employeeId: string) => Promise<Partial<EmployeePersonalDataDeletionCounts> | void> } = {},
 ): ProfileStore {
   const employeeByInviteCode = inviteIndexes.get(world) ?? new Map<string, string>();
   inviteIndexes.set(world, employeeByInviteCode);
@@ -147,16 +176,32 @@ export function createInMemoryProfileStore(
       return world.profiles.find((profile) => profile.employeeId === employeeId);
     },
     async deleteEmployeePersonalData(employeeId) {
+      const before = Object.fromEntries(
+        (["messages", "insights", "feedback", "profiles", "consents", "participants"] as const)
+          .map((key) => [key, world[key].length]),
+      ) as Record<"messages" | "insights" | "feedback" | "profiles" | "consents" | "participants", number>;
       for (const key of ["messages", "insights", "feedback", "profiles", "consents", "participants"] as const) {
         world[key] = world[key].filter((record) => record.employeeId !== employeeId) as never;
       }
       for (const [inviteCode, indexedEmployeeId] of employeeByInviteCode) {
         if (indexedEmployeeId === employeeId) employeeByInviteCode.delete(inviteCode);
       }
+      const deletedAuditEvents = world.auditEvents.filter((record) => record.employeeId === employeeId).length;
       world.auditEvents = world.auditEvents.filter((record) => record.employeeId !== employeeId);
       world.events = world.events.filter((record) => !("employeeId" in record && record.employeeId === employeeId));
-      await options.afterDelete?.(employeeId);
-      await worldAuditDeletionMarker(world);
+      const additional = await options.afterDelete?.(employeeId);
+      worldAuditDeletionMarker(world);
+      return {
+        ...emptyDeletionCounts(),
+        participants: before.participants - world.participants.length,
+        profiles: before.profiles - world.profiles.length,
+        consents: before.consents - world.consents.length,
+        messages: before.messages - world.messages.length,
+        insights: before.insights - world.insights.length,
+        feedback: before.feedback - world.feedback.length,
+        auditEvents: deletedAuditEvents,
+        ...additional,
+      };
     },
   };
 }

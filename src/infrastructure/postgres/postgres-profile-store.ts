@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Consent, Participant, UserProfile } from "../../domain/employee.js";
 import { systemClock, type Clock } from "../../application/runtime-primitives.js";
-import type { ProfileStore } from "../../application/profile-store.js";
+import type { EmployeePersonalDataDeletionCounts, ProfileStore } from "../../application/profile-store.js";
 import { PersistenceError, mapPostgresError } from "../../application/persistence-error.js";
 import type { Pool } from "pg";
 import { keyedDigest } from "./digests.js";
@@ -313,10 +313,42 @@ export function createPostgresProfileStore(
     },
     async deleteEmployeePersonalData(employeeId) {
       try {
-        await withTransaction(pool, async (client) => {
+        return await withTransaction(pool, async (client) => {
+          const count = async (table: string, ownerColumn: "employee_id" | "user_id" | "owner_id") => Number((
+            await client.query<{ count: string }>(`SELECT count(*) FROM ${table} WHERE ${ownerColumn} = $1`, [employeeId])
+          ).rows[0]!.count);
+          const counts: EmployeePersonalDataDeletionCounts = {
+            participants: await count("minutka_private.participants", "employee_id"),
+            profiles: await count("minutka_private.profiles", "employee_id"),
+            consents: await count("minutka_private.consents", "employee_id"),
+            conversations: await count("minutka_private.threads", "employee_id"),
+            threadSummaries: await count("minutka_private.thread_summaries", "employee_id"),
+            messages: await count("minutka_private.messages", "employee_id"),
+            activities: await count("minutka_private.activities", "employee_id"),
+            insights: await count("minutka_private.insights", "employee_id"),
+            feedback: await count("minutka_private.feedback", "employee_id"),
+            schedules: await count("minutka_private.process_schedules", "user_id"),
+            scheduleFires: await count("minutka_private.schedule_fires", "user_id"),
+            telegramSessions: await count("minutka_private.telegram_sessions", "employee_id"),
+            telegramActionMessages: await count("minutka_private.telegram_action_messages", "employee_id"),
+            onboardingDrafts: await count("minutka_private.onboarding_drafts", "employee_id"),
+            pendingActionGroups: await count("minutka_private.telegram_pending_action_groups", "owner_id"),
+            ideas: await count("minutka_private.ideas", "user_id"),
+            ideaDeletionConfirmations: await count("minutka_private.idea_deletion_confirmations", "user_id"),
+            tasks: await count("minutka_private.tasks", "user_id"),
+            taskMutationConfirmations: await count("minutka_private.task_mutation_confirmations", "user_id"),
+            contextDocumentConfirmations: await count("minutka_private.context_document_confirmations", "user_id"),
+            artifacts: await count("minutka_private.artifacts", "user_id"),
+            artifactContents: await count("minutka_private.artifact_contents", "user_id"),
+            auditEvents: await count("minutka_audit.events", "employee_id"),
+            // Usage rows are personal records and are deleted with the participant.
+            // No separate cross-user aggregate usage table exists in the pilot.
+            usageRecords: await count("minutka_private.usage", "user_id"),
+          };
           // Remove all employee-linked records first. The retained marker is
           // deliberately anonymous: it proves a deletion occurred without
-          // retaining an identity or any personal content.
+          // retaining an identity or any personal content. The consent row is
+          // deleted with the participant; only this anonymous withdrawal marker remains.
           await client.query("DELETE FROM minutka_audit.events WHERE employee_id = $1", [employeeId]);
           await client.query("DELETE FROM minutka_private.participants WHERE employee_id = $1", [employeeId]);
           await client.query(
@@ -324,6 +356,7 @@ export function createPostgresProfileStore(
              VALUES ($1, $2, 'employee_data_deleted', '{}'::jsonb, $3)`,
             [randomUUID(), randomUUID(), clock.now()],
           );
+          return counts;
         });
       } catch (error) {
         throw mapPostgresError(error);

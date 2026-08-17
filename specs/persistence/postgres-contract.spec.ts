@@ -1366,6 +1366,7 @@ describe("PostgreSQL storage contracts", () => {
       body: { size: 7, openStream: () => Readable.from("private") },
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
+    await createPostgresUsageStore(pool).record({ id: "usage_delete", requestId: "req_usage_delete", userId: "emp_delete", source: "chat", occurredAt: now, month: "2026-08", inputTokens: 10, outputTokens: 5, totalTokens: 15, estimatedCostUsdMicros: 0 });
     const deletionParticipant = await profiles.getParticipant("emp_delete");
     if (!deletionParticipant?.companyId || !deletionParticipant.groupId || !deletionParticipant.roleId) throw new Error("deletion participant is missing tenant binding");
     const anonymizedBeforeDelete = Number((await pool.query<{ count: string }>(
@@ -1386,7 +1387,27 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect((await pool.query("SELECT 1 FROM minutka_private.profiles WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 1 });
     expect((await pool.query("SELECT 1 FROM minutka_private.activities WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 1 });
-    await profiles.deleteEmployeePersonalData("emp_delete");
+    const deleted = await profiles.deleteEmployeePersonalData("emp_delete");
+    expect(deleted).toMatchObject({
+      participants: 1,
+      profiles: 1,
+      consents: 1,
+      conversations: 1,
+      messages: 1,
+      activities: 1,
+      insights: 1,
+      feedback: 1,
+      telegramSessions: 1,
+      telegramActionMessages: 1,
+      onboardingDrafts: 1,
+      ideas: 1,
+      tasks: 1,
+      taskMutationConfirmations: 1,
+      artifacts: 1,
+      artifactContents: 1,
+      auditEvents: 1,
+      usageRecords: 1,
+    });
     for (const table of ["participants", "profiles", "consents", "activities", "threads", "messages", "feedback", "insights", "telegram_sessions", "telegram_action_messages", "onboarding_drafts"]) {
       const result = await pool.query(`SELECT 1 FROM minutka_private.${table} WHERE employee_id = 'emp_delete'`);
       expect(result.rowCount).toBe(0);
@@ -1396,6 +1417,7 @@ describe("PostgreSQL storage contracts", () => {
     expect((await pool.query("SELECT 1 FROM minutka_private.task_mutation_confirmations WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifacts WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_private.artifact_contents WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
+    expect((await pool.query("SELECT 1 FROM minutka_private.usage WHERE user_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     expect(Number((await pool.query<{ count: string }>(
       "SELECT count(*) FROM minutka_reporting.anonymized_activities WHERE company_id = $1",

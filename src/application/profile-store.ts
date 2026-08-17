@@ -6,6 +6,32 @@ export type OpenInviteResult = { participant: Participant; opened: boolean };
 export type ClaimConsentResult = { consent: Consent; created: boolean };
 /** `wasCompleted` means the participant was finalized before this call. */
 export type CompleteProfileResult = { profile: UserProfile; wasCompleted: boolean };
+export type EmployeePersonalDataDeletionCounts = {
+  participants: number;
+  profiles: number;
+  consents: number;
+  conversations: number;
+  threadSummaries: number;
+  messages: number;
+  activities: number;
+  insights: number;
+  feedback: number;
+  schedules: number;
+  scheduleFires: number;
+  telegramSessions: number;
+  telegramActionMessages: number;
+  onboardingDrafts: number;
+  pendingActionGroups: number;
+  ideas: number;
+  ideaDeletionConfirmations: number;
+  tasks: number;
+  taskMutationConfirmations: number;
+  contextDocumentConfirmations: number;
+  artifacts: number;
+  artifactContents: number;
+  auditEvents: number;
+  usageRecords: number;
+};
 
 /** Owner of participant, consent and profile state. Raw invite codes are inputs only. */
 export type ProfileStore = {
@@ -41,5 +67,5 @@ export type ProfileStore = {
   getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;
   getProfile(employeeId: string): Promise<UserProfile | undefined>;
-  deleteEmployeePersonalData(employeeId: string): Promise<void>;
+  deleteEmployeePersonalData(employeeId: string): Promise<EmployeePersonalDataDeletionCounts>;
 };
