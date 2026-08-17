@@ -374,7 +374,6 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       userId: "user_123",
       inviteCode: testInvite.inviteCode,
     });
-    telegram.clear();
 
     await telegram.sendText({
       chatId: "chat_1",
@@ -383,7 +382,10 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     });
     expect(telegram.sentMessages()).toEqual([
       expect.objectContaining({
-        text: "Сначала подтвердите согласие с политикой конфиденциальности.",
+        text: privacyExplanation,
+        replyMarkup: expect.objectContaining({
+          inlineKeyboard: [[expect.objectContaining({ text: "✅ Принимаю" })]],
+        }),
       }),
     ]);
     expect(spec.world.messages).toHaveLength(0);
@@ -397,7 +399,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     });
     expect(telegram.callbackAnswers()).toEqual([
       expect.objectContaining({
-        text: "Сначала подтвердите согласие с политикой конфиденциальности.",
+        text: "Сначала подтвердите согласие с политикой конфиденциальности. Запрос согласия отправлен в чат отдельным сообщением.",
       }),
     ]);
     expect(spec.world.feedback).toHaveLength(0);
@@ -1257,6 +1259,74 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     await shell.handleStart(identity.chatId, undefined, identity.userId);
     expect(sent).toEqual([privacyExplanation]);
+  });
+
+  it("10da. Reopens stale consent from a text message, deduplicates the prompt, and resumes chat after acceptance", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const runtime = createInMemoryRuntime({ world: spec.world, agentRunner: dummyAgentRunner });
+    const identity = { chatId: "chat_text_reconsent", userId: "user_text_reconsent" };
+    const acceptedAt = spec.world.now();
+    await runtime.service.issueInvite({ employeeId: "emp_text_reconsent", inviteCode: "invite_text_reconsent", companyId: "default_company", groupId: "default_group" });
+    await runtime.service.openInvite({ inviteCode: "invite_text_reconsent" });
+    spec.world.consents.push({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v1", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
+    spec.world.participants[0]!.status = "profile_completed";
+    spec.world.profiles.push({
+      employeeId: "emp_text_reconsent",
+      companyId: "default_company",
+      groupId: "default_group",
+      roleId: "default_role",
+      preferredName: "Тест",
+      assistantName: "Минутка",
+      addressForm: "formal",
+      persona: "efficiency",
+      responseLength: "balanced",
+      timezone: "Europe/Moscow",
+      createdAt: acceptedAt,
+      updatedAt: acceptedAt,
+    });
+    await runtime.telegramSessionStore.claim({
+      identity,
+      session: { employeeId: "emp_text_reconsent", threadId: "emp_text_reconsent", createdAt: acceptedAt, updatedAt: acceptedAt },
+    });
+    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_text_reconsent", acceptedAt, privacyVersion: "privacy-v1" });
+    const personalService = new PersonalAssistantService(runtime.service, {
+      async chat(input) {
+        return {
+          messageId: "msg_reconsent",
+          response: await dummyAgentRunner({ employeeId: input.userId, threadId: input.threadId, text: input.text, inputModality: input.inputModality, responseChannel: input.responseChannel }),
+          selectedProcessIds: ["core"],
+          outcome: { status: "completed" as const },
+          pendingActions: [],
+          effect: "none" as const,
+        };
+      },
+    }, createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore({ now: spec.world.now }), clock: { now: spec.world.now }, limits: { maximumBytes: 1024, timeoutMs: 1_000 } }));
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner, {}, true, undefined, { ...runtime, service: personalService });
+
+    await telegram.sendText({ ...identity, text: "Покажи мой контекст." });
+    const prompt = telegram.sentMessages()[0];
+    expect(prompt).toEqual(expect.objectContaining({
+      text: privacyExplanation,
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[expect.objectContaining({ callbackData: "tg:consent:emp_text_reconsent" })]],
+      }),
+    }));
+    expect(spec.world.messages).toHaveLength(0);
+
+    await telegram.sendText({ ...identity, text: "Повторное сообщение." });
+    expect(telegram.sentMessages()).toHaveLength(1);
+    expect(spec.world.messages).toHaveLength(0);
+
+    await telegram.clickCallback({ ...identity, callbackData: "tg:consent:emp_text_reconsent", messageId: prompt!.messageId });
+    telegram.clear();
+    await telegram.sendText({ ...identity, text: "Теперь можно работать." });
+
+    expect(telegram.sentMessages()).toEqual([
+      expect.objectContaining({ text: "Я робот-помощник Минутка." }),
+    ]);
+    expect(spec.world.consents).toEqual([
+      expect.objectContaining({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v4" }),
+    ]);
   });
 
   it("10e. Reopens consent when a linked owner has not accepted privacy", async () => {

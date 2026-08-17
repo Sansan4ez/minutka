@@ -126,7 +126,12 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.start({ chatId: "pending", userId: "pending_user", inviteCode: testInvite.inviteCode });
     telegram.clear();
     await telegram.sendVoice({ chatId: "pending", userId: "pending_user", fileId: "unconsented", durationSeconds: 1 });
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Сначала подтвердите согласие с политикой конфиденциальности.");
+    expect(telegram.sentMessages().at(-1)).toEqual(expect.objectContaining({
+      text: expect.stringContaining("Подтверждая согласие"),
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[expect.objectContaining({ text: "✅ Принимаю" })]],
+      }),
+    }));
     expect(telegram.voiceDownloadCalls()).toEqual([]);
   });
 
@@ -151,7 +156,12 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     telegram.clear();
     await telegram.sendVoice({ chatId: "pending", userId: "pending_user", fileId: "unconsented", durationSeconds: 1, transcript: "ignored" });
     expect(telegram.voiceDownloadCalls()).toEqual([]);
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Сначала подтвердите согласие с политикой конфиденциальности.");
+    expect(telegram.sentMessages().at(-1)).toEqual(expect.objectContaining({
+      text: expect.stringContaining("Подтверждая согласие"),
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[expect.objectContaining({ text: "✅ Принимаю" })]],
+      }),
+    }));
 
     const connected = await connectedDriver();
     await connected.telegram.sendVoice({ chatId: "voice_chat", userId: "voice_user", fileId: "long", durationSeconds: 301, transcript: "ignored" });
