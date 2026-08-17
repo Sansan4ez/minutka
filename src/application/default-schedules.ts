@@ -6,9 +6,9 @@ import type { Clock } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
 export const defaultDailySchedules = [
-  { processId: "morning_activity_collection", timeOfDay: "09:00" },
-  { processId: "evening_reflection", timeOfDay: "19:00" },
-] as const satisfies readonly { processId: AssistantScheduledProcessId; timeOfDay: string }[];
+  { processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31 },
+  { processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31 },
+] as const satisfies readonly { processId: AssistantScheduledProcessId; timeOfDay: string; daysOfWeek: number }[];
 
 export type DefaultScheduleProvisionResult = {
   created: boolean;
@@ -35,9 +35,15 @@ export class DefaultScheduleProvisioner {
         id: `${userId}:${schedule.processId}-daily`,
         processId: schedule.processId,
         timeOfDay: schedule.timeOfDay,
+        daysOfWeek: schedule.daysOfWeek,
         timezone,
         enabled: true,
-        nextFireAt: nextDailyFireAt({ after, timeOfDay: schedule.timeOfDay, timezone }),
+        nextFireAt: nextDailyFireAt({
+          after,
+          timeOfDay: schedule.timeOfDay,
+          timezone,
+          daysOfWeek: schedule.daysOfWeek,
+        }),
       }));
     }
     return { created: true, schedules };

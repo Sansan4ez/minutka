@@ -226,8 +226,8 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
       id: "morning_activity_collection",
       path: "vault/assistant/processes/morning_activity_collection.md",
     }));
-    expect(defaults).toContain('{ processId: "morning_activity_collection", timeOfDay: "09:00" }');
-    expect(defaults).not.toContain('{ processId: "day_focus", timeOfDay: "09:00" }');
+    expect(defaults).toContain('{ processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31 }');
+    expect(defaults).not.toContain('{ processId: "day_focus",');
     expect(process).toContain("Call `collectActivity` exactly once for each named activity");
     expect(process).toContain("Put the activity category and its obstacle in the same call");
     expect(process).toContain("If duration, system, category, or obstacle is unknown, omit it");

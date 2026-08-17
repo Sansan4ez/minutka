@@ -25,12 +25,12 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await onboard(runtime, "owner_tokyo", "Asia/Tokyo");
 
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
-      { id: "owner_moscow:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow", nextFireAt: "2026-01-15T06:00:00.000Z" },
-      { id: "owner_moscow:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Europe/Moscow", nextFireAt: "2026-01-15T16:00:00.000Z" },
+      { id: "owner_moscow:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-16T05:30:00.000Z" },
+      { id: "owner_moscow:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-15T16:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("owner_tokyo")).resolves.toMatchObject([
-      { id: "owner_tokyo:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Asia/Tokyo", nextFireAt: "2026-01-16T00:00:00.000Z" },
-      { id: "owner_tokyo:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T10:00:00.000Z" },
+      { id: "owner_tokyo:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T23:30:00.000Z" },
+      { id: "owner_tokyo:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T10:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("other_owner")).resolves.toEqual([]);
 
@@ -40,10 +40,16 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     });
     await expect(runtime.service.completeOnboarding({ employeeId: "owner_moscow", roleId: "default_role", persona: "efficiency", timezone: "Europe/Moscow" })).resolves.toMatchObject({ completion: "already" });
     const restartedProvisioner = new DefaultScheduleProvisioner(runtime.scheduleStore, { now: () => "2026-01-16T05:30:00.000Z" });
-    await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({ created: false });
+    await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({
+      created: false,
+      schedules: [
+        { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "10:30", enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z" },
+        { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", daysOfWeek: 31, enabled: true },
+      ],
+    });
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
       { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "10:30", enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z" },
-      { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", enabled: true },
+      { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", daysOfWeek: 31, enabled: true },
     ]);
   });
 
