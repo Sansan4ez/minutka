@@ -100,6 +100,7 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     const runtime = readFileSync("src/runtime/delete-employee-data.ts", "utf8");
     const runbook = readFileSync("docs/runbooks/employee-personal-data-deletion.md", "utf8");
     const consent = readFileSync("vault/assistant/processes/consent_and_privacy.md", "utf8");
+    const skillsMap = readFileSync("docs/product/skills-map.md", "utf8");
 
     expect(packageJson.scripts["employee:data:delete"]).toBe("tsx src/runtime/delete-employee-data.ts");
     expect(runtime).toContain("DELETE ${employeeId}");
@@ -111,5 +112,23 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     expect(consent).toContain("передаст запрос оператору");
     expect(consent).toContain("Старый инвайт перестанет работать");
     expect(consent).toContain("обезличенные строки");
+
+    const workingSection = skillsMap.split("## 🚧 Следующий срез")[0] ?? "";
+    const nextSliceSection = skillsMap.split("## 🚧 Следующий срез")[1]?.split("## ⛔")[0] ?? "";
+    expect(workingSection).toContain("| Удаление личных данных сотрудника |");
+    expect(nextSliceSection).not.toContain("Удаление личных данных сотрудника");
+    for (const phrase of [
+      "передаёт запрос доверенному оператору",
+      "инструмента удаления у агента нет",
+      "не кнопка и не self-service удаление внутри Telegram",
+      "level-2",
+      "необратимую typed-команду",
+      "обезличенные строки сохраняются до удаления среза компании целиком",
+      "identity-free audit marker",
+      "Старый инвайт отзывается",
+      "только по новому",
+    ]) {
+      expect(workingSection).toContain(phrase);
+    }
   });
 });
