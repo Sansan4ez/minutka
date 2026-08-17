@@ -1,10 +1,10 @@
 import { Pool, type PoolClient } from "pg";
 import { PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
-import type { PostgresConfig } from "./postgres-config.js";
+import type { PostgresConnectionConfig } from "./postgres-config.js";
 
 export type SqlExecutor = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
-export function createPostgresPool(config: PostgresConfig): Pool {
+export function createPostgresPool(config: PostgresConnectionConfig): Pool {
   const pool = new Pool({
     connectionString: config.databaseUrl,
     ssl: config.ssl,

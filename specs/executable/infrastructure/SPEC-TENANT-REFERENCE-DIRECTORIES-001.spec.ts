@@ -29,9 +29,12 @@ describe("SPEC-TENANT-REFERENCE-DIRECTORIES-001: tenant reference directories", 
     expect(sql).not.toMatch(/GRANT (?:INSERT|UPDATE|DELETE|ALL)[^;]*minutka_reference/iu);
   });
 
-  it("documents code-free creation and company-scoped reads", () => {
+  it("documents the operator script as primary, with SQL creation and scoped reads as reference", () => {
     const runbook = readFileSync(runbookPath, "utf8");
 
+    expect(runbook).toContain("npm run tenant:seed -- seed --file");
+    expect(runbook).toContain("npm run tenant:seed -- inspect --company-id");
+    expect(runbook).toContain("## Справочный SQL");
     expect(runbook).toContain("INSERT INTO minutka_reference.companies");
     expect(runbook).toContain("INSERT INTO minutka_reference.training_groups");
     expect(runbook).toContain("INSERT INTO minutka_reference.roles");
