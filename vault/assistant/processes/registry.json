@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "manualId": "personal-assistant-vault",
+  "manualId": "minutka-vault",
   "core": {
     "id": "core",
     "path": "vault/assistant/AGENTS.md"
@@ -19,28 +19,6 @@
     }
   ],
   "processes": [
-    {
-      "id": "inbox_capture",
-      "path": "vault/assistant/processes/inbox_capture.md",
-      "appliesTo": [
-        "inbound_record"
-      ],
-      "dependencies": [
-        "docs/architecture/rfc-personal-assistant-architecture.md#6-классификатор-сквозной-тип"
-      ]
-    },
-    {
-      "id": "knowledge_lookup",
-      "path": "vault/assistant/processes/knowledge_lookup.md",
-      "appliesTo": [
-        "chat"
-      ],
-      "dependencies": [
-        "docs/architecture/runtime-context-contract.md",
-        "vault/assistant/bin/search-documents.md",
-        "vault/assistant/bin/read-document.md"
-      ]
-    },
     {
       "id": "morning_activity_collection",
       "path": "vault/assistant/processes/morning_activity_collection.md",
@@ -64,18 +42,6 @@
         "src/application/activity-collection.ts",
         "src/application/company-reporting.ts",
         "src/application/profile-store.ts"
-      ]
-    },
-    {
-      "id": "day_focus",
-      "path": "vault/assistant/processes/day_focus.md",
-      "appliesTo": [
-        "chat"
-      ],
-      "dependencies": [
-        "docs/architecture/rfc-personal-assistant-architecture.md#8-реестр-навыков",
-        "docs/architecture/rfc-personal-assistant-architecture.md#13-фазовый-план",
-        "docs/architecture/rfc-agent-led-routing.md#2-решение"
       ]
     },
     {

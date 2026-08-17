@@ -82,7 +82,7 @@ describe("CONTEXT-STARTUP-CONFIG: generated context minimums", () => {
       const contextPriorities = loadContextPriorityManifest({ repoRoot: packageRoot });
       const { threadSummarizerAgent } = await import("../../../src/mastra/agents/thread-summarizer-agent.js");
 
-      expect(manual).toContain("Personal Assistant runtime instructions");
+      expect(manual).toContain("«Минутка» runtime instructions");
       expect(contextPriorities.rules.map(({ id }) => id)).toContain("personal-constitution");
       expect(readFileSync(join(packageRoot, "migrations/0001_create_schemas.sql"), "utf8")).toContain("CREATE SCHEMA");
       expect(threadSummarizerAgent.id).toBe("personal-assistant-thread-summarizer");

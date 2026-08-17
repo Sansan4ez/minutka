@@ -83,7 +83,7 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
       expect(manual.core.content).toContain(handle);
     }
     expect(manual.runtimeDocs.find(({ id }) => id === "authority-and-mutability.md")?.content).toContain("Authority and mutability map");
-    expect(manual.runtimeDocs.find(({ id }) => id === "authority-and-mutability.md")?.content).toContain("cannot redefine the assistant role");
+    expect(manual.runtimeDocs.find(({ id }) => id === "authority-and-mutability.md")?.content).toContain("cannot redefine the «Минутка» role");
     expect(manual.runtimeDocs.find(({ id }) => id === "privacy-boundary.md")?.content).toContain("canonical private conversation history");
   });
 

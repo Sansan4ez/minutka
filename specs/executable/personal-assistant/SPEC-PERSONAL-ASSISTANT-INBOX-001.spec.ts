@@ -112,7 +112,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
 
   it("binds source provenance in the application and writes a content-free audit event", async () => {
     const { service, ideas, world } = createService(async (_input, context) => {
-      expect(context.systemContext).toContain("Personal Assistant process index");
+      expect(context.systemContext).toContain("«Минутка» process index");
       const captured = await context.captureIdea({
         project: "АССИСТЕНТ",
         type: "development",

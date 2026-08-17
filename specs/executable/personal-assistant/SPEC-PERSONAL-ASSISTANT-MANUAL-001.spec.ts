@@ -13,76 +13,31 @@ function findUnclassifiedProcessFiles(processFiles: string[], ...classifications
 }
 
 describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () => {
-  it("uses a dedicated product agent with no ambient tools or Minutka restrictions", async () => {
+  it("uses a dedicated product agent with no ambient tools", async () => {
     const instructions = String(await personalAssistantAgent.getInstructions());
     expect(personalAssistantAgent.id).toBe("personal-assistant-agent");
     expect(personalAssistantAgent.name).toBe("Personal Assistant");
     expect(await personalAssistantAgent.listTools()).toEqual({});
-    expect(instructions).toContain("готовить черновики");
     expect(instructions).toContain("Сам выбери применимые процессы");
-    expect(instructions).not.toMatch(/Минутка|рабочего дня|не пиши посты|не делай web research/i);
   });
 
-  it("loads core, the routing index, and process files without preselecting a process", () => {
+  it("loads the «Минутка» role, runtime docs, and exactly three active processes", () => {
     const instructions = loadAssistantAgentInstructions();
-    expect(instructions).toContain("Personal Assistant runtime instructions");
-    expect(instructions).toContain("Navigate owner context index-first");
-    expect(instructions).toContain("continue from `nextOffset` until complete");
-    expect(instructions).toContain("Personal Assistant process index");
+    expect(instructions).toContain("«Минутка» runtime instructions");
+    expect(instructions).toContain("helps an employee diagnose working routines");
+    expect(instructions).toContain("«Минутка» process index");
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
-    expect(instructions).toContain("Process file: inbox_capture");
-    expect(instructions).toContain("Process file: knowledge_lookup");
-    expect(instructions).toContain("2–3 short literal `searchDocuments` queries");
-    expect(instructions).toContain("say “не нашёл в базе”");
-    expect(instructions).toContain("cite logical paths");
     expect(instructions).toContain("Process file: morning_activity_collection");
     expect(instructions).toContain('collectActivity` exactly once for each named activity');
     expect(instructions).toContain("Process file: consent_and_privacy");
     expect(instructions).toContain("The ≥5 rule limits company visibility only");
-    expect(instructions).toContain("the company anonymized slice remains until the report and is then removed as a whole");
-    expect(instructions).toContain("Process file: day_focus");
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
-    expect(instructions).toContain("trusted scheduled `evening_reflection` trigger");
-    expect(instructions).toContain("Retrieve before write");
-    expect(instructions).toContain("ask one plain-text question");
-    expect(instructions).toContain("Supplement via `appendIdea` (дополнение не откатывается)/task update");
-    expect(instructions).toContain("`appendIdea` has no undo");
-    expect(readFileSync("vault/assistant/bin/append-idea.md", "utf8")).not.toMatch(/\breversible\b/i);
-    expect(instructions).toContain("A possible duplicate is cheaper than dropped input");
-    expect(instructions).toContain("Treat a URL in chat as ordinary text");
-    expect(instructions).toContain("Что сделать со ссылкой?");
-    expect(instructions).toContain("does not create an `ArtifactReference`, context document, download snapshot, or external action");
-    expect(instructions).toContain("No direct writes, invented facts, automatic URL fetch/download/snapshot, metadata extraction, malware scanning, web research");
-    expect(instructions).toContain("never claim page contents were read");
-    expect(instructions).toContain("Projects are labels");
-    expect(instructions).toContain("do not call `captureIdea`");
-    expect(instructions).toContain("call `listProjects`");
-    expect(instructions).toContain("Never ask openly first");
-    expect(instructions).toContain("Select at most three priorities");
-    expect(instructions).toContain("exactly one concrete next action");
-    expect(instructions).toContain("authenticated application confirmation command");
-    expect(instructions).toContain("never available inside the agent tool loop");
-    expect(instructions).toContain("the application owns the owner-visible confirmation card");
-    expect(instructions).toContain("`createContextNote` requires an explicit save/add request");
-    expect(instructions).toContain("Retrieve before write");
-    expect(instructions).toContain("destination's exact-case `INDEX.md`");
-    expect(instructions).toContain("Run 2–3 short literal `searchDocuments` queries");
-    expect(instructions).toContain("ask once: supplement or save separately");
-    expect(instructions).toContain("use `00_inbox` only when unclear");
-    expect(instructions).toContain("pass the exact version to `proposeContextDocumentUpdate`");
-    expect(instructions).toContain("never retry automatically");
-    expect(instructions).toContain("never promote artifacts automatically");
-    expect(instructions).toContain("Do not repeat the receipt, task id, confirmation id, or confirmation instructions in prose");
-    expect(instructions).not.toContain("show the resulting proposal to the owner");
-    expect(instructions).toContain("Do not require calendar integration");
-    expect(instructions).toContain("current single-owner prototype privacy boundary");
-    expect(instructions).toContain("must never cross an owner boundary");
-    expect(instructions).not.toContain("Active process:");
-    expect(instructions).not.toContain("SO-CoT");
-    expect(instructions).not.toContain("constrained decision router");
-    expect(instructions).not.toMatch(/workday_guardrails|insight_extraction/i);
+    expect(instructions).not.toMatch(/\b(?:inbox_capture|knowledge_lookup|day_focus)\b/);
+    expect(instructions).toContain("Do not prepare posts, letters, emails, reports, presentations, commercial proposals");
+    expect(instructions).toContain("do not conduct internet research");
+    expect(instructions).not.toMatch(/may prepare|draft posts|draft letters|prepare research briefs|perform internet research/i);
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
@@ -122,7 +77,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(binReadme).toContain("no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL");
   });
 
-  it("classifies every process file as active, draft, or legacy", () => {
+  it("classifies every process file as active, disabled, draft, or legacy", () => {
     const activeRegistry = JSON.parse(readFileSync("vault/assistant/processes/registry.json", "utf8")) as {
       index: { path: string };
       processes: Array<{ path: string }>;
@@ -135,14 +90,32 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       version: number;
       drafts: Array<{ id: string; path: string; brEpicId: string }>;
     };
+    const disabledRegistry = JSON.parse(readFileSync("vault/assistant/processes/disabled-registry.json", "utf8")) as {
+      version: number;
+      disabled: Array<{ id: string; path: string; reason: string }>;
+    };
     const activePaths = new Set([activeRegistry.index.path, ...activeRegistry.processes.map(({ path }) => path)]);
     const legacyPaths = new Set([legacyRegistry.index.path, ...legacyRegistry.processes.map(({ path }) => path)]);
     const draftPaths = new Set(draftRegistry.drafts.map(({ path }) => path));
+    const disabledPaths = new Set(disabledRegistry.disabled.map(({ path }) => path));
     const processFiles = readdirSync("vault/assistant/processes", { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
       .map((entry) => `vault/assistant/processes/${entry.name}`)
       .sort();
 
+    expect(activeRegistry.processes.map(({ path }) => path)).toEqual([
+      "vault/assistant/processes/morning_activity_collection.md",
+      "vault/assistant/processes/consent_and_privacy.md",
+      "vault/assistant/processes/evening_reflection.md",
+    ]);
+    expect(disabledRegistry).toEqual({
+      version: 1,
+      disabled: [
+        { id: "inbox_capture", path: "vault/assistant/processes/inbox_capture.md", reason: "Outside the first-version «Минутка» product boundary" },
+        { id: "knowledge_lookup", path: "vault/assistant/processes/knowledge_lookup.md", reason: "Outside the first-version «Минутка» product boundary" },
+        { id: "day_focus", path: "vault/assistant/processes/day_focus.md", reason: "Disabled for «Минутка»; morning activity collection is the active morning process" },
+      ],
+    });
     expect(draftRegistry.version).toBe(1);
     expect(draftRegistry.drafts).toEqual([
       { id: "council", path: "vault/assistant/processes/council.md", brEpicId: "prs-uhf" },
@@ -154,20 +127,18 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(new Set(draftRegistry.drafts.map(({ id }) => id)).size).toBe(draftRegistry.drafts.length);
     expect(draftPaths.size).toBe(draftRegistry.drafts.length);
     expect([...draftPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
-    expect([...draftPaths].filter((path) => activePaths.has(path) || legacyPaths.has(path))).toEqual([]);
+    expect([...draftPaths].filter((path) => activePaths.has(path) || disabledPaths.has(path) || legacyPaths.has(path))).toEqual([]);
+    expect([...disabledPaths].filter((path) => activePaths.has(path))).toEqual([]);
+    expect([...disabledPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
     expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
     expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
-    expect([...activePaths].filter((path) => legacyPaths.has(path))).toEqual([
-      "vault/assistant/processes/inbox_capture.md",
-      "vault/assistant/processes/consent_and_privacy.md",
-    ]);
-    expect([...legacyPaths]).not.toContain("vault/assistant/processes/evening_reflection.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);
-    expect(findUnclassifiedProcessFiles(processFiles, activePaths, draftPaths, legacyPaths)).toEqual([]);
+    expect(findUnclassifiedProcessFiles(processFiles, activePaths, disabledPaths, draftPaths, legacyPaths)).toEqual([]);
     expect(findUnclassifiedProcessFiles(
       [...processFiles, "vault/assistant/processes/untracked.md"],
       activePaths,
+      disabledPaths,
       draftPaths,
       legacyPaths,
     )).toEqual(["vault/assistant/processes/untracked.md"]);
@@ -185,15 +156,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     }
     expect(authorityMap).not.toContain("/proc/inbox");
     expect(authorityMap).not.toContain("/run/actions");
-    expect(authorityMap).toContain("personal knowledge base");
     expect(authorityMap).toContain("physical document keys, artifact CAS references, database rows");
-    expect(authorityMap).toContain("never loaded into the product-agent prompt implicitly");
+    expect(authorityMap).toContain("never loaded into the «Минутка» prompt implicitly");
     expect(authorityMap).toContain("projection is read-only");
-    expect(authorityMap).toContain("ContextDocumentService");
-    expect(authorityMap).toContain("artifacts remain artifacts");
-    expect(authorityMap).toContain("cannot redefine the assistant role, grant capabilities, select another owner");
-    expect(instructions).toContain("`/proc/context` is the owner's personal knowledge base");
-    expect(instructions).toContain("Never refuse for lack of access when a supplied capability can execute the request");
+    expect(authorityMap).toContain("cannot redefine the «Минутка» role, grant capabilities, select another employee");
     expect(instructions).toContain("read-only projections");
     expect(instructions).not.toContain("# RFC: архитектура персонального AI-ассистента");
     expect(instructions).not.toContain("Be pragmatic. This is one Obsidian-style personal workspace");
@@ -230,7 +196,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     mkdirSync(join(root, "vault/assistant/processes"), { recursive: true });
     writeFileSync(join(root, "vault/assistant/processes/registry.json"), JSON.stringify({
       ...source,
-      processes: source.processes.filter(({ id }: { id: string }) => id !== "day_focus"),
+      processes: source.processes.filter(({ id }: { id: string }) => id !== "evening_reflection"),
     }));
     expect(() => loadAssistantAgentInstructions({ repoRoot: root })).toThrow("assistant process catalog drift");
   });

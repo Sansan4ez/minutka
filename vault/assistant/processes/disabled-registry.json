@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "disabled": [
+    {
+      "id": "inbox_capture",
+      "path": "vault/assistant/processes/inbox_capture.md",
+      "reason": "Outside the first-version «Минутка» product boundary"
+    },
+    {
+      "id": "knowledge_lookup",
+      "path": "vault/assistant/processes/knowledge_lookup.md",
+      "reason": "Outside the first-version «Минутка» product boundary"
+    },
+    {
+      "id": "day_focus",
+      "path": "vault/assistant/processes/day_focus.md",
+      "reason": "Disabled for «Минутка»; morning activity collection is the active morning process"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-Use for the scheduled morning touch and for an employee's account of work since the previous touch. This is the morning process for «Минутка»; `day_focus` is only for an explicit planning request.
+Use for the scheduled morning touch and for an employee's account of work since the previous touch. This is the active morning process for «Минутка».
 
 ## Process
 
@@ -24,7 +24,7 @@ The raw account remains in authenticated private conversation history. Employee 
 
 ## Anti-patterns
 
-Using `day_focus` for the scheduled touch; merging several activities; guessing system or duration; requiring all four answers; copying free text into a structured action.
+Turning the scheduled touch into priority planning; merging several activities; guessing system or duration; requiring all four answers; copying free text into a structured action.
 
 ## Dependencies
 

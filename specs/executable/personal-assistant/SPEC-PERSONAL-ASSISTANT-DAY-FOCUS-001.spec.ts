@@ -208,9 +208,9 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
     expect(response.priorities).toEqual([]);
     expect(response.nextAction).toBe("Назвать одну цель или текущую задачу.");
     expect(response.caveats).toContain("Недостаточно данных о целях, идеях и задачах.");
-    expect(systemContext).toContain("Process file: day_focus");
-    expect(systemContext).toContain("Select at most three priorities");
-    expect(systemContext).toContain('markProcessUsed({ id: "day_focus" })');
+    expect(systemContext).not.toContain("Process file: day_focus");
+    expect(systemContext).not.toContain("Select at most three priorities");
+    expect(systemContext).not.toContain('markProcessUsed({ id: "day_focus" })');
     expect(selectedProcessIds).toEqual(["core", "day_focus"]);
   });
 

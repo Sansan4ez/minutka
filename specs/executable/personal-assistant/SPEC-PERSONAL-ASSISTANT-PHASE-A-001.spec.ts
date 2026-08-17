@@ -64,7 +64,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     expect(receivedContext).toContain('relevance="overdue"');
     expect(receivedContext).toContain("Подготовить план дня");
     expect(receivedContext).toContain("Проверить порядок records projection");
-    expect(receivedContext.indexOf("Personal Assistant runtime instructions")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/context"));
+    expect(receivedContext.indexOf("«Минутка» runtime instructions")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/context"));
     expect(receivedContext.indexOf("Runtime projection: /proc/context")).toBeLessThan(receivedContext.indexOf("Runtime projection: /proc/records"));
     expect(receivedContext).not.toContain("# RFC:");
     expect(receivedContext).not.toContain("docs/architecture/rfc-personal-assistant-architecture.md");
