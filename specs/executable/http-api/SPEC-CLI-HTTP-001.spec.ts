@@ -46,6 +46,13 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect((await foreignRoleResponse.json()).error).toMatchObject({ code: "invalid_request", message: "roleId must belong to the participant company" });
     const onboarding = await runMinutkaCli(client, ["employee", "complete-onboarding", "--role-id", "default_role", "--self-description", "manager", "--persona", "support"]);
     expect(onboarding.exitCode).toBe(0);
+    // Without --name the assistant falls back to the employee ID; with the flag
+    // the value reaches the use-case instead of being dropped by the parser.
+    expect((await client.getProfile()).preferredName).toBe("emp_cli");
+    const named = await runMinutkaCli(client, ["employee", "complete-onboarding", "--name", "Алексей", "--role-id", "default_role", "--self-description", "manager", "--persona", "support"]);
+    expect(named.exitCode).toBe(0);
+    const namedProfile = await runMinutkaCli(client, ["employee", "profile"]);
+    expect(JSON.parse(namedProfile.stdout.at(-1) ?? "{}").preferredName).toBe("Алексей");
     const chat = await runMinutkaCli(client, ["employee", "chat", "--thread", "thread_cli", "--text", "hello"]);
     expect(chat.exitCode).toBe(0); const messageId = JSON.parse(chat.stdout.at(-1) ?? "{}").messageId;
     const feedback = await runMinutkaCli(client, ["employee", "feedback", "--thread", "thread_cli", "--target-message", messageId, "--rating", "positive"]);
