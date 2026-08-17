@@ -48,25 +48,17 @@ const eveningReflectionRouter: AgentManualRouter = async (input) =>
   input.text === eveningReflectionText ? ["evening_reflection"] : [];
 
 describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects processes", () => {
-  it("selects core, onboarding and privacy for onboarding first response", async () => {
+  it("keeps onboarding welcome outside agent routing", async () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
       observedRuns.push({ input, context });
-      return "Принято. Начнём с главного приоритета на сегодня.";
+      return "Принято.";
     };
 
     const spec = createSpecWorld(mockAgentRunner);
     await onboardTestEmployee(spec);
 
-    const onboardingRun = observedRuns.find(
-      (run) => run.context?.purpose === "onboarding_first_response",
-    );
-    expect(onboardingRun?.context?.selectedProcessIds).toEqual(
-      expect.arrayContaining(["core", "onboarding", "consent_and_privacy"]),
-    );
-    expect(onboardingRun?.context?.systemContext).toContain(
-      "## Agent Vault process: onboarding",
-    );
+    expect(observedRuns.some((run) => run.context?.purpose === "onboarding_first_response")).toBe(false);
   });
 
   it("keeps legacy evening routing disabled after evening_reflection moves to the active assistant registry", async () => {

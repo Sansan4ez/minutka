@@ -20,18 +20,6 @@
   ],
   "processes": [
     {
-      "id": "onboarding",
-      "path": "vault/assistant/processes/onboarding.md",
-      "appliesTo": [
-        "onboarding_first_response"
-      ],
-      "dependencies": [
-        "docs/product/Final_Description.md#scenario-1-employee-joins-the-program",
-        "docs/product/virtual-simulation.md#scenario-2-сотрудник-проходит-онбординг-согласие-и-настройку-стиля",
-        "specs/executable/onboarding/SPEC-ONBOARDING-001.spec.ts"
-      ]
-    },
-    {
       "id": "consent_and_privacy",
       "path": "vault/assistant/processes/consent_and_privacy.md",
       "appliesTo": [

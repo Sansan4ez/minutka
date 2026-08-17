@@ -447,7 +447,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: "default_role" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: completeAnswer });
     await Promise.all([runtime.service.confirmOnboarding({ employeeId: "emp_confirm" }), runtime.service.confirmOnboarding({ employeeId: "emp_confirm" })]);
-    expect(agentRuns).toBe(1);
+    expect(agentRuns).toBe(0);
     expect(world.auditEvents.filter((event) => event.type === "profile_updated")).toHaveLength(1);
     expect(world.auditEvents.filter((event) => event.type === "onboarding_completed")).toHaveLength(1);
     expect((await runtime.documentStore.list("emp_confirm", "context/")).map(({ version }) => version)).toEqual([

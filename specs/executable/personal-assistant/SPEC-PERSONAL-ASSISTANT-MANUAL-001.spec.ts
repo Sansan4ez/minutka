@@ -165,6 +165,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
     expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
+    expect(legacyPaths).not.toContain("vault/assistant/processes/onboarding.md");
+    expect(processFiles).not.toContain("vault/assistant/processes/onboarding.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);
     expect(findUnclassifiedProcessFiles(processFiles, activePaths, disabledPaths, draftPaths, legacyPaths)).toEqual([]);
     expect(findUnclassifiedProcessFiles(

@@ -412,9 +412,11 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
     return;
   }
   const response = progress.result.firstResponse.trim();
-  if (!response) throw new Error("Agent returned an empty onboarding response");
+  if (!response) throw new Error("Onboarding welcome is empty");
   if (sendMarkdown) await sendMarkdown(chatId, response);
   else await deliverTelegramMessage(replyPort, chatId, response);
+  const firstActivityPrompt = progress.result.firstActivityPrompt?.trim();
+  if (firstActivityPrompt) await replyPort.sendMessage(chatId, firstActivityPrompt);
 }
 
 export type TelegramFileAttachment = {
@@ -952,6 +954,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
             if (alreadySaved) return;
             await sendMarkdown(chatId, handled.result.firstResponse);
+            if (handled.result.firstActivityPrompt) await replyPort.sendMessage(chatId, handled.result.firstActivityPrompt);
             return;
           }
           if (action === "reset" && !value) {

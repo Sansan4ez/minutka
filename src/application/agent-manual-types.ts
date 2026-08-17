@@ -51,7 +51,6 @@ export const agentManualProcessIds = [
 ] as const satisfies readonly AgentManualProcessId[];
 
 export const requiredAgentManualProcessIds = [
-  "onboarding",
   "consent_and_privacy",
   "workday_guardrails",
   "insight_extraction",

@@ -16,7 +16,7 @@ export const timezoneSchema = z.string().min(1).max(64).transform((value, contex
   context.addIssue({ code: "custom", message: "Invalid IANA timezone" });
   return z.NEVER;
 });
-export const agentManualProcessIdSchema = z.enum(["core", "onboarding", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
+export const agentManualProcessIdSchema = z.enum(["core", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
 export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
 export const assistantScheduledProcessIdSchema = z.enum(assistantScheduledProcessIds);
@@ -271,7 +271,7 @@ export const completeOnboardingRequestSchema = z.strictObject({
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   roleId: z.string().min(1).max(128), selfDescription: z.string().min(1).max(2_000).optional(),
 });
-export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
+export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string(), firstActivityPrompt: z.string().min(1).optional() });
 export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "communicationStyle", "timezone"]);
 export const onboardingAnswerRequestSchema = z.strictObject({ text: chatInputTextSchema });
 export const onboardingProgressSchema = z.discriminatedUnion("status", [

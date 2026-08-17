@@ -93,7 +93,7 @@ function ensureLifecycleProcesses(
   allowed: Set<AgentManualProcessId>,
 ) {
   if (purpose === "onboarding_first_response") {
-    return ensureProcesses(ids, ["onboarding", "consent_and_privacy"], allowed);
+    return ensureProcesses(ids, ["consent_and_privacy"], allowed);
   }
   return ids;
 }

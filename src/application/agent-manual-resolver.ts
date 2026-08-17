@@ -75,7 +75,7 @@ function requiredProcessesFor(input: ResolveAgentManualInput): AgentManualProces
   const required: AgentManualProcessId[] = ["core"];
 
   if (input.purpose === "onboarding_first_response") {
-    required.push("onboarding", "consent_and_privacy");
+    required.push("consent_and_privacy");
   }
 
   return dedupe(required);

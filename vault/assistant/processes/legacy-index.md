@@ -8,7 +8,6 @@ This index is the file-first routing map for Minutka business processes. It foll
 
 | Process id | When to select | Why it applies | Mutating |
 |---|---|---|---|
-| `onboarding` | First response after profile completion and accepted consent. | Establishes the initial working relationship, persona, and response style after the profile is saved. | Profile already saved by application flow; no extra mutation. |
 | `consent_and_privacy` | Onboarding privacy support, privacy/company/methodologist/data questions, or privacy boundary explanation. | Answers data-visibility questions without mixing privacy policy into work-scope or insight processes. | No. Future external privacy contour may own data export/deletion. |
 | `evening_reflection` | End-of-day work reflection, blockers, calls/meetings, fatigue, comparing outcome with morning plan. | Helps interpret a workday reflection with thread context and prepare useful response context. | No. |
 | `workday_guardrails` | Request asks Minutka to do work outside its role: finished content generation, web research, unsupported AI training, unrelated topic, or request-integrity override. | Business-scope boundary process: decide a soft refusal and return to working-day help without invoking the main answer chain. | Audit event only. |

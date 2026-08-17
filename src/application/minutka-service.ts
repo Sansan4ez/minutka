@@ -34,7 +34,8 @@ import type { RuntimeProjectionBuilder } from "./runtime-projections/runtime-pro
 import { createRuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import type { ChatInputModality, ResponseChannel } from "../contracts/minutka-api.js";
 import { createResponsePolicy, renderResponsePolicy } from "../domain/response-policy.js";
-import type { DefaultScheduleProvisioner } from "./default-schedules.js";
+import type { DefaultScheduleProvisioner, DefaultScheduleProvisionResult } from "./default-schedules.js";
+import { createOnboardingWelcome } from "./onboarding-welcome-loader.js";
 import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipantsInput } from "./participant-pagination.js";
 import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 import { RoleNotInCompanyError } from "./onboarding-role-error.js";
@@ -82,7 +83,7 @@ export type CompleteOnboardingInput = {
   roleId: string;
   selfDescription?: string;
 };
-export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string };
+export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string; firstActivityPrompt?: string };
 export type GetOnboardingProgressInput = { employeeId: string };
 export type SubmitOnboardingAnswerInput = { employeeId: string; text: string };
 export type ConfirmOnboardingInput = { employeeId: string };
@@ -120,6 +121,8 @@ export type MinutkaServiceDeps = {
   /** Exact versioned text shown before accepting the current privacy version. */
   privacyExplanation?: string;
   defaultScheduleProvisioner?: DefaultScheduleProvisioner;
+  /** Deterministic welcome renderer; production and the legacy path use the same Vault source. */
+  onboardingWelcome?: typeof createOnboardingWelcome;
 };
 
 /** Transport- and storage-independent application use cases. */
@@ -332,12 +335,19 @@ export class MinutkaService {
     // Profile completion and draft removal are one storage transaction. This
     // makes the finalized profile the source of truth even under stale writes.
     const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
-    await this.provisionDefaultSchedules(completed.profile);
+    const provisionedSchedules = await this.provisionDefaultSchedules(completed.profile);
     if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
     await this.auditProfileCompletionSafely({ requestId, employeeId: input.employeeId, timestamp, changedFields, persona: completed.profile.persona, isNewProfile: !completed.wasCompleted });
     if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse: "Профиль обновлён." };
-    const firstResponse = await this.createFirstOnboardingResponse(completed.profile);
-    return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse };
+    const firstResponse = this.createFirstOnboardingResponse(completed.profile, provisionedSchedules);
+    return {
+      employeeId: input.employeeId,
+      status: "profile_completed",
+      completion: "new",
+      profile: completed.profile,
+      firstResponse,
+      firstActivityPrompt: "Чем вы сегодня занимались? Достаточно пары строк.",
+    };
   }
 
   async getOnboardingProgress(input: GetOnboardingProgressInput): Promise<OnboardingProgress> {
@@ -488,8 +498,9 @@ export class MinutkaService {
     };
   }
 
-  private async provisionDefaultSchedules(profile: UserProfile): Promise<void> {
-    await this.deps.defaultScheduleProvisioner?.provision(profile.employeeId, profile.timezone);
+  private async provisionDefaultSchedules(profile: UserProfile): Promise<DefaultScheduleProvisionResult> {
+    const provisioner = requireDependency(this.deps.defaultScheduleProvisioner, "defaultScheduleProvisioner");
+    return provisioner.provision(profile.employeeId, profile.timezone);
   }
 
   async getProfile(input: { employeeId: string }): Promise<UserProfile> {
@@ -609,17 +620,8 @@ export class MinutkaService {
     catch (error) { logOperationalError("profile completion audit", error); }
   }
 
-  private async createFirstOnboardingResponse(profile: UserProfile): Promise<string> {
-    try {
-      const text = "Профиль онбординга заполнен. Дай короткое первое сообщение сотруднику.";
-      const built = await this.contextBuilder.build({ purpose: "onboarding_first_response", text, profile });
-      return await this.agentRunner({ employeeId: profile.employeeId, threadId: profile.employeeId, text }, {
-        profile, systemContext: built.systemContext, selectedProcessIds: built.selectedProcessIds, purpose: "onboarding_first_response",
-      });
-    } catch (error) {
-      logOperationalError("onboarding first response", error);
-      return "Профиль сохранён. Добро пожаловать!";
-    }
+  private createFirstOnboardingResponse(profile: UserProfile, schedules: DefaultScheduleProvisionResult): string {
+    return (this.deps.onboardingWelcome ?? createOnboardingWelcome)(profile, schedules.schedules);
   }
 
   private async routeConversationDecisionSafely(input: { purpose: AgentManualPurpose; text: string; profile?: UserProfile; recentTurns: ConversationTurn[] }): Promise<ConversationDecision> {

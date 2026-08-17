@@ -338,8 +338,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     telegram.clear();
     await telegram.sendText({ chatId: "new_chat", userId: "new_user", text: "Новый контекст" });
 
-    expect(observedContexts).toHaveLength(3);
-    expect(observedContexts[2]).not.toContain("Старый контекст");
+    expect(observedContexts).toHaveLength(2);
+    expect(observedContexts[1]).not.toContain("Старый контекст");
     expect(spec.world.profiles).toEqual(before.profiles);
     expect(spec.world.participants).toEqual(before.participants);
     await expect(ideas.list(testEmployee.employeeId)).resolves.toEqual([expect.objectContaining({ id: "idea_before_reset", summary: "Durable idea" })]);
@@ -721,8 +721,13 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.profiles).toHaveLength(0);
 
     const confirm = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    telegram.clear();
     await telegram.clickCallback({ chatId: "chat_1", callbackData: confirm! });
-    expect(telegram.sentMessages().at(-1)?.text).toBe("Я робот-помощник Минутка.");
+    expect(telegram.sentMessages()).toHaveLength(2);
+    expect(telegram.sentMessages()[0]?.text).toContain("я «Минутка»");
+    expect(telegram.sentMessages()[0]?.text).toContain("утреннее касание — в 08:30");
+    expect(telegram.sentMessages()[0]?.text).toContain("вечернее — в 19:00");
+    expect(telegram.sentMessages()[1]?.text).toBe("Чем вы сегодня занимались? Достаточно пары строк.");
     expect(spec.world.profiles).toHaveLength(1);
 
     telegram.clear();
@@ -787,7 +792,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     ]);
 
     expect(spec.world.profiles).toHaveLength(1);
-    expect(telegram.sentMessages().filter((message) => message.text === "Я робот-помощник Минутка.")).toHaveLength(1);
+    expect(telegram.sentMessages().filter((message) => message.text.includes("я «Минутка»"))).toHaveLength(1);
+    expect(telegram.sentMessages().filter((message) => message.text === "Чем вы сегодня занимались? Достаточно пары строк.")).toHaveLength(1);
   });
 
   it("10aa. Retries the same confirmation revision after Telegram delivery fails", async () => {

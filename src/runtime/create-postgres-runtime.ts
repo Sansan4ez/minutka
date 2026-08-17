@@ -190,8 +190,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     // MinutkaService remains a temporary identity/onboarding compatibility
     // component. Product chat never calls its legacy chat path, and onboarding
-    // welcome text is deterministic, so production needs no legacy chat agent.
-    const identityService = new MinutkaService(async () => "Профиль сохранён. Добро пожаловать!", {
+    // welcome text is loaded deterministically from Agent Vault.
+    const identityService = new MinutkaService(async () => { throw new Error("legacy Minutka agent runner is disabled"); }, {
       ...stores,
       consentAcceptanceStore: createPostgresConsentAcceptanceStore(pool, config.telegramIdentityPepper),
       telegramInviteRedemptionStore: createPostgresTelegramInviteRedemptionStore(

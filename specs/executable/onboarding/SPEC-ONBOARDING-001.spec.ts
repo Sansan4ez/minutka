@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
@@ -21,6 +24,7 @@ import {
   registerSpecMetadata,
 } from "../support/spec-harness.js";
 import { testEmployee, testInvite, testProfile, testTenant } from "../support/fixtures.js";
+import { createOnboardingWelcome } from "../../../src/application/onboarding-welcome-loader.js";
 
 registerSpecMetadata({
   id: "SPEC-ONBOARDING-001",
@@ -60,13 +64,10 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(onboardingProfileExtractorAgent).toBeDefined();
   });
 
-  it("onboards employee with consent, profile and efficiency persona context", async () => {
+  it("onboards employee with consent, deterministic welcome and efficiency persona context", async () => {
     const observedRuns: Array<{ input: ChatInput; context?: AgentRunContext }> = [];
     const mockAgentRunner: AgentRunner = async (input, context) => {
       observedRuns.push({ input, context });
-      if (context?.systemContext?.includes("Эффективность")) {
-        return "Принято. Зафиксировал роль и задачи. Начнём с главного приоритета на сегодня.";
-      }
       return "Принято.";
     };
 
@@ -137,7 +138,16 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
 
     expect(onboarding.profile.persona).toBe("efficiency");
     expect(onboarding.profile.aiLevel).toBeUndefined();
-    expect(onboarding.firstResponse).toContain("приоритет");
+    expect(onboarding.firstResponse).toContain("я «Минутка»");
+    expect(onboarding.firstResponse).toContain("записать 1–3 активности");
+    expect(onboarding.firstResponse).toContain("не пишу за вас письма, отчёты и презентации");
+    expect(onboarding.firstResponse).toContain("не оцениваю продуктивность");
+    expect(onboarding.firstResponse).toContain("не докладываю руководителю");
+    expect(onboarding.firstResponse).toContain("утреннее касание — в 08:30");
+    expect(onboarding.firstResponse).toContain("вечернее — в 19:00");
+    expect(onboarding.firstResponse).not.toMatch(/недель|персональн(?:ый|ого) отч[её]т|раздел «Я»/iu);
+    expect(onboarding.firstResponse).not.toMatch(/молодец|отлично|хорошая работа/iu);
+    expect(onboarding.firstActivityPrompt).toBe("Чем вы сегодня занимались? Достаточно пары строк.");
     expectProfile(spec, testEmployee.employeeId, {
       role: testProfile.selfDescription,
       persona: "efficiency",
@@ -165,16 +175,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       "Сегодня хочу закрыть отчёт и не утонуть во встречах.",
     ]);
 
-    expect(
-      observedRuns.some(
-        (run) =>
-          run.context?.purpose === "onboarding_first_response" &&
-          run.context.systemContext?.includes("Эффективность") &&
-          run.context.systemContext.includes(testProfile.selfDescription) &&
-          run.context.systemContext.includes("Etc/UTC") &&
-          run.context.systemContext.includes("экономии времени"),
-      ),
-    ).toBe(true);
+    expect(observedRuns.some((run) => run.context?.purpose === "onboarding_first_response")).toBe(false);
 
     expect(
       observedRuns.some(
@@ -220,6 +221,33 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(acceptedAgain.acceptedAt).toBe(consent.acceptedAt);
     expect(spec.world.consents).toHaveLength(1);
     expect(spec.world.events.filter((e) => e.type === "ConsentAccepted")).toHaveLength(1);
+  });
+
+  it("rejects malformed welcome marker blocks and placeholder counts", () => {
+    const schedules = [
+      { kind: "process", processId: "morning_activity_collection", timeOfDay: "08:45" },
+      { kind: "process", processId: "evening_reflection", timeOfDay: "18:30" },
+    ] as Parameters<typeof createOnboardingWelcome>[1];
+    const profile = { preferredName: "Максим", addressForm: "informal" } as const;
+    const writeWelcome = (content: string) => {
+      const root = mkdtempSync(join(tmpdir(), "minutka-welcome-"));
+      mkdirSync(join(root, "vault/assistant/texts"), { recursive: true });
+      writeFileSync(join(root, "package.json"), "{}");
+      writeFileSync(join(root, "vault/assistant/texts/onboarding_welcome.md"), content);
+      return root;
+    };
+
+    expect(() => createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome("{{preferredName}} {{morningTime}} {{eveningTime}}") })).toThrow(/one ordered/);
+    expect(() => createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome([
+      "<!-- minutka-welcome:start -->",
+      "{{preferredName}} {{preferredName}} {{morningTime}} {{eveningTime}}",
+      "<!-- minutka-welcome:end -->",
+    ].join("\n")) })).toThrow(/preferredName.*exactly once/);
+    expect(createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome([
+      "<!-- minutka-welcome:start -->",
+      "{{preferredName}}утро {{morningTime}}, вечер {{eveningTime}}",
+      "<!-- minutka-welcome:end -->",
+    ].join("\n")) })).toBe("Максим, утро 08:45, вечер 18:30");
   });
 
   it("requires re-consent when the stored privacy version is stale", async () => {
