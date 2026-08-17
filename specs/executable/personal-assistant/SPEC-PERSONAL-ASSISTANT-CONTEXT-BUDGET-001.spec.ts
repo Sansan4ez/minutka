@@ -38,10 +38,11 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * `npm run verify` and makes any growth deliberate.
  *
  * Measured 2026-08-15 after adding the morning activity collection process and
- * typed action: 26 793 of 29 000 characters. The increase is deliberate product
- * policy required by mnt-minutka-core-launch-uvp.8.
+ * typed action: 26 793 of 29 000 characters. Later role/process updates reduced
+ * that manual and repinned it. The current increase is deliberate product policy
+ * required by mnt-pilot-readiness-w73.3.
  */
-const pinnedAgentManualCharacters = 22_133;
+const pinnedAgentManualCharacters = 22_796;
 
 const projection = {
   schemaVersion: 1 as const,

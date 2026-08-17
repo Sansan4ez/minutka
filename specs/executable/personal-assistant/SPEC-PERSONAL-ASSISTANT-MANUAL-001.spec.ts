@@ -36,9 +36,15 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
     expect(instructions).not.toMatch(/\b(?:inbox_capture|knowledge_lookup|day_focus)\b/);
-    expect(instructions).toContain("Do not prepare posts, letters, emails, reports, presentations, commercial proposals");
-    expect(instructions).toContain("do not conduct internet research");
+    expect(instructions).toContain("In-the-moment help is limited to discussing how the employee uses working time and work-related emotional state");
+    expect(instructions).toContain("ask a clarifying question or suggest an approach, structure, method, or simplification, including how to structure a report");
+    expect(instructions).toContain("requests to prepare posts, letters, emails, reports, presentations, commercial proposals");
+    expect(instructions).toContain("conduct internet research, or teach AI tools");
+    expect(instructions).toContain("briefly and gently decline, then invite the employee back to their working day");
+    expect(instructions).toContain("Do not moralize or evaluate the employee");
+    expect(instructions).toContain("`support` is warmer and softer; `efficiency` is concise, structured, and practical");
     expect(instructions).not.toMatch(/may prepare|draft posts|draft letters|prepare research briefs|perform internet research/i);
+    expect(instructions).not.toContain("Process file: workday_guardrails");
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
   });
