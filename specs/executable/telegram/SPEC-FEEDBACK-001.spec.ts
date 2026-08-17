@@ -743,7 +743,6 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.start({ chatId: "chat_named_role", inviteCode: "invite_named_role" });
     const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.clickCallback({ chatId: "chat_named_role", callbackData: consent! });
-    await telegram.clickCallback({ chatId: "chat_named_role", callbackData: "ob:roleId:role_acme_logistics" });
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_named_role", text: "неизвестная должность" });
@@ -849,7 +848,13 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await restartedShell.deliverCallback({ chatId: "chat_consent_crash", callbackData: consent!, messageId: prompt.messageId, callbackQueryId: "consent_recovered" });
 
     expect(restartedShell.callbackAnswers()).toContainEqual({ callbackQueryId: "consent_recovered", text: "Согласие принято!" });
-    expect(restartedShell.sentMessages()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("Давайте коротко познакомимся") }));
+    expect(restartedShell.sentMessages()).toContainEqual(expect.objectContaining({ text: "Давайте коротко познакомимся." }));
+    expect(restartedShell.sentMessages()).toContainEqual(expect.objectContaining({
+      text: "Выберите вашу должность.",
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[expect.objectContaining({ text: "Участник", callbackData: "ob:roleId:default_role" })]],
+      }),
+    }));
     expect(world.auditEvents.filter((event) => event.type === "consent_accepted")).toHaveLength(1);
   });
 
@@ -1161,6 +1166,36 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     expect(spec.world.consents).toHaveLength(1);
     expect(spec.world.events.filter((event) => event.type === "ConsentAccepted")).toHaveLength(1);
+    expect(telegram.sentMessages().filter((message) => message.text === "Выберите вашу должность.")).toHaveLength(1);
+  });
+
+  it("10bb. Repeating /start resumes onboarding after the first-step delivery fails", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_onboarding_retry",
+      "--employee",
+      "emp_onboarding_retry",
+    ]);
+    await telegram.start({ chatId: "chat_onboarding_retry", inviteCode: "invite_onboarding_retry" });
+    const consent = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    telegram.clear();
+    telegram.setMessageDeliverySequence("pass", "fail");
+
+    await telegram.clickCallback({ chatId: "chat_onboarding_retry", callbackData: consent! });
+
+    expect(spec.world.consents).toHaveLength(1);
+    telegram.clear();
+    await telegram.start({ chatId: "chat_onboarding_retry" });
+    expect(telegram.sentMessages()).toContainEqual(expect.objectContaining({
+      text: "Выберите вашу должность.",
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[expect.objectContaining({ callbackData: "ob:roleId:default_role" })]],
+      }),
+    }));
   });
 
   it("10c. Repeating /start resumes consent after the first delivery fails", async () => {

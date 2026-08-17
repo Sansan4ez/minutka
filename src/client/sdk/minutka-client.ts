@@ -42,6 +42,7 @@ export type ServiceEmployeeMinutkaTransport = {
   recordPrivacyExplanationShown(): Promise<unknown>;
   acceptConsent(input: AcceptConsentRequest): Promise<unknown>;
   completeOnboarding(input: CompleteOnboardingRequest): Promise<unknown>;
+  getOnboardingProgress(): Promise<unknown>;
   submitOnboardingAnswer(input: OnboardingAnswerRequest): Promise<unknown>;
   confirmOnboarding(): Promise<unknown>;
   resetOnboardingDraft(): Promise<unknown>;
@@ -105,6 +106,7 @@ export class ServiceEmployeeMinutkaClient {
   async recordPrivacyExplanationShown() { await this.transport.recordPrivacyExplanationShown(); }
   async acceptConsent(input: unknown) { return validate(acceptConsentResponseSchema, await this.transport.acceptConsent(validate(acceptConsentRequestSchema, input, "acceptConsent request")), "acceptConsent response"); }
   async completeOnboarding(input: unknown) { return validate(completeOnboardingResponseSchema, await this.transport.completeOnboarding(validate(completeOnboardingRequestSchema, input, "completeOnboarding request")), "completeOnboarding response"); }
+  async getOnboardingProgress() { return validate(onboardingProgressSchema, await this.transport.getOnboardingProgress(), "onboarding progress"); }
   async submitOnboardingAnswer(input: unknown) { return validate(onboardingProgressSchema, await this.transport.submitOnboardingAnswer(validate(onboardingAnswerRequestSchema, input, "onboarding answer request")), "onboarding progress"); }
   async confirmOnboarding() { return validate(completeOnboardingResponseSchema, await this.transport.confirmOnboarding(), "confirm onboarding response"); }
   async resetOnboardingDraft() { return validate(onboardingProgressSchema, await this.transport.resetOnboardingDraft(), "reset onboarding response"); }

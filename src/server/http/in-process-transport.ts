@@ -77,6 +77,7 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   recordPrivacyExplanationShown() { return this.application.recordPrivacyExplanationShown({ employeeId: this.employeeId() }); }
   acceptConsent(input: AcceptConsentRequest) { return this.application.acceptConsent({ ...input, employeeId: this.employeeId() }); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.application.completeOnboarding({ ...input, employeeId: this.employeeId() }); }
+  getOnboardingProgress() { return this.application.getOnboardingProgress({ employeeId: this.employeeId() }); }
   submitOnboardingAnswer(input: OnboardingAnswerRequest) { return this.application.submitOnboardingAnswer({ ...input, employeeId: this.employeeId() }); }
   confirmOnboarding() { return this.application.confirmOnboarding({ employeeId: this.employeeId() }); }
   resetOnboardingDraft() { return this.application.resetOnboardingDraft({ employeeId: this.employeeId() }); }

@@ -118,7 +118,7 @@ async function withVoiceTimeout<T>(timeoutMs: number, action: (signal: AbortSign
     if (timer) clearTimeout(timer);
   }
 }
-const onboardingIntroduction = "Давайте коротко познакомимся. Сначала выберите должность из справочника компании. Затем уточним, как к вам обращаться, как вы хотите называть меня, форму обращения, стиль, длину ответов и часовой пояс.";
+const onboardingIntroduction = "Давайте коротко познакомимся.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 function logArtifactRejection(reason: "object_limit" | "owner_quota" | "global_capacity"): void {
@@ -764,7 +764,14 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
         const telegramIdentity = identity(chatId, userId); const existing = await getLinkedSession(chatId, userId);
         if (existing) {
           if (!existing.consentAcceptedAt || existing.consentPrivacyVersion !== currentPrivacyVersion) { await sendConsentPrompt(replyPort, chatId, existing.employeeId, privacyExplanation); await employeeClient(existing.employeeId).recordPrivacyExplanationShown(); return; }
-          return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
+          try {
+            await employeeClient(existing.employeeId).getProfile();
+            return void await replyPort.sendMessage(chatId, "Вы уже зарегистрированы. Вы можете общаться с ботом.");
+          } catch (error) {
+            if (!((error instanceof PersistenceError || error instanceof MinutkaApiError) && error.code === "profile_not_found")) throw error;
+          }
+          await replyPort.sendMessage(chatId, onboardingIntroduction);
+          return renderOnboardingProgress(replyPort, chatId, await employeeClient(existing.employeeId).getOnboardingProgress(), onboardingConfirmationDelivery(chatId, userId, existing.employeeId), sendMarkdown);
         }
         const existingChat = await sessionStore.getByIdentity(identity(chatId));
         if (existingChat) return void await replyPort.sendMessage(chatId, "Этот аккаунт не связан с данным чатом.");
@@ -911,7 +918,10 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
           if (handled.repeated) return;
           await replyPort.answerCallbackQuery(callbackQueryId, "Согласие принято!");
           if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
-          try { await replyPort.sendMessage(chatId, onboardingIntroduction); } catch (error) { logShellError("consent follow-up delivery", error); }
+          try {
+            await replyPort.sendMessage(chatId, onboardingIntroduction);
+            await renderOnboardingProgress(replyPort, chatId, await employeeClient(employeeId).getOnboardingProgress(), onboardingConfirmationDelivery(chatId, userId, employeeId), sendMarkdown);
+          } catch (error) { logShellError("consent follow-up delivery", error); }
           return;
         }
         if (data.startsWith("ob:")) {

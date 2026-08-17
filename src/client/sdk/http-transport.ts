@@ -90,6 +90,7 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   recordPrivacyExplanationShown() { return this.request("POST", `${this.prefix}/privacy-explanation`, {}); }
   acceptConsent(input: AcceptConsentRequest) { return this.request("POST", `${this.prefix}/consent`, input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", `${this.prefix}/onboarding`, input); }
+  getOnboardingProgress() { return this.request("GET", `${this.prefix}/onboarding/progress`); }
   submitOnboardingAnswer(input: OnboardingAnswerRequest) { return this.request("POST", `${this.prefix}/onboarding/answers`, input); }
   confirmOnboarding() { return this.request("POST", `${this.prefix}/onboarding/confirm`, {}); }
   resetOnboardingDraft() { return this.request("POST", `${this.prefix}/onboarding/reset`, {}); }

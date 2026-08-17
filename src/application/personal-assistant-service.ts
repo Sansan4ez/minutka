@@ -7,6 +7,7 @@ import type {
   CompleteOnboardingInput,
   CompleteOnboardingResult,
   ConfirmOnboardingInput,
+  GetOnboardingProgressInput,
   IssueInviteInput,
   IssueInviteResult,
   ListInsightsInput,
@@ -61,6 +62,7 @@ export class PersonalAssistantService {
       | "redeemTelegramInvite"
       | "acceptConsent"
       | "completeOnboarding"
+      | "getOnboardingProgress"
       | "submitOnboardingAnswer"
       | "confirmOnboarding"
       | "resetOnboardingDraft"
@@ -94,6 +96,7 @@ export class PersonalAssistantService {
   redeemTelegramInvite(input: RedeemTelegramInviteInput): Promise<RedeemTelegramInviteResult> { return this.identityService.redeemTelegramInvite(input); }
   acceptConsent(input: AcceptConsentInput): Promise<AcceptConsentResult> { return this.identityService.acceptConsent(input); }
   completeOnboarding(input: CompleteOnboardingInput): Promise<CompleteOnboardingResult> { return this.identityService.completeOnboarding(input); }
+  getOnboardingProgress(input: GetOnboardingProgressInput): Promise<OnboardingProgress> { return this.identityService.getOnboardingProgress(input); }
   submitOnboardingAnswer(input: SubmitOnboardingAnswerInput): Promise<OnboardingProgress> { return this.identityService.submitOnboardingAnswer(input); }
   confirmOnboarding(input: ConfirmOnboardingInput): Promise<CompleteOnboardingResult> { return this.identityService.confirmOnboarding(input); }
   resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> { return this.identityService.resetOnboardingDraft(input); }

@@ -40,6 +40,7 @@ export function createSpecHttpApplication(
     submitFeedback: (input) => service.submitFeedback(input),
     redeemTelegramInvite: (input) => service.redeemTelegramInvite(input),
     recordPrivacyExplanationShown: (input) => service.recordPrivacyExplanationShown(input),
+    getOnboardingProgress: (input) => service.getOnboardingProgress(input),
     submitOnboardingAnswer: (input) => service.submitOnboardingAnswer(input),
     confirmOnboarding: (input) => service.confirmOnboarding(input),
     resetOnboardingDraft: (input) => service.resetOnboardingDraft(input),

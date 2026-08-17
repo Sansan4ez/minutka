@@ -83,6 +83,7 @@ export type CompleteOnboardingInput = {
   selfDescription?: string;
 };
 export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string };
+export type GetOnboardingProgressInput = { employeeId: string };
 export type SubmitOnboardingAnswerInput = { employeeId: string; text: string };
 export type ConfirmOnboardingInput = { employeeId: string };
 export type ResetOnboardingDraftInput = { employeeId: string };
@@ -337,6 +338,14 @@ export class MinutkaService {
     if (completed.wasCompleted) return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse: "Профиль обновлён." };
     const firstResponse = await this.createFirstOnboardingResponse(completed.profile);
     return { employeeId: input.employeeId, status: "profile_completed", completion: "new", profile: completed.profile, firstResponse };
+  }
+
+  async getOnboardingProgress(input: GetOnboardingProgressInput): Promise<OnboardingProgress> {
+    const employeeId = input.employeeId.trim();
+    await this.requireParticipant(employeeId);
+    if (!hasCurrentConsent(await this.stores.profileStore.getConsent(employeeId))) throw new PersistenceError("consent_required");
+    if (await this.stores.profileStore.getProfile(employeeId)) throw new PersistenceError("profile_already_completed");
+    return this.onboardingProgressWithRoles(await this.getOrCreateOnboardingDraft(employeeId));
   }
 
   async submitOnboardingAnswer(input: SubmitOnboardingAnswerInput): Promise<OnboardingProgress> {

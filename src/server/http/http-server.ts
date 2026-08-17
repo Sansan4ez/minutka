@@ -42,6 +42,7 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "submitFeedback"
   | "redeemTelegramInvite"
   | "recordPrivacyExplanationShown"
+  | "getOnboardingProgress"
   | "submitOnboardingAnswer"
   | "confirmOnboarding"
   | "resetOnboardingDraft"
@@ -244,6 +245,8 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "GET" && serviceSchedules) { template = "/v1/service/employees/:employeeId/schedules"; requireKind(principal, "service"); status = 200; return send(res, status, { schedules: (await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listSchedules(parse(employeeIdSchema, serviceSchedules)))).map(toScheduleView) }, id); }
       const serviceConsent = pathEmployee(url.pathname, "/consent");
       if (req.method === "POST" && serviceConsent) { template = "/v1/service/employees/:employeeId/consent"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptConsentRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceConsent) })), id); }
+      const serviceOnboardingProgress = pathEmployee(url.pathname, "/onboarding/progress");
+      if (req.method === "GET" && serviceOnboardingProgress) { template = "/v1/service/employees/:employeeId/onboarding/progress"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getOnboardingProgress({ employeeId: parse(employeeIdSchema, serviceOnboardingProgress) })), id); }
       const serviceOnboardingAnswer = pathEmployee(url.pathname, "/onboarding/answers");
       if (req.method === "POST" && serviceOnboardingAnswer) { template = "/v1/service/employees/:employeeId/onboarding/answers"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.submitOnboardingAnswer({ ...parse(onboardingAnswerRequestSchema, await body(req)), employeeId: parse(employeeIdSchema, serviceOnboardingAnswer) })), id); }
       const serviceOnboardingConfirm = pathEmployee(url.pathname, "/onboarding/confirm");

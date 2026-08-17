@@ -155,6 +155,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const client = new ServiceMinutkaClient(new HttpServiceMinutkaTransport({ baseUrl: url, token: serviceToken }));
     const employee = client.forEmployee("emp_a");
     await employee.acceptConsent({ accepted: true, source: "telegram" });
+    expect(await employee.getOnboardingProgress()).toMatchObject({ status: "needs_choice", field: "roleId" });
     expect(await employee.submitOnboardingAnswer({ text: "default_role" })).toMatchObject({ status: "needs_answer", field: "preferredName" });
     expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_answer", field: "assistantName" });
     expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_choice", field: "roleId" });
