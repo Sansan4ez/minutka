@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IdeaAppendService } from "../../../src/application/idea-append.js";
-import { AssistantService } from "../../../src/application/assistant-service.js";
+import { AssistantService, missingAgentResponseUserMessage } from "../../../src/application/assistant-service.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -287,22 +287,25 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
     await expect(ideas.list("maxim")).resolves.toEqual([]);
   });
 
-  it("durably captures the input when the agent provider fails", async () => {
-    const { service, ideas } = createService(async () => { throw new Error("provider unavailable"); });
+  // «Минутка» captures an idea only when the agent asks for it. inbox_capture
+  // is a disabled process here, and the employee account is already durable in
+  // private conversation history, so a turn that wrote nothing is reported as
+  // the failure it is rather than as a saved idea.
+  it("reports a failed provider turn instead of capturing the input", async () => {
+    const failure = new Error("provider unavailable");
+    const { service, ideas } = createService(async () => { throw failure; });
 
-    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Сохрани даже при сбое" })).resolves.toMatchObject({
-      response: expect.stringContaining("К какому проекту её отнести?"), selectedProcessIds: ["core", "inbox_capture"],
-    });
-    await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Сохрани даже при сбое" }]);
+    await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Сохрани даже при сбое" })).rejects.toBe(failure);
+    await expect(ideas.list("maxim")).resolves.toEqual([]);
   });
 
-  it("durably captures the input when the agent finishes without any answer", async () => {
+  it("answers a silent turn without capturing the input", async () => {
     const { service, ideas } = createService(async () => "");
 
     await expect(service.chat({ userId: "maxim", threadId: "telegram:1", text: "Дополни заметку про ключ" })).resolves.toMatchObject({
-      response: expect.stringContaining("К какому проекту её отнести?"), selectedProcessIds: ["core", "inbox_capture"],
+      response: missingAgentResponseUserMessage, selectedProcessIds: ["core"], effect: "none",
     });
-    await expect(ideas.list("maxim")).resolves.toMatchObject([{ project: "БЕЗ_ПРОЕКТА", summary: "Дополни заметку про ключ" }]);
+    await expect(ideas.list("maxim")).resolves.toEqual([]);
   });
 
   it("rejects an unknown participant before invoking the agent or persisting input", async () => {

@@ -119,6 +119,11 @@ export class CollectActivityService {
   }
 }
 
+/**
+ * Keeps one obstacle per stored activity. The tool asks the model for at most
+ * one of the three fields; when it sends more, this fixed order decides which
+ * classification is recorded, so a sloppy call still stores the activity.
+ */
 function activityObstacle(activity: CollectActivityInput): ActivityObstacle | undefined {
   if (activity.routinePattern !== undefined) {
     return { kind: "routine_pattern", value: activity.routinePattern };

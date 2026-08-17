@@ -19,7 +19,7 @@ All fields are optional and use closed dictionaries:
 - `durationBucket`
 - `system`
 
-`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same call. The obstacle never requires a separate call. At most one obstacle field may be present. One call always represents one activity; the input has no array and no free-text field.
+`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same call. The obstacle never requires a separate call. Send at most one obstacle field. The call is not rejected when several arrive — only the first of that order is recorded — because a rejected call loses the whole activity. One call always represents one activity; the input has no array and no free-text field.
 
 ## Output
 

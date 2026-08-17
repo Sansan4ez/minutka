@@ -13,7 +13,7 @@ export function createCollectActivityTool(
 ) {
   return createTool({
     id: collectActivityToolName,
-    description: "Record exactly one employee activity through the authenticated tenant-bound typed use-case. Omit unknown fields; never send free text or combine several activities in one call.",
+    description: "Record exactly one employee activity through the authenticated tenant-bound typed use-case. Omit unknown fields; never send free text or combine several activities in one call. Send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded.",
     strict: true,
     inputSchema: collectActivityInputSchema,
     outputSchema: z.strictObject({ recorded: z.literal(true) }),

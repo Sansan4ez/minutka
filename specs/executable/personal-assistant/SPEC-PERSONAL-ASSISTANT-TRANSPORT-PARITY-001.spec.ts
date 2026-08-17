@@ -393,28 +393,30 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       },
     });
 
+    // The pre-write turn overflows before any capture, and nothing is written
+    // on its behalf: an overflow is reported as an overflow.
     await telegram.handleText("chat-a", "pre-write idea", "telegram-a");
     expect(replies).toEqual([overflowRecoveryUserMessage]);
     expect(dispatches).toBe(2);
-    await expect(ideas.list("owner-a")).resolves.toHaveLength(1);
+    await expect(ideas.list("owner-a")).resolves.toEqual([]);
 
     replies.length = 0;
     await telegram.handleText("chat-a", "text idea", "telegram-a");
     expect(replies).toEqual([overflowAfterDurableWriteUserMessage]);
     expect(dispatches).toBe(3);
-    await expect(ideas.list("owner-a")).resolves.toHaveLength(2);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(1);
 
     replies.length = 0;
     await telegram.handleText("chat-a", "uncertain idea", "telegram-a");
     expect(replies).toEqual([mutationOutcomeUnknownUserMessage]);
     expect(dispatches).toBe(4);
-    await expect(ideas.list("owner-a")).resolves.toHaveLength(3);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(2);
 
     replies.length = 0;
     await telegram.handleVoice("chat-a", { fileId: "voice-file", messageId: 42, durationSeconds: 1 }, "telegram-a");
     expect(replies).toEqual(["Распознано:\nvoice idea", overflowAfterDurableWriteUserMessage]);
     expect(dispatches).toBe(5);
-    await expect(ideas.list("owner-a")).resolves.toHaveLength(4);
+    await expect(ideas.list("owner-a")).resolves.toHaveLength(3);
     expect(runtime.world.messages).toEqual([]);
   });
 });

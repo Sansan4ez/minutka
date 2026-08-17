@@ -82,10 +82,23 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
       system: "spreadsheets",
     });
     expect(collectActivityInputSchema.safeParse({ activities: [parsed] }).success).toBe(false);
+  });
+
+  it("carries no constraint the provider schema cannot show the model", () => {
+    // A cross-field rule survives zod but vanishes from the JSON Schema the
+    // model reads, so every call it rejects is a lost daily touch. The «at most
+    // one obstacle» rule therefore lives in the tool description, and one
+    // obstacle per stored activity is enforced by CollectActivityService.
+    expect((collectActivityInputSchema as unknown as { _zod: { def: { checks?: unknown[] } } })._zod.def.checks ?? [])
+      .toEqual([]);
     expect(collectActivityInputSchema.safeParse({
+      taskCategory: "reporting",
       routinePattern: "manual_reporting",
       automationCandidate: "report_generation",
-    }).success).toBe(false);
+      energyStressMarker: "neutral",
+      durationBucket: "1_2h",
+      system: "spreadsheets",
+    }).success).toBe(true);
   });
 
   it("accepts incomplete activities and never inserts defaults", () => {

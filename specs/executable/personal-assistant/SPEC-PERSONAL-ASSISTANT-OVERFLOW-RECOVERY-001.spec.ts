@@ -328,16 +328,16 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     expect(world.auditEvents.filter(({ type }) => type === "idea_captured")).toHaveLength(1);
   });
 
-  it("returns a typed error after the single retry while fallback capture preserves owner input", async () => {
+  it("returns a typed error after the single retry instead of capturing the input as an idea", async () => {
     let calls = 0;
     const { service, ideas, world } = setup(async () => { calls += 1; throw overflowError(); });
 
     await expect(service.chat({ userId: "owner", threadId: "thread", text: "Не потеряй этот ввод" }))
       .rejects.toMatchObject({ name: "AssistantContextOverflowError", code: "context_overflow", reason: "context_length_exceeded" });
     expect(calls).toBe(2);
-    await expect(ideas.list("owner")).resolves.toMatchObject([{ id: "idea-overflow", summary: "Не потеряй этот ввод" }]);
+    await expect(ideas.list("owner")).resolves.toEqual([]);
     expect(world.auditEvents.filter(({ type }) => type === "overflow_recovery")).toHaveLength(1);
-    expect(world.auditEvents.filter(({ type }) => type === "idea_captured")).toHaveLength(1);
+    expect(world.auditEvents.some(({ type }) => type === "idea_captured")).toBe(false);
     expect(world.messages).toEqual([]);
   });
 
@@ -345,16 +345,14 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     new Error("429 Too Many Requests: rate limit exceeded"),
     { message: "request throttled", status: 529 },
     new Error("fetch failed: ECONNRESET"),
-  ])("does not retry non-overflow provider errors", async (failure) => {
+  ])("does not retry non-overflow provider errors and reports them as failures", async (failure) => {
     let calls = 0;
     const { service, ideas, world } = setup(async () => { calls += 1; throw failure; });
 
-    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Сохрани при сетевом сбое" })).resolves.toMatchObject({
-      selectedProcessIds: ["core", "inbox_capture"], response: expect.stringContaining("К какому проекту"),
-    });
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "Сохрани при сетевом сбое" })).rejects.toBe(failure);
     expect(calls).toBe(1);
     expect(world.auditEvents.some(({ type }) => type === "overflow_recovery")).toBe(false);
-    await expect(ideas.list("owner")).resolves.toHaveLength(1);
+    await expect(ideas.list("owner")).resolves.toEqual([]);
   });
 
   it("selects only allow-listed overflow and uncertain-mutation messages for local and remote transports", () => {

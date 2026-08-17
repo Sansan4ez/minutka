@@ -6,10 +6,12 @@ import { createInMemoryActivityCollectionState, createInMemoryActivityCollection
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
+import { createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 
 function harness(options: {
   collectActivity?: (command: Parameters<CollectActivityService["collect"]>[0]) => Promise<{ activityId: string }>;
@@ -41,6 +43,7 @@ function harness(options: {
     updatedAt: clock.now(),
   });
   const documents = createInMemoryDocumentStore(clock);
+  const ideas = createInMemoryIdeaStore(clock);
   const conversationStore = createInMemoryConversationStore(world);
   const state = createInMemoryActivityCollectionState();
   const activityCollection = new CollectActivityService(
@@ -60,13 +63,16 @@ function harness(options: {
   }), {
     documentStore: documents,
     conversationStore,
-    ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock) }),
+    // Wired exactly as production is, so a touch that records nothing would be
+    // free to reach idea capture and surface as inbox_capture.
+    ideaStore: ideas,
+    ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
     participantStore: createInMemoryProfileStore(world),
     collectActivity: options.collectActivity ?? ((command) => activityCollection.collect(command)),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
-  return { service, state, world, conversationStore };
+  return { service, state, world, conversationStore, ideas };
 }
 
 describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection process", () => {
@@ -93,6 +99,75 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
     });
     expect(state.anonymizedActivities[2]).not.toHaveProperty("durationBucket");
     expect(state.anonymizedActivities[2]).not.toHaveProperty("system");
+  });
+
+  it("records the activities through the registered provider tool instead of losing the touch to the capture gate", async () => {
+    // Replays the daily touch at the seam the pilot run failed on: the model
+    // speaks to the registered Mastra tool, not to the application closure, so
+    // tool input validation runs on arguments in the shape a provider emits.
+    const toolResults: unknown[] = [];
+    const agent: MastraAgentLike = {
+      async generate(_text, options) {
+        const invocation = { toolCallId: "tool-call-1", messages: [] };
+        const tool = (toolset: string, name: string) =>
+          (options.toolsets as Record<string, Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>>)[toolset]![name]!;
+
+        await tool("diagnostics", "markProcessUsed").execute({ id: "morning_activity_collection" }, invocation);
+        for (const activity of [
+          // The model classifies the same obstacle through every lens it was
+          // offered; the touch must survive that instead of being rejected.
+          {
+            taskCategory: "reporting",
+            routinePattern: "manual_reporting",
+            automationCandidate: "report_generation",
+            energyStressMarker: "neutral",
+            durationBucket: "30_60m",
+            system: "one_c",
+          },
+          { taskCategory: "meetings", durationBucket: "15_30m", system: "messengers" },
+          { taskCategory: "coordination" },
+        ]) {
+          toolResults.push(await tool("activities", "collectActivity").execute(activity, invocation));
+        }
+        return { text: "Записал три активности." };
+      },
+    };
+    const { service, state, ideas } = harness({ runner: createAssistantAgentRunner(agent) });
+
+    const result = await service.chat({
+      userId: "employee_a",
+      threadId: "thread_a",
+      text: "Полдня сводил отчёт в 1С вручную, была планёрка в мессенджере, потом согласовывал поставку.",
+    });
+
+    expect(toolResults).toEqual([{ recorded: true }, { recorded: true }, { recorded: true }]);
+    expect(result.selectedProcessIds).toEqual(["core", "morning_activity_collection"]);
+    expect(result.effect).toBe("business_write_committed");
+    expect(result.response).toBe("Записал три активности.");
+    await expect(ideas.list("employee_a")).resolves.toEqual([]);
+    expect(state.anonymizedActivities).toEqual([
+      {
+        companyId: "company_a",
+        groupId: "group_a",
+        roleId: "role_a",
+        taskCategory: "reporting",
+        obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+        durationBucket: "30_60m",
+        system: "one_c",
+        date: "2026-08-15",
+      },
+      {
+        companyId: "company_a",
+        groupId: "group_a",
+        roleId: "role_a",
+        taskCategory: "meetings",
+        durationBucket: "15_30m",
+        system: "messengers",
+        date: "2026-08-15",
+      },
+      { companyId: "company_a", groupId: "group_a", roleId: "role_a", taskCategory: "coordination", date: "2026-08-15" },
+    ]);
+    expect(state.personalActivities).toHaveLength(3);
   });
 
   it("reports a rolled-back storage failure as an ordinary retryable save error", async () => {

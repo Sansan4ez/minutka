@@ -598,24 +598,14 @@ export class AssistantService {
     if (applicationSignal.aborted && !attemptedTaskProposal && !persistedTaskProposal && currentChatEffectState() === "none") {
       throwAssistantAbortReason(applicationSignal);
     }
-    // An empty answer is the same as no answer; normalizing it here lets the
-    // capture gate below treat a silent turn as the loss it is.
+    // An empty answer is the same as no answer.
+    //
+    // Nothing is captured on the agent's behalf behind this point. `inbox_capture`
+    // is a disabled process in «Минутка», so a turn that wrote nothing must read
+    // as the loss it is: a silent turn answers plainly and keeps the employee
+    // message in private conversation history, and a failed turn surfaces its
+    // error. Neither is reported as a committed idea.
     if (response !== undefined && !response.trim()) response = undefined;
-    // Infrastructure failures must not discard owner input. File uploads are
-    // also a deterministic capture gate; semantic routing of successful text
-    // turns remains the agent's responsibility. A turn that ends without text,
-    // effect, or pending action is the same kind of loss: the tool loop gave
-    // up, so the input is captured instead of surfacing as a bare failure.
-    if (currentChatEffectState() === "none" && !captureResult && pendingActionSlots.length === 0 && this.deps.ideaStore && (agentError !== undefined || source.kind === "blob" || response === undefined)) {
-      const fallback = await captureIdea({
-        project: NO_PROJECT,
-        type: "knowledge",
-        summary: text,
-        suggestedNextStep: "Уточнить проект и следующий шаг.",
-        needsProjectClarification: true,
-      });
-      if (!(agentError instanceof AssistantContextOverflowError) && (agentError !== undefined || response === undefined)) response = fallback.response;
-    }
     if (response === undefined && captureResult && !(agentError instanceof AssistantContextOverflowError)) response = captureResult.response;
     if (response !== undefined && pendingActionLimitReached && !response.includes(pendingActionGroupLimitUserMessage)) {
       response = `${response.trimEnd()}\n\n${pendingActionGroupLimitUserMessage}`;

@@ -73,6 +73,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TOOL-SCHEMA-SHAPE-001: registered provider sch
     expect(registeredNames).toEqual([...assistantActiveToolNames]);
   });
 
+  it("keeps every input rule inside the schema the provider shows the model", () => {
+    // A cross-field check sits on the object itself and never reaches JSON
+    // Schema, so the model cannot see the rule, cannot satisfy it, and retries
+    // the rejected call until the step ceiling — the turn then ends with no
+    // text at all. Field-level checks are fine: they do serialize.
+    for (const tool of Object.values(createAssistantToolsets(createStubContext())).flatMap((toolset) => Object.values(toolset))) {
+      const objectChecks = (tool.inputSchema as unknown as { _zod: { def: { checks?: unknown[] } } })._zod.def.checks ?? [];
+      expect(objectChecks, `${tool.id} enforces an input rule its provider schema cannot express`).toEqual([]);
+    }
+  });
+
   it("forbids allOf and requires an explicit allow-list for every union field", () => {
     const toolsets = createAssistantToolsets(createStubContext());
     const seenUnionFields = new Set<string>();
