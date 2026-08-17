@@ -37,6 +37,7 @@ import { createResponsePolicy, renderResponsePolicy } from "../domain/response-p
 import type { DefaultScheduleProvisioner } from "./default-schedules.js";
 import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipantsInput } from "./participant-pagination.js";
 import { ParticipantInviteExistsError } from "./participant-invite-error.js";
+import { RoleNotInCompanyError } from "./onboarding-role-error.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
@@ -295,7 +296,7 @@ export class MinutkaService {
     const companyId = participant.companyId;
     const groupId = participant.groupId;
     const roleId = input.roleId.trim();
-    if (!await this.stores.tenantDirectoryStore.getRole({ companyId, roleId })) throw new Error("roleId must belong to the participant company");
+    if (!await this.stores.tenantDirectoryStore.getRole({ companyId, roleId })) throw new RoleNotInCompanyError();
     const normalizedTimezone = input.timezone === undefined ? undefined : normalizeIanaTimezone(input.timezone);
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();

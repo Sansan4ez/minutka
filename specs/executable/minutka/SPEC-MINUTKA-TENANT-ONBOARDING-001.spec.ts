@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
+import { RoleNotInCompanyError } from "../../../src/application/onboarding-role-error.js";
+import { mapError } from "../../../src/server/http/error-mapping.js";
 
 const migrationPath = "migrations/0048_bind_invites_to_tenant.sql";
 const roleUpdateMigrationPath = "migrations/0051_cascade_profile_role_updates.sql";
@@ -45,16 +47,20 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
     await runtime.service.issueInvite({ employeeId: "employee_a", inviteCode: "invite_employee_a", companyId: "company_a", groupId: "group_a" });
     await consent(runtime, "employee_a");
 
-    await expect(runtime.service.completeOnboarding({
-      employeeId: "employee_a",
-      roleId: "Логист",
-      persona: "efficiency",
-    })).rejects.toThrow("roleId must belong to the participant company");
-    await expect(runtime.service.completeOnboarding({
-      employeeId: "employee_a",
-      roleId: "role_b",
-      persona: "efficiency",
-    })).rejects.toThrow("roleId must belong to the participant company");
+    // The refusal is a typed contract error, so the boundary can name the reason
+    // instead of reporting an unknown failure.
+    for (const roleId of ["Логист", "role_b"]) {
+      await expect(runtime.service.completeOnboarding({
+        employeeId: "employee_a",
+        roleId,
+        persona: "efficiency",
+      })).rejects.toThrow(RoleNotInCompanyError);
+    }
+    expect(mapError(new RoleNotInCompanyError())).toEqual({
+      status: 400,
+      code: "invalid_request",
+      message: "roleId must belong to the participant company",
+    });
 
     const completed = await runtime.service.completeOnboarding({
       employeeId: "employee_a",

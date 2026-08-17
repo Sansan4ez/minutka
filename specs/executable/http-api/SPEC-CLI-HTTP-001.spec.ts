@@ -34,6 +34,16 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     const client = new EmployeeMinutkaClient(new HttpEmployeeMinutkaTransport({ baseUrl: server.url, token: employeeToken }));
     expect((await runMinutkaCli(client, ["employee", "open-invite", "--invite", "invite_cli"])).exitCode).toBe(0);
     expect((await runMinutkaCli(client, ["employee", "accept-consent", "--yes"])).exitCode).toBe(0);
+    // A role of another company is refused as a contract error with a visible
+    // reason, not as an unknown runtime failure.
+    runtime.world.tenantDirectories.roles.push({ id: "role_other_company", companyId: "other_company", name: "Бухгалтер" });
+    const foreignRole = await runMinutkaCli(client, ["employee", "complete-onboarding", "--role-id", "role_other_company", "--persona", "support"]);
+    expect(foreignRole.exitCode).toBe(1); expect(foreignRole.stdout).toEqual([]);
+    expect(foreignRole.stderr.at(-1)).toBe("roleId must belong to the participant company");
+    expect(foreignRole.stderr.join("\n")).not.toContain("Internal server error");
+    const foreignRoleResponse = await fetch(`${server.url}/v1/me/onboarding`, { method: "POST", headers: { authorization: `Bearer ${employeeToken}`, "content-type": "application/json" }, body: JSON.stringify({ roleId: "role_other_company", persona: "support" }) });
+    expect(foreignRoleResponse.status).toBe(400);
+    expect((await foreignRoleResponse.json()).error).toMatchObject({ code: "invalid_request", message: "roleId must belong to the participant company" });
     const onboarding = await runMinutkaCli(client, ["employee", "complete-onboarding", "--role-id", "default_role", "--self-description", "manager", "--persona", "support"]);
     expect(onboarding.exitCode).toBe(0);
     const chat = await runMinutkaCli(client, ["employee", "chat", "--thread", "thread_cli", "--text", "hello"]);

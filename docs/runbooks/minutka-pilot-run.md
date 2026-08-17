@@ -201,9 +201,9 @@ dbq "SELECT schedule_id, process_id, time_of_day, timezone, enabled, next_fire_a
      FROM minutka_private.process_schedules WHERE user_id = \$1 ORDER BY process_id" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** чужая должность отклоняется с явной причиной и кодом возврата `1`; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность и таймзону; провижинятся ровно два расписания — `morning_activity_collection` на `09:00` и `evening_reflection` на `19:00` в таймзоне профиля. `day_focus` в расписаниях отсутствовать обязан.
+**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность и таймзону; провижинятся ровно два расписания — `morning_activity_collection` на `09:00` и `evening_reflection` на `19:00` в таймзоне профиля. `day_focus` в расписаниях отсутствовать обязан.
 
-Известные расхождения на 2026-08-17: чужая должность отклоняется, но ответом `Internal server error.` вместо явной причины (`mnt-pilot-readiness-w73.8`), а флаг `--name` молча теряется, и `preferredName` остаётся равным `employeeId` (`mnt-pilot-readiness-w73.9`). До их закрытия шаг отмечается `нет` со ссылкой на эти задачи.
+Известное расхождение на 2026-08-17: флаг `--name` молча теряется, и `preferredName` остаётся равным `employeeId` (`mnt-pilot-readiness-w73.9`). До его закрытия шаг отмечается `нет` со ссылкой на эту задачу.
 
 Онбординг второго сотрудника выполняется так же — с должностью своей компании.
 
