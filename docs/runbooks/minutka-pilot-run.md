@@ -314,10 +314,12 @@ MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN" npm run cli -- admin company-report \
 ```bash
 dbq "SELECT count(*)::int AS anonymized FROM minutka_reporting.anonymized_activities WHERE company_id = \$1" "[\"$COMPANY_ID\"]"
 npm run company:anonymized:purge -- "$COMPANY_ID"
+# В интерактивном TTY перечитать preview и ввести точно:
+# PURGE <company_id> <expectedRows>
 dbq "SELECT count(*)::int AS personal FROM minutka_private.activities WHERE employee_id = \$1" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** покомпанийная очистка печатает число удалённых строк, `minutka_reporting.anonymized_activities` по этой компании пуста, а личные активности сотрудника сохранились полностью.
+**Признак `прошло`:** level-2 operator CLI challenge печатает `companyId` и `expectedRows`, требует точную строку `PURGE <company_id> <expectedRows>`, а успешный результат содержит `{ companyId, expectedRows, deletedRows }`; `minutka_reporting.anonymized_activities` по этой компании пуста, личные активности сотрудника сохранены полностью. При `expectedRows: 0` команда делает безопасный no-op без challenge. Неверная строка, EOF или запуск без интерактивного TTY ничего не удаляют. Если строки изменились между preview и execute, транзакция откатывается с mismatch: перечитать preview и запустить команду заново.
 
 Удаление личных данных требует level-2 подтверждения строкой `DELETE <employee_id>` на stdin:
 

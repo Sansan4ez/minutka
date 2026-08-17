@@ -274,9 +274,26 @@ describe("PostgreSQL storage contracts", () => {
     const retention = new CompanyAnonymizedActivityRetentionService(
       createPostgresCompanyAnonymizedActivityRetentionStore(pool),
     );
-    await expect(retention.purgeCompany({ companyId: companyA })).resolves.toEqual({
+    const stalePreview = await retention.previewCompany({ companyId: companyA });
+    await migrationPool.query(
+      `INSERT INTO minutka_reporting.anonymized_activities
+        (company_id, group_id, role_id, task_category, activity_date)
+       VALUES ($1, $2, $3, 'reporting', '2026-08-17')`,
+      [companyA, groupA, roleA],
+    );
+    await expect(retention.purgeCompany(stalePreview)).rejects.toThrow(
+      "expected 2, found 3; nothing was deleted; run the command again",
+    );
+    expect((await pool.query(
+      "SELECT count(*)::int AS count FROM minutka_reporting.anonymized_activities WHERE company_id = $1",
+      [companyA],
+    )).rows[0]?.count).toBe(3);
+
+    const currentPreview = await retention.previewCompany({ companyId: companyA });
+    await expect(retention.purgeCompany(currentPreview)).resolves.toEqual({
       companyId: companyA,
-      deletedRows: 2,
+      expectedRows: 3,
+      deletedRows: 3,
     });
     expect((await pool.query(
       "SELECT company_id, count(*)::int AS count FROM minutka_reporting.anonymized_activities WHERE company_id = ANY($1::text[]) GROUP BY company_id",

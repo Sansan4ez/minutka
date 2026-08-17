@@ -3,7 +3,10 @@ import type {
   AnonymizedActivityRecord,
   PersonalActivityRecord,
 } from "./activity-collection.js";
-import type { CompanyAnonymizedActivityRetentionStore } from "./company-anonymized-activity-retention.js";
+import {
+  CompanyAnonymizedActivityRetentionMismatchError,
+  type CompanyAnonymizedActivityRetentionStore,
+} from "./company-anonymized-activity-retention.js";
 
 export type InMemoryActivityCollectionState = {
   personalActivities: PersonalActivityRecord[];
@@ -27,9 +30,15 @@ export function createInMemoryActivityCollectionStore(
       state.personalActivities.push(personal);
       state.anonymizedActivities.push(anonymized);
     },
-    async deleteByCompany(companyId) {
+    async countByCompany(companyId) {
+      return state.anonymizedActivities.filter((activity) => activity.companyId === companyId).length;
+    },
+    async deleteByCompany(companyId, expectedRows) {
       const retained = state.anonymizedActivities.filter((activity) => activity.companyId !== companyId);
       const deletedRows = state.anonymizedActivities.length - retained.length;
+      if (deletedRows !== expectedRows) {
+        throw new CompanyAnonymizedActivityRetentionMismatchError(companyId, expectedRows, deletedRows);
+      }
       state.anonymizedActivities.splice(0, state.anonymizedActivities.length, ...retained);
       return deletedRows;
     },
