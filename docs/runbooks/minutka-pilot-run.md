@@ -241,7 +241,7 @@ dbq "SELECT schedule_id, process_id, scheduled_for, status, completed_at, error_
 npm run process:run -- --employee "$EMPLOYEE_ONE" --process morning_activity_collection
 ```
 
-**Признак `прошло`:** команда завершается кодом `0` и печатает содержательный текст утреннего сбора активностей на языке профиля. Строка `Assistant thread compaction audit failed (PersistenceError).` в конце вывода — известное расхождение `mnt-pilot-readiness-w73.11`, прогон она не отменяет.
+**Признак `прошло`:** команда завершается кодом `0` и печатает содержательный текст утреннего сбора активностей на языке профиля. Строки `Assistant thread compaction audit failed (PersistenceError).` в выводе быть не должно: расхождение закрыто `mnt-pilot-readiness-w73.11` (разовый прогон дожидается фоновой компакции перед остановкой рантайма), и её появление снова — отказ шага.
 
 ## Шаг 6. Активности
 
@@ -412,6 +412,25 @@ dbq "SELECT schedule_id, user_id, process_id, scheduled_for, status, completed_a
 Расхождение прогона: агрегаты отчёта датированы `2026-08-16`, тогда как в `minutka_reporting.anonymized_activities` сохранено `2026-08-17` — чтение колонки `date` шло через локальную таймзону процесса и обратно через UTC. Порогов ≥5 и обезличивания расхождение не нарушало. Закрыто задачей `mnt-pilot-readiness-w73.14`: на том же срезе отчёт печатает `2026-08-17`.
 
 Состояние контура после прогона: шаг 10 не выполнялся, у компании `company_pilotrun` осталось 9 обезличенных строк и личные активности `emp_pilotrun_one`, `emp_pilotrun_two`, `emp_pilotrun_three`. Полный повторный прогон начинается с этого состояния — либо после `company:anonymized:purge` и `employee:data:delete`. Токены сотрудников `three`…`six` жили только в оболочке прогона.
+
+### 2026-08-17, дев-сервер, частичный прогон шагов 5, 7, 8 и 10, commit `b384dda`
+
+Прогон оставшихся четырёх шагов по решению оператора: шаги 1–4 подтверждены прогоном на `e3f0c80`, шаги 6 и 9 — частичным прогоном на `62ffea2`, здесь добираются шаги, которые ещё не выполнялись на текущем коде. Контур продолжает предыдущий прогон: `TELEGRAM_MODE=disabled`, компания `company_pilotrun`, группа `group_pilotrun_2026_08`, шесть участников, 9 обезличенных строк, таймзона профилей `Europe/Moscow`.
+
+| № | Шаг | Результат | Свидетельство |
+|---:|---|---|---|
+| 5 | Утреннее касание | прошло | перенос на 11:23 через `employee chat` (`effect "business_write_committed"`); `schedule_fires`: `morning_activity_collection`, `scheduled_for 2026-08-17T08:23:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, лог `Scheduled action failed (…; schedule=emp_pilotrun_one:morning_activity_collection-daily; kind=process).`; `next_fire_at 2026-08-18T08:23:00Z` — следующий день, то же локальное время; `npm run process:run` → код `0` и приглашение назвать 1–3 активности, строки `Assistant thread compaction audit failed (PersistenceError).` больше нет (`mnt-pilot-readiness-w73.11`) |
+| 7 | Вечернее касание | прошло | перенос на 11:27 через `employee chat`; `schedule_fires`: `evening_reflection`, `scheduled_for 2026-08-17T08:27:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, строка лога планировщика; `next_fire_at 2026-08-18T08:27:00Z`; `npm run process:run` → код `0` и вечерняя рефлексия с предложением подвести итоги дня |
+| 8 | Изоляция | прошло | вторым сотрудником взят `emp_pilotrun_four` (та же группа, личный контур пуст): `profile` возвращает только его (`"preferredName":"Вера"`), `insights` → `[]`, на вопрос «что я записывал сегодня?» агент отвечает, что записей в его контексте нет; активности и имя `emp_pilotrun_one` не названы |
+| 10 | Удаление | прошло | `company:anonymized:purge` → `{"deletedRows":9}`, `minutka_reporting.anonymized_activities` по компании пуста, личные активности всех троих сотрудников сохранены (3+3+3); неверная строка подтверждения → `confirmation did not match; nothing was deleted`, код возврата `1`; `employee:data:delete emp_pilotrun_one` → код `0` и scope: участник, профиль, согласие, 1 разговор, 6 сообщений, 3 активности, 2 расписания, 2 записи журнала, 20 audit-событий, 12 usage-записей, 4 версии объектов MinIO; `emp_pilotrun_two`…`six` и их личные активности сохранены, маркер `employee_data_deleted` записан |
+
+Шаг 8 выполнен не на `emp_pilotrun_two`, как в предыдущих прогонах: у него после подготовки шага 9 появились собственные активности, а признак шага требует пустого личного контура. `emp_pilotrun_four` — участник той же группы, онбординг прошёл, активностей не вводил.
+
+Механика прогона, не относящаяся к продукту: локальный LLM-шлюз около минуты отдавал `auth_unavailable` и несколько раз `Our servers are currently overloaded` — `npm run process:run` в эти моменты падал кодом `1`; после восстановления шлюза оба процесса отработали кодом `0` с первой попытки. Голос и переход по инвайт-ссылке в Telegram не проверялись по решению оператора.
+
+### Итог гейта `mnt-pilot-readiness-w73.12`: прошло
+
+Все десять шагов выполнены на дев-сервере и дали `прошло`, но не одним проходом: шаги 1–4 — на `e3f0c80`, шаги 6 и 9 — на `62ffea2` (расхождение дат закрыто `mnt-pilot-readiness-w73.14` и перепроверено на том же срезе), шаги 5, 7, 8 и 10 — на `b384dda`. Так решил оператор: контур между прогонами не пересобирался, а каждая починка между ними затрагивала только те шаги, которые после неё и перевыполнялись. Ни один шаг не остался неподтверждённым на текущем коде.
 
 ## Завершение прогона
 
