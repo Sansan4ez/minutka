@@ -1452,7 +1452,7 @@ describe("PostgreSQL storage contracts", () => {
       body: { size: 7, openStream: () => Readable.from("private") },
     });
     await createPostgresAuditEventStore(pool).append({ id: "evt_delete", requestId: "req_delete", type: "chat_received", employeeId: "emp_delete", occurredAt: now, metadata: {} });
-    await createPostgresUsageStore(pool).record({ id: "usage_delete", requestId: "req_usage_delete", userId: "emp_delete", source: "chat", occurredAt: now, month: "2026-08", inputTokens: 10, outputTokens: 5, totalTokens: 15, estimatedCostUsdMicros: 0 });
+    await createPostgresUsageStore(pool).record({ id: "usage_delete", requestId: "req_usage_delete", userId: "emp_delete", source: "chat", occurredAt: now, month: "2026-07", inputTokens: 10, outputTokens: 5, totalTokens: 15, estimatedCostUsdMicros: 0 });
     const deletionParticipant = await profiles.getParticipant("emp_delete");
     if (!deletionParticipant?.companyId || !deletionParticipant.groupId || !deletionParticipant.roleId) throw new Error("deletion participant is missing tenant binding");
     const anonymizedBeforeDelete = Number((await pool.query<{ count: string }>(
