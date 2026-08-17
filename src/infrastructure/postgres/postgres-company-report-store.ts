@@ -15,7 +15,7 @@ type ActivityRow = {
   obstacle_value: NonNullable<AnonymizedActivityRecord["obstacle"]>["value"] | null;
   duration_bucket: AnonymizedActivityRecord["durationBucket"] | null;
   system: AnonymizedActivityRecord["system"] | null;
-  activity_date: string | Date;
+  activity_date: string;
 };
 
 export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore {
@@ -38,9 +38,12 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
              GROUP BY role_id`,
             [companyId, groupId],
           );
+          // `activity_date` is read as text on purpose: node-postgres parses a
+          // PostgreSQL `date` at local midnight, and any conversion back through
+          // UTC then moves the employee-local calendar day of the whole report.
           const activityResult = await client.query<ActivityRow>(
             `SELECT company_id, group_id, role_id, task_category, obstacle_kind, obstacle_value,
-                    duration_bucket, system, activity_date
+                    duration_bucket, system, activity_date::text AS activity_date
              FROM minutka_reporting.anonymized_activities
              WHERE company_id = $1 AND group_id = $2`,
             [companyId, groupId],
@@ -71,8 +74,6 @@ function toActivity(row: ActivityRow): AnonymizedActivityRecord {
       : { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as NonNullable<AnonymizedActivityRecord["obstacle"]> }),
     ...(row.duration_bucket === null ? {} : { durationBucket: row.duration_bucket }),
     ...(row.system === null ? {} : { system: row.system }),
-    date: row.activity_date instanceof Date
-      ? row.activity_date.toISOString().slice(0, 10)
-      : row.activity_date.slice(0, 10),
+    date: row.activity_date.slice(0, 10),
   };
 }

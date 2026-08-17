@@ -36,6 +36,8 @@ import { createPostgresActivityCollectionStore } from "../../src/infrastructure/
 import { CollectActivityService } from "../../src/application/activity-collection.js";
 import { CompanyAnonymizedActivityRetentionService } from "../../src/application/company-anonymized-activity-retention.js";
 import { createPostgresCompanyAnonymizedActivityRetentionStore } from "../../src/infrastructure/postgres/postgres-company-anonymized-activity-retention-store.js";
+import { CompanyReportingService, COMPANY_REPORT_MIN_ROWS } from "../../src/application/company-reporting.js";
+import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -280,6 +282,90 @@ describe("PostgreSQL storage contracts", () => {
       "SELECT company_id, count(*)::int AS count FROM minutka_reporting.anonymized_activities WHERE company_id = ANY($1::text[]) GROUP BY company_id",
       [[companyA, companyB]],
     )).rows).toEqual([{ company_id: companyB, count: 1 }]);
+  });
+
+  it("reports the employee-local calendar day whatever timezone the process runs in", async () => {
+    const companyId = "company_report_date";
+    const groupId = "group_report_date";
+    const roleId = "role_report_date";
+    const timezone = "Asia/Tokyo";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Report Date Co')
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Pilot', daterange('2026-08-01', '2026-09-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $2, 'Analyst') ON CONFLICT (id) DO NOTHING`,
+      [roleId, companyId],
+    );
+    await migrationPool.query("DELETE FROM minutka_reporting.anonymized_activities WHERE company_id=$1", [companyId]);
+
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    for (let index = 0; index < COMPANY_REPORT_MIN_ROWS; index += 1) {
+      const employeeId = `report_date_${index}`;
+      await profiles.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, companyId, groupId, issuedAt: now });
+      await profiles.openInvite({ inviteCode: `invite_${employeeId}`, openedAt: now, explanationShownAt: now });
+      await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v4", acceptedAt: now, explanationShownAt: now, source: "test" });
+      await profiles.completeProfile({
+        completedAt: now,
+        profile: { employeeId, companyId, groupId, roleId, preferredName: "Analyst", assistantName: "Assistant", addressForm: "informal", timezone, persona: "efficiency", responseLength: "short", createdAt: now, updatedAt: now },
+      });
+    }
+
+    // 15:30 UTC is already the next calendar day in Tokyo. The report must show
+    // the employee's day, not the UTC one behind it.
+    let activityIndex = 0;
+    const collect = new CollectActivityService(
+      createPostgresActivityCollectionStore(pool),
+      { now: () => "2026-08-17T15:30:00.000Z" },
+      () => `activity_report_date_${(activityIndex += 1)}`,
+    );
+    for (let index = 0; index < COMPANY_REPORT_MIN_ROWS; index += 1) {
+      await collect.collect({
+        employeeId: "report_date_0",
+        companyId,
+        groupId,
+        roleId,
+        timezone,
+        activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
+      });
+    }
+    expect((await pool.query<{ activity_date: string }>(
+      "SELECT DISTINCT activity_date::text AS activity_date FROM minutka_reporting.anonymized_activities WHERE company_id=$1",
+      [companyId],
+    )).rows).toEqual([{ activity_date: "2026-08-18" }]);
+
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = timezone;
+    try {
+      const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool))
+        .exportGroup({ companyId, groupId });
+      if (report.status !== "exported") throw new Error(`expected an exported report, got ${report.status}`);
+      expect(report.roleSlices).toEqual([{
+        status: "exported",
+        roleId,
+        participantCount: COMPANY_REPORT_MIN_ROWS,
+        rowCount: COMPANY_REPORT_MIN_ROWS,
+        aggregates: [{
+          taskCategory: "reporting",
+          obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+          durationBucket: "1_2h",
+          system: "spreadsheets",
+          date: "2026-08-18",
+          rows: COMPANY_REPORT_MIN_ROWS,
+        }],
+      }]);
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimezone;
+    }
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {
