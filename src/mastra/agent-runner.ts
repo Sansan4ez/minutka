@@ -1,35 +1,32 @@
 import type { AssistantAgentContext, AssistantAgentRunner } from "../application/assistant-service.js";
 import type { Agent } from "@mastra/core/agent";
-import { createCaptureIdeaTool } from "./tools/capture-idea-tool.js";
 import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
-import { assistantTaskToolNames, createTaskTools } from "./tools/task-tools.js";
+import { assistantProductTaskToolNames, createTaskTools } from "./tools/task-tools.js";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
 import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
-import { assistantIdeaToolNames, createIdeaTools } from "./tools/idea-tools.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
-import { assistantProjectToolNames, createProjectTools } from "./tools/project-tools.js";
 import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
 
+/**
+ * Toolsets offered to the «Минутка» agent. Tools owned by a process disabled in
+ * `vault/assistant/processes/disabled-registry.json` are absent by design: the
+ * agent must answer a daily touch with `collectActivity`, and a tool whose
+ * manual is outside the prompt would only compete with it.
+ */
 export const assistantRuntimeToolsets = {
-  inbox: ["captureIdea"],
   documents: assistantDocumentToolNames,
   contextDocuments: assistantContextDocumentMutationToolNames,
-  ideas: assistantIdeaToolNames,
-  tasks: assistantTaskToolNames,
-  projects: assistantProjectToolNames,
+  tasks: assistantProductTaskToolNames,
   schedules: assistantScheduleToolNames,
   activities: [collectActivityToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
 
 export const assistantActiveToolNames = [
-  ...assistantRuntimeToolsets.inbox,
   ...assistantRuntimeToolsets.documents,
   ...assistantRuntimeToolsets.contextDocuments,
-  ...assistantRuntimeToolsets.ideas,
   ...assistantRuntimeToolsets.tasks,
-  ...assistantRuntimeToolsets.projects,
   ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.activities,
   ...assistantRuntimeToolsets.diagnostics,
@@ -47,13 +44,11 @@ export type MastraAgentLike = { generate(text: string, options: any): Promise<Ma
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
 export function createAssistantToolsets(context: AssistantAgentContext) {
+  const tasks = createTaskTools(context.tasks);
   return {
-    inbox: { captureIdea: createCaptureIdeaTool(context.captureIdea) },
     documents: createDocumentTools(context.documents),
     contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
-    ideas: createIdeaTools(context.ideas),
-    tasks: createTaskTools(context.tasks),
-    projects: createProjectTools(context.projects),
+    tasks: { listTasks: tasks.listTasks, proposeTaskMutation: tasks.proposeTaskMutation, proposeIdeaToTask: tasks.proposeIdeaToTask },
     schedules: createScheduleTools(context.schedules),
     activities: { collectActivity: createCollectActivityTool(context.collectActivity) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },

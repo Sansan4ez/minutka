@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "personalAssistant": [
-    { "id": "captureIdea", "manifest": "capture-idea.md", "mutating": true },
     { "id": "listDocuments", "manifest": "list-documents.md", "mutating": false },
     { "id": "readDocument", "manifest": "read-document.md", "mutating": false },
     { "id": "searchDocuments", "manifest": "search-documents.md", "mutating": false },
@@ -9,19 +8,22 @@
     { "id": "proposeContextDocumentUpdate", "manifest": "propose-context-document-update.md", "mutating": false },
     { "id": "proposeContextDocumentMove", "manifest": "propose-context-document-move.md", "mutating": false },
     { "id": "proposeContextDocumentDelete", "manifest": "propose-context-document-delete.md", "mutating": false },
-    { "id": "searchIdeas", "manifest": "search-ideas.md", "mutating": false },
-    { "id": "appendIdea", "manifest": "append-idea.md", "mutating": true },
-    { "id": "proposeIdeaDeletion", "manifest": "propose-idea-deletion.md", "mutating": false },
-    { "id": "undoIdeaDeletion", "manifest": "undo-idea-deletion.md", "mutating": true },
     { "id": "listTasks", "manifest": "list-tasks.md", "mutating": false },
     { "id": "proposeTaskMutation", "manifest": "propose-task-mutation.md", "mutating": false },
     { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "mutating": true },
-    { "id": "undoTaskMutation", "manifest": "undo-task-mutation.md", "mutating": true },
-    { "id": "listProjects", "manifest": "list-projects.md", "mutating": false },
     { "id": "listSchedules", "manifest": "list-schedules.md", "mutating": false },
     { "id": "setDailySchedule", "manifest": "set-daily-schedule.md", "mutating": true },
     { "id": "disableSchedule", "manifest": "disable-schedule.md", "mutating": true },
     { "id": "collectActivity", "manifest": "collect-activity.md", "mutating": true },
     { "id": "markProcessUsed", "manifest": "mark-process-used.md", "mutating": false }
+  ],
+  "disabledForMinutka": [
+    { "id": "captureIdea", "manifest": "capture-idea.md", "process": "inbox_capture" },
+    { "id": "searchIdeas", "manifest": "search-ideas.md", "process": "inbox_capture" },
+    { "id": "appendIdea", "manifest": "append-idea.md", "process": "inbox_capture" },
+    { "id": "proposeIdeaDeletion", "manifest": "propose-idea-deletion.md", "process": "inbox_capture" },
+    { "id": "undoIdeaDeletion", "manifest": "undo-idea-deletion.md", "process": "inbox_capture" },
+    { "id": "undoTaskMutation", "manifest": "undo-task-mutation.md", "process": "day_focus" },
+    { "id": "listProjects", "manifest": "list-projects.md", "process": "inbox_capture" }
   ]
 }

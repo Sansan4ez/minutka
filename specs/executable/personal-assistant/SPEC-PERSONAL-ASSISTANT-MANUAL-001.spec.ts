@@ -6,6 +6,7 @@ import { loadAssistantAgentInstructions } from "../../../src/application/assista
 import { assertContextSourceContentFits, createContextBudgetConfig, defaultContextBudget } from "../../../src/application/context-budget.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { assistantActiveToolNames, assistantRuntimeToolsets } from "../../../src/mastra/agent-runner.js";
+import { assistantDisabledProcessIds, assistantToolProcessOwners, isAssistantDisabledProcessId } from "../../../src/domain/assistant-process.js";
 
 function findUnclassifiedProcessFiles(processFiles: string[], ...classifications: Set<string>[]): string[] {
   const classifiedPaths = new Set(classifications.flatMap((paths) => [...paths]));
@@ -82,6 +83,30 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     const binReadme = readFileSync("vault/assistant/bin/README.md", "utf8");
     expect(binReadme).toContain("feedback callbacks call `submitFeedback` directly");
     expect(binReadme).toContain("no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL");
+  });
+
+  it("keeps tools of disabled processes out of the agent toolset", () => {
+    const disabledRegistry = JSON.parse(readFileSync("vault/assistant/processes/disabled-registry.json", "utf8")) as {
+      disabled: Array<{ id: string }>;
+    };
+    const binRegistry = JSON.parse(readFileSync("vault/assistant/bin/registry.json", "utf8")) as {
+      personalAssistant: Array<{ id: string }>;
+      disabledForMinutka: Array<{ id: string; manifest: string; process: string }>;
+    };
+    const disabledToolNames = Object.entries(assistantToolProcessOwners)
+      .filter(([, owner]) => owner !== undefined && isAssistantDisabledProcessId(owner))
+      .map(([toolName]) => toolName);
+
+    expect([...assistantDisabledProcessIds]).toEqual(disabledRegistry.disabled.map(({ id }) => id));
+    expect(assistantActiveToolNames.filter((toolName) => disabledToolNames.includes(toolName))).toEqual([]);
+    expect(assistantActiveToolNames).not.toContain("captureIdea");
+    expect(assistantActiveToolNames).toContain("collectActivity");
+    expect(binRegistry.disabledForMinutka.map(({ id }) => id).sort()).toEqual([...disabledToolNames].sort());
+    expect(binRegistry.personalAssistant.some(({ id }) => disabledToolNames.includes(id))).toBe(false);
+    for (const { manifest, process } of binRegistry.disabledForMinutka) {
+      expect(readFileSync(`vault/assistant/bin/${manifest}`, "utf8")).toContain("## Purpose");
+      expect([...assistantDisabledProcessIds]).toContain(process);
+    }
   });
 
   it("classifies every process file as active, disabled, draft, or legacy", () => {

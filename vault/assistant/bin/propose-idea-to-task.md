@@ -18,4 +18,4 @@ Level 0: `idea_to_task` is a reversible internal owner-scoped write. When the ap
 
 ## Boundary
 
-The current typed result is authoritative: claim conversion only for `status: applied`. The stored canonical proposal remains private even though the application immediately executes its authenticated decision path. `undoTaskMutation` removes the created task and restores the idea's previous status from server-held state. A second task operation in the same turn fails deterministically.
+The current typed result is authoritative: claim conversion only for `status: applied`. The stored canonical proposal remains private even though the application immediately executes its authenticated decision path. `undoTaskMutation` removes the created task and restores the idea's previous status from server-held state; that tool serves the disabled `day_focus` process and is not offered to the «Минутка» agent. A second task operation in the same turn fails deterministically.

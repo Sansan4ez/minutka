@@ -113,6 +113,9 @@ const taskUndoOutputSchema = z.discriminatedUnion("status", [
 
 export const assistantTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask", "undoTaskMutation"] as const;
 
+/** Task tools inside the «Минутка» boundary: `undoTaskMutation` serves the disabled `day_focus` process. */
+export const assistantProductTaskToolNames = ["listTasks", "proposeTaskMutation", "proposeIdeaToTask"] as const satisfies readonly (typeof assistantTaskToolNames)[number][];
+
 export function createTaskTools(tasks: AssistantTaskCapabilities) {
   return {
     listTasks: createTool({

@@ -22,8 +22,41 @@ export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds
 export const assistantScheduledProcessIds = ["morning_activity_collection", "day_focus", "evening_reflection"] as const satisfies readonly AssistantDiagnosticProcessId[];
 export type AssistantScheduledProcessId = (typeof assistantScheduledProcessIds)[number];
 
+/**
+ * Processes outside the «Минутка» product boundary. Mirrors
+ * `vault/assistant/processes/disabled-registry.json`: their manuals stay out of
+ * the prompt and their tools stay out of the agent toolset.
+ */
+export const assistantDisabledProcessIds = ["inbox_capture", "knowledge_lookup", "day_focus"] as const satisfies readonly AssistantProcessId[];
+export type AssistantDisabledProcessId = (typeof assistantDisabledProcessIds)[number];
+
+/**
+ * Owning process of an inherited assistant tool. A tool without an entry serves
+ * no single process and stays inside the product boundary.
+ */
+export const assistantToolProcessOwners: Readonly<Record<string, AssistantProcessId | undefined>> = {
+  captureIdea: "inbox_capture",
+  searchIdeas: "inbox_capture",
+  appendIdea: "inbox_capture",
+  proposeIdeaDeletion: "inbox_capture",
+  undoIdeaDeletion: "inbox_capture",
+  undoTaskMutation: "day_focus",
+  listProjects: "inbox_capture",
+  collectActivity: "morning_activity_collection",
+};
+
 export function isAssistantProcessId(value: string): value is AssistantProcessId {
   return (assistantProcessIds as readonly string[]).includes(value);
+}
+
+export function isAssistantDisabledProcessId(value: string): value is AssistantDisabledProcessId {
+  return (assistantDisabledProcessIds as readonly string[]).includes(value);
+}
+
+/** True for a tool the «Минутка» agent must never be offered. */
+export function isAssistantDisabledToolName(toolName: string): boolean {
+  const owner = assistantToolProcessOwners[toolName];
+  return owner !== undefined && isAssistantDisabledProcessId(owner);
 }
 
 export function isAssistantScheduledProcessId(value: string): value is AssistantScheduledProcessId {

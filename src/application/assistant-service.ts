@@ -31,7 +31,7 @@ import { pendingTaskAction, type PendingTaskAction, type PendingTaskMutation, ty
 import { createAssistantTaskCapabilities, type AssistantTaskCapabilities, type AssistantTaskCapabilityCallbacks } from "./assistant-task-capabilities.js";
 import { renderAssistantAgentManual, renderAssistantBaseInstructions } from "./assistant-static-context.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
-import { isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
+import { assistantToolProcessOwners, isAssistantDiagnosticProcessId, isAssistantProcessId, type AssistantDiagnosticProcessId, type AssistantProcessId } from "../domain/assistant-process.js";
 import type { ModelTokenUsage, UsageCostPolicy, UsageStore } from "./usage-store.js";
 import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder } from "./usage-recorder.js";
 import {
@@ -869,24 +869,13 @@ function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: Assist
   return left.kind === right.kind && (left.kind === "tool" ? left.toolName === (right as typeof left).toolName : left.processId === (right as typeof left).processId);
 }
 
-const processByToolName: Readonly<Record<string, AssistantProcessId | undefined>> = {
-  captureIdea: "inbox_capture",
-  searchIdeas: "inbox_capture",
-  appendIdea: "inbox_capture",
-  proposeIdeaDeletion: "inbox_capture",
-  undoIdeaDeletion: "inbox_capture",
-  undoTaskMutation: "day_focus",
-  listProjects: "inbox_capture",
-  collectActivity: "morning_activity_collection",
-};
-
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {
   const selected: AssistantProcessId[] = ["core"];
   const add = (id: AssistantProcessId | undefined) => {
     if (id && !selected.includes(id)) selected.push(id);
   };
   for (const event of executionTrace) {
-    if (event.kind === "tool") add(processByToolName[event.toolName]);
+    if (event.kind === "tool") add(assistantToolProcessOwners[event.toolName]);
     else if (isAssistantProcessId(event.processId) && (event.processId === "knowledge_lookup" || isAssistantDiagnosticProcessId(event.processId))) add(event.processId);
   }
   return selected;
