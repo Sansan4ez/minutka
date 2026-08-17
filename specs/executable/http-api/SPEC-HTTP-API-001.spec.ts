@@ -157,10 +157,10 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     await employee.acceptConsent({ accepted: true, source: "telegram" });
     expect(await employee.getOnboardingProgress()).toMatchObject({ status: "needs_choice", field: "roleId" });
     expect(await employee.submitOnboardingAnswer({ text: "default_role" })).toMatchObject({ status: "needs_answer", field: "preferredName" });
-    expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_answer", field: "assistantName" });
+    expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_choice", field: "communicationStyle" });
     expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_choice", field: "roleId" });
     await employee.submitOnboardingAnswer({ text: "default_role" });
-    await employee.submitOnboardingAnswer({ text: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    await employee.submitOnboardingAnswer({ text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
     expect(await employee.submitOnboardingAnswer({ text: "Исправить" })).toMatchObject({ status: "needs_correction" });
     await employee.confirmOnboarding();
     expect((await employee.getProfile()).employeeId).toBe("emp_a");

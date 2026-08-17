@@ -272,12 +272,12 @@ export const completeOnboardingRequestSchema = z.strictObject({
   roleId: z.string().min(1).max(128), selfDescription: z.string().min(1).max(2_000).optional(),
 });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string() });
-export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"]);
+export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "communicationStyle", "timezone"]);
 export const onboardingAnswerRequestSchema = z.strictObject({ text: chatInputTextSchema });
 export const onboardingProgressSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("needs_answer"), field: onboardingFieldSchema, prompt: z.string().min(1) }),
-  z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["roleId", "addressForm", "persona", "responseLength", "timezone"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(1), choiceValues: z.array(z.string().min(1)).min(1).optional(), allowFreeText: z.boolean().optional() }),
-  z.strictObject({ status: z.literal("needs_confirmation"), deliveryKey: z.string().min(1).max(128), summary: z.strictObject({ roleId: z.string().min(1), roleName: z.string().min(1), preferredName: z.string().min(1), assistantName: z.string().min(1), addressForm: z.string().min(1), persona: z.string().min(1), responseLength: z.string().min(1), timezone: timezoneSchema }) }),
+  z.strictObject({ status: z.literal("needs_choice"), field: z.enum(["roleId", "communicationStyle", "timezone"]), prompt: z.string().min(1), choices: z.array(z.string().min(1)).min(1), choiceValues: z.array(z.string().min(1)).min(1).optional(), allowFreeText: z.boolean().optional() }),
+  z.strictObject({ status: z.literal("needs_confirmation"), deliveryKey: z.string().min(1).max(128), summary: z.strictObject({ roleId: z.string().min(1), roleName: z.string().min(1), preferredName: z.string().min(1), communicationStyle: z.string().min(1), timezone: timezoneSchema }) }),
   z.strictObject({ status: z.literal("needs_correction"), prompt: z.string().min(1) }),
   z.strictObject({ status: z.literal("completed"), result: completeOnboardingResponseSchema }),
 ]);

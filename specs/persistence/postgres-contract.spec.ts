@@ -820,7 +820,7 @@ describe("PostgreSQL storage contracts", () => {
     expect(await drafts.purgeExpired()).toBe(1);
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     expect(await drafts.save({ ...fresh, revision: 1 }, 0)).toMatchObject({ revision: 1, expiresAt: fresh.expiresAt });
-    expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "assistantName" })).toMatchObject({ revision: 2, pendingField: "assistantName" });
+    expect(await drafts.replace({ ...fresh, revision: 2, pendingField: "communicationStyle" })).toMatchObject({ revision: 2, pendingField: "communicationStyle" });
     await profiles.completeProfile({ completedAt: now, allowUpdate: false, deleteOnboardingDraft: true, profile: { employeeId: "emp_draft", companyId: "company_persistence_default", groupId: "group_persistence_default", roleId: "role_persistence_default", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "support", aiLevel: "beginner", responseLength: "balanced", createdAt: now, updatedAt: now } });
     expect((await pool.query("SELECT 1 FROM minutka_private.onboarding_drafts WHERE employee_id = 'emp_draft'"))).toMatchObject({ rowCount: 0 });
     await expect(drafts.save({ ...fresh, revision: 3 }, 0)).rejects.toMatchObject({ code: "persistence_conflict" });

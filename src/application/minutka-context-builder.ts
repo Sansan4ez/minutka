@@ -72,7 +72,7 @@ export function buildMinutkaProfileContext(profile: UserProfile): string {
   return [
     "Профиль владельца:",
     `- Обращение: ${profile.preferredName ?? profile.role ?? profile.employeeId}`,
-    `- Имя ассистента: ${profile.assistantName ?? "Ассистент"}`,
+    `- Имя ассистента: ${profile.assistantName ?? "Минутка"}`,
     `- Форма обращения: ${profile.addressForm ?? "informal"}`,
     `- Часовой пояс: ${profile.timezone ?? "Etc/UTC"}`,
     ...(profile.role ? [`- Legacy role context: ${profile.role}`] : []),

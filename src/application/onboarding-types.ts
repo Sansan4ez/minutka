@@ -1,6 +1,7 @@
 import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
 
-export type OnboardingField = "roleId" | "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone";
+export type OnboardingField = "roleId" | "preferredName" | "communicationStyle" | "timezone";
+export type OnboardingProfileField = "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone";
 export type OnboardingDraft = {
   employeeId: string;
   roleId?: string;
@@ -24,21 +25,18 @@ export type OnboardingProfilePatch = {
   persona?: Persona;
   responseLength?: ResponseLengthPreference;
   timezone?: string;
-  ambiguousFields: OnboardingField[];
+  ambiguousFields: OnboardingProfileField[];
 };
 export type OnboardingSummary = {
   roleId: string;
   roleName: string;
   preferredName: string;
-  assistantName: string;
-  addressForm: string;
-  persona: string;
-  responseLength: string;
+  communicationStyle: string;
   timezone: string;
 };
 export type OnboardingProgress =
   | { status: "needs_answer"; field: OnboardingField; prompt: string }
-  | { status: "needs_choice"; field: "roleId" | "addressForm" | "persona" | "responseLength" | "timezone"; prompt: string; choices: string[]; choiceValues?: string[]; allowFreeText?: boolean }
+  | { status: "needs_choice"; field: "roleId" | "communicationStyle" | "timezone"; prompt: string; choices: string[]; choiceValues?: string[]; allowFreeText?: boolean }
   | { status: "needs_confirmation"; deliveryKey: string; summary: OnboardingSummary }
   /** The user rejected the summary; the next natural-language message is a correction. */
   | { status: "needs_correction"; prompt: string }

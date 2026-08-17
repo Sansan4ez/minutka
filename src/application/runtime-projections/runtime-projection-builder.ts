@@ -64,7 +64,7 @@ export function createRuntimeProjectionBuilder(deps: {
     profile
       ? {
           preferredName: profile.preferredName ?? profile.role ?? "Владелец",
-          assistantName: profile.assistantName ?? "Ассистент",
+          assistantName: profile.assistantName ?? "Минутка",
           addressForm: profile.addressForm ?? "informal",
           persona: profile.persona,
           responseLength: profile.responseLength,

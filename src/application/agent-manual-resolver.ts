@@ -116,7 +116,7 @@ function buildRoutingPrompt(
   const profile = input.profile
     ? [
         `preferredName: ${input.profile.preferredName ?? input.profile.role ?? input.profile.employeeId}`,
-        `assistantName: ${input.profile.assistantName ?? "Ассистент"}`,
+        `assistantName: ${input.profile.assistantName ?? "Минутка"}`,
         `addressForm: ${input.profile.addressForm ?? "informal"}`,
         `persona: ${input.profile.persona}`,
         `responseLength: ${input.profile.responseLength}`,

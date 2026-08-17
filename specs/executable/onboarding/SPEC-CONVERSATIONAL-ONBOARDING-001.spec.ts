@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
-import { timezoneSchema } from "../../../src/contracts/minutka-api.js";
+import { completeOnboardingRequestSchema, onboardingFieldSchema, timezoneSchema } from "../../../src/contracts/minutka-api.js";
 import { normalizeIanaTimezone, resolveTimezoneAlias } from "../../../src/shared/iana-timezone.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
@@ -30,18 +30,18 @@ async function consentedRuntime(employeeId = "emp_conversational") {
   return runtime;
 }
 
-const completeAnswer = "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow";
+const completeAnswer = "Максим | На ты, коротко и по делу | Europe/Moscow";
 
 describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", () => {
   it("collects the minimal profile in one message and writes only after confirmation", async () => {
     const runtime = await consentedRuntime();
     expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: completeAnswer })).toMatchObject({
       status: "needs_confirmation",
-      summary: { preferredName: "Максим", assistantName: "Спарк", addressForm: "на ты", persona: "деловой", responseLength: "коротко", timezone: "Europe/Moscow" },
+      summary: { preferredName: "Максим", communicationStyle: "на ты, коротко и по делу", timezone: "Europe/Moscow" },
     });
     expect(runtime.world.profiles).toHaveLength(0);
     await runtime.service.confirmOnboarding({ employeeId: "emp_conversational" });
-    expect(runtime.world.profiles[0]).toMatchObject({ preferredName: "Максим", assistantName: "Спарк", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow" });
+    expect(runtime.world.profiles[0]).toMatchObject({ preferredName: "Максим", assistantName: "Минутка", addressForm: "informal", persona: "efficiency", responseLength: "balanced", timezone: "Europe/Moscow" });
     expect(runtime.world.profiles[0].role).toBeUndefined();
     expect(runtime.world.profiles[0].typicalTasks).toBeUndefined();
     expect(runtime.world.profiles[0].aiLevel).toBeUndefined();
@@ -130,19 +130,46 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
   });
 
-  it("asks at most one next question and accepts partial answers", async () => {
-    const runtime = await consentedRuntime();
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Максим" })).toMatchObject({ status: "needs_answer", field: "assistantName" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Спарк" })).toMatchObject({ status: "needs_choice", field: "addressForm" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "informal" })).toMatchObject({ status: "needs_choice", field: "persona" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "efficiency" })).toMatchObject({ status: "needs_choice", field: "responseLength" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "short" })).toMatchObject({
-      status: "needs_choice",
-      field: "timezone",
-      choices: ["Калининград", "Москва", "Самара", "Екатеринбург", "Омск", "Красноярск", "Иркутск", "Владивосток", "Другой"],
-      allowFreeText: true,
-    });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Europe/Moscow" })).toMatchObject({ status: "needs_confirmation" });
+  it("asks exactly four questions and maps every communication preset", async () => {
+    const presets = [
+      ["На ты, по-человечески", "informal", "support"],
+      ["На вы, по-деловому", "formal", "efficiency"],
+      ["На ты, коротко и по делу", "informal", "efficiency"],
+    ] as const;
+    for (const [answer, addressForm, persona] of presets) {
+      const employeeId = `emp_preset_${addressForm}_${persona}`;
+      const runtime = await consentedRuntime(employeeId);
+      expect(await runtime.service.submitOnboardingAnswer({ employeeId, text: "Максим" })).toMatchObject({ status: "needs_choice", field: "communicationStyle" });
+      expect(await runtime.service.submitOnboardingAnswer({ employeeId, text: answer })).toMatchObject({
+        status: "needs_choice",
+        field: "timezone",
+        choices: ["Калининград", "Москва", "Самара", "Екатеринбург", "Омск", "Красноярск", "Иркутск", "Владивосток", "Другой"],
+        allowFreeText: true,
+      });
+      expect(runtime.world.onboardingDrafts[0]).toMatchObject({ addressForm, persona });
+      expect(await runtime.service.submitOnboardingAnswer({ employeeId, text: "Europe/Moscow" })).toMatchObject({ status: "needs_confirmation" });
+    }
+  });
+
+  it("keeps legacy DTO preferences optional while exposing only the four new steps", () => {
+    expect(completeOnboardingRequestSchema.parse({
+      roleId: "default_role", persona: "support", assistantName: "Спарк", addressForm: "formal", responseLength: "detailed",
+    })).toMatchObject({ assistantName: "Спарк", addressForm: "formal", persona: "support", responseLength: "detailed" });
+    for (const field of ["roleId", "preferredName", "communicationStyle", "timezone"]) expect(onboardingFieldSchema.safeParse(field).success).toBe(true);
+    for (const field of ["assistantName", "addressForm", "persona", "responseLength"]) expect(onboardingFieldSchema.safeParse(field).success).toBe(false);
+  });
+
+  it("normalizes an unfinished draft from the old questionnaire without crashing", async () => {
+    const runtime = await consentedRuntime("emp_legacy_draft");
+    runtime.world.onboardingDrafts[0] = {
+      ...runtime.world.onboardingDrafts[0]!,
+      preferredName: "Максим",
+      assistantName: "Спарк",
+      pendingField: "assistantName" as never,
+    };
+
+    await expect(runtime.service.getOnboardingProgress({ employeeId: "emp_legacy_draft" })).resolves.toMatchObject({ status: "needs_choice", field: "communicationStyle" });
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_legacy_draft", text: "На вы, по-деловому" })).resolves.toMatchObject({ status: "needs_choice", field: "timezone" });
   });
 
   it("resolves friendly timezone aliases and fixed offsets without reversing the sign", () => {
@@ -163,7 +190,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("explains an unrecognized timezone and shows the choices again", async () => {
     const runtime = await consentedRuntime("emp_bad_timezone");
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "Максим | Спарк | На ты | Деловой | Коротко | мусор" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "Максим | На ты, коротко и по делу | мусор" });
 
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "совсем не пояс" })).resolves.toMatchObject({
       status: "needs_choice",
@@ -215,10 +242,9 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
     const runtime = await consentedRuntime("emp_substrings");
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "Саша" });
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "Спарк" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "на тыловой стороне" })).resolves.toMatchObject({
       status: "needs_choice",
-      field: "addressForm",
+      field: "communicationStyle",
     });
     expect(runtime.world.onboardingDrafts[0].addressForm).toBeUndefined();
     expect(runtime.world.onboardingDrafts[0].persona).toBeUndefined();
@@ -235,7 +261,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: completeAnswer });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Зови меня Алексей" })).resolves.toMatchObject({
-      status: "needs_confirmation", summary: { preferredName: "Алексей", assistantName: "Спарк" },
+      status: "needs_confirmation", summary: { preferredName: "Алексей" },
     });
   });
 
@@ -370,7 +396,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     })).resolves.toMatchObject({ timezone: "Etc/GMT" });
 
     const runtime = await consentedRuntime("emp_single_segment_tz");
-    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_single_segment_tz", text: "Максим | Спарк | На ты | Деловой | Коротко | UTC" })).resolves.toMatchObject({
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_single_segment_tz", text: "Максим | На ты, коротко и по делу | UTC" })).resolves.toMatchObject({
       status: "needs_confirmation",
       summary: { timezone: "Etc/UTC" },
     });
@@ -383,7 +409,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("saves an onboarding profile that uses an Etc timezone alias", async () => {
     const runtime = await consentedRuntime("emp_etc_tz");
-    const answer = "Максим | Спарк | На ты | Деловой | Коротко | Etc/GMT";
+    const answer = "Максим | На ты, коротко и по делу | Etc/GMT";
 
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_etc_tz", text: answer })).resolves.toMatchObject({
       status: "needs_confirmation",
@@ -398,7 +424,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {
     const invalid = await consentedRuntime("emp_invalid_tz");
-    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | Спарк | На ты | Деловой | Коротко | ?" });
+    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | На ты, коротко и по делу | ?" });
     expect(invalid.world.onboardingDrafts[0].timezone).toBeUndefined();
     expect(invalid.world.onboardingDrafts[0].pendingField).toBe("timezone");
 

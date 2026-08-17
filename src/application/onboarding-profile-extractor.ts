@@ -1,6 +1,6 @@
 import type { AddressForm, Persona, ResponseLengthPreference } from "../domain/employee.js";
 import { normalizeIanaTimezone, resolveTimezoneAlias } from "../shared/iana-timezone.js";
-import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch } from "./onboarding-types.js";
+import type { OnboardingDraft, OnboardingProfileField, OnboardingProfilePatch } from "./onboarding-types.js";
 import type { ModelTokenUsage } from "./usage-store.js";
 
 /**
@@ -38,21 +38,29 @@ export function extractDeterministicOnboardingPatch(input: {
     patch.timezone = normalizeTimezone(pipe[5]);
     return normalizeOnboardingProfilePatch(patch);
   }
+  if (pipe.length === 3 && pipe.every(Boolean)) {
+    patch.preferredName = cleanName(pipe[0]);
+    patch.addressForm = addressForm(pipe[1]);
+    patch.persona = persona(pipe[1]);
+    patch.timezone = normalizeTimezone(pipe[2]);
+    return normalizeOnboardingProfilePatch(patch);
+  }
 
   patch.preferredName = capture(text, /(?:меня зовут|зови(?:те)? меня|обращай(?:ся|тесь) ко мне|мо[её] имя)\s*[-—:]?\s*([^.;|\n]+)/iu);
   patch.assistantName = capture(text, /(?:тебя зовут|буду звать тебя|назову тебя|имя ассистента|ассистента зовут)\s*[-—:]?\s*([^.;|\n]+)/iu);
-  patch.addressForm = addressForm(text);
-  patch.persona = persona(text);
+  patch.addressForm = addressForm(text) ?? communicationStylePreset(text)?.addressForm;
+  patch.persona = persona(text) ?? communicationStylePreset(text)?.persona;
   patch.responseLength = responseLengthFromMessage(text);
   patch.timezone = extractTimezone(text);
 
   const pending = input.currentDraft.pendingField;
   if (pending === "roleId") return normalizeOnboardingProfilePatch(patch);
   if (pending === "preferredName" && !patch.preferredName) patch.preferredName = cleanName(text);
-  if (pending === "assistantName" && !patch.assistantName) patch.assistantName = cleanName(text);
-  if (pending === "addressForm" && !patch.addressForm) patch.addressForm = addressForm(text);
-  if (pending === "persona" && !patch.persona) patch.persona = persona(text);
-  if (pending === "responseLength" && !patch.responseLength) patch.responseLength = responseLength(text);
+  if (pending === "communicationStyle") {
+    const preset = communicationStylePreset(text);
+    if (!patch.addressForm) patch.addressForm = addressForm(text) ?? preset?.addressForm;
+    if (!patch.persona) patch.persona = persona(text) ?? preset?.persona;
+  }
   if (pending === "timezone" && !patch.timezone) patch.timezone = normalizeTimezone(text);
 
   return normalizeOnboardingProfilePatch(patch);
@@ -60,7 +68,7 @@ export function extractDeterministicOnboardingPatch(input: {
 
 export function normalizePersona(value: string): Persona | undefined {
   const text = normalize(value);
-  if (hasBoundedSignal(text, /(?:support|поддержк\p{L}*|бережн\p{L}*|тепл\p{L}*|эмпатичн\p{L}*)/u)) return "support";
+  if (hasBoundedSignal(text, /(?:support|поддержк\p{L}*|бережн\p{L}*|тепл\p{L}*|эмпатичн\p{L}*|по человечески)/u)) return "support";
   if (hasBoundedSignal(text, /(?:efficiency|эффективност\p{L}*|по делу|делов\p{L}*|коротко и практично|структурн\p{L}*)/u)) return "efficiency";
   return undefined;
 }
@@ -85,6 +93,14 @@ export function normalizeTimezone(value: string): string | undefined {
   return resolveTimezoneAlias(candidate) ?? normalizeIanaTimezone(candidate);
 }
 
+function communicationStylePreset(value: string): { addressForm: AddressForm; persona: Persona } | undefined {
+  const text = normalize(value).replace(/[_-]/gu, " ");
+  if (text === "informal support" || text.includes("на ты, по человечески")) return { addressForm: "informal", persona: "support" };
+  if (text === "formal efficiency" || text.includes("на вы, по деловому")) return { addressForm: "formal", persona: "efficiency" };
+  if (text === "informal efficiency" || text.includes("на ты, коротко и по делу")) return { addressForm: "informal", persona: "efficiency" };
+  if (text === "formal support" || text.includes("на вы, по человечески")) return { addressForm: "formal", persona: "support" };
+  return undefined;
+}
 function addressForm(value: string): AddressForm | undefined { return normalizeAddressForm(value); }
 function persona(value: string): Persona | undefined { return normalizePersona(value); }
 function responseLength(value: string): ResponseLengthPreference | undefined { return normalizeResponseLength(value); }
@@ -125,4 +141,4 @@ export function normalizeOnboardingProfilePatch(patch: OnboardingProfilePatch): 
   };
 }
 
-export function emptyOnboardingPatch(): OnboardingProfilePatch { return { ambiguousFields: [] as OnboardingField[] }; }
+export function emptyOnboardingPatch(): OnboardingProfilePatch { return { ambiguousFields: [] as OnboardingProfileField[] }; }

@@ -14,7 +14,7 @@ import type { OnboardingDraftStore } from "./onboarding-draft-store.js";
 import type { OnboardingProfileExtraction, OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
 import type { UsageRecorder } from "./usage-recorder.js";
 import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "./onboarding-profile-extractor.js";
-import type { OnboardingDraft, OnboardingField, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
+import type { OnboardingDraft, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
 import type { OnboardingContextMaterializer } from "./onboarding-context-materializer.js";
 import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
 import type { InsightKind, StructuredInsight } from "../domain/insights.js";
@@ -308,7 +308,7 @@ export class MinutkaService {
       groupId,
       roleId,
       preferredName: input.preferredName?.trim() || existing?.preferredName || input.employeeId,
-      assistantName: input.assistantName?.trim() || existing?.assistantName || "Ассистент",
+      assistantName: input.assistantName?.trim() || existing?.assistantName || "Минутка",
       addressForm: input.addressForm ?? existing?.addressForm ?? "informal",
       persona: input.persona,
       responseLength: input.responseLength ?? "balanced",
@@ -427,7 +427,7 @@ export class MinutkaService {
     }
     const draft = await this.stores.onboardingDraftStore.get(employeeId);
     if (!draft || draft.status !== "awaiting_confirmation" || !isCompleteOnboardingDraft(draft)) throw new Error("onboarding draft is incomplete");
-    return this.completeOnboardingProfile({ employeeId, roleId: draft.roleId, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: draft.addressForm, persona: draft.persona, responseLength: draft.responseLength, timezone: draft.timezone }, false);
+    return this.completeOnboardingProfile({ employeeId, roleId: draft.roleId, preferredName: draft.preferredName, addressForm: draft.addressForm, persona: draft.persona, timezone: draft.timezone }, false);
   }
 
   async resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> {
@@ -659,18 +659,22 @@ export class MinutkaService {
 
 function hasCurrentConsent(consent: Consent | undefined): boolean { return consent?.privacyVersion === currentPrivacyVersion; }
 
-const onboardingFields: OnboardingField[] = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"];
-const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Зови меня Максим» или «Часовой пояс Europe/Moscow».";
-const addressFormLabels = { informal: "на ты", formal: "на вы" } as const;
-const personaLabels = { support: "тёплый", efficiency: "деловой" } as const;
-const responseLengthLabels = { short: "коротко", balanced: "сбалансированно", detailed: "подробно" } as const;
+const onboardingCorrectionPrompt = "Напишите, что исправить, например: «Зови меня Максим», «На вы, по-человечески» или «Часовой пояс Europe/Moscow».";
+const communicationStyleLabels = {
+  "informal:support": "на ты, по-человечески",
+  "formal:efficiency": "на вы, по-деловому",
+  "informal:efficiency": "на ты, коротко и по делу",
+  "formal:support": "на вы, по-человечески",
+} as const;
+const communicationStyleChoices = ["На ты, по-человечески — стиль можно поменять одной фразой", "На вы, по-деловому — стиль можно поменять одной фразой", "На ты, коротко и по делу — стиль можно поменять одной фразой"];
+const communicationStyleValues = ["informal_support", "formal_efficiency", "informal_efficiency"];
 const timezoneChoices = ["Калининград", "Москва", "Самара", "Екатеринбург", "Омск", "Красноярск", "Иркутск", "Владивосток", "Другой"];
 const unrecognizedTimezonePrompt = "Не узнал этот пояс. Выберите ближайший город или напишите город, IANA timezone либо смещение, например UTC+3.";
 function onboardingExpiry(now: string): string { const date = new Date(now); date.setDate(date.getDate() + 30); return date.toISOString(); }
 function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да|верно|всё верно|подтверждаю|подтвердить)$/iu.test(text.trim()); }
 function isNegativeOnboardingAnswer(text: string): boolean { return /^(?:нет|неверно|не верно|исправить|не всё верно)$/iu.test(text.trim()); }
-function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "roleId" | "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone">> {
-  return Boolean(draft.roleId && draft.preferredName && draft.assistantName && draft.addressForm && draft.persona && draft.responseLength && draft.timezone);
+function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "roleId" | "preferredName" | "addressForm" | "persona" | "timezone">> {
+  return Boolean(draft.roleId && draft.preferredName && draft.addressForm && draft.persona && draft.timezone);
 }
 function mergePatches(primary: OnboardingProfilePatch, fallback: OnboardingProfilePatch): OnboardingProfilePatch {
   return {
@@ -685,21 +689,21 @@ function mergePatches(primary: OnboardingProfilePatch, fallback: OnboardingProfi
 }
 function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePatch): Pick<OnboardingDraft, "roleId" | "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone"> {
   const next = { roleId: draft.roleId, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: draft.addressForm, persona: draft.persona, responseLength: draft.responseLength, timezone: draft.timezone };
-  for (const field of onboardingFields) {
-    if (field === "roleId") continue;
+  for (const field of ["preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"] as const) {
     const candidate = patch[field];
     if (candidate === undefined || patch.ambiguousFields.includes(field)) continue;
     // A correction is accepted only after the user has seen the full summary.
     // During collection a conflicting candidate never silently overwrites data.
     if (draft.status !== "awaiting_confirmation" && next[field] !== undefined && next[field] !== candidate) continue;
-    (next as Record<OnboardingField, unknown>)[field] = candidate;
+    (next as Record<typeof field, unknown>)[field] = candidate;
   }
   return next;
 }
 function makeOnboardingDraft(current: OnboardingDraft, values: Pick<OnboardingDraft, "roleId" | "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone">, now: string): OnboardingDraft {
-  const changed = onboardingFields.some((field) => current[field] !== values[field]);
+  const profileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone"] as const;
+  const changed = profileFields.some((field) => current[field] !== values[field]);
   const draft: OnboardingDraft = { ...current, ...values, revision: current.revision + (changed ? 1 : 0), updatedAt: now, expiresAt: onboardingExpiry(now) };
-  const pendingField = onboardingFields.find((field) => draft[field] === undefined);
+  const pendingField = !draft.roleId ? "roleId" : !draft.preferredName ? "preferredName" : !draft.addressForm || !draft.persona ? "communicationStyle" : !draft.timezone ? "timezone" : undefined;
   return pendingField ? { ...draft, status: "collecting", pendingField } : { ...draft, status: "awaiting_confirmation", pendingField: undefined };
 }
 async function extractOnboardingPatchWithTimeout(
@@ -721,16 +725,14 @@ async function extractOnboardingPatchWithTimeout(
 function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false, roleName?: string): OnboardingProgress {
   if (isCompleteOnboardingDraft(draft)) {
     if (!roleName) throw new Error("role name is required for onboarding confirmation");
-    return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { roleId: draft.roleId, roleName, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: addressFormLabels[draft.addressForm], persona: personaLabels[draft.persona], responseLength: responseLengthLabels[draft.responseLength], timezone: draft.timezone } };
+    const styleKey = `${draft.addressForm}:${draft.persona}` as keyof typeof communicationStyleLabels;
+    return { status: "needs_confirmation", deliveryKey: `${draft.createdAt}:${draft.revision}`, summary: { roleId: draft.roleId, roleName, preferredName: draft.preferredName, communicationStyle: communicationStyleLabels[styleKey], timezone: draft.timezone } };
   }
-  const field = onboardingFields.find((candidate) => draft[candidate] === undefined) ?? "preferredName";
+  const field = !draft.roleId ? "roleId" : !draft.preferredName ? "preferredName" : !draft.addressForm || !draft.persona ? "communicationStyle" : "timezone";
   if (field === "roleId") throw new Error("role selection requires tenant directory context");
-  if (field === "addressForm") return { status: "needs_choice", field, prompt: "Обращаться к вам на ты или на вы?", choices: ["На ты", "На вы"] };
-  if (field === "persona") return { status: "needs_choice", field, prompt: "Какой стиль общения вам ближе?", choices: ["Тёплый", "Деловой"] };
-  if (field === "responseLength") return { status: "needs_choice", field, prompt: "Какой длины ответы удобнее?", choices: ["Коротко", "Сбалансированно", "Подробно"] };
+  if (field === "communicationStyle") return { status: "needs_choice", field, prompt: "Как удобнее общаться? Стиль можно поменять в любой момент одной фразой.", choices: communicationStyleChoices, choiceValues: communicationStyleValues, allowFreeText: true };
   if (field === "timezone") return { status: "needs_choice", field, prompt: timezoneUnrecognized ? unrecognizedTimezonePrompt : "Выберите ваш часовой пояс. Если нужного города нет, нажмите «Другой» и напишите город или смещение UTC.", choices: timezoneChoices, allowFreeText: true };
-  if (field === "preferredName") return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться?" };
-  return { status: "needs_answer", field, prompt: "Как вы хотите называть меня?" };
+  return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться? Стиль общения потом можно поменять одной фразой." };
 }
 const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "preferredCheckinsPerDay"] as const;
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {

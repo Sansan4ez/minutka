@@ -119,14 +119,14 @@ async function withVoiceTimeout<T>(timeoutMs: number, action: (signal: AbortSign
     if (timer) clearTimeout(timer);
   }
 }
-const onboardingIntroduction = "Давайте коротко познакомимся.";
+const onboardingIntroduction = "Давайте коротко познакомимся. Будет четыре вопроса; стиль общения можно поменять в любой момент одной фразой.";
 function identity(chatId: string, userId?: string): TelegramIdentity { return { chatId, userId }; }
 function logShellError(operation: string, error: unknown): void { console.error(`Telegram shell ${operation} failed (${error instanceof Error ? error.name : "UnknownError"}).`); }
 function logArtifactRejection(reason: "object_limit" | "owner_quota" | "global_capacity"): void {
   console.warn(`Artifact save rejected (${reason}).`);
 }
 function consentCallbackData(employeeId: string): string | undefined { const callbackData = `tg:consent:${employeeId}`; return Buffer.byteLength(callbackData, "utf8") <= maxTelegramCallbackDataBytes ? callbackData : undefined; }
-function onboardingCallbackData(action: "confirm" | "reset" | "roleId" | "addressForm" | "persona" | "responseLength" | "timezone", value?: string): string | undefined {
+function onboardingCallbackData(action: "confirm" | "reset" | "roleId" | "communicationStyle" | "timezone", value?: string): string | undefined {
   const data = value ? `ob:${action}:${value}` : `ob:${action}`;
   return Buffer.byteLength(data, "utf8") <= maxTelegramCallbackDataBytes ? data : undefined;
 }
@@ -143,18 +143,18 @@ async function withTypingIndicator<T>(replyPort: TelegramReplyPort, chatId: stri
   const refresh = setInterval(() => { void sendTyping(); }, typingRefreshMilliseconds);
   try { return await action(); } finally { clearInterval(refresh); }
 }
-function onboardingChoiceValue(field: "addressForm" | "persona" | "responseLength" | "timezone", choice: string): string {
-  const values: Record<string, string> = field === "addressForm"
-    ? { "На ты": "informal", "На вы": "formal" }
-    : field === "persona"
-      ? { "Тёплый": "support", "Деловой": "efficiency" }
-      : field === "responseLength"
-        ? { "Коротко": "short", "Сбалансированно": "balanced", "Подробно": "detailed" }
-        : {
-          "Калининград": "Europe/Kaliningrad", "Москва": "Europe/Moscow", "Самара": "Europe/Samara",
-          "Екатеринбург": "Asia/Yekaterinburg", "Омск": "Asia/Omsk", "Красноярск": "Asia/Krasnoyarsk",
-          "Иркутск": "Asia/Irkutsk", "Владивосток": "Asia/Vladivostok", "Другой": "other",
-        };
+function onboardingChoiceValue(field: "communicationStyle" | "timezone", choice: string): string {
+  const values: Record<string, string> = field === "communicationStyle"
+    ? {
+      "На ты, по-человечески — стиль можно поменять одной фразой": "informal_support",
+      "На вы, по-деловому — стиль можно поменять одной фразой": "formal_efficiency",
+      "На ты, коротко и по делу — стиль можно поменять одной фразой": "informal_efficiency",
+    }
+    : {
+      "Калининград": "Europe/Kaliningrad", "Москва": "Europe/Moscow", "Самара": "Europe/Samara",
+      "Екатеринбург": "Asia/Yekaterinburg", "Омск": "Asia/Omsk", "Красноярск": "Asia/Krasnoyarsk",
+      "Иркутск": "Asia/Irkutsk", "Владивосток": "Asia/Vladivostok", "Другой": "other",
+    };
   const value = values[choice];
   if (!value) throw new Error("unsupported onboarding choice");
   return value;
@@ -403,7 +403,7 @@ async function renderOnboardingProgress(replyPort: TelegramReplyPort, chatId: st
     }
     const summary = progress.summary;
     try {
-      await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- должность: ${summary.roleName};`, `- обращаться к вам: ${summary.preferredName};`, `- имя ассистента: ${summary.assistantName};`, `- форма обращения: ${summary.addressForm};`, `- стиль: ${summary.persona};`, `- длина ответов: ${summary.responseLength};`, `- часовой пояс: ${summary.timezone} (сейчас у вас ${currentTimeInTimezone(summary.timezone)}).`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
+      await replyPort.sendMessage(chatId, ["Проверьте, пожалуйста:", `- должность: ${summary.roleName};`, `- обращаться к вам: ${summary.preferredName};`, `- общаться: ${summary.communicationStyle};`, `- часовой пояс: ${summary.timezone} (сейчас у вас ${currentTimeInTimezone(summary.timezone)}).`, "", "Всё верно?"].join("\n"), { replyMarkup: { inlineKeyboard: [[{ text: "✅ Подтвердить", callbackData: onboardingCallbackData("confirm")! }, { text: "✏️ Исправить", callbackData: onboardingCallbackData("reset")! }]] } });
       if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.complete(progress.deliveryKey, claim.claimedAt);
     } catch (error) {
       if (confirmationDelivery && claim?.status === "claimed") await confirmationDelivery.release(progress.deliveryKey, claim.claimedAt).catch((releaseError) => logShellError("onboarding confirmation claim release", releaseError));
@@ -961,7 +961,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
             if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
             return renderOnboardingProgress(replyPort, chatId, handled.result, onboardingConfirmationDelivery(chatId, userId, session.employeeId), sendMarkdown);
           }
-          if ((action === "roleId" || action === "addressForm" || action === "persona" || action === "responseLength" || action === "timezone") && value) {
+          if ((action === "roleId" || action === "communicationStyle" || action === "timezone") && value) {
             if (action === "timezone" && value === "other") {
               await replyPort.answerCallbackQuery(callbackQueryId, "Напишите город или смещение UTC.");
               if (messageId !== undefined) await removeReplyMarkup(chatId, messageId);
