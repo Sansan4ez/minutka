@@ -2,20 +2,20 @@
 
 ## Purpose
 
-Create, change, or re-enable a supported process schedule or reminder and report the saved wall-clock time.
+Move or re-enable the authenticated employee's morning or evening message.
 
 ## Inputs
 
-`kind` defaults to `process`. Process schedules use a closed supported `processId`; reminders use bounded `reminderText` (1–512 characters). Pass the exact optional `scheduleId` from `listSchedules` to change or re-enable an existing reminder in place; omit it to create another reminder. All schedules take `timeOfDay` in 24-hour `HH:mm`, optional IANA `timezone`, optional 7-bit `daysOfWeek` mask (Monday is bit 0; 127 means every day), and optional `oneShot`. A one-shot uses the nearest future occurrence of the supplied time: today when still ahead, otherwise the next allowed day. There is no owner id input; omitted timezone comes from the owner profile.
+Use the closed `processId` for the morning or evening message, or pass the exact optional `scheduleId` returned by `listSchedules`. Supply `timeOfDay` in 24-hour `HH:mm`, optional IANA `timezone`, and optional 7-bit `daysOfWeek` mask. There is no employee id, reminder text, arbitrary kind, or one-shot input in the agent-facing schema.
 
 ## Output
 
-A saved owner-free schedule projection with kind, action text/process, days, one-shot state, time, timezone, enabled state, and next fire time; `not_found` for an absent owner-scoped `scheduleId`; or a clear refusal for an unsupported process or schedule-kind change.
+A saved employee-free morning/evening projection; `not_found` for an absent employee-scoped id; or a clear refusal for an unsupported value.
 
 ## Confirmation level
 
-Level 0: this is a reversible internal owner-scoped write. No prior confirmation is required; after success, report the saved schedule and name disabling or changing it as the reversal path.
+Level 0: reversible internal employee-scoped write. After success, report the saved time in plain language and explain that the employee can switch the message off or move it again.
 
 ## Boundary
 
-The application binds the authenticated owner, resolves `scheduleId` only within that owner, rejects schedule-kind changes and arbitrary process ids, validates reminder text and recurrence fields, and generates private reminder schedule ids. This action does not execute an external action.
+The application binds the authenticated employee, resolves ids only within that employee, accepts only the active morning/evening ids, and rejects `day_focus` and arbitrary reminders. Lower-level reminder persistence remains for compatibility but is not exposed to the model.

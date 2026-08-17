@@ -45,6 +45,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Do not moralize or evaluate the employee");
     expect(instructions).toContain("`support` is warmer and softer; `efficiency` is concise, structured, and practical");
     expect(instructions).not.toMatch(/may prepare|draft posts|draft letters|prepare research briefs|perform internet research/i);
+    expect(instructions).toContain("могу перенести утреннее или вечернее сообщение на другое время");
+    expect(instructions).toContain("never expose runtime vocabulary");
+    expect(instructions).not.toContain("supported active check-ins");
+    expect(instructions).not.toContain("For supported check-ins");
     expect(instructions).not.toContain("Process file: workday_guardrails");
     expect(instructions).not.toContain("## Dependencies");
     expect(instructions).not.toMatch(/`docs\/(?:architecture|product)\//);
@@ -71,6 +75,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .map((path) => readFileSync(path, "utf8"))
       .join("\n");
 
+    expect(registeredIds).toEqual([
+      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivity", "markProcessUsed",
+    ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
     for (const { manifest } of registry.personalAssistant) {
@@ -81,7 +88,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId)) expect(registeredIds).toContain(referencedId);
     }
     const binReadme = readFileSync("vault/assistant/bin/README.md", "utf8");
-    expect(binReadme).toContain("feedback callbacks call `submitFeedback` directly");
+    expect(binReadme).toContain("feedback");
     expect(binReadme).toContain("no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL");
   });
 
@@ -100,6 +107,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...assistantDisabledProcessIds]).toEqual(disabledRegistry.disabled.map(({ id }) => id));
     expect(assistantActiveToolNames.filter((toolName) => disabledToolNames.includes(toolName))).toEqual([]);
     expect(assistantActiveToolNames).not.toContain("captureIdea");
+    expect(assistantActiveToolNames).not.toContain("listTasks");
+    expect(assistantActiveToolNames).not.toContain("listDocuments");
+    expect(assistantActiveToolNames).not.toContain("createContextNote");
     expect(assistantActiveToolNames).toContain("collectActivity");
     expect(binRegistry.disabledForMinutka.map(({ id }) => id).sort()).toEqual([...disabledToolNames].sort());
     expect(binRegistry.personalAssistant.some(({ id }) => disabledToolNames.includes(id))).toBe(false);

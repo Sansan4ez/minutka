@@ -4,118 +4,31 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
-import { createInMemoryTaskStore } from "../../../src/application/in-memory-task-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
-import type { Task } from "../../../src/domain/task.js";
+import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
 
 const now = "2026-07-28T09:00:00.000Z";
 
-type FocusResponse = {
-  priorities: string[];
-  nextAction: string;
-  caveats: string[];
-};
-
-type Fixture = {
-  goals?: string;
-  projects?: string;
-  ideas?: Array<{ id: string; project: string; summary: string }>;
-  tasks?: Array<Pick<Task, "id" | "project" | "title" | "status"> & Partial<Pick<Task, "dueDate">>>;
-};
-
-async function runFocus(fixture: Fixture): Promise<{ response: FocusResponse; systemContext: string; selectedProcessIds: string[] }> {
+function serviceWithRunner(runner: ConstructorParameters<typeof AssistantService>[0]) {
   const clock = { now: () => now };
-  const world = createInMemoryWorld(clock.now);
   const documents = createInMemoryDocumentStore(clock);
   const ideas = createInMemoryIdeaStore(clock);
-  const tasks = createInMemoryTaskStore(clock);
-  const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
-
-  if (fixture.goals !== undefined) {
-    await ingestion.saveContextDocument({
-      userId: "owner",
-      path: "context/10_user_memory/02_Goals_and_priorities.md",
-      content: fixture.goals,
-    });
-  }
-  if (fixture.projects !== undefined) {
-    await ingestion.saveContextDocument({
-      userId: "owner",
-      path: "context/40_projects/2026_07_28_мои_проекты.md",
-      content: fixture.projects,
-    });
-  }
-  for (const idea of fixture.ideas ?? []) {
-    await ideas.add({ ...idea, userId: "owner", type: "development", status: "raw" });
-  }
-  for (const task of fixture.tasks ?? []) {
-    await tasks.create("owner", { ...task, type: "operations" });
-  }
-
-  let systemContext = "";
-  const service = new AssistantService(async (_input, context) => {
-    systemContext = context.systemContext;
-    context.markProcessUsed("day_focus");
-    const goalText = context.personalContext.data.documents
-      .filter(({ path }) => path.includes("Goals_and_priorities"))
-      .map(({ content }) => content)
-      .join("\n");
-    const knownProjects = new Set(
-      context.personalContext.data.documents
-        .filter(({ path }) => path.includes("мои_проекты"))
-        .flatMap(({ content }) => content.split(/\r?\n/).map((line) => line.replace(/^[-*#\s]+/, "").trim()).filter(Boolean)),
-    );
-    const activeTasks = await context.tasks.list({ filter: { status: ["open", "in_progress"] }, order: "due_asc" });
-    const overdue = activeTasks.filter(({ dueDate }) => dueDate !== undefined && dueDate < now.slice(0, 10));
-    const aligned = activeTasks.filter(({ title, project }) => goalText.includes(title) || goalText.includes(project));
-    const ranked = [...overdue, ...aligned, ...activeTasks]
-      .filter((task, index, all) => all.findIndex(({ id }) => id === task.id) === index)
-      .slice(0, 3);
-    const unknown = [...activeTasks.map(({ project }) => project), ...context.records.data.records.map(({ project }) => project)]
-      .filter((project) => project === "БЕЗ_ПРОЕКТА" || (knownProjects.size > 0 && !knownProjects.has(project)))
-      .filter((project, index, all) => all.indexOf(project) === index);
-    const goalConflict = overdue.find((task) => !aligned.some(({ id }) => id === task.id)) !== undefined && aligned.length > 0;
-    const priorities = ranked.length > 0
-      ? ranked.map(({ title }) => title)
-      : context.records.data.records.slice(0, 3).map(({ summary }) => summary);
-    return JSON.stringify({
-      priorities,
-      nextAction: priorities.length === 0 ? "Назвать одну цель или текущую задачу." : `Открыть «${priorities[0]}» и выполнить первый видимый шаг.`,
-      caveats: [
-        ...(priorities.length === 0 ? ["Недостаточно данных о целях, идеях и задачах."] : []),
-        ...unknown.map((project) => `Неизвестный проект: ${project}.`),
-        ...(goalConflict ? ["Просроченная задача конфликтует с явно указанной целью владельца."] : []),
-      ],
-    } satisfies FocusResponse);
-  }, {
+  return new AssistantService(runner, {
     documentStore: documents,
-    conversationStore: createInMemoryConversationStore(world),
-    ingestionService: ingestion,
+    conversationStore: createInMemoryConversationStore(createInMemoryWorld(clock.now)),
+    ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
     ideaStore: ideas,
-    taskStore: tasks,
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
-
-  const result = await service.chat({ userId: "owner", threadId: "thread", text: "На чём мне сфокусироваться сегодня?" });
-  return { response: JSON.parse(result.response) as FocusResponse, systemContext, selectedProcessIds: result.selectedProcessIds };
 }
 
-describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () => {
-  it("exposes a deterministic scheduled day_focus trigger through the product facade", async () => {
-    let received: Parameters<AssistantService["chat"]>[0] | undefined;
-    const conversation: Pick<AssistantService, "chat"> = { async chat(input) {
-      received = input;
-      return {
-        messageId: "scheduled-message",
-        response: "Фокус на сегодня.",
-        selectedProcessIds: ["core", "day_focus"],
-        outcome: { status: "completed" },
-        effect: "none",
-        pendingActions: [],
-      };
+describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: disabled inherited day focus", () => {
+  it("rejects day_focus through the product facade with an explicit reason", async () => {
+    const conversation: Pick<AssistantService, "chat"> = { async chat() {
+      throw new Error("disabled process must not reach chat");
     } };
     const facade = new PersonalAssistantService(
       {} as ConstructorParameters<typeof PersonalAssistantService>[0],
@@ -123,154 +36,42 @@ describe("SPEC-PERSONAL-ASSISTANT-DAY-FOCUS-001: internal-first day focus", () =
       {} as ConstructorParameters<typeof PersonalAssistantService>[2],
     );
 
-    await expect(facade.runScheduledProcess({
+    expect(() => facade.runScheduledProcess({
       userId: "owner",
       threadId: "telegram-thread",
-      processId: "day_focus",
-    })).resolves.toMatchObject({ response: "Фокус на сегодня.", selectedProcessIds: ["core", "day_focus"] });
-    expect(received).toMatchObject({
-      userId: "owner",
-      threadId: "telegram-thread",
-      responseChannel: "telegram",
-      requiredProcessId: "day_focus",
-    });
-    expect(received?.text).toContain("day_focus");
+      processId: "day_focus" as never,
+    })).toThrow("unsupported scheduled process: day_focus");
   });
 
-  it("exposes a deterministic scheduled evening_reflection trigger through the same product facade", async () => {
-    let received: Parameters<AssistantService["chat"]>[0] | undefined;
-    const conversation: Pick<AssistantService, "chat"> = { async chat(input) {
-      received = input;
-      return {
-        messageId: "scheduled-evening-message",
-        response: "Как прошёл день?",
-        selectedProcessIds: ["core", "evening_reflection"],
-        outcome: { status: "completed" },
-        effect: "none",
-        pendingActions: [],
-      };
-    } };
-    const facade = new PersonalAssistantService(
-      {} as ConstructorParameters<typeof PersonalAssistantService>[0],
-      conversation,
-      {} as ConstructorParameters<typeof PersonalAssistantService>[2],
-    );
+  it("rejects day_focus as a trusted required process", async () => {
+    const service = serviceWithRunner(async () => ({ text: "not reached", executionTrace: [] }));
 
-    await expect(facade.runScheduledProcess({
-      userId: "owner",
-      threadId: "telegram-thread",
-      processId: "evening_reflection",
-    })).resolves.toMatchObject({ response: "Как прошёл день?", selectedProcessIds: ["core", "evening_reflection"] });
-    expect(received).toMatchObject({
-      userId: "owner",
-      threadId: "telegram-thread",
-      responseChannel: "telegram",
-      requiredProcessId: "evening_reflection",
-    });
-    expect(received?.text).toContain("evening_reflection");
-  });
-
-  it("forces the trusted scheduled process without relying on model diagnostic evidence", async () => {
-    const clock = { now: () => now };
-    const world = createInMemoryWorld(clock.now);
-    const documents = createInMemoryDocumentStore(clock);
-    const ideas = createInMemoryIdeaStore(clock);
-    const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas });
-    let systemContext = "";
-    const service = new AssistantService(async (_input, context) => {
-      systemContext = context.systemContext;
-      return "Утренний фокус.";
-    }, {
-      documentStore: documents,
-      conversationStore: createInMemoryConversationStore(world),
-      ingestionService: ingestion,
-      ideaStore: ideas,
-      requestIntegrityGuard: async () => ({ status: "allowed" }),
-      clock,
-    });
-
-    const result = await service.chat({
+    await expect(service.chat({
       userId: "owner",
       threadId: "scheduled-thread",
       text: "Сформируй утренний фокус.",
-      requiredProcessId: "day_focus",
+      requiredProcessId: "day_focus" as never,
       responseChannel: "telegram",
-    });
-
-    expect(systemContext).toContain("Trusted deterministic process trigger");
-    expect(systemContext).toContain("`day_focus`");
-    expect(result.selectedProcessIds).toEqual(["core", "day_focus"]);
+    })).rejects.toThrow("unknown required assistant process id: day_focus");
   });
 
-  it("returns an honest empty-state answer with one concrete next action", async () => {
-    const { response, systemContext, selectedProcessIds } = await runFocus({});
-
-    expect(response.priorities).toEqual([]);
-    expect(response.nextAction).toBe("Назвать одну цель или текущую задачу.");
-    expect(response.caveats).toContain("Недостаточно данных о целях, идеях и задачах.");
-    expect(systemContext).not.toContain("Process file: day_focus");
-    expect(systemContext).not.toContain("Select at most three priorities");
-    expect(systemContext).not.toContain('markProcessUsed({ id: "day_focus" })');
-    expect(selectedProcessIds).toEqual(["core", "day_focus"]);
-  });
-
-  it("puts an overdue task into a bounded focus response", async () => {
-    const { response } = await runFocus({
-      projects: "PLAN",
-      tasks: [
-        { id: "overdue", project: "PLAN", title: "Подать отчёт", status: "open", dueDate: "2026-07-27" },
-        { id: "later-1", project: "PLAN", title: "Подготовить презентацию", status: "open", dueDate: "2026-07-30" },
-        { id: "later-2", project: "PLAN", title: "Разобрать заметки", status: "open" },
-        { id: "later-3", project: "PLAN", title: "Обновить шаблон", status: "open" },
-      ],
+  it("rejects day_focus diagnostic evidence and records no effect", async () => {
+    const service = serviceWithRunner(async (_input, context) => {
+      expect(() => context.markProcessUsed("day_focus" as never)).toThrow("unknown assistant diagnostic process id: day_focus");
+      return { text: "Могу помочь разобрать рабочий день.", executionTrace: [] };
     });
 
-    expect(response.priorities[0]).toBe("Подать отчёт");
-    expect(response.priorities).toHaveLength(3);
-    expect(response.nextAction).toContain("Подать отчёт");
+    await expect(service.chat({ userId: "owner", threadId: "thread", text: "На чём сфокусироваться?" })).resolves.toMatchObject({
+      selectedProcessIds: ["core"],
+      effect: "none",
+      pendingActions: [],
+    });
   });
 
-  it("keeps relevant ideas available in /proc/records alongside a full task backlog", async () => {
-    const tasks = Array.from({ length: 24 }, (_, index) => ({
-      id: `task-${index}`,
-      project: "PLAN",
-      title: `Backlog task ${index}`,
-      status: "open" as const,
-    }));
-    const { systemContext } = await runFocus({
-      projects: "PLAN\nIDEAS",
-      ideas: [{ id: "focus-idea", project: "IDEAS", summary: "Проверить идею для запуска" }],
-      tasks,
-    });
-
-    expect(systemContext).toContain("### Active tasks");
-    expect(systemContext).toContain("### Ideas");
-    expect(systemContext).toContain("Проверить идею для запуска");
-  });
-
-  it("marks an unknown project instead of inventing ownership", async () => {
-    const { response } = await runFocus({
-      projects: "ASSISTANT",
-      ideas: [{ id: "idea-unknown", project: "MYSTERY", summary: "Проверить новую гипотезу" }],
-    });
-
-    expect(response.priorities).toEqual(["Проверить новую гипотезу"]);
-    expect(response.caveats).toContain("Неизвестный проект: MYSTERY.");
-  });
-
-  it("states a conflict between an overdue task and the owner's explicit goal", async () => {
-    const { response } = await runFocus({
-      goals: "Главная цель: запустить ASSISTANT.\nКлючевой шаг: Подготовить пилот.",
-      projects: "ASSISTANT\nLEGACY",
-      tasks: [
-        { id: "legacy", project: "LEGACY", title: "Закрыть старый отчёт", status: "open", dueDate: "2026-07-27" },
-        { id: "goal", project: "ASSISTANT", title: "Подготовить пилот", status: "open", dueDate: "2026-07-31" },
-      ],
-    });
-
-    expect(response.priorities).toEqual(["Закрыть старый отчёт", "Подготовить пилот"]);
-    expect(response.caveats).toContain("Просроченная задача конфликтует с явно указанной целью владельца.");
-    expect(response.priorities.length).toBeLessThanOrEqual(3);
-    expect(response.nextAction).toBeTruthy();
+  it("keeps the disabled manual out of the active prompt and catalog", () => {
+    const instructions = loadAssistantAgentInstructions();
+    expect(instructions).not.toContain("Process file: day_focus");
+    expect(instructions).not.toContain('markProcessUsed({ id: "day_focus" })');
+    expect(instructions).not.toContain("Select at most three priorities");
   });
 });

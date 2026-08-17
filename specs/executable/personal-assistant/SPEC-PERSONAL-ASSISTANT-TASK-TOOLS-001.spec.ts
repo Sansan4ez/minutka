@@ -725,13 +725,12 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
     await expect(tasks.list("owner")).resolves.toEqual([]);
   });
 
-  it("serializes an exact owner-free task view at the provider tool boundary", async () => {
+  it("keeps task reads outside the provider tool boundary", async () => {
     let providerToolResult: unknown;
     const agent: MastraAgentLike = {
       async generate(_text, options) {
-        const listTasks = options.toolsets?.tasks?.listTasks as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
-        providerToolResult = await listTasks.execute?.({ order: "created_asc" }, {});
-        return { text: JSON.stringify(providerToolResult) };
+        providerToolResult = options.toolsets?.tasks;
+        return { text: JSON.stringify(providerToolResult ?? null) };
       },
     };
     const { service, tasks } = setup(createAssistantAgentRunner(agent));
@@ -754,35 +753,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     const result = await service.chat({ userId: "PRIVATE_OWNER_ID", threadId: "thread", text: "list tasks" });
 
-    expect(providerToolResult).toEqual({
-      tasks: [{
-        id: "task-owner",
-        title: "Visible task",
-        project: "ASSISTANT",
-        type: "operations",
-        status: "in_progress",
-        dueDate: "2026-07-30",
-        createdAt: now,
-        updatedAt: now,
-        revision: 1,
-      }],
-    });
-    expect(JSON.parse(result.response)).toEqual(providerToolResult);
-    expect(Object.keys((providerToolResult as { tasks: Array<Record<string, unknown>> }).tasks[0]!)).toEqual([
-      "id", "title", "project", "type", "status", "dueDate", "createdAt", "updatedAt", "revision",
-    ]);
-    expect(JSON.stringify(providerToolResult)).not.toMatch(/userId|ownerId|originIdeaId|PRIVATE_OWNER_ID|PRIVATE_IDEA_PROVENANCE|PRIVATE_OTHER_TASK/);
+    expect(providerToolResult).toBeUndefined();
+    expect(JSON.parse(result.response)).toBeNull();
+    await expect(tasks.list("PRIVATE_OWNER_ID")).resolves.toHaveLength(1);
+    await expect(tasks.list("other")).resolves.toHaveLength(1);
   });
 
-  it("serializes exact provenance-free idea-to-task results at the provider tool boundary", async () => {
+  it("keeps idea-to-task conversion outside the provider tool boundary", async () => {
     const providerToolTrace: unknown[] = [];
     const agent: MastraAgentLike = {
       async generate(_text, options) {
-        const proposeIdeaToTask = options.toolsets?.tasks?.proposeIdeaToTask as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
-        providerToolTrace.push(
-          await proposeIdeaToTask.execute?.({ ideaId: "PRIVATE_ALREADY_CONVERTED_IDEA" }, {}),
-          await proposeIdeaToTask.execute?.({ ideaId: "idea-pending" }, {}),
-        );
+        providerToolTrace.push(options.toolsets?.tasks?.proposeIdeaToTask);
         return { text: JSON.stringify(providerToolTrace) };
       },
     };
@@ -814,40 +795,17 @@ describe("SPEC-PERSONAL-ASSISTANT-TASK-TOOLS-001: owner-bound task proposals", (
 
     const result = await service.chat({ userId: "PRIVATE_OWNER_ID", threadId: "thread", text: "convert ideas" });
 
-    expect(providerToolTrace).toEqual([
-      { status: "already_converted", taskId: "existing-task" },
-      {
-        status: "needs_confirmation",
-        confirmation: {
-          confirmationId: "tool-confirmation-1",
-          actionKind: "idea_to_task",
-          summary: "Создать задачу из идеи: PRIVATE_PENDING_CANONICAL_IDEA",
-          expiresAt: "2026-07-28T12:15:00.000Z",
-        },
-      },
-    ]);
-    expect(JSON.parse(result.response)).toEqual(providerToolTrace);
-    expect(Object.keys(providerToolTrace[0] as Record<string, unknown>)).toEqual(["status", "taskId"]);
-    expect(Object.keys((providerToolTrace[1] as { status: string; confirmation: Record<string, unknown> }).confirmation)).toEqual([
-      "confirmationId", "actionKind", "summary", "expiresAt",
-    ]);
-    expect(JSON.stringify(providerToolTrace)).not.toMatch(/originIdeaId|ownerId|PRIVATE_OWNER_ID|PRIVATE_ALREADY_CONVERTED_IDEA|SECRET_CANONICAL_PROJECT|task_idea_|payloadDigest|createdAt|"proposal"/);
+    expect(providerToolTrace).toEqual([undefined]);
+    expect(JSON.parse(result.response)).toEqual([null]);
+    await expect(tasks.getByOriginIdeaId("PRIVATE_OWNER_ID", "PRIVATE_ALREADY_CONVERTED_IDEA")).resolves.toMatchObject({ id: "existing-task" });
+    await expect(ideas.get("PRIVATE_OWNER_ID", "idea-pending")).resolves.toMatchObject({ status: "raw" });
     await expect(tasks.getByOriginIdeaId("PRIVATE_OWNER_ID", "PRIVATE_ALREADY_CONVERTED_IDEA")).resolves.toMatchObject({
       id: "existing-task",
       userId: "PRIVATE_OWNER_ID",
       originIdeaId: "PRIVATE_ALREADY_CONVERTED_IDEA",
     });
     await expect(tasks.getByOriginIdeaId("PRIVATE_OWNER_ID", "idea-pending")).resolves.toBeNull();
-    expect(result.pendingActions[0]).toMatchObject({
-      confirmationId: "tool-confirmation-1",
-      preview: {
-        kind: "idea_to_task",
-        title: { value: "PRIVATE_PENDING_CANONICAL_IDEA", truncated: false },
-        project: { value: "SECRET_CANONICAL_PROJECT", truncated: false },
-        type: "development",
-        dueDate: null,
-      },
-    });
+    expect(result.pendingActions).toEqual([]);
   });
 
   it("binds task reads and idea provenance to the authenticated owner", async () => {

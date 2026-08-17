@@ -1,11 +1,8 @@
 import type { AssistantAgentContext, AssistantAgentRunner } from "../application/assistant-service.js";
 import type { Agent } from "@mastra/core/agent";
-import { assistantDocumentToolNames, createDocumentTools } from "./tools/document-tools.js";
-import { assistantProductTaskToolNames, createTaskTools } from "./tools/task-tools.js";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
 import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
-import { assistantContextDocumentMutationToolNames, createContextDocumentMutationTools } from "./tools/context-document-mutation-tools.js";
 import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
 
 /**
@@ -15,18 +12,12 @@ import { collectActivityToolName, createCollectActivityTool } from "./tools/acti
  * manual is outside the prompt would only compete with it.
  */
 export const assistantRuntimeToolsets = {
-  documents: assistantDocumentToolNames,
-  contextDocuments: assistantContextDocumentMutationToolNames,
-  tasks: assistantProductTaskToolNames,
   schedules: assistantScheduleToolNames,
   activities: [collectActivityToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
 
 export const assistantActiveToolNames = [
-  ...assistantRuntimeToolsets.documents,
-  ...assistantRuntimeToolsets.contextDocuments,
-  ...assistantRuntimeToolsets.tasks,
   ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.activities,
   ...assistantRuntimeToolsets.diagnostics,
@@ -44,11 +35,7 @@ export type MastraAgentLike = { generate(text: string, options: any): Promise<Ma
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
 export function createAssistantToolsets(context: AssistantAgentContext) {
-  const tasks = createTaskTools(context.tasks);
   return {
-    documents: createDocumentTools(context.documents),
-    contextDocuments: createContextDocumentMutationTools(context.contextDocuments),
-    tasks: { listTasks: tasks.listTasks, proposeTaskMutation: tasks.proposeTaskMutation, proposeIdeaToTask: tasks.proposeIdeaToTask },
     schedules: createScheduleTools(context.schedules),
     activities: { collectActivity: createCollectActivityTool(context.collectActivity) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },

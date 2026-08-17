@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import { assistantActiveToolNames, createAssistantToolsets } from "../../../src/mastra/agent-runner.js";
 
-const allowedUnionFields = new Set(["listTasks.filter.status"]);
+const allowedUnionFields = new Set<string>();
 
 function createStubContext(): AssistantAgentContext {
   const callableStub = async () => ({});

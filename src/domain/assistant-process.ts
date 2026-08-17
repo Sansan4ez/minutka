@@ -11,7 +11,7 @@ export const assistantProcessIds = [
 export type AssistantProcessId = (typeof assistantProcessIds)[number];
 
 /** Inline read-only processes that may emit diagnostic evidence without granting a capability. */
-export const assistantDiagnosticProcessIds = ["morning_activity_collection", "consent_and_privacy", "day_focus", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
+export const assistantDiagnosticProcessIds = ["morning_activity_collection", "consent_and_privacy", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
 export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds)[number];
 
 /**
@@ -19,7 +19,7 @@ export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds
  * set: `consent_and_privacy` emits evidence inside a conversation but is never
  * scheduled, so it has no scheduled prompt.
  */
-export const assistantScheduledProcessIds = ["morning_activity_collection", "day_focus", "evening_reflection"] as const satisfies readonly AssistantDiagnosticProcessId[];
+export const assistantScheduledProcessIds = ["morning_activity_collection", "evening_reflection"] as const satisfies readonly AssistantDiagnosticProcessId[];
 export type AssistantScheduledProcessId = (typeof assistantScheduledProcessIds)[number];
 
 /**
@@ -40,8 +40,18 @@ export const assistantToolProcessOwners: Readonly<Record<string, AssistantProces
   appendIdea: "inbox_capture",
   proposeIdeaDeletion: "inbox_capture",
   undoIdeaDeletion: "inbox_capture",
+  listTasks: "day_focus",
+  proposeTaskMutation: "day_focus",
+  proposeIdeaToTask: "day_focus",
   undoTaskMutation: "day_focus",
   listProjects: "inbox_capture",
+  listDocuments: "knowledge_lookup",
+  readDocument: "knowledge_lookup",
+  searchDocuments: "knowledge_lookup",
+  createContextNote: "knowledge_lookup",
+  proposeContextDocumentUpdate: "knowledge_lookup",
+  proposeContextDocumentMove: "knowledge_lookup",
+  proposeContextDocumentDelete: "knowledge_lookup",
   collectActivity: "morning_activity_collection",
 };
 

@@ -189,12 +189,10 @@ function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean
 }
 function scheduleProcessLabel(processId: string): string {
   return processId === "morning_activity_collection"
-    ? "Утренняя Минутка"
-    : processId === "day_focus"
-      ? "Фокус дня"
-      : processId === "evening_reflection"
-        ? "Вечерняя рефлексия"
-        : processId;
+    ? "Утреннее сообщение"
+    : processId === "evening_reflection"
+      ? "Вечернее сообщение"
+      : processId;
 }
 function scheduleDaysLabel(daysOfWeek: number): string {
   if (daysOfWeek === 127) return "каждый день";
@@ -216,8 +214,8 @@ function formatScheduleNextFireAt(nextFireAt: string, timezone: string): string 
 }
 function renderScheduleList(schedules: Awaited<ReturnType<ReturnType<ServiceMinutkaClient["forEmployee"]>["listSchedules"]>>["schedules"]): string {
   if (!schedules.length) return emptyScheduleMessage;
-  return ["Ваше расписание:", ...schedules.map((schedule) => {
-    const label = schedule.kind === "reminder" ? `Напоминание: ${schedule.reminderText}` : scheduleProcessLabel(schedule.processId!);
+  return ["Время сообщений:", ...schedules.map((schedule) => {
+    const label = scheduleProcessLabel(schedule.processId);
     const cadence = `${scheduleDaysLabel(schedule.daysOfWeek)}${schedule.oneShot ? "; разовое" : ""}`;
     return [
       `• ${label} — ${schedule.timeOfDay} (${schedule.timezone}); ${cadence}`,

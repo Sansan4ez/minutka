@@ -2,16 +2,16 @@
 
 ## Purpose
 
-List process and reminder schedules owned by the authenticated owner before changing or describing them.
+List the authenticated employee's morning and evening message times before changing or describing them.
 
 ## Inputs
 
-No inputs. There is no owner id input.
+No inputs. There is no employee id input.
 
 ## Output
 
-A bounded owner-free projection containing only `id`, `kind`, optional `processId` or bounded `reminderText`, `daysOfWeek`, `oneShot`, `timeOfDay`, `timezone`, `enabled`, and `nextFireAt`.
+A bounded employee-free projection containing only the exact id, closed morning/evening `processId`, days, time, timezone, enabled state, and next delivery time. Legacy reminder rows are not model-visible.
 
 ## Boundary
 
-Read-only. `AssistantService` binds the authenticated owner and the typed schedule use-case enforces owner scope.
+Read-only. `AssistantService` binds the authenticated employee and the typed use-case enforces owner scope.

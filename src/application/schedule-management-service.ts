@@ -20,7 +20,7 @@ export type SaveDailyScheduleInput = {
 
 export type OwnerScheduleCapabilities = {
   listSchedules(): Promise<ProcessSchedule[]>;
-  saveDailySchedule(input: SaveDailyScheduleInput): Promise<ProcessSchedule>;
+  saveDailySchedule(input: Omit<SaveDailyScheduleInput, "kind" | "reminderText" | "oneShot">): Promise<ProcessSchedule>;
   disableSchedule(scheduleId: string): Promise<ProcessSchedule | null>;
 };
 

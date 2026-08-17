@@ -38,6 +38,9 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
     expect(() => parseScheduledProcessRunArguments([
       "--employee", "emp_1", "--process", "consent_and_privacy",
     ])).toThrow("unsupported scheduled process: consent_and_privacy");
+    expect(() => parseScheduledProcessRunArguments([
+      "--employee", "emp_1", "--process", "day_focus",
+    ])).toThrow("unsupported scheduled process: day_focus");
     expect(() => parseScheduledProcessRunArguments(["--employee", "emp_1"])).toThrow("usage:");
   });
 

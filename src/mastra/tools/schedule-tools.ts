@@ -6,15 +6,14 @@ import {
   UnsupportedAssistantScheduleProcessError,
   type OwnerScheduleCapabilities,
 } from "../../application/schedule-management-service.js";
-import { assistantDiagnosticProcessIds } from "../../domain/assistant-process.js";
+import { assistantScheduledProcessIds } from "../../domain/assistant-process.js";
 import { toScheduleView } from "../../application/schedule-view.js";
 import { timezoneSchema } from "../../contracts/minutka-api.js";
 
 export const scheduleViewSchema = z.strictObject({
   id: z.string().min(1),
-  kind: z.enum(["process", "reminder"]),
-  processId: z.enum(assistantDiagnosticProcessIds).optional(),
-  reminderText: z.string().min(1).max(512).optional(),
+  kind: z.literal("process"),
+  processId: z.enum(assistantScheduledProcessIds),
   daysOfWeek: z.number().int().min(1).max(127),
   oneShot: z.boolean(),
   timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u),
@@ -38,26 +37,23 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
   return {
     listSchedules: createTool({
       id: "listSchedules",
-      description: "List the authenticated owner's process and reminder schedules, including days and next fire times.",
+      description: "List the authenticated employee's morning and evening message times, including days and next delivery times.",
       strict: true,
       inputSchema: z.strictObject({}),
       outputSchema: scheduleListOutputSchema,
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-      execute: async () => ({ schedules: (await schedules.listSchedules()).map(toScheduleView) }),
+      execute: async () => ({ schedules: (await schedules.listSchedules()).filter(({ kind }) => kind === "process").map(toScheduleView) }),
     }),
     setDailySchedule: createTool({
       id: "setDailySchedule",
-      description: "Create, change, or re-enable a process or reminder schedule. For kind=reminder provide reminderText; oneShot uses the nearest future occurrence of HH:mm. Timezone defaults to the owner profile.",
+      description: "Change or re-enable the authenticated employee's morning or evening message time. Use the exact processId or scheduleId returned by listSchedules. Timezone defaults to the employee profile.",
       strict: true,
       inputSchema: z.strictObject({
         scheduleId: z.string().min(1).optional(),
-        kind: z.enum(["process", "reminder"]).optional(),
-        processId: z.string().min(1).optional(),
-        reminderText: z.string().min(1).max(512).optional(),
+        processId: z.enum(assistantScheduledProcessIds).optional(),
         timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u),
         timezone: timezoneSchema.optional(),
         daysOfWeek: z.number().int().min(1).max(127).optional(),
-        oneShot: z.boolean().optional(),
       }),
       outputSchema: scheduleMutationOutputSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
@@ -67,10 +63,10 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
         } catch (error) {
           if (error instanceof AssistantScheduleNotFoundError) return { status: "not_found" as const };
           if (error instanceof UnsupportedAssistantScheduleProcessError) {
-            return { status: "unsupported_process" as const, message: `Процесс ${error.processId || "не указан"} нельзя добавить в расписание. Доступны процессы ${assistantDiagnosticProcessIds.join(", ")} или kind=reminder с reminderText.` };
+            return { status: "unsupported_process" as const, message: `Можно перенести только утреннее или вечернее сообщение. Значение ${error.processId || "не указано"} не поддерживается.` };
           }
           if (error instanceof AssistantScheduleKindChangeError) {
-            return { status: "unsupported_process" as const, message: "Нельзя сменить вид расписания. Отключите старое расписание и создайте новое." };
+            return { status: "unsupported_process" as const, message: "Можно менять только время утреннего или вечернего сообщения." };
           }
           throw error;
         }
@@ -78,12 +74,14 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
     }),
     disableSchedule: createTool({
       id: "disableSchedule",
-      description: "Disable one authenticated owner schedule by exact id without deleting its fire history.",
+      description: "Disable one authenticated employee's morning or evening message by exact id without deleting its delivery history.",
       strict: true,
       inputSchema: z.strictObject({ scheduleId: z.string().min(1) }),
       outputSchema: scheduleMutationOutputSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: async ({ scheduleId }) => {
+        const visibleSchedule = (await schedules.listSchedules()).find((schedule) => schedule.id === scheduleId && schedule.kind === "process");
+        if (!visibleSchedule) return { status: "not_found" as const };
         const schedule = await schedules.disableSchedule(scheduleId);
         return schedule ? { status: "disabled" as const, schedule: toScheduleView(schedule) } : { status: "not_found" as const };
       },

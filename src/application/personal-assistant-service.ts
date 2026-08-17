@@ -194,7 +194,6 @@ export class PersonalAssistantService {
 
 function scheduledProcessPrompt(processId: AssistantScheduledProcessId): string {
   if (processId === "morning_activity_collection") return "Проведи короткое утреннее касание по процессу morning_activity_collection: предложи сотруднику рассказать об одной-трёх активностях с прошлого касания, их примерной длительности, системах и помехах без обязательной анкеты.";
-  if (processId === "day_focus") return "Сформируй фокус на сегодня по процессу day_focus.";
   if (processId === "evening_reflection") return "Проведи вечернюю рефлексию по процессу evening_reflection: мягко предложи владельцу подвести итоги дня, назвать препятствия и выбрать один небольшой шаг на завтра.";
   return assertNever(processId);
 }

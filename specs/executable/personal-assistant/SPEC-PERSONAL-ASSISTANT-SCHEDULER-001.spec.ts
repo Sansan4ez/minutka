@@ -252,14 +252,14 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await expect(store.list("owner-b")).resolves.toMatchObject([{ reminderText: "Секрет владельца B" }]);
   });
 
-  it("runs day_focus through the deterministic facade trigger and records a successful outcome", async () => {
+  it("runs morning_activity_collection through the deterministic facade trigger and records a successful outcome", async () => {
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
     const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
-    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Три приоритета и один следующий шаг.", selectedProcessIds: ["core", "day_focus"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
+    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Расскажите об одной-трёх активностях.", selectedProcessIds: ["core", "morning_activity_collection"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
     const facade = {
-      async runScheduledProcess(input: { userId: string; threadId: string; processId: "day_focus" }) {
+      async runScheduledProcess(input: { userId: string; threadId: string; processId: "morning_activity_collection" }) {
         facadeCalls.push(input);
         return result;
       },
@@ -267,18 +267,18 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
       if (fire.kind !== "process") throw new Error("unexpected reminder action");
-      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "day_focus" });
+      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "morning_activity_collection" });
       await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });
     await store.save("maxim", {
-      id: "morning-focus", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
-    await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "day_focus", status: "pending" }]);
-    expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "day_focus" }]);
+    await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "morning_activity_collection", status: "pending" }]);
+    expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "morning_activity_collection" }]);
     expect(deliveries).toEqual([{ chatId: "owner-chat", employeeId: "maxim", result }]);
-    await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
+    await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
     }]);
   });
@@ -325,13 +325,13 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       ({ fire, errorCode }) => logged.push({ errorCode, processId: fire.processId }),
     );
     await store.save("maxim", {
-      id: "morning-focus", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
     await expect(scheduler.tick()).resolves.toHaveLength(1);
-    expect(logged).toEqual([{ errorCode: "TelegramDeliverySessionNotFoundError", processId: "day_focus" }]);
-    await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
+    expect(logged).toEqual([{ errorCode: "TelegramDeliverySessionNotFoundError", processId: "morning_activity_collection" }]);
+    await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "failed", errorCode: "TelegramDeliverySessionNotFoundError", completedAt: clock.now(),
     }]);
   });
@@ -347,13 +347,13 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       ({ fire, errorCode }) => logged.push({ errorCode, processId: fire.processId }),
     );
     await store.save("maxim", {
-      id: "morning-focus", processId: "day_focus", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
     await expect(scheduler.tick()).resolves.toHaveLength(1);
-    expect(logged).toEqual([{ errorCode: "TelegramUnavailableError", processId: "day_focus" }]);
-    await expect(store.listFires("maxim", "morning-focus")).resolves.toMatchObject([{
+    expect(logged).toEqual([{ errorCode: "TelegramUnavailableError", processId: "morning_activity_collection" }]);
+    await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "failed", errorCode: "TelegramUnavailableError", completedAt: clock.now(),
     }]);
   });

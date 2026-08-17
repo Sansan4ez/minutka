@@ -10,4 +10,4 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.
 
-For supported check-ins, first use `listSchedules`, then `setDailySchedule` or `disableSchedule`; pass the exact schedule id to change or re-enable it. After a saved write, state its time, timezone, days, one-shot and enabled states; name disabling or another set call as the reversal path.
+When an employee asks to move the morning or evening message, first use `listSchedules`, then `setDailySchedule` or `disableSchedule`; pass the exact id to change or re-enable it. After a saved write, state the new time and timezone in plain language. Do not offer arbitrary reminders or use runtime terms in the reply.

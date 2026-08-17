@@ -78,7 +78,6 @@ describe("A2.6: legacy Minutka agent removal", () => {
 
   it("binds request-scoped tools to safe model-visible outputs", async () => {
     const captured: unknown[] = [];
-    const providerToolTrace: unknown[] = [];
     let generateOptions: Parameters<MastraAgentLike["generate"]>[1] | undefined;
     const runner = createAssistantAgentRunner({
       async generate(_text, options) {
@@ -86,25 +85,15 @@ describe("A2.6: legacy Minutka agent removal", () => {
         const tool = options.toolsets?.activities?.collectActivity as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(options.toolsets?.inbox).toBeUndefined();
-        expect(Object.keys(options.toolsets?.documents ?? {})).toEqual(["listDocuments", "readDocument", "searchDocuments"]);
-        expect(Object.keys(options.toolsets?.contextDocuments ?? {})).toEqual(["createContextNote", "proposeContextDocumentUpdate", "proposeContextDocumentMove", "proposeContextDocumentDelete"]);
-        expect(Object.keys(options.toolsets?.tasks ?? {})).toEqual(["listTasks", "proposeTaskMutation", "proposeIdeaToTask"]);
+        expect(options.toolsets?.documents).toBeUndefined();
+        expect(options.toolsets?.contextDocuments).toBeUndefined();
+        expect(options.toolsets?.tasks).toBeUndefined();
         expect(Object.keys(options.toolsets?.schedules ?? {})).toEqual(["listSchedules", "setDailySchedule", "disableSchedule"]);
-        const taskTools = options.toolsets?.tasks as Record<string, { execute?: (input: unknown, context: unknown) => Promise<unknown> }>;
-        const taskProposal = await taskTools.proposeTaskMutation?.execute?.({
-          kind: "create", title: "Trace-safe task", project: "ASSISTANT", type: "operations",
-        }, {});
-        const ideaProposal = await taskTools.proposeIdeaToTask?.execute?.({ ideaId: "idea-owner" }, {});
-        providerToolTrace.push(taskProposal, ideaProposal);
-        expect(taskProposal).toEqual({
-          confirmationId: "confirmation-1", actionKind: "create", summary: "Создать задачу: Trace-safe task", expiresAt: "2026-07-16T09:15:00.000Z",
-        });
-        expect(ideaProposal).toEqual({ status: "not_found" });
-        expect(JSON.stringify(providerToolTrace)).not.toMatch(/ownerId|proposal|payloadDigest|task-generated|originIdeaId|createdAt/);
+        expect(JSON.stringify(options.toolsets)).not.toMatch(/listTasks|proposeTaskMutation|proposeIdeaToTask|listDocuments|readDocument|searchDocuments|createContextNote/);
         const diagnostic = options.toolsets?.diagnostics?.markProcessUsed as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(diagnostic.execute).toBeTypeOf("function");
-        await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toEqual({ recorded: true, id: "day_focus" });
-        await expect(diagnostic.execute?.({ id: "unknown" }, {})).resolves.toMatchObject({ error: true });
+        await expect(diagnostic.execute?.({ id: "morning_activity_collection" }, {})).resolves.toEqual({ recorded: true, id: "morning_activity_collection" });
+        await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toMatchObject({ error: true });
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
           taskCategory: "reporting",
@@ -198,7 +187,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         disableSchedule: async () => null,
       },
       markProcessUsed(id) {
-        expect(id).toBe("day_focus");
+        expect(id).toBe("morning_activity_collection");
       },
       async captureIdea() {
         throw new Error("captureIdea belongs to the disabled inbox_capture process and must never be reachable");
@@ -224,9 +213,9 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(Object.keys(generateOptions?.toolsets ?? {})).not.toContain("inbox");
     expect(Object.keys(generateOptions?.toolsets ?? {})).not.toContain("ideas");
     expect(Object.keys(generateOptions?.toolsets ?? {})).not.toContain("projects");
-    expect(Object.keys(generateOptions?.toolsets?.documents ?? {})).toEqual([...assistantRuntimeToolsets.documents]);
-    expect(Object.keys(generateOptions?.toolsets?.contextDocuments ?? {})).toEqual([...assistantRuntimeToolsets.contextDocuments]);
-    expect(Object.keys(generateOptions?.toolsets?.tasks ?? {})).toEqual([...assistantRuntimeToolsets.tasks]);
+    expect(generateOptions?.toolsets?.documents).toBeUndefined();
+    expect(generateOptions?.toolsets?.contextDocuments).toBeUndefined();
+    expect(generateOptions?.toolsets?.tasks).toBeUndefined();
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.activities ?? {})).toEqual([...assistantRuntimeToolsets.activities]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);

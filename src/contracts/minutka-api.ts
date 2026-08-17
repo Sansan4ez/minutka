@@ -21,8 +21,8 @@ export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
 export const assistantScheduledProcessIdSchema = z.enum(assistantScheduledProcessIds);
 export const scheduleViewSchema = z.strictObject({
-  id: z.string().min(1), kind: z.enum(["process", "reminder"]),
-  processId: assistantScheduledProcessIdSchema.optional(), reminderText: z.string().min(1).max(512).optional(),
+  id: z.string().min(1), kind: z.literal("process"),
+  processId: assistantScheduledProcessIdSchema,
   daysOfWeek: z.number().int().min(1).max(127), oneShot: z.boolean(),
   timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), timezone: timezoneSchema,
   enabled: z.boolean(), nextFireAt: z.iso.datetime(),

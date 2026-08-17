@@ -39,8 +39,7 @@ describe("SPEC-SCHEDULE-COMMAND-001: deterministic Telegram /schedule", () => {
   it("shows only the authenticated owner's schedules through safe HTML rendering", async () => {
     const { shell, messages } = await setup({
       ownerA: [
-        { id: "ownerA:day_focus-daily", kind: "process", processId: "day_focus", daysOfWeek: 31, oneShot: false, timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z" },
-        { id: "schedule-reminder", kind: "reminder", reminderText: "<b>вода</b> 💧", daysOfWeek: 127, oneShot: true, timeOfDay: "15:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T12:00:00.000Z" },
+        { id: "ownerA:morning_activity_collection-daily", kind: "process", processId: "morning_activity_collection", daysOfWeek: 31, oneShot: false, timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z" },
       ],
       ownerB: [{ id: "ownerB:evening_reflection-daily", kind: "process", processId: "evening_reflection", daysOfWeek: 127, oneShot: false, timeOfDay: "20:00", timezone: "Asia/Tokyo", enabled: true, nextFireAt: "2026-07-30T11:00:00.000Z" }],
     });
@@ -49,13 +48,15 @@ describe("SPEC-SCHEDULE-COMMAND-001: deterministic Telegram /schedule", () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ chatId: "chat-0", parseMode: "HTML" });
-    expect(messages[0]!.text).toContain("Фокус дня — 08:30 (Europe/Moscow); по будням");
-    expect(messages[0]!.text).toContain("Напоминание: &lt;b&gt;вода&lt;/b&gt; 💧 — 15:00 (Europe/Moscow); каждый день; разовое");
+    expect(messages[0]!.text).toContain("Время сообщений:");
+    expect(messages[0]!.text).toContain("Утреннее сообщение — 08:30 (Europe/Moscow); по будням");
+    expect(messages[0]!.text).not.toContain("Напоминание:");
     expect(messages[0]!.text).toContain("следующее срабатывание: 30.07 08:30 (Europe/Moscow)");
     expect(messages[0]!.text).not.toContain("2026-07-30T05:30:00.000Z");
     expect(messages[0]!.text).not.toContain("Вечерняя рефлексия");
     expect(messages[0]!.text).not.toContain("ownerA");
     expect(messages[0]!.text).not.toContain("schedule-reminder");
+    expect(messages[0]!.text).not.toContain("day_focus");
   });
 
   it("shows a deterministic empty state for an owner without schedules", async () => {

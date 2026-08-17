@@ -2,20 +2,20 @@
 
 ## Purpose
 
-Disable one exact owner schedule while preserving its fire history. Use `listSchedules` first when the id is not already known.
+Switch off one exact morning or evening message while preserving its delivery history. Use `listSchedules` first when the id is not already known.
 
 ## Inputs
 
-Exact schedule id. There is no owner id input.
+Exact id returned by `listSchedules`. There is no employee id input.
 
 ## Output
 
-The disabled owner-free schedule projection, or `not_found`.
+The disabled employee-free morning/evening projection, or `not_found`. Legacy reminder ids are not accepted through this agent-facing capability.
 
 ## Confirmation level
 
-Level 0: this is a reversible internal owner-scoped write. No prior confirmation is required; after success, name `setDailySchedule` re-enablement as the reversal path.
+Level 0: reversible internal employee-scoped write. After success, explain that `setDailySchedule` can turn the message back on at another time.
 
 ## Boundary
 
-It sets `enabled=false`; it does not delete the schedule or fire history. Another `setDailySchedule` call re-enables the process.
+The application binds the authenticated employee and the tool first verifies that the id belongs to a model-visible morning/evening message. It does not delete delivery history.

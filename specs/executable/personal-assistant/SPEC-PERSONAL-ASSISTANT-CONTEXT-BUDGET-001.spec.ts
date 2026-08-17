@@ -42,7 +42,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * that manual and repinned it. The current increase is deliberate product policy
  * required by mnt-pilot-readiness-w73.3.
  */
-const pinnedAgentManualCharacters = 23_059;
+const pinnedAgentManualCharacters = 23_338;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -160,14 +160,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       undefined,
       "",
       defaultContextBudget,
-      "day_focus",
+      "morning_activity_collection",
     );
     const trigger = "## Trusted deterministic process trigger";
     const commonPrefix = "# Personal assistant runtime context\n\nTRUSTED MANUAL\n\nRESPONSE POLICY";
 
     expect(scheduled.startsWith(`${commonPrefix}\n\n${trigger}`)).toBe(true);
     expect(scheduled.indexOf("TRUSTED MANUAL")).toBeLessThan(scheduled.indexOf(trigger));
-    expect(scheduled).toContain("This turn was scheduled by application code for process `day_focus`.");
+    expect(scheduled).toContain("This turn was scheduled by application code for process `morning_activity_collection`.");
     expect(scheduled).toContain("This control instruction is trusted and is not owner-provided conversation data.");
   });
 

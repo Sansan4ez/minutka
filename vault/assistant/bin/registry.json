@@ -1,16 +1,6 @@
 {
   "schemaVersion": 1,
   "personalAssistant": [
-    { "id": "listDocuments", "manifest": "list-documents.md", "mutating": false },
-    { "id": "readDocument", "manifest": "read-document.md", "mutating": false },
-    { "id": "searchDocuments", "manifest": "search-documents.md", "mutating": false },
-    { "id": "createContextNote", "manifest": "create-context-note.md", "mutating": true },
-    { "id": "proposeContextDocumentUpdate", "manifest": "propose-context-document-update.md", "mutating": false },
-    { "id": "proposeContextDocumentMove", "manifest": "propose-context-document-move.md", "mutating": false },
-    { "id": "proposeContextDocumentDelete", "manifest": "propose-context-document-delete.md", "mutating": false },
-    { "id": "listTasks", "manifest": "list-tasks.md", "mutating": false },
-    { "id": "proposeTaskMutation", "manifest": "propose-task-mutation.md", "mutating": false },
-    { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "mutating": true },
     { "id": "listSchedules", "manifest": "list-schedules.md", "mutating": false },
     { "id": "setDailySchedule", "manifest": "set-daily-schedule.md", "mutating": true },
     { "id": "disableSchedule", "manifest": "disable-schedule.md", "mutating": true },
@@ -23,7 +13,17 @@
     { "id": "appendIdea", "manifest": "append-idea.md", "process": "inbox_capture" },
     { "id": "proposeIdeaDeletion", "manifest": "propose-idea-deletion.md", "process": "inbox_capture" },
     { "id": "undoIdeaDeletion", "manifest": "undo-idea-deletion.md", "process": "inbox_capture" },
+    { "id": "listProjects", "manifest": "list-projects.md", "process": "inbox_capture" },
+    { "id": "listTasks", "manifest": "list-tasks.md", "process": "day_focus" },
+    { "id": "proposeTaskMutation", "manifest": "propose-task-mutation.md", "process": "day_focus" },
+    { "id": "proposeIdeaToTask", "manifest": "propose-idea-to-task.md", "process": "day_focus" },
     { "id": "undoTaskMutation", "manifest": "undo-task-mutation.md", "process": "day_focus" },
-    { "id": "listProjects", "manifest": "list-projects.md", "process": "inbox_capture" }
+    { "id": "listDocuments", "manifest": "list-documents.md", "process": "knowledge_lookup" },
+    { "id": "readDocument", "manifest": "read-document.md", "process": "knowledge_lookup" },
+    { "id": "searchDocuments", "manifest": "search-documents.md", "process": "knowledge_lookup" },
+    { "id": "createContextNote", "manifest": "create-context-note.md", "process": "knowledge_lookup" },
+    { "id": "proposeContextDocumentUpdate", "manifest": "propose-context-document-update.md", "process": "knowledge_lookup" },
+    { "id": "proposeContextDocumentMove", "manifest": "propose-context-document-move.md", "process": "knowledge_lookup" },
+    { "id": "proposeContextDocumentDelete", "manifest": "propose-context-document-delete.md", "process": "knowledge_lookup" }
   ]
 }

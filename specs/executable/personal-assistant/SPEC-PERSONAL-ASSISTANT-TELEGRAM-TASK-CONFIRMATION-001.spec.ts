@@ -229,20 +229,19 @@ describe("SPEC-PERSONAL-ASSISTANT-TELEGRAM-TASK-CONFIRMATION-001: typed Telegram
     await expect(tasks.get(owner.employeeId, "task-owner-only")).resolves.toMatchObject({ status: "open" });
   });
 
-  it("delivers a scheduled pending action with confirmation buttons and applies it through the normal callback path", async () => {
+  it("rejects the disabled day_focus operator trigger before it can create a pending task action", async () => {
     const { telegram, tasks, facade } = await harness(async (_input, context) => {
       await context.tasks.propose({ kind: "create", title: "Scheduled task", project: "ASSISTANT", type: "operations" });
       return "Запланированное предложение подготовлено.";
     });
-    const result = await facade.runScheduledProcess({ userId: owner.employeeId, threadId: owner.employeeId, processId: "day_focus" });
-    await telegram.deliverProactive({ chatId: owner.chatId, employeeId: owner.employeeId, result });
 
-    const proposal = telegram.sentMessages().find((message) => message.text.includes("Предложение:"))!;
-    expect(proposal.replyMarkup?.inlineKeyboard.flat().map(({ text }) => text)).toEqual(["✅ Подтвердить", "❌ Отклонить"]);
-    expect(telegram.sentMessages().map(({ text }) => text)).not.toContain("Запланированное предложение подготовлено.");
-    await telegram.deliverCallback({ chatId: owner.chatId, userId: owner.userId, callbackData: taskButton(proposal, "✅ Подтвердить"), messageId: proposal.messageId, callbackQueryId: "confirm-scheduled" });
-    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Изменение сохранено.");
-    await expect(tasks.list(owner.employeeId)).resolves.toMatchObject([{ title: "Scheduled task" }]);
+    expect(() => facade.runScheduledProcess({
+      userId: owner.employeeId,
+      threadId: owner.employeeId,
+      processId: "day_focus" as never,
+    })).toThrow("unsupported scheduled process: day_focus");
+    expect(telegram.sentMessages()).toEqual([]);
+    await expect(tasks.list(owner.employeeId)).resolves.toEqual([]);
   });
 
   it.each([

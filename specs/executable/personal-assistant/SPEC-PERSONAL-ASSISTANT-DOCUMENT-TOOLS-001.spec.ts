@@ -612,7 +612,8 @@ describe("SPEC-PERSONAL-ASSISTANT-DOCUMENT-TOOLS-001: bounded owner document cap
   it("keeps registry, manifests, README, and wired TypeScript toolset aligned", async () => {
     const registry = JSON.parse(readFileSync("vault/assistant/bin/registry.json", "utf8")) as { personalAssistant: Array<{ id: string; manifest: string }> };
     const registeredIds = registry.personalAssistant.map(({ id }) => id);
-    expect(registeredIds.slice(0, assistantDocumentToolNames.length)).toEqual([...assistantDocumentToolNames]);
+    expect(registeredIds).not.toEqual(expect.arrayContaining([...assistantDocumentToolNames]));
+    expect(registry.personalAssistant.some(({ id }) => assistantDocumentToolNames.includes(id as never))).toBe(false);
     const reader = createOwnerDocumentReader({ userId: "owner", documentStore: await fixture() });
     expect(Object.keys(createDocumentTools(reader))).toEqual([...assistantDocumentToolNames]);
     const readme = readFileSync("vault/assistant/bin/README.md", "utf8");
