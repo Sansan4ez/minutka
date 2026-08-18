@@ -8,6 +8,7 @@ import {
 import { CompanyReportingService } from "../../../src/application/company-reporting.js";
 
 const cleanupMigrationPath = "migrations/0060_remove_anonymized_activity_contour.sql";
+const evidenceLinkMigrationPath = "migrations/0061_link_activity_source_message_without_insert_order.sql";
 
 describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity record", () => {
   it("writes exactly one canonical activity with subject and source-message links", async () => {
@@ -110,6 +111,19 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     const source = readFileSync("src/infrastructure/postgres/postgres-activity-collection-store.ts", "utf8");
     expect(source.match(/withTransaction\(/gu)).toHaveLength(1);
     expect(source.match(/INSERT INTO minutka_private\.activities/gu)).toHaveLength(1);
+  });
+
+  // The tool writes the activity inside the agent loop, long before the turn's
+  // message row exists, so the evidence link cannot be an insert-time foreign
+  // key. Owner and subject of the link are guarded in the write itself instead.
+  it("stores the source-message link without requiring the conversation row first", () => {
+    const migration = readFileSync(evidenceLinkMigrationPath, "utf8");
+    expect(migration).toContain("DROP CONSTRAINT activities_source_message_fk");
+    expect(migration).not.toMatch(/REFERENCES minutka_private\.messages/u);
+    const source = readFileSync("src/infrastructure/postgres/postgres-activity-collection-store.ts", "utf8");
+    expect(source).toContain("WHERE NOT EXISTS");
+    expect(source).toContain("FROM minutka_private.messages message");
+    expect(source).toContain("PersistenceError(\"persistence_conflict\")");
   });
 
   it("contains no legacy dual-write or retention symbols in live source", () => {

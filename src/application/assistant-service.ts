@@ -518,6 +518,10 @@ export class AssistantService {
     const projects = {
       list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput, projectLabelCache),
     };
+    // The tool commits inside the agent loop, so its `sourceMessageId` names the
+    // turn that is still running. When the turn later fails before the
+    // conversation append, the activity stays — the corpus keeps what the
+    // employee reported — and the evidence link resolves to no message.
     const collectActivity = async (activity: CollectActivityInput) => {
       if (!this.deps.collectActivity) throw new Error("activity collection is not configured");
       const participant = await this.deps.participantStore?.getParticipant(userId);

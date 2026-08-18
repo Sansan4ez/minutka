@@ -177,20 +177,22 @@ describe("PostgreSQL storage contracts", () => {
     });
     const participant = await profiles.getParticipant("activity_owner");
     if (!participant) throw new Error("participant missing");
-    await createPostgresConversationStore(pool).appendTurn({
-      messageId: "message_activity_one", employeeId: "activity_owner", subjectKey: participant.subjectKey,
-      threadId: "thread_activity", userText: "private activity text", agentResponse: "recorded", timestamp: "2026-08-15T22:17:35.000Z",
-    });
 
     const service = new CollectActivityService(
       createPostgresActivityCollectionStore(pool),
       { now: () => "2026-08-15T22:17:35.000Z" },
       () => "activity_pg_one",
     );
+    // The real turn order: the agent tool writes the activity inside its loop,
+    // and the conversation turn is appended only after the loop is over.
     await service.collect({
       employeeId: "activity_owner", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one",
       companyId, groupId, roleId, timezone: "Europe/Moscow",
       activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
+    });
+    await createPostgresConversationStore(pool).appendTurn({
+      messageId: "message_activity_one", employeeId: "activity_owner", subjectKey: participant.subjectKey,
+      threadId: "thread_activity", userText: "private activity text", agentResponse: "recorded", timestamp: "2026-08-15T22:17:35.000Z",
     });
 
     const canonical = await pool.query(
@@ -204,12 +206,77 @@ describe("PostgreSQL storage contracts", () => {
       task_category: "reporting", obstacle_kind: "routine_pattern", obstacle_value: "manual_reporting",
       duration_bucket: "1_2h", system: "spreadsheets", activity_date: "2026-08-16",
     })]);
+    expect((await pool.query<{ user_text: string }>(
+      `SELECT message.user_text FROM minutka_private.activities activity
+       JOIN minutka_private.messages message ON message.message_id = activity.source_message_id
+       WHERE activity.activity_id = 'activity_pg_one' AND message.subject_key = activity.subject_key`,
+    )).rows).toEqual([{ user_text: "private activity text" }]);
     const corpusActivities = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
     expect(corpusActivities).toEqual([expect.objectContaining({ activityId: "activity_pg_one", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one", activityDate: "2026-08-16" })]);
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool)).exportGroup({ companyId, groupId });
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);
     expect((await pool.query("SELECT to_regclass('minutka_reporting.anonymized_activities') AS table_name")).rows[0]?.table_name).toBeNull();
+  });
+
+  it("keeps a collected activity when the turn never reaches its conversation append", async () => {
+    const companyId = "company_activity_order";
+    const groupId = "group_activity_order";
+    const roleId = "role_activity_order";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Activity Order Co')
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Pilot', daterange('2026-08-01', '2026-09-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $2, 'Analyst') ON CONFLICT (id) DO NOTHING`,
+      [roleId, companyId],
+    );
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    for (const employeeId of ["activity_order_owner", "activity_order_other"]) {
+      await profiles.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, companyId, groupId, issuedAt: now });
+      await profiles.openInvite({ inviteCode: `invite_${employeeId}`, openedAt: now, explanationShownAt: now });
+      await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v6", acceptedAt: now, explanationShownAt: now, source: "test" });
+      await profiles.completeProfile({
+        completedAt: now,
+        profile: { employeeId, companyId, groupId, roleId, preferredName: "Analyst", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", persona: "efficiency", responseLength: "short", createdAt: now, updatedAt: now },
+      });
+    }
+    const owner = await profiles.getParticipant("activity_order_owner");
+    const other = await profiles.getParticipant("activity_order_other");
+    if (!owner || !other) throw new Error("participants missing");
+    const store = createPostgresActivityCollectionStore(pool);
+    const scope = { companyId, groupId, roleId, timezone: "Etc/UTC", activity: { taskCategory: "reporting" as const } };
+
+    // A turn that fails after the tool wrote keeps the collected activity: the
+    // corpus is durable, and the evidence link simply resolves to no message.
+    await new CollectActivityService(store, { now: () => now }, () => "activity_order_orphan").collect({
+      employeeId: "activity_order_owner", subjectKey: owner.subjectKey, sourceMessageId: "message_order_never_appended", ...scope,
+    });
+    expect((await pool.query(
+      `SELECT 1 FROM minutka_private.activities activity
+       JOIN minutka_private.messages message ON message.message_id = activity.source_message_id
+       WHERE activity.activity_id = 'activity_order_orphan'`,
+    )).rowCount).toBe(0);
+    expect(await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId }))
+      .toEqual([expect.objectContaining({ activityId: "activity_order_orphan", sourceMessageId: "message_order_never_appended" })]);
+
+    // The dropped foreign key must not open a cross-owner evidence link.
+    await createPostgresConversationStore(pool).appendTurn({
+      messageId: "message_order_other", employeeId: "activity_order_other", subjectKey: other.subjectKey,
+      threadId: "thread_order_other", userText: "another employee", agentResponse: "reply", timestamp: now,
+    });
+    await expect(new CollectActivityService(store, { now: () => now }, () => "activity_order_cross_owner").collect({
+      employeeId: "activity_order_owner", subjectKey: owner.subjectKey, sourceMessageId: "message_order_other", ...scope,
+    })).rejects.toMatchObject({ code: "persistence_conflict" });
+    expect((await pool.query("SELECT 1 FROM minutka_private.activities WHERE activity_id = 'activity_order_cross_owner'")).rowCount).toBe(0);
   });
 
   it("reports the employee-local calendar day whatever timezone the process runs in", async () => {
