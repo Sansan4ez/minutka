@@ -22,7 +22,9 @@ describe("privacy-v5 deployment policy URL", () => {
     expect(config.explanation).toContain("Методолог видит обезличенные записи");
     expect(config.explanation).toContain("Компания получает срезы только от 5 участников");
     expect(config.explanation).toContain("LLM-провайдеру");
-    expect(config.explanation).toContain("Личные данные удаляются по запросу через оператора");
+    expect(config.explanation).toContain("Личные данные удаляются через оператора");
+    expect(config.explanation).toContain("живут до отчёта");
+    expect(config.explanation).toContain("точечно их не ищем и не пересчитываем");
     expect(config.explanation.length).toBeLessThanOrEqual(1_000);
     expect(config.explanation).not.toMatch(/компания и методолог видят только агрегаты от пяти человек/i);
     expect(config.explanation).not.toMatch(/вы видите все свои данные/i);

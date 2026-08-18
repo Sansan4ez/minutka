@@ -93,12 +93,14 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.privacyExplanation).toContain("Компания получает срезы только от 5 участников");
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
     expect(invite.privacyExplanation).toContain("голос — сервису расшифровки");
-    expect(invite.privacyExplanation).toContain("Личные данные удаляются по запросу через оператора");
+    expect(invite.privacyExplanation).toContain("Личные данные удаляются через оператора");
+    expect(invite.privacyExplanation).toContain("живут до отчёта");
+    expect(invite.privacyExplanation).toContain("точечно их не ищем и не пересчитываем");
     expect(invite.privacyExplanation).toContain(executableSpecPrivacyPolicyUrl);
     expect(invite.privacyExplanation.length).toBeLessThanOrEqual(1_000);
     expect(invite.privacyExplanation).not.toMatch(/компания и методолог видят только агрегаты от пяти человек/i);
     expect(invite.privacyExplanation).not.toMatch(/вы видите все свои данные/i);
-    expect(invite.privacyExplanation).not.toMatch(/обезличенные строки .*удал/i);
+    expect(invite.privacyExplanation).not.toMatch(/(?:точечно|отдельн\w*)[^.\n]{0,80}удал/iu);
 
     const consent = await spec.cli.json<AcceptConsentResult>([
       "employee",
