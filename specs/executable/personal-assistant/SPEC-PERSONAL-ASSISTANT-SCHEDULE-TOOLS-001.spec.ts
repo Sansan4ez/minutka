@@ -49,6 +49,35 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
       .resolves.toMatchObject({ id: morning.id, enabled: true, timeOfDay: "08:45" });
   });
 
+  it("refuses a schedule id from another process without changing either daily touch", async () => {
+    const { timezones, service } = setup();
+    timezones.set("owner-a", "Europe/Moscow");
+    const morning = await service.saveDailySchedule("owner-a", {
+      processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31,
+    });
+    await service.saveDailySchedule("owner-a", {
+      processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31,
+    });
+    const tools = createScheduleTools({
+      listSchedules: () => service.listSchedules("owner-a"),
+      saveDailySchedule: (input) => service.saveDailySchedule("owner-a", input),
+      disableSchedule: (scheduleId) => service.disableSchedule("owner-a", scheduleId),
+    });
+
+    const refusal = await tools.setDailySchedule.execute?.({
+      scheduleId: morning.id, processId: "evening_reflection", timeOfDay: "20:00",
+    }, {} as never);
+    expect(refusal).toEqual({
+      status: "unsupported_process",
+      message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего или вечернего сообщения.",
+    });
+    expect(JSON.stringify(refusal)).not.toMatch(/processId|runtime|scheduleId/iu);
+    await expect(service.listSchedules("owner-a")).resolves.toMatchObject([
+      { id: morning.id, processId: "morning_activity_collection", timeOfDay: "08:30", enabled: true },
+      { processId: "evening_reflection", timeOfDay: "19:00", enabled: true },
+    ]);
+  });
+
   it("rejects day_focus and other non-active process ids at schedule management", async () => {
     const { timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AssistantScheduleKindChangeError,
   AssistantScheduleNotFoundError,
+  AssistantScheduleProcessChangeError,
   UnsupportedAssistantScheduleProcessError,
   type OwnerScheduleCapabilities,
 } from "../../application/schedule-management-service.js";
@@ -67,6 +68,9 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
           }
           if (error instanceof AssistantScheduleKindChangeError) {
             return { status: "unsupported_process" as const, message: "Можно менять только время утреннего или вечернего сообщения." };
+          }
+          if (error instanceof AssistantScheduleProcessChangeError) {
+            return { status: "unsupported_process" as const, message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего или вечернего сообщения." };
           }
           throw error;
         }

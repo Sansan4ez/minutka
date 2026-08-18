@@ -48,6 +48,9 @@ export class ScheduleManagementService {
     if (input.scheduleId !== undefined && !targetedSchedule) throw new AssistantScheduleNotFoundError(input.scheduleId);
     if (targetedSchedule && targetedSchedule.kind !== kind) throw new AssistantScheduleKindChangeError(targetedSchedule.kind, kind);
     const process = kind === "process" ? processAction(input) : undefined;
+    if (targetedSchedule?.kind === "process" && process && targetedSchedule.processId !== process.processId) {
+      throw new AssistantScheduleProcessChangeError(targetedSchedule.processId ?? "", process.processId);
+    }
     const action = process ?? reminderAction(input);
     const existing = targetedSchedule ?? (process
       ? (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === process.processId)
@@ -103,6 +106,13 @@ export class AssistantScheduleKindChangeError extends Error {
   constructor(readonly existingKind: ProcessSchedule["kind"], readonly requestedKind: ProcessSchedule["kind"]) {
     super(`Schedule kind cannot be changed from ${existingKind} to ${requestedKind}; disable it and create a new schedule instead.`);
     this.name = "AssistantScheduleKindChangeError";
+  }
+}
+
+export class AssistantScheduleProcessChangeError extends Error {
+  constructor(readonly existingProcessId: string, readonly requestedProcessId: string) {
+    super(`Schedule process cannot be changed from ${existingProcessId} to ${requestedProcessId}; use the matching schedule instead.`);
+    this.name = "AssistantScheduleProcessChangeError";
   }
 }
 

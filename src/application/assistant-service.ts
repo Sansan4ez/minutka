@@ -37,6 +37,7 @@ import { createUsageRecorder, type UsageOperationalWarning, type UsageRecorder }
 import {
   AssistantScheduleKindChangeError,
   AssistantScheduleNotFoundError,
+  AssistantScheduleProcessChangeError,
   UnsupportedAssistantScheduleProcessError,
   type OwnerScheduleCapabilities,
   type ScheduleManagementService,
@@ -498,7 +499,8 @@ export class AssistantService {
         } catch (cause) {
           if (cause instanceof UnsupportedAssistantScheduleProcessError
             || cause instanceof AssistantScheduleNotFoundError
-            || cause instanceof AssistantScheduleKindChangeError) throw cause;
+            || cause instanceof AssistantScheduleKindChangeError
+            || cause instanceof AssistantScheduleProcessChangeError) throw cause;
           chatEffect.businessWrite = "outcome_unknown";
           throw new AssistantMutationOutcomeUnknownError({ cause });
         }
