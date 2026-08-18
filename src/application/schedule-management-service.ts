@@ -33,8 +33,12 @@ export class ScheduleManagementService {
     private readonly ids: Pick<IdGenerator, "scheduleId"> = randomIdGenerator,
   ) {}
 
-  listSchedules(userId: string): Promise<ProcessSchedule[]> {
-    return this.store.list(assertUserId(userId));
+  async listSchedules(userId: string): Promise<ProcessSchedule[]> {
+    const schedules = await this.store.list(assertUserId(userId));
+    return schedules.filter((schedule) =>
+      schedule.kind === "process"
+      && schedule.processId !== undefined
+      && isAssistantScheduledProcessId(schedule.processId));
   }
 
   async saveDailySchedule(userId: string, input: SaveDailyScheduleInput): Promise<ProcessSchedule> {

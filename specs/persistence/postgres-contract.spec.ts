@@ -12,6 +12,7 @@ import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastru
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
 import { Readable } from "node:stream";
+import { readFileSync } from "node:fs";
 import { ArtifactOwnerQuotaExceededError } from "../../src/application/artifact-capacity.js";
 import { createInMemoryArtifactContentStore } from "../../src/application/in-memory-artifact-content-store.js";
 import { createPostgresArtifactStore } from "../../src/infrastructure/postgres/postgres-artifact-store.js";
@@ -1265,6 +1266,52 @@ describe("PostgreSQL storage contracts", () => {
     await expect(tasks.get("task_owner", "task-open")).resolves.not.toHaveProperty("dueDate");
     await expect(tasks.update("task_other", "task-open", { expectedRevision: 3, patch: { status: "done" } })).resolves.toEqual({ outcome: "not_found" });
     await expect(tasks.list("task_owner")).resolves.toHaveLength(3);
+  });
+
+  it("disables legacy schedules without deleting rows or fire history", async () => {
+    await issueProfileReadyParticipant(pool, "legacy_schedule_owner", "invite_legacy_schedule_owner");
+    const schedules = createPostgresScheduleStore(pool);
+    const nextFireAt = "2026-08-20T06:00:00.000Z";
+    for (const input of [
+      { id: "legacy-schedule-morning", kind: "process" as const, processId: "morning_activity_collection", timeOfDay: "09:00" },
+      { id: "legacy-schedule-evening", kind: "process" as const, processId: "evening_reflection", timeOfDay: "19:00" },
+      { id: "legacy-schedule-day-focus", kind: "process" as const, processId: "day_focus", timeOfDay: "10:00" },
+      { id: "legacy-schedule-reminder", kind: "reminder" as const, reminderText: "Скрытое напоминание", timeOfDay: "11:00" },
+    ]) {
+      await schedules.save("legacy_schedule_owner", {
+        ...input, daysOfWeek: 127, oneShot: false, timezone: "Europe/Moscow", enabled: true, nextFireAt,
+      });
+    }
+    await migrationPool.query(
+      `INSERT INTO minutka_private.schedule_fires
+         (schedule_id,user_id,days_of_week,kind,process_id,one_shot,scheduled_for,status,completed_at)
+       VALUES ('legacy-schedule-day-focus','legacy_schedule_owner',127,'process','day_focus',false,'2026-08-19T06:00:00.000Z','succeeded','2026-08-19T06:01:00.000Z')`,
+    );
+
+    await migrationPool.query(readFileSync("migrations/0055_disable_legacy_schedules.sql", "utf8"));
+
+    expect((await pool.query<{ schedule_id: string; enabled: boolean }>(
+      "SELECT schedule_id, enabled FROM minutka_private.process_schedules WHERE user_id=$1 ORDER BY schedule_id",
+      ["legacy_schedule_owner"],
+    )).rows).toEqual([
+      { schedule_id: "legacy-schedule-day-focus", enabled: false },
+      { schedule_id: "legacy-schedule-evening", enabled: true },
+      { schedule_id: "legacy-schedule-morning", enabled: true },
+      { schedule_id: "legacy-schedule-reminder", enabled: false },
+    ]);
+    expect((await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM minutka_private.schedule_fires WHERE user_id=$1 AND schedule_id='legacy-schedule-day-focus'",
+      ["legacy_schedule_owner"],
+    )).rows[0]?.count).toBe(1);
+    expect((await pool.query<{ schedule_id: string }>(
+      `SELECT schedule_id FROM minutka_private.process_schedules
+       WHERE user_id=$1 AND enabled AND next_fire_at <= $2::timestamptz
+       ORDER BY schedule_id`,
+      ["legacy_schedule_owner", nextFireAt],
+    )).rows).toEqual([
+      { schedule_id: "legacy-schedule-evening" },
+      { schedule_id: "legacy-schedule-morning" },
+    ]);
   });
 
   it("persists schedules and one idempotent fire across adapter restarts", async () => {

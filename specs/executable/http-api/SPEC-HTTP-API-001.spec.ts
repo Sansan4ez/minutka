@@ -11,6 +11,7 @@ import { createDefaultSpecDeps } from "../support/scripted-deps.js";
 import { chatResponseSchema } from "../../../src/contracts/minutka-api.js";
 import { createSpecHttpApplication } from "../support/assistant-chat-adapter.js";
 import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets } from "../../../src/config/assistant-timeout-budgets.js";
+import { ScheduleManagementService } from "../../../src/application/schedule-management-service.js";
 
 const employeeToken = "a".repeat(64); const otherToken = "b".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64);
 const running: RunningHttpServer[] = [];
@@ -80,6 +81,38 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect((await employee.getProfile()).employeeId).toBe("emp_b");
     const chat = await employee.chat({ threadId: redeemed.threadId, text: "hello", inputModality: "voice" }); await employee.submitFeedback({ threadId: redeemed.threadId, targetMessageId: chat.messageId, rating: "positive", source: "telegram" });
     expect(runtime.world.auditEvents.find((event) => event.type === "chat_received" && event.messageId === chat.messageId)?.metadata).toEqual({ inputModality: "voice" });
+  });
+
+  it("returns only active Minutka schedules when legacy rows still exist", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
+    await runtime.scheduleStore.save("emp_a", {
+      id: "emp_a:morning_activity_collection-daily", daysOfWeek: 31, kind: "process", processId: "morning_activity_collection", oneShot: false,
+      timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z",
+    });
+    await runtime.scheduleStore.save("emp_a", {
+      id: "emp_a:day_focus-daily", daysOfWeek: 127, kind: "process", processId: "day_focus", oneShot: false,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T06:00:00.000Z",
+    });
+    await runtime.scheduleStore.save("emp_a", {
+      id: "legacy-reminder", daysOfWeek: 127, kind: "reminder", reminderText: "Секретный текст", oneShot: false,
+      timeOfDay: "15:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T12:00:00.000Z",
+    });
+    const scheduleManagement = new ScheduleManagementService(runtime.scheduleStore, {
+      getProfile: async (employeeId) => runtime.world.profiles.find((profile) => profile.employeeId === employeeId),
+    }, { now: () => runtime.world.now() });
+    const application = {
+      ...createSpecHttpApplication(runtime.service),
+      listSchedules: (employeeId: string) => scheduleManagement.listSchedules(employeeId),
+    };
+    const server = await listenHttpServer({ application, port: 0, logger: () => undefined, auth: { serviceToken, employeeTokens: new Map() } });
+    running.push(server);
+
+    const response = await request(server.url, "/v1/service/employees/emp_a/schedules", serviceToken);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ schedules: [{ kind: "process", processId: "morning_activity_collection" }] });
+    expect(JSON.stringify(payload)).not.toContain("day_focus");
+    expect(JSON.stringify(payload)).not.toContain("Секретный текст");
   });
 
   it("serializes AssistantService results and binds both chat planes to their trusted identity", async () => {

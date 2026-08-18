@@ -59,12 +59,16 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
       .rejects.toThrow("Unsupported assistant schedule process: consent_and_privacy");
   });
 
-  it("exposes no arbitrary reminder fields and hides legacy reminder rows", async () => {
-    const { timezones, service } = setup();
+  it("exposes no arbitrary reminder fields and hides all legacy schedule rows", async () => {
+    const { store, timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");
     await service.saveDailySchedule("owner-a", { processId: "morning_activity_collection", timeOfDay: "08:30" });
     const legacyReminder = await service.saveDailySchedule("owner-a", {
       kind: "reminder", reminderText: "Выпить воды", timeOfDay: "15:00", oneShot: true,
+    });
+    await store.save("owner-a", {
+      id: "owner-a:day_focus-daily", daysOfWeek: 127, kind: "process", processId: "day_focus", oneShot: false,
+      timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-31T06:00:00.000Z",
     });
 
     const tools = createScheduleTools({
@@ -75,13 +79,17 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     const inputSchema = tools.setDailySchedule.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" });
     expect(JSON.stringify(inputSchema)).not.toMatch(/reminder|reminderText|oneShot|kind/);
 
+    await expect(service.listSchedules("owner-a")).resolves.toMatchObject([
+      { kind: "process", processId: "morning_activity_collection" },
+    ]);
     const listed = await tools.listSchedules.execute?.({}, {} as never);
     expect(() => scheduleListOutputSchema.parse(listed)).not.toThrow();
     expect(listed).toMatchObject({ schedules: [{ kind: "process", processId: "morning_activity_collection" }] });
     expect(JSON.stringify(listed)).not.toContain("Выпить воды");
+    expect(JSON.stringify(listed)).not.toContain("day_focus");
 
     await expect(tools.disableSchedule.execute?.({ scheduleId: legacyReminder.id }, {} as never)).resolves.toEqual({ status: "not_found" });
-    await expect(service.listSchedules("owner-a")).resolves.toContainEqual(expect.objectContaining({ id: legacyReminder.id, enabled: true }));
+    await expect(store.get("owner-a", legacyReminder.id)).resolves.toMatchObject({ enabled: true });
   });
 
   it("keeps tool outputs schema-valid, owner-free, and gives a plain refusal", async () => {

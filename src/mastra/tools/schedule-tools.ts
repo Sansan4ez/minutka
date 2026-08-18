@@ -42,7 +42,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
       inputSchema: z.strictObject({}),
       outputSchema: scheduleListOutputSchema,
       mcp: { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-      execute: async () => ({ schedules: (await schedules.listSchedules()).filter(({ kind }) => kind === "process").map(toScheduleView) }),
+      execute: async () => ({ schedules: (await schedules.listSchedules()).map(toScheduleView) }),
     }),
     setDailySchedule: createTool({
       id: "setDailySchedule",
@@ -80,7 +80,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
       outputSchema: scheduleMutationOutputSchema,
       mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       execute: async ({ scheduleId }) => {
-        const visibleSchedule = (await schedules.listSchedules()).find((schedule) => schedule.id === scheduleId && schedule.kind === "process");
+        const visibleSchedule = (await schedules.listSchedules()).find((schedule) => schedule.id === scheduleId);
         if (!visibleSchedule) return { status: "not_found" as const };
         const schedule = await schedules.disableSchedule(scheduleId);
         return schedule ? { status: "disabled" as const, schedule: toScheduleView(schedule) } : { status: "not_found" as const };
