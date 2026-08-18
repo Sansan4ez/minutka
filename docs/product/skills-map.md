@@ -1,6 +1,6 @@
 # Карта возможностей «Минутки» для пилота
 
-Карта показывает **фактически доступные пользовательские сценарии**, а не целевую архитектуру и не унаследованные возможности персонального ассистента. Целевое решение subject key/full traces/research reporting принято в [новом RFC](../architecture/rfc-minutka-research-corpus-and-reporting.md), но до implementation cutover runtime продолжает работать по `privacy-v5` и старому dual-write. Источники истины текущего поведения: [реестр активных процессов](../../vault/assistant/processes/registry.json), [инструкция агента](../../vault/assistant/AGENTS.md), [реестр действий](../../vault/assistant/bin/registry.json) и [runtime bridge](../../src/mastra/agent-runner.ts).
+Карта показывает **фактически доступные пользовательские сценарии**, а не целевую архитектуру и не унаследованные возможности персонального ассистента. Subject key, full traces, research export и canonical reporting реализованы по [новому RFC](../architecture/rfc-minutka-research-corpus-and-reporting.md); внешний consent остаётся на `privacy-v5` до отдельного privacy-v6 cutover. Источники истины текущего поведения: [реестр активных процессов](../../vault/assistant/processes/registry.json), [инструкция агента](../../vault/assistant/AGENTS.md), [реестр действий](../../vault/assistant/bin/registry.json) и [runtime bridge](../../src/mastra/agent-runner.ts).
 
 ## Обозначения
 
@@ -27,8 +27,8 @@
 | Возможность | Текущий статус |
 |---|---|
 | Метка вовлечённости и операторская эскалация | Privacy-граница и три яруса эскалации зафиксированы; хранение/расчёт метки реализуется отдельной задачей `mnt-cycle-completion-4gd.1`. |
-| Subject key, full traces и evidence/evaluation export | Целевая архитектура принята; реализация ведётся отдельными задачами. До неё эти возможности не обещаются участнику. |
-| Итоговый отчёт и карта автоматизации | Текущая обезличенная выгрузка существует, но superseded целевым subject-aware reporting; финальный документ по-прежнему готовится методологом вручную. |
+| Privacy-v6 и single canonical write | Subject key, full traces, research export и canonical report уже работают; внешний consent и удаление legacy dual-write переключаются отдельными задачами. |
+| Итоговый отчёт и карта автоматизации | Operator CLI возвращает internal subject-linked evidence DTO и отдельный client DTO без identities/raw evidence. Финальный документ по-прежнему проверяется, дополняется и передаётся методологом вручную. |
 
 ## ⛔ Не входит в пилотную «Минутку»
 

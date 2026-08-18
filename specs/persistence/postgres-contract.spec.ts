@@ -37,7 +37,7 @@ import { createPostgresActivityCollectionStore } from "../../src/infrastructure/
 import { CollectActivityService } from "../../src/application/activity-collection.js";
 import { CompanyAnonymizedActivityRetentionService } from "../../src/application/company-anonymized-activity-retention.js";
 import { createPostgresCompanyAnonymizedActivityRetentionStore } from "../../src/infrastructure/postgres/postgres-company-anonymized-activity-retention-store.js";
-import { CompanyReportingService, COMPANY_REPORT_MIN_ROWS } from "../../src/application/company-reporting.js";
+import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../../src/infrastructure/postgres/postgres-research-trace-store.js";
 import { researchTraceSchemaVersion } from "../../src/application/research-trace-store.js";
@@ -334,7 +334,7 @@ describe("PostgreSQL storage contracts", () => {
     await migrationPool.query("DELETE FROM minutka_reporting.anonymized_activities WHERE company_id=$1", [companyId]);
 
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
-    for (let index = 0; index < COMPANY_REPORT_MIN_ROWS; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const employeeId = `report_date_${index}`;
       await profiles.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, companyId, groupId, issuedAt: now });
       await profiles.openInvite({ inviteCode: `invite_${employeeId}`, openedAt: now, explanationShownAt: now });
@@ -353,7 +353,7 @@ describe("PostgreSQL storage contracts", () => {
       { now: () => "2026-08-17T15:30:00.000Z" },
       () => `activity_report_date_${(activityIndex += 1)}`,
     );
-    for (let index = 0; index < COMPANY_REPORT_MIN_ROWS; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       await collect.collect({
         employeeId: "report_date_0",
         subjectKey: (await profiles.getParticipant("report_date_0"))!.subjectKey,
@@ -374,21 +374,22 @@ describe("PostgreSQL storage contracts", () => {
     try {
       const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool))
         .exportGroup({ companyId, groupId });
-      if (report.status !== "exported") throw new Error(`expected an exported report, got ${report.status}`);
-      expect(report.roleSlices).toEqual([{
-        status: "exported",
-        roleId,
-        participantCount: COMPANY_REPORT_MIN_ROWS,
-        rowCount: COMPANY_REPORT_MIN_ROWS,
-        aggregates: [{
-          taskCategory: "reporting",
-          obstacle: { kind: "routine_pattern", value: "manual_reporting" },
-          durationBucket: "1_2h",
-          system: "spreadsheets",
-          date: "2026-08-18",
-          rows: COMPANY_REPORT_MIN_ROWS,
-        }],
-      }]);
+      expect(report.internal.coverage).toMatchObject({ invitedParticipants: 5, contributors: 1, observations: 5, activeDates: 1 });
+      expect(report.internal.buckets).toContainEqual(expect.objectContaining({
+        scope: { kind: "overall_group" },
+        process: { taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" } },
+        systems: ["spreadsheets"],
+        durationBuckets: ["1_2h"],
+        contributors: 1,
+        observations: 5,
+        activeDates: 1,
+        confidence: "hypothesis",
+      }));
+      expect(report.client.recommendations).toContainEqual(expect.objectContaining({
+        confidence: "hypothesis",
+        evidenceSummary: expect.objectContaining({ contributors: 1, observations: 5, activeDates: 1 }),
+      }));
+      expect(JSON.stringify(report.client)).not.toContain("subject_key");
     } finally {
       if (originalTimezone === undefined) delete process.env.TZ;
       else process.env.TZ = originalTimezone;

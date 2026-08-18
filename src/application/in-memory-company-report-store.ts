@@ -8,20 +8,15 @@ export function createInMemoryCompanyReportStore(input: {
 }): CompanyReportStore {
   return {
     async loadGroupSnapshot({ companyId, groupId }) {
-      // Match PostgreSQL: privacy gates count only participants who completed
-      // onboarding and therefore have a role that can own reporting rows.
       const participants = input.participants.filter(
-        (participant) => participant.companyId === companyId && participant.groupId === groupId && participant.roleId !== undefined,
+        (participant) => participant.companyId === companyId && participant.groupId === groupId,
       );
-      const byRole = new Map<string, number>();
-      for (const participant of participants) {
-        if (participant.roleId) byRole.set(participant.roleId, (byRole.get(participant.roleId) ?? 0) + 1);
-      }
       return {
-        participantCounts: { group: participants.length, byRole },
-        anonymizedActivities: input.activities.anonymizedActivities.filter(
-          (activity) => activity.companyId === companyId && activity.groupId === groupId,
-        ),
+        invitedParticipants: participants.length,
+        subjects: participants.map(({ subjectKey, roleId }) => ({ subjectKey, ...(roleId ? { roleId } : {}) })),
+        activities: input.activities.personalActivities
+          .filter((activity) => activity.companyId === companyId && activity.groupId === groupId)
+          .map(({ employeeId: _employeeId, ...activity }) => structuredClone(activity)),
       };
     },
   };

@@ -3,7 +3,7 @@ import { currentPrivacyVersion } from "../domain/privacy.js";
 import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharacters, pendingTaskSummaryMaximumCodePoints } from "../shared/chat-limits.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledProcessIds } from "../domain/assistant-process.js";
-import { automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
+import { activityDurationBuckets, activitySystems, automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -191,42 +191,33 @@ export const companyReportRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128),
   groupId: z.string().min(1).max(128),
 });
-const companyReportRefusalReasonSchema = z.strictObject({
-  code: z.enum(["insufficient_participants", "insufficient_rows"]),
-  actual: z.number().int().nonnegative(),
-  required: z.number().int().positive(),
-});
+const companyReportConfidenceSchema = z.enum(["hypothesis", "signal", "confirmed"]);
 const companyReportObstacleSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("routine_pattern"), value: z.enum(routinePatternTypes) }),
   z.strictObject({ kind: z.literal("automation_candidate"), value: z.enum(automationCandidateTypes) }),
   z.strictObject({ kind: z.literal("energy_stress_marker"), value: z.enum(energyStressMarkerTypes) }),
 ]);
-const companyReportAggregateSchema = z.strictObject({
-  taskCategory: z.enum(taskCategories).optional(),
-  obstacle: companyReportObstacleSchema.optional(),
-  durationBucket: z.enum(["lt_15m", "15_30m", "30_60m", "1_2h", "2_4h", "gt_4h"]).optional(),
-  system: z.enum(["bitrix24", "one_c", "spreadsheets", "email", "messengers", "crm", "task_tracker", "paper_or_verbal", "other"]).optional(),
-  date: z.iso.date(),
-  rows: z.number().int().positive(),
+const companyReportProcessSchema = z.strictObject({ taskCategory: z.enum(taskCategories).optional(), obstacle: companyReportObstacleSchema.optional() });
+const companyReportEvidenceRefSchema = z.strictObject({ kind: z.literal("activity"), id: z.string().min(1), subjectKey: z.string().min(1) });
+const internalCompanyReportSchema = z.strictObject({
+  schemaVersion: z.literal("minutka-internal-report/v1"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),
+  coverage: z.strictObject({ invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative() }),
+  buckets: z.array(z.strictObject({
+    bucketId: z.string().min(1),
+    scope: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("overall_group") }), z.strictObject({ kind: z.literal("role"), roleId: z.string().min(1) })]),
+    process: companyReportProcessSchema, systems: z.array(z.enum(activitySystems)), durationBuckets: z.array(z.enum(activityDurationBuckets)),
+    contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(),
+    confidence: companyReportConfidenceSchema, evidenceRefs: z.array(companyReportEvidenceRefSchema),
+  })),
 });
-const companyReportRoleSliceSchema = z.discriminatedUnion("status", [
-  z.strictObject({
-    status: z.literal("exported"), roleId: z.string().min(1), participantCount: z.number().int().nonnegative(),
-    rowCount: z.number().int().nonnegative(), aggregates: z.array(companyReportAggregateSchema),
-  }),
-  z.strictObject({ status: z.literal("refused"), roleId: z.string().min(1), reasons: z.array(companyReportRefusalReasonSchema).min(1) }),
-]);
-export const companyReportResponseSchema = z.discriminatedUnion("status", [
-  z.strictObject({
-    status: z.literal("exported"), companyId: z.string().min(1), groupId: z.string().min(1),
-    participantCount: z.number().int().nonnegative(), rowCount: z.number().int().nonnegative(),
-    roleSlices: z.array(companyReportRoleSliceSchema),
-  }),
-  z.strictObject({
-    status: z.literal("refused"), companyId: z.string().min(1), groupId: z.string().min(1),
-    reasons: z.array(companyReportRefusalReasonSchema).min(1),
-  }),
-]);
+const clientEvidenceSummarySchema = z.strictObject({ contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), summary: z.string(), limitations: z.array(z.string()) });
+const clientCompanyReportSchema = z.strictObject({
+  schemaVersion: z.literal("minutka-client-report.v1"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
+  coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), limitations: z.array(z.string()) }),
+  recommendations: z.array(z.strictObject({ recommendationId: z.string().min(1), process: z.string().min(1), scope: z.string().min(1), systems: z.array(z.string()), evidenceSummary: clientEvidenceSummarySchema, confidence: companyReportConfidenceSchema, automationOption: z.string().min(1), humanInTheLoop: z.string().min(1), expectedEffect: z.string().min(1), prerequisites: z.array(z.string()), risks: z.array(z.string()) })),
+  insufficientEvidence: z.array(z.strictObject({ scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1), allowedConclusion: z.string().min(1) })),
+});
+export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
 const usageTotalsResponseSchema = z.strictObject({
   inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), totalTokens: z.number().int().nonnegative(),
   estimatedCostUsdMicros: z.number().int().nonnegative(), records: z.number().int().nonnegative(), cachedInputTokens: z.number().int().nonnegative(),

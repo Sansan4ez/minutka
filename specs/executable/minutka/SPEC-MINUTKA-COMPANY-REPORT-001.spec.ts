@@ -1,9 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  COMPANY_REPORT_MIN_PARTICIPANTS,
-  COMPANY_REPORT_MIN_ROWS,
-  COMPANY_REPORT_OTHER_ROLE_ID,
+  COMPANY_REPORT_CONFIDENCE_POLICY,
   CompanyReportingService,
 } from "../../../src/application/company-reporting.js";
 import { createInMemoryActivityCollectionState } from "../../../src/application/in-memory-activity-collection-store.js";
@@ -11,6 +9,7 @@ import { createInMemoryCompanyReportStore } from "../../../src/application/in-me
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
+import type { PersonalActivityRecord } from "../../../src/application/activity-collection.js";
 import type { Participant } from "../../../src/domain/employee.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { listenHttpServer } from "../../../src/server/http/http-server.js";
@@ -24,189 +23,151 @@ function participant(employeeId: string, companyId: string, groupId: string, rol
   return { employeeId, companyId, groupId, subjectKey: `subject_${employeeId}`, roleId, status: "profile_completed", createdAt, updatedAt: createdAt };
 }
 
-function reportingRows(companyId: string, groupId: string, roleId: string, count: number) {
-  return Array.from({ length: count }, () => ({
-    companyId,
-    groupId,
-    roleId,
-    taskCategory: "reporting" as const,
-    durationBucket: "30_60m" as const,
-    system: "spreadsheets" as const,
-    date: "2026-08-15",
-  }));
+function activity(input: {
+  id: string; subjectKey: string; companyId?: string; groupId?: string; roleId?: string; date?: string;
+  taskCategory?: PersonalActivityRecord["taskCategory"];
+  obstacle?: PersonalActivityRecord["obstacle"];
+  system?: PersonalActivityRecord["system"];
+}): PersonalActivityRecord {
+  return {
+    activityId: input.id,
+    employeeId: `employee_for_${input.subjectKey}`,
+    subjectKey: input.subjectKey,
+    companyId: input.companyId ?? "company_a",
+    groupId: input.groupId ?? "group_a",
+    roleId: input.roleId ?? "role_sales",
+    ...(input.taskCategory ? { taskCategory: input.taskCategory } : {}),
+    ...(input.obstacle ? { obstacle: input.obstacle } : {}),
+    ...(input.system ? { system: input.system } : {}),
+    durationBucket: "30_60m",
+    recordedAt: `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
+  };
 }
 
-function service(participants: Participant[], rows = reportingRows("company_a", "group_a", "role_a", 5)) {
+function service(participants: Participant[], personalActivities: PersonalActivityRecord[]) {
   const activities = createInMemoryActivityCollectionState();
-  activities.anonymizedActivities.push(...rows);
-  return new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities }));
+  activities.personalActivities.push(...personalActivities);
+  return new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities }), () => "2026-08-18T00:00:00.000Z");
 }
 
-describe("SPEC-MINUTKA-COMPANY-REPORT-001: company export privacy threshold", () => {
-  it("returns an explicit refusal with both failed conditions", async () => {
-    const result = await service([
-      participant("employee_1", "company_a", "group_a", "role_a"),
-      participant("employee_2", "company_a", "group_a", "role_a"),
-      participant("employee_3", "company_a", "group_a", "role_a"),
-      participant("employee_4", "company_a", "group_a", "role_a"),
-    ], reportingRows("company_a", "group_a", "role_a", 4)).exportGroup({ companyId: "company_a", groupId: "group_a" });
+function automationActivity(id: string, subjectKey: string, date: string, roleId = "role_sales") {
+  return activity({ id, subjectKey, date, roleId, taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" }, system: "spreadsheets" });
+}
 
-    expect(result).toEqual({
-      status: "refused",
-      companyId: "company_a",
-      groupId: "group_a",
-      reasons: [
-        { code: "insufficient_participants", actual: 4, required: COMPANY_REPORT_MIN_PARTICIPANTS },
-        { code: "insufficient_rows", actual: 4, required: COMPANY_REPORT_MIN_ROWS },
-      ],
-    });
+describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", () => {
+  it("counts one subject with twenty activities as one contributor", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const rows = Array.from({ length: 20 }, (_, index) => automationActivity(`activity_${index}`, "subject_one", `2026-08-${String(1 + (index % 4)).padStart(2, "0")}`));
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    const bucket = result.internal.buckets.find((item) => item.scope.kind === "overall_group");
+
+    expect(bucket).toMatchObject({ contributors: 1, observations: 20, activeDates: 4, confidence: "signal" });
+    expect(bucket?.evidenceRefs).toHaveLength(20);
+    expect(new Set(bucket?.evidenceRefs.map((ref) => ref.subjectKey))).toEqual(new Set(["subject_one"]));
   });
 
-  it("counts only onboarded participants for both the group and role privacy gates", async () => {
-    const invited: Participant = {
-      employeeId: "employee_invited",
-      companyId: "company_a",
-      groupId: "group_a",
-      subjectKey: "subject_employee_invited",
-      status: "invite_issued",
-      createdAt,
-      updatedAt: createdAt,
-    };
-    const participants = [
-      ...Array.from({ length: 4 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a")),
-      invited,
+  it("promotes confidence with distinct subjects, observations, and dates", async () => {
+    const participants = ["one", "two", "three"].map((id) => participant(id, "company_a", "group_a", "role_sales"));
+    const rows = [
+      automationActivity("a1", "subject_one", "2026-08-01"),
+      automationActivity("a2", "subject_one", "2026-08-02"),
+      automationActivity("a3", "subject_two", "2026-08-02"),
+      automationActivity("a4", "subject_two", "2026-08-03"),
+      automationActivity("a5", "subject_three", "2026-08-03"),
     ];
 
-    const result = await service(participants).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
 
-    expect(result).toMatchObject({
-      status: "refused",
-      reasons: [{ code: "insufficient_participants", actual: 4, required: COMPANY_REPORT_MIN_PARTICIPANTS }],
+    expect(result.internal.buckets.find((item) => item.scope.kind === "overall_group")).toMatchObject({
+      contributors: COMPANY_REPORT_CONFIDENCE_POLICY.confirmedSubjects,
+      observations: COMPANY_REPORT_CONFIDENCE_POLICY.confirmedObservations,
+      activeDates: COMPANY_REPORT_CONFIDENCE_POLICY.confirmedDates,
+      confidence: "confirmed",
     });
+    expect(result.client.recommendations).toEqual([expect.objectContaining({ confidence: "confirmed", evidenceSummary: expect.objectContaining({ contributors: 3, observations: 5, activeDates: 3 }) })]);
   });
 
-  it("takes participant counts from reference/private state rather than anonymized row volume", async () => {
-    const participants = Array.from({ length: 4 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
-    const result = await service(participants, reportingRows("company_a", "group_a", "role_a", 12))
+  it("returns a rare-role process hypothesis without employee evaluation or raw quote", async () => {
+    const participants = [
+      participant("tender", "company_a", "group_a", "role_tender_specialist"),
+      participant("sales", "company_a", "group_a", "role_sales"),
+    ];
+    const rows = [
+      activity({ id: "t1", subjectKey: "subject_tender", roleId: "role_tender_specialist", taskCategory: "admin", obstacle: { kind: "automation_candidate", value: "data_entry_reduction" }, system: "email" }),
+      activity({ id: "s1", subjectKey: "subject_sales", roleId: "role_sales", taskCategory: "meetings" }),
+    ];
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    const serializedClient = JSON.stringify(result.client);
+
+    expect(result.client.insufficientEvidence).toEqual([expect.objectContaining({ scope: "Редкая рабочая функция", allowedConclusion: expect.stringContaining("не оценка сотрудника") })]);
+    expect(serializedClient).not.toMatch(/subject_|employee_|raw|quote|trace|message/i);
+  });
+
+  it("keeps subject-linked refs internal and excludes identities and source refs from the client DTO", async () => {
+    const participants = [participant("secret", "company_a", "group_a", "role_sales")];
+    const result = await service(participants, [automationActivity("activity_secret", "subject_secret", "2026-08-15")])
       .exportGroup({ companyId: "company_a", groupId: "group_a" });
 
-    expect(result).toMatchObject({
-      status: "refused",
-      reasons: [{ code: "insufficient_participants", actual: 4, required: COMPANY_REPORT_MIN_PARTICIPANTS }],
-    });
+    expect(result.internal.buckets[0]?.evidenceRefs).toEqual([{ kind: "activity", id: "activity_secret", subjectKey: "subject_secret" }]);
+    const client = JSON.stringify(result.client);
+    expect(client).not.toContain("subject_secret");
+    expect(client).not.toContain("activity_secret");
+    expect(client).not.toContain("employeeId");
+    expect(client).not.toContain("evidenceRefs");
   });
 
-  it("merges roles below five participants into other instead of exposing a separate role row", async () => {
-    const participants = [
-      ...Array.from({ length: 5 }, (_, index) => participant(`accountant_${index}`, "company_a", "group_a", "role_accountant")),
-      ...Array.from({ length: 4 }, (_, index) => participant(`logistician_${index}`, "company_a", "group_a", "role_logistician")),
-    ];
-    const rows = [
-      ...reportingRows("company_a", "group_a", "role_accountant", 5),
-      ...reportingRows("company_a", "group_a", "role_logistician", 5),
-    ];
-    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+  it("never includes another company and fails closed on a cross-scope store result", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const rows = [automationActivity("a1", "subject_one", "2026-08-15"), automationActivity("b1", "subject_b", "2026-08-15", "role_secret")];
+    rows[1] = { ...rows[1]!, companyId: "company_b", groupId: "group_b" };
+    const clean = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    expect(JSON.stringify(clean)).not.toContain("company_b");
+    expect(JSON.stringify(clean)).not.toContain("role_secret");
 
-    expect(result.status).toBe("exported");
-    if (result.status !== "exported") throw new Error("expected export");
-    expect(result.roleSlices.map((slice) => slice.roleId)).toEqual(["role_accountant", COMPANY_REPORT_OTHER_ROLE_ID]);
-    expect(result.roleSlices).not.toContainEqual(expect.objectContaining({ roleId: "role_logistician" }));
-    expect(result.roleSlices[1]).toMatchObject({ status: "refused", roleId: COMPANY_REPORT_OTHER_ROLE_ID, reasons: [{ code: "insufficient_participants", actual: 4 }] });
+    const unsafeStore = { async loadGroupSnapshot() { return { invitedParticipants: 1, subjects: [{ subjectKey: "subject_one" }], activities: [rows[1]!] }; } };
+    await expect(new CompanyReportingService(unsafeStore).exportGroup({ companyId: "company_a", groupId: "group_a" }))
+      .rejects.toThrow("cross-scope canonical activity");
   });
 
-  it("enforces the row threshold independently for an otherwise eligible role slice", async () => {
-    const participants = [
-      ...Array.from({ length: 5 }, (_, index) => participant(`role_a_${index}`, "company_a", "group_a", "role_a")),
-      ...Array.from({ length: 5 }, (_, index) => participant(`role_b_${index}`, "company_a", "group_a", "role_b")),
-    ];
-    const rows = [
-      ...reportingRows("company_a", "group_a", "role_a", 4),
-      ...reportingRows("company_a", "group_a", "role_b", 5),
-    ];
-    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+  it("recomputes from current canonical activities after correction and purge", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const state = createInMemoryActivityCollectionState();
+    state.personalActivities.push(automationActivity("a1", "subject_one", "2026-08-15"));
+    const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities: state }));
 
-    expect(result).toMatchObject({
-      status: "exported",
-      roleSlices: [
-        { status: "refused", roleId: "role_a", reasons: [{ code: "insufficient_rows", actual: 4, required: COMPANY_REPORT_MIN_ROWS }] },
-        { status: "exported", roleId: "role_b", rowCount: 5 },
-      ],
-    });
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("ручная отчётность");
+    state.personalActivities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", obstacle: { kind: "automation_candidate", value: "report_generation" }, system: "spreadsheets" });
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("генерация отчётов");
+    state.personalActivities.length = 0;
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, recommendations: [] });
   });
 
-  it("groups category and obstacle as dimensions of the same row", async () => {
-    const participants = Array.from({ length: 5 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
-    const rows = reportingRows("company_a", "group_a", "role_a", 5).map((row, index) => index < 3
-      ? { ...row, obstacle: { kind: "routine_pattern" as const, value: "manual_reporting" as const } }
-      : row);
-    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
-
-    expect(result).toMatchObject({
-      status: "exported",
-      roleSlices: [{
-        status: "exported",
-        aggregates: expect.arrayContaining([
-          expect.objectContaining({
-            taskCategory: "reporting",
-            obstacle: { kind: "routine_pattern", value: "manual_reporting" },
-            rows: 3,
-          }),
-          expect.objectContaining({ taskCategory: "reporting", rows: 2 }),
-        ]),
-      }],
-    });
-  });
-
-  it("never includes another company's anonymized rows", async () => {
-    const participants = Array.from({ length: 5 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
-    const rows = [
-      ...reportingRows("company_a", "group_a", "role_a", 5),
-      ...reportingRows("company_b", "group_b", "role_secret", 7),
-    ];
-    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
-
-    expect(result).toMatchObject({ status: "exported", rowCount: 5 });
-    expect(JSON.stringify(result)).not.toContain("company_b");
-    expect(JSON.stringify(result)).not.toContain("role_secret");
-  });
-
-  it("exposes the company-scoped export through the operator CLI", async () => {
-    const participants = Array.from({ length: 5 }, (_, index) => participant(`employee_${index}`, "company_a", "group_a", "role_a"));
-    const reporting = service(participants);
+  it("exposes the separate internal/client DTO through the operator CLI", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const reporting = service(participants, [automationActivity("a1", "subject_one", "2026-08-15")]);
     const runtime = createInMemoryRuntime({ agentRunner: async () => "unused" });
     const clock = { now: () => createdAt };
-    const artifactStore = createInMemoryArtifactStore({
-      contentStore: createInMemoryArtifactContentStore(clock),
-      clock,
-      limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 },
-    });
-    const application = new PersonalAssistantService(
-      runtime.service,
-      { async chat() { throw new Error("not used"); } },
-      artifactStore,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      reporting,
-    );
+    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 } });
+    const application = new PersonalAssistantService(runtime.service, { async chat() { throw new Error("not used"); } }, artifactStore, undefined, undefined, undefined, undefined, undefined, undefined, reporting);
     const adminToken = "d".repeat(64);
     const server = await listenHttpServer({ application, port: 0, logger: () => undefined, auth: { adminToken, employeeTokens: new Map() } });
     try {
       const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
       const result = await runMinutkaCli(client, ["admin", "company-report", "--company", "company_a", "--group", "group_a"]);
+      const dto = JSON.parse(result.stdout[0] ?? "{}");
       expect(result).toMatchObject({ exitCode: 0, stderr: [] });
-      expect(JSON.parse(result.stdout[0] ?? "{}")).toMatchObject({ status: "exported", companyId: "company_a", groupId: "group_a", rowCount: 5 });
-    } finally {
-      await server.close();
-    }
+      expect(dto).toMatchObject({ internal: { companyId: "company_a", groupId: "group_a" }, client: { schemaVersion: "minutka-client-report.v1" } });
+      expect(JSON.stringify(dto.client)).not.toContain("subject_one");
+    } finally { await server.close(); }
   });
 
-  it("keeps both thresholds in one code module and documents them in the runbook", () => {
+  it("documents canonical recompute, confidence thresholds, and the client delivery boundary", () => {
     const runbook = readFileSync("docs/runbooks/company-report-export.md", "utf8");
-    expect(runbook).toContain(`COMPANY_REPORT_MIN_PARTICIPANTS = ${COMPANY_REPORT_MIN_PARTICIPANTS}`);
-    expect(runbook).toContain(`COMPANY_REPORT_MIN_ROWS = ${COMPANY_REPORT_MIN_ROWS}`);
+    expect(runbook).toContain("minutka_private.activities");
+    expect(runbook).not.toContain("minutka_reporting.anonymized_activities");
+    expect(runbook).toContain("confirmedSubjects = 3");
+    expect(runbook).toContain("subject keys");
   });
 });

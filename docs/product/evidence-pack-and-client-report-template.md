@@ -2,7 +2,7 @@
 
 ## Статус
 
-**accepted template (2026-08-18), не автоматизирован.** Документ задаёт целевые Markdown- и JSON-контракты для ручного первого цикла. Автоматическое формирование canonical reporting, DTO и проверки delivery boundary реализует задача `mnt-cycle-completion-4gd.9`; наличие этого шаблона не означает, что текущая legacy-выгрузка уже переключена.
+**accepted template (2026-08-18), canonical DTO реализован.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет, дополняет и публикует клиентский артефакт.
 
 Шаблоны конкретизируют [RFC исследовательского корпуса и клиентской карты автоматизации §2.7–2.9](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack):
 
@@ -402,7 +402,7 @@ Coverage показывается до рекомендаций и описыв�
 
 ## 6. Ручной review/publish flow
 
-До реализации `mnt-cycle-completion-4gd.9` все шаги ниже являются целевым runbook, а не доступной автоматической командой.
+Typed команда формирует canonical internal/client DTO. Все редакторские и publish-шаги ниже остаются ручными.
 
 1. **Сформировать internal draft.** Доверенный оператор выбирает `company_id` и `group_id`; typed export создаёт evidence pack в защищённом operator contour.
 2. **Проверить scope и completeness.** Методолог сверяет tenant/group, coverage, missing traces, версии prompt/taxonomy и evidence refs. Scope mismatch прекращает подготовку целиком.
@@ -425,4 +425,4 @@ Coverage показывается до рекомендаций и описыв�
 - confidence рассчитывается из canonical activities/subjects/dates по §4;
 - report recompute читает актуальный corpus после correction или purge;
 - executable specs покрывают три примера §5 и tenant isolation;
-- current `anonymized_activities` export не считается реализацией этого шаблона.
+- legacy `anonymized_activities` не читается canonical report path и удаляется отдельной cleanup-задачей.

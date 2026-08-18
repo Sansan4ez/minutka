@@ -1,6 +1,6 @@
 # RFC: мультитенантный контур и обезличенная отчётность «Минутки»
 
-> **Status: superseded [RFC исследовательского корпуса и клиентской карты автоматизации](./rfc-minutka-research-corpus-and-reporting.md) (2026-08-18).** Модель company → training group → participant → role и tenant isolation сохранены. Решения об обезличенном dual-write, запрете `subject_key`/research reader, универсальном правиле ≥5 и retention «до отчёта» заменены новым RFC до первого внешнего пилота. Текст ниже оставлен как провенанс уже реализованного контура.
+> **Status: superseded [RFC исследовательского корпуса и клиентской карты автоматизации](./rfc-minutka-research-corpus-and-reporting.md) (2026-08-18).** Модель company → training group → participant → role и tenant isolation сохранены. Решения §§2.2–2.6, §5 и §7–8 об обезличенном dual-write, запрете `subject_key`/research reader, proxy-count, role-`other`, универсальном правиле ≥5 и retention «до отчёта» заменены canonical subject-aware reporting. Текст ниже — исторический провенанс, не инструкция для live report path.
 
 ## Status
 
@@ -218,7 +218,9 @@ Related:
 - **Не** механизм точечного удаления/пересчёта обезличенных строк. Сопоставление с личными активностями и backfill по решению не строятся. Пересмотреть, если retention удлинится (компания захочет копить данные между циклами) — тогда вернуться к `subject_key`.
 - **Не** геймификация — до стабильного базового цикла.
 
-## 8. Открытые вопросы
+## 8. Открытые вопросы (исторические; reporting-пункты superseded)
+
+Пункты 1, 3 и 4 ниже закрыты новым RFC и реализацией canonical reporting: формат задаёт `evidence-pack-and-client-report-template.md`, report reader использует canonical activities, confidence считается по subjects/observations/dates, а роль `other` и proxy-count не применяются. Retention корпуса/артефакта калибруется отдельно после первого цикла.
 
 1. Формат итогового отчёта и шаблон карты автоматизации (вручную на пилоте, но структуру стоит зафиксировать до конца первого цикла).
 2. Юридическая проверка consent-текста (персональные данные, согласие на передачу агрегатов компании).
