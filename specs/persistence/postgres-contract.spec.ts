@@ -41,6 +41,10 @@ import { CompanyReportingService, COMPANY_REPORT_MIN_ROWS } from "../../src/appl
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../../src/infrastructure/postgres/postgres-research-trace-store.js";
 import { researchTraceSchemaVersion } from "../../src/application/research-trace-store.js";
+import { createPostgresEvaluationCaseStore } from "../../src/infrastructure/postgres/postgres-evaluation-case-store.js";
+import { createPostgresResearchCorpusSource } from "../../src/infrastructure/postgres/postgres-research-corpus-source.js";
+import { ResearchEvaluationService } from "../../src/application/research-evaluation.js";
+import { ResearchCorpusExportService } from "../../src/application/research-corpus-export.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -528,6 +532,54 @@ describe("PostgreSQL storage contracts", () => {
     expect(JSON.stringify(own[0])).not.toContain("hidden");
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantB.groupId })).toEqual([]);
     expect(await traces.list({ companyId: participantB.companyId, groupId: participantB.groupId })).toHaveLength(1);
+  });
+
+  it("persists scoped evaluation cases and exports linked corpus without employee identifiers", async () => {
+    await issueProfileReadyParticipant(pool, "research_export_owner", "invite_research_export_owner");
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const participant = (await profiles.getParticipant("research_export_owner"))!;
+    const conversations = createPostgresConversationStore(pool);
+    await conversations.appendTurn({
+      messageId: "msg_research_export",
+      employeeId: "research_export_owner",
+      subjectKey: participant.subjectKey,
+      threadId: "thread_research_export",
+      userText: "Подготовить еженедельный отчёт",
+      agentResponse: "Зафиксировано",
+      timestamp: now,
+    });
+    await createPostgresFeedbackStore(pool).saveFeedback({
+      id: "feedback_research_export", employeeId: "research_export_owner", threadId: "thread_research_export",
+      targetMessageId: "msg_research_export", rating: "positive", source: "test", updatedAt: now,
+    });
+    const traces = createPostgresResearchTraceStore(pool);
+    await traces.append({
+      schemaVersion: researchTraceSchemaVersion, traceId: "trace_research_export", requestId: "req_research_export",
+      messageId: "msg_research_export", companyId: participant.companyId, groupId: participant.groupId,
+      subjectKey: participant.subjectKey, processIds: ["core"], promptVersion: "prompt/export-v1",
+      processVersion: "process/export-v1", taxonomyVersion: "taxonomy/export-v1", model: "openai/test",
+      samplingRate: 1, input: { text: "Подготовить еженедельный отчёт", modality: "text" },
+      attempts: [{ attempt: 1, context: "bounded", modelSteps: [], toolCalls: [], toolResults: [] }],
+      output: "Зафиксировано", startedAt: now, completedAt: now, latencyMs: 0, status: "completed",
+    });
+    const evaluationStore = createPostgresEvaluationCaseStore(pool);
+    const evaluation = new ResearchEvaluationService(evaluationStore, traces, { now: () => now }, () => "case_research_export");
+    const created = await evaluation.create({
+      companyId: participant.companyId, groupId: participant.groupId, traceId: "trace_research_export",
+      labels: { usefulness: "useful", accuracy: "accurate", clarification: "not_needed", extractionCorrectness: "correct" },
+    });
+    expect(await evaluation.get({ companyId: participant.companyId, groupId: participant.groupId, caseId: created.caseId })).toEqual(created);
+    expect(await evaluation.get({ companyId: "other-company", groupId: participant.groupId, caseId: created.caseId })).toBeUndefined();
+
+    const corpus = await new ResearchCorpusExportService(
+      createPostgresResearchCorpusSource(pool), traces, evaluationStore,
+    ).export({ companyId: participant.companyId, groupId: participant.groupId, format: "json" });
+    expect(corpus.corpus).toMatchObject({
+      coverage: { subjects: 1, messages: 1, traces: 1, feedback: 1, evaluationCases: 1, messagesMissingTrace: 0 },
+      messages: [{ messageId: "msg_research_export", subjectKey: participant.subjectKey, trace: { status: "present", traceId: "trace_research_export" } }],
+    });
+    expect(JSON.stringify(corpus.corpus)).not.toContain("research_export_owner");
+    expect(JSON.stringify(corpus.corpus)).not.toContain("thread_research_export");
   });
 
   it("reads the oldest bounded compaction batch in order and persists its watermark", async () => {

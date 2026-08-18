@@ -24,5 +24,9 @@ export function createInMemoryResearchTraceStore(
         .slice(-Math.max(0, limit))
         .map((trace) => structuredClone(trace));
     },
+    async get({ companyId, groupId, traceId }) {
+      const trace = state.traces.find((candidate) => candidate.companyId === companyId && candidate.groupId === groupId && candidate.traceId === traceId);
+      return trace ? structuredClone(trace) : undefined;
+    },
   };
 }

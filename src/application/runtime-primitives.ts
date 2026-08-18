@@ -12,6 +12,7 @@ export type IdGenerator = {
   taskId?(): string;
   usageId?(): string;
   traceId?(): string;
+  evaluationCaseId?(): string;
   auditEventId(): string;
 };
 
@@ -27,12 +28,13 @@ export const randomIdGenerator: IdGenerator = {
   taskId: () => `task_${randomUUID()}`,
   usageId: () => `usage_${randomUUID()}`,
   traceId: () => `trace_${randomUUID()}`,
+  evaluationCaseId: () => `eval_${randomUUID()}`,
   auditEventId: () => `evt_${randomUUID()}`,
 };
 
 /** Deterministic IDs are intentionally limited to executable specs. */
 export function createDeterministicIdGenerator(): IdGenerator {
-  const counters = { request: 0, message: 0, insight: 0, feedback: 0, idea: 0, schedule: 0, task: 0, usage: 0, trace: 0, audit: 0 };
+  const counters = { request: 0, message: 0, insight: 0, feedback: 0, idea: 0, schedule: 0, task: 0, usage: 0, trace: 0, evaluation: 0, audit: 0 };
   return {
     requestId: () => `req_${++counters.request}`,
     messageId: () => `msg_${++counters.message}`,
@@ -43,6 +45,7 @@ export function createDeterministicIdGenerator(): IdGenerator {
     taskId: () => `task_${++counters.task}`,
     usageId: () => `usage_${++counters.usage}`,
     traceId: () => `trace_${++counters.trace}`,
+    evaluationCaseId: () => `eval_${++counters.evaluation}`,
     auditEventId: () => `evt_${++counters.audit}`,
   };
 }

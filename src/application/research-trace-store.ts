@@ -58,6 +58,7 @@ export type ResearchTraceStore = {
   append(trace: ResearchTraceRecord): Promise<void>;
   /** Research reads always require an exact tenant and group scope. */
   list(input: ResearchTraceScope & { limit?: number }): Promise<ResearchTraceRecord[]>;
+  get(input: ResearchTraceScope & { traceId: string }): Promise<ResearchTraceRecord | undefined>;
 };
 
 const traceSchema = z.strictObject({
@@ -116,8 +117,8 @@ export function researchTraceError(error: unknown): ResearchTraceError {
     ? (error as { code: string }).code
     : named?.name ?? "unknown_error";
   return {
-    code: sanitizeTraceString(codeValue),
-    message: sanitizeTraceString(named?.message ?? "Unknown agent error"),
+    code: sanitizeResearchText(codeValue),
+    message: sanitizeResearchText(named?.message ?? "Unknown agent error"),
   };
 }
 
@@ -137,7 +138,7 @@ export function exportResearchTracesJson(
 }
 
 function sanitizeTraceValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (typeof value === "string") return sanitizeTraceString(value);
+  if (typeof value === "string") return sanitizeResearchText(value);
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
   if (value === undefined) return undefined;
   if (Array.isArray(value)) return value.map((entry) => sanitizeTraceValue(entry, seen));
@@ -185,7 +186,7 @@ const secretKeys = new Set([
   "telegrambottoken",
 ]);
 
-function sanitizeTraceString(value: string): string {
+export function sanitizeResearchText(value: string): string {
   return value
     .replace(/\b(Bearer|Basic)\s+[^\s,;]+/giu, "$1 [REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "[REDACTED]")

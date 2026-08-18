@@ -58,5 +58,16 @@ export function createPostgresResearchTraceStore(pool: Pool): ResearchTraceStore
         throw mapPostgresError(error);
       }
     },
+    async get({ companyId, groupId, traceId }) {
+      try {
+        const result = await pool.query<Row>(
+          "SELECT payload FROM minutka_research.traces WHERE company_id=$1 AND group_id=$2 AND trace_id=$3",
+          [companyId, groupId, traceId],
+        );
+        return result.rows[0] ? parseResearchTrace(result.rows[0].payload) : undefined;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
   };
 }
