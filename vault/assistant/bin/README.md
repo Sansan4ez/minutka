@@ -16,7 +16,7 @@ This README is developer documentation, not prompt input or a capability source.
 
 Schedule changes are level 0 reversible internal writes. Employee-facing replies use product language—morning or evening message—and never advertise arbitrary reminders or runtime ids.
 
-Deterministic transport/application actions required for onboarding, consent, reporting, feedback, and personal-data deletion are not agent tools. They continue through authenticated typed use-cases outside the model tool loop. no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL.
+Deterministic transport/application actions required for onboarding, consent, reporting, feedback, and personal-data deletion are not agent tools. They continue through authenticated typed use-cases outside the model tool loop. A chat URL follows the capture path as ordinary text: no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL.
 
 ## Manifests outside the «Минутка» product boundary
 

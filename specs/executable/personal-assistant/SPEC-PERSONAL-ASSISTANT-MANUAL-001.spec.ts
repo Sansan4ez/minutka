@@ -88,8 +88,12 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId)) expect(registeredIds).toContain(referencedId);
     }
     const binReadme = readFileSync("vault/assistant/bin/README.md", "utf8");
-    expect(binReadme).toContain("feedback");
-    expect(binReadme).toContain("no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL");
+    expect(binReadme).toContain(
+      "Deterministic transport/application actions required for onboarding, consent, reporting, feedback, and personal-data deletion are not agent tools.",
+    );
+    expect(binReadme).toContain(
+      "A chat URL follows the capture path as ordinary text: no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL.",
+    );
   });
 
   it("keeps tools of disabled processes out of the agent toolset", () => {
