@@ -39,6 +39,8 @@ import { CompanyAnonymizedActivityRetentionService } from "../../src/application
 import { createPostgresCompanyAnonymizedActivityRetentionStore } from "../../src/infrastructure/postgres/postgres-company-anonymized-activity-retention-store.js";
 import { CompanyReportingService, COMPANY_REPORT_MIN_ROWS } from "../../src/application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
+import { createPostgresResearchTraceStore } from "../../src/infrastructure/postgres/postgres-research-trace-store.js";
+import { researchTraceSchemaVersion } from "../../src/application/research-trace-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -85,7 +87,7 @@ describe("PostgreSQL storage contracts", () => {
     // Schema ownership stays with the migrator. The runtime role is tested only
     // against an already-migrated database, exactly as it runs in production.
     await migratePostgres(migrationPool);
-    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_private.participants");
+    await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_research.traces; DELETE FROM minutka_private.participants");
     await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ('company_persistence_default', 'Persistence Default Co') ON CONFLICT (id) DO NOTHING");
     await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ('group_persistence_default', 'company_persistence_default', 'Pilot', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING");
     await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ('role_persistence_default', 'company_persistence_default', 'Manager') ON CONFLICT (id) DO NOTHING");
@@ -480,6 +482,52 @@ describe("PostgreSQL storage contracts", () => {
     pool = createPostgresPool(config);
     expect((await createPostgresConversationStore(pool).getRecentTurns({ employeeId: "emp_pg", threadId: "thread_pg", limit: 10 }))[0]?.userText).toBe("morning");
     expect((await createPostgresFeedbackStore(pool).getFeedbackByTarget({ employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg" }))?.rating).toBe("negative");
+  });
+
+  it("persists sanitized research traces and enforces exact company/group reads", async () => {
+    await issueProfileReadyParticipant(pool, "trace_owner_a", "invite_trace_owner_a");
+    const companyB = "company_trace_b";
+    const groupB = "group_trace_b";
+    const roleB = "role_trace_b";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Trace B') ON CONFLICT (id) DO NOTHING", [companyB]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Pilot B', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupB, companyB]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Role B') ON CONFLICT (id) DO NOTHING", [roleB, companyB]);
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId: "trace_owner_b", inviteCode: "invite_trace_owner_b", companyId: companyB, groupId: groupB, issuedAt: now });
+    const participantA = (await profiles.getParticipant("trace_owner_a"))!;
+    const participantB = (await profiles.getParticipant("trace_owner_b"))!;
+    const traces = createPostgresResearchTraceStore(pool);
+    const trace = (input: { traceId: string; requestId: string; messageId: string; companyId: string; groupId: string; subjectKey: string; text: string }) => ({
+      schemaVersion: researchTraceSchemaVersion,
+      traceId: input.traceId,
+      requestId: input.requestId,
+      messageId: input.messageId,
+      companyId: input.companyId,
+      groupId: input.groupId,
+      subjectKey: input.subjectKey,
+      processIds: ["core"],
+      promptVersion: "prompt/v1",
+      processVersion: "process/v1",
+      taxonomyVersion: "taxonomy/v1",
+      model: "openai/test",
+      samplingRate: 1 as const,
+      input: { text: input.text, modality: "text" as const },
+      attempts: [{ attempt: 1, context: "ordinary context", modelSteps: [{ authorization: "Bearer hidden" }], toolCalls: [], toolResults: [] }],
+      output: "ordinary output",
+      startedAt: now,
+      completedAt: now,
+      latencyMs: 0,
+      status: "completed" as const,
+    });
+    await traces.append(trace({ traceId: "trace_pg_a", requestId: "req_trace_a", messageId: "msg_trace_a", companyId: participantA.companyId, groupId: participantA.groupId, subjectKey: participantA.subjectKey, text: "Анна и проект Альфа" }));
+    await traces.append(trace({ traceId: "trace_pg_b", requestId: "req_trace_b", messageId: "msg_trace_b", companyId: participantB.companyId, groupId: participantB.groupId, subjectKey: participantB.subjectKey, text: "Компания B" }));
+
+    const own = await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId });
+    expect(own).toHaveLength(1);
+    expect(own[0]).toMatchObject({ traceId: "trace_pg_a", input: { text: "Анна и проект Альфа" } });
+    expect(JSON.stringify(own[0])).not.toContain("hidden");
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantB.groupId })).toEqual([]);
+    expect(await traces.list({ companyId: participantB.companyId, groupId: participantB.groupId })).toHaveLength(1);
   });
 
   it("reads the oldest bounded compaction batch in order and persists its watermark", async () => {

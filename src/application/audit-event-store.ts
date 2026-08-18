@@ -27,6 +27,7 @@ export type AuditEventType =
   | "task_mutation_decided"
   | "task_mutation_undone"
   | "usage_soft_limit_exceeded"
+  | "trace_missing"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -71,6 +72,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   task_mutation_decided: ["confirmationId", "actionKind", "status", "result", "taskId"],
   task_mutation_undone: ["actionKind", "status", "taskId", "ideaStatusRestored", "ideaStatusConflict"],
   usage_soft_limit_exceeded: ["month", "source", "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cachedInputUnknownRecords", "estimatedCostUsdMicros", "softLimitUsdMicros"],
+  trace_missing: ["reason", "status"],
   employee_data_deleted: [],
 };
 

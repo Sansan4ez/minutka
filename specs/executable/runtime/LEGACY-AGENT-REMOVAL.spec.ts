@@ -192,12 +192,18 @@ describe("A2.6: legacy Minutka agent removal", () => {
       async captureIdea() {
         throw new Error("captureIdea belongs to the disabled inbox_capture process and must never be reachable");
       },
-    }, abortController.signal)).resolves.toEqual({
+    }, abortController.signal)).resolves.toMatchObject({
       text: "done",
       executionTrace: [
         { kind: "tool", toolName: "markProcessUsed" },
         { kind: "tool", toolName: "collectActivity" },
       ],
+      trace: {
+        model: expect.any(String),
+        modelSteps: expect.arrayContaining([expect.objectContaining({ usage: expect.any(Object) })]),
+        toolCalls: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivity" }) })]),
+        toolResults: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivity" }) })]),
+      },
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
     });
 
@@ -234,9 +240,10 @@ describe("A2.6: legacy Minutka agent removal", () => {
         };
       },
     });
-    await expect(runUsageOnly(stepsRunner)).resolves.toEqual({
+    await expect(runUsageOnly(stepsRunner)).resolves.toMatchObject({
       text: "steps",
       executionTrace: [],
+      trace: { model: expect.any(String), modelSteps: expect.arrayContaining([expect.objectContaining({ usage: expect.any(Object) })]) },
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
     });
 
@@ -245,9 +252,10 @@ describe("A2.6: legacy Minutka agent removal", () => {
         return { text: "last", usage: { promptTokens: 40, completionTokens: 5, cachedInputTokens: 10 } };
       },
     });
-    await expect(runUsageOnly(lastStepRunner)).resolves.toEqual({
+    await expect(runUsageOnly(lastStepRunner)).resolves.toMatchObject({
       text: "last",
       executionTrace: [],
+      trace: { model: expect.any(String), modelSteps: [] },
       usage: { inputTokens: 40, outputTokens: 5, totalTokens: 45, llmSteps: 1, cachedInputTokens: 10 },
     });
   });
@@ -264,9 +272,10 @@ describe("A2.6: legacy Minutka agent removal", () => {
       },
     }, { operationalLogger: (warning) => warnings.push(warning) });
 
-    await expect(runUsageOnly(runner)).resolves.toEqual({
+    await expect(runUsageOnly(runner)).resolves.toMatchObject({
       text: "done",
       executionTrace: [],
+      trace: { model: expect.any(String), modelSteps: expect.arrayContaining([expect.objectContaining({ usage: expect.any(Object) })]) },
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, llmSteps: 1 },
     });
     expect(warnings).toEqual([{

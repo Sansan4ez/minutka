@@ -1,9 +1,10 @@
 import type { AssistantAgentContext, AssistantAgentRunner } from "../application/assistant-service.js";
 import type { Agent } from "@mastra/core/agent";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
-import { normalizeMastraUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
+import { normalizeMastraUsage, type MastraTokenUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
+import { llmModel } from "../config/llm.js";
 
 /**
  * Toolsets offered to the «Минутка» agent. Tools owned by a process disabled in
@@ -23,10 +24,29 @@ export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
-type MastraGenerateResult = MastraUsageResult & {
+type MastraToolCall = { payload?: { toolCallId?: string; toolName?: string; args?: unknown } };
+type MastraToolResult = { payload?: { toolCallId?: string; toolName?: string; result?: unknown; isError?: boolean } };
+type MastraModelStep = {
   text?: string;
-  toolCalls?: Array<{ payload?: { toolCallId?: string; toolName?: string } }>;
-  toolResults?: Array<{ payload?: { toolCallId?: string; toolName?: string; isError?: boolean } }>;
+  finishReason?: string;
+  toolCalls?: MastraToolCall[];
+  toolResults?: MastraToolResult[];
+  usage?: MastraTokenUsage;
+  response?: { modelId?: string; [key: string]: unknown };
+  request?: unknown;
+  content?: unknown;
+  reasoning?: unknown;
+  reasoningText?: unknown;
+  [key: string]: unknown;
+};
+
+type MastraGenerateResult = Omit<MastraUsageResult, "steps"> & {
+  text?: string;
+  toolCalls?: MastraToolCall[];
+  toolResults?: MastraToolResult[];
+  steps?: MastraModelStep[];
+  finishReason?: string;
+  response?: { modelId?: string };
 };
 
 type AssistantAgentRunnerOptions = { operationalLogger?: ModelUsageWarningLogger };
@@ -59,6 +79,14 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
     return {
       text: result.text ?? "",
       executionTrace: successfulToolNames(result).map((toolName) => ({ kind: "tool" as const, toolName })),
+      trace: {
+        model: result.response?.modelId ?? [...(result.steps ?? [])].reverse().find((step) => step.response?.modelId)?.response?.modelId ?? llmModel,
+        // Preserve Mastra's complete per-step objects. The research-store
+        // boundary applies secret filtering before any step reaches storage.
+        modelSteps: result.steps ?? [],
+        toolCalls: result.toolCalls ?? [],
+        toolResults: result.toolResults ?? [],
+      },
       ...(usage ? { usage } : {}),
     };
   };

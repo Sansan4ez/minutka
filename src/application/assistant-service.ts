@@ -46,6 +46,13 @@ import type { ContextDocumentService, PendingContextDocumentMutationReceipt } fr
 import { ProjectLabelService, type AssistantProjectListResult, type ProjectLabelCollectCache } from "./project-labels.js";
 import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
 import type { CollectActivityInput } from "../contracts/minutka-activity.js";
+import {
+  researchTraceError,
+  researchTraceSchemaVersion,
+  sanitizeResearchTrace,
+  type ResearchTraceAttempt,
+  type ResearchTraceStore,
+} from "./research-trace-store.js";
 
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
@@ -85,11 +92,18 @@ export type AssistantExecutionTraceEvent =
   | { kind: "tool"; toolName: string }
   | { kind: "process"; processId: string };
 export type AssistantExecutionTrace = readonly AssistantExecutionTraceEvent[];
-export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace; usage?: ModelTokenUsage };
+export type AssistantAgentRunTrace = {
+  model: string;
+  modelSteps: unknown[];
+  toolCalls: unknown[];
+  toolResults: unknown[];
+};
+export type AssistantAgentRunResult = { text: string; executionTrace: AssistantExecutionTrace; usage?: ModelTokenUsage; trace?: AssistantAgentRunTrace };
 export type AssistantAgentRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult>;
 type AssistantServiceRunner = (input: AssistantChatInput, context: AssistantAgentContext, signal?: AbortSignal) => Promise<AssistantAgentRunResult | string>;
 export type AssistantOperationalWarning =
   | (Pick<ContextBudgetResult, "used" | "available" | "omittedSourceIds"> & { type: "context_budget_overflow" })
+  | { type: "research_trace_missing"; requestId: string; messageId: string; status: "completed" | "failed"; reason: string }
   | UsageOperationalWarning;
 export type AssistantOperationalLogger = (warning: AssistantOperationalWarning) => void;
 export type AssistantChatOutcome =
@@ -130,7 +144,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -160,6 +174,31 @@ export class AssistantService {
     return subjectKey ? { subjectKey } : {};
   }
 
+  private async saveResearchTraceSafely(input: Parameters<ResearchTraceStore["append"]>[0]): Promise<void> {
+    if (!this.deps.researchTraceStore) return;
+    try {
+      await this.deps.researchTraceStore.append(sanitizeResearchTrace(input));
+    } catch (error) {
+      const reason = error instanceof Error ? error.name : "UnknownError";
+      this.warnOperationally({
+        type: "research_trace_missing",
+        requestId: input.requestId,
+        messageId: input.messageId,
+        status: input.status,
+        reason,
+      });
+      await this.auditSafely({
+        id: this.ids.auditEventId(),
+        requestId: input.requestId,
+        type: "trace_missing",
+        employeeId: undefined,
+        messageId: input.messageId,
+        occurredAt: this.clock.now(),
+        metadata: safeAuditMetadata("trace_missing", { reason, status: input.status }),
+      }, "trace missing audit");
+    }
+  }
+
   /** Explicit onboarding write: reviewed Markdown flows through the ingestion boundary. */
   async saveOnboardingContext(input: { userId: string; path: string; content: string }): Promise<UserDocument> {
     return this.deps.ingestionService.saveContextDocument(input);
@@ -177,7 +216,8 @@ export class AssistantService {
     if (!text) throw new Error("text is required");
     const applicationSignal = createAssistantApplicationSignal(this.deps.applicationTimeoutMs, input.signal);
     throwAssistantAbortReason(applicationSignal);
-    if (this.deps.participantStore && !await this.deps.participantStore.getParticipant(userId)) throw new PersistenceError("participant_not_found");
+    const participant = await this.deps.participantStore?.getParticipant(userId);
+    if (this.deps.participantStore && !participant) throw new PersistenceError("participant_not_found");
     const messageId = this.ids.messageId();
     const requestId = this.ids.requestId();
     const inputModality = input.inputModality ?? "text";
@@ -190,7 +230,39 @@ export class AssistantService {
       id: this.ids.auditEventId(), requestId, type: "chat_received", employeeId: userId, threadId, messageId,
       occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_received", { inputModality }),
     }, "chat received audit");
-    const integrityOutcome = await this.deps.requestIntegrityGuard({ userId, text });
+    const traceVersions = this.deps.researchTraceVersions;
+    const saveDeniedOrFailedTrace = async (input: { status: "completed" | "failed"; context: string; output?: string; error?: unknown; usage?: ModelTokenUsage; processIds?: string[] }) => {
+      if (!participant || !this.deps.researchTraceStore || !traceVersions) return;
+      const completedAt = this.clock.now();
+      await this.saveResearchTraceSafely({
+        schemaVersion: researchTraceSchemaVersion,
+        traceId: (this.ids.traceId ?? randomIdGenerator.traceId!)(),
+        requestId,
+        messageId,
+        companyId: participant.companyId,
+        groupId: participant.groupId,
+        subjectKey: participant.subjectKey,
+        processIds: input.processIds ?? ["core"],
+        ...traceVersions,
+        samplingRate: 1,
+        input: { text, modality: inputModality },
+        attempts: [researchTraceAttempt(1, input.context, undefined, input.error)],
+        ...(input.output === undefined ? {} : { output: input.output }),
+        ...(input.usage === undefined ? {} : { usage: input.usage }),
+        startedAt: new Date(chatStartedAt).toISOString(),
+        completedAt,
+        latencyMs: Math.max(0, Date.parse(completedAt) - chatStartedAt),
+        status: input.status,
+        ...(input.error === undefined ? {} : { error: researchTraceError(input.error) }),
+      });
+    };
+    let integrityOutcome: Awaited<ReturnType<RequestIntegrityGuard>>;
+    try {
+      integrityOutcome = await this.deps.requestIntegrityGuard({ userId, text });
+    } catch (error) {
+      await saveDeniedOrFailedTrace({ status: "failed", context: "request_integrity_guard", error });
+      throw error;
+    }
     // The guard runs on every turn and is billed whatever it decides, so its
     // tokens are counted before the turn can take any early exit.
     if (integrityOutcome.usage) {
@@ -217,6 +289,13 @@ export class AssistantService {
         id: this.ids.auditEventId(), requestId, type: "chat_response_generated", employeeId: userId, threadId, messageId,
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("chat_response_generated", {}),
       }, "chat response audit");
+      await saveDeniedOrFailedTrace({
+        status: "completed",
+        context: "request_integrity_guard",
+        output: response,
+        usage: integrityOutcome.usage,
+        processIds: ["core"],
+      });
       this.scheduleThreadCompaction({ employeeId: userId, threadId, requestId });
       return {
         messageId,
@@ -233,8 +312,15 @@ export class AssistantService {
         occurredAt: this.clock.now(), metadata: safeAuditMetadata("context_projection_degraded", event),
       }, "context projection audit");
     };
-    const personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
-    const records = await this.recordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
+    let personalContext: AssistantContextProjection;
+    let records: AssistantRecordsProjection;
+    try {
+      personalContext = await this.projectionBuilder.build({ userId, requestId, audit: auditContextProjection });
+      records = await this.recordsProjectionBuilder?.build({ userId, requestId, today: ownerToday }) ?? emptyRecordsProjection({ userId, requestId, now: this.clock.now() });
+    } catch (error) {
+      await saveDeniedOrFailedTrace({ status: "failed", context: "context_projection", error });
+      throw error;
+    }
     type PendingActionSlot =
       | { sequence: number; kind: "task"; pending: PendingTaskMutation; title?: string; persistence: "attempted" | "persisted" }
       | { sequence: number; kind: "idea"; record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] }
@@ -508,14 +594,17 @@ export class AssistantService {
     let executionTrace: AssistantExecutionTrace = [];
     let usage: ModelTokenUsage | undefined;
     let usageContextSourceCharacters = systemContextBudget.contextSourceCharacters;
+    const traceAttempts: ResearchTraceAttempt[] = [];
     try {
       const run = normalizeAssistantAgentRunResult(await this.agentRunner({ userId, threadId, text }, agentContext, applicationSignal));
       response = run.text;
       executionTrace = run.executionTrace;
       usage = run.usage;
+      traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, run.trace));
     } catch (error) {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
+        traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error));
         agentError = error;
       } else if (currentChatEffectState() !== "none") {
         const recovery = overflowAfterEffects(overflowReason, error);
@@ -557,12 +646,15 @@ export class AssistantService {
             records: reducedRecords,
             systemContext: reduced.text,
           }, applicationSignal));
+          if (traceAttempts.length === 0) traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error));
           response = retryRun.text;
           executionTrace = retryRun.executionTrace;
           usage = retryRun.usage;
           usageContextSourceCharacters = reduced.contextSourceCharacters;
+          traceAttempts.push(researchTraceAttempt(2, reduced.text, retryRun.trace));
         } catch (retryError) {
           const retryEffectState = currentChatEffectState();
+          traceAttempts.push(researchTraceAttempt(2, reduced.text, undefined, retryError));
           if (!classifyProviderContextOverflow(retryError)) {
             agentError = retryError;
           } else if (retryEffectState !== "none") {
@@ -617,7 +709,32 @@ export class AssistantService {
     if (response !== undefined && pendingActionLimitReached && !response.includes(pendingActionGroupLimitUserMessage)) {
       response = `${response.trimEnd()}\n\n${pendingActionGroupLimitUserMessage}`;
     }
-    if (agentError !== undefined && response === undefined) throw agentError;
+    if (agentError !== undefined && response === undefined) {
+      if (participant && this.deps.researchTraceStore && this.deps.researchTraceVersions) {
+        const completedAt = this.clock.now();
+        await this.saveResearchTraceSafely({
+          schemaVersion: researchTraceSchemaVersion,
+          traceId: (this.ids.traceId ?? randomIdGenerator.traceId!)(),
+          requestId,
+          messageId,
+          companyId: participant.companyId,
+          groupId: participant.groupId,
+          subjectKey: participant.subjectKey,
+          processIds: deriveSelectedProcessIds(mergeExecutionTrace(executionTrace, observedExecutionTrace)),
+          ...this.deps.researchTraceVersions,
+          samplingRate: 1,
+          input: { text, modality: inputModality },
+          attempts: traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text, undefined, agentError)],
+          usage,
+          startedAt: new Date(chatStartedAt).toISOString(),
+          completedAt,
+          latencyMs: Math.max(0, Date.parse(completedAt) - chatStartedAt),
+          status: "failed",
+          error: researchTraceError(agentError),
+        });
+      }
+      throw agentError;
+    }
     // Work already committed or awaiting confirmation must not be reported as a
     // failure just because the agent stopped without a closing sentence.
     if (response === undefined) response = missingAgentResponseUserMessage;
@@ -656,6 +773,29 @@ export class AssistantService {
       ...(requiredProcessId ? [{ kind: "process" as const, processId: requiredProcessId }] : []),
       ...observedExecutionTrace,
     ]));
+    if (participant && this.deps.researchTraceStore && this.deps.researchTraceVersions) {
+      const completedAt = this.clock.now();
+      await this.saveResearchTraceSafely({
+        schemaVersion: researchTraceSchemaVersion,
+        traceId: (this.ids.traceId ?? randomIdGenerator.traceId!)(),
+        requestId,
+        messageId,
+        companyId: participant.companyId,
+        groupId: participant.groupId,
+        subjectKey: participant.subjectKey,
+        processIds: selectedProcessIds,
+        ...this.deps.researchTraceVersions,
+        samplingRate: 1,
+        input: { text, modality: inputModality },
+        attempts: traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text)],
+        output: response,
+        usage,
+        startedAt: new Date(chatStartedAt).toISOString(),
+        completedAt,
+        latencyMs: Math.max(0, Date.parse(completedAt) - chatStartedAt),
+        status: "completed",
+      });
+    }
     const pendingActions = pendingActionSlots
       .slice()
       .sort((left, right) => left.sequence - right.sequence)
@@ -844,6 +984,23 @@ function throwAssistantAbortReason(signal: AbortSignal): void {
 
 function normalizeAssistantAgentRunResult(result: AssistantAgentRunResult | string): AssistantAgentRunResult {
   return typeof result === "string" ? { text: result, executionTrace: [] } : result;
+}
+
+function researchTraceAttempt(
+  attempt: number,
+  context: string,
+  trace?: AssistantAgentRunTrace,
+  error?: unknown,
+): ResearchTraceAttempt {
+  return {
+    attempt,
+    context,
+    modelSteps: trace?.modelSteps ?? [],
+    toolCalls: trace?.toolCalls ?? [],
+    toolResults: trace?.toolResults ?? [],
+    ...(trace?.model ? { model: trace.model } : {}),
+    ...(error === undefined ? {} : { error: researchTraceError(error) }),
+  };
 }
 
 const usageSoftLimitUserWarning = "⚠️ Мягкий месячный лимит использования превышен. Работа продолжается; оператор уже уведомлён.";

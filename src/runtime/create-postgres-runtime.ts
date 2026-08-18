@@ -65,6 +65,8 @@ import { CollectActivityService } from "../application/activity-collection.js";
 import { createPostgresActivityCollectionStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
 import { CompanyReportingService } from "../application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../infrastructure/postgres/postgres-company-report-store.js";
+import { createPostgresResearchTraceStore } from "../infrastructure/postgres/postgres-research-trace-store.js";
+import { llmModel } from "../config/llm.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -225,6 +227,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock, randomIdGenerator);
     const activityCollection = new CollectActivityService(createPostgresActivityCollectionStore(pool), systemClock);
+    const researchTraceStore = createPostgresResearchTraceStore(pool);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -242,6 +245,13 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       auditEventStore: stores.auditEventStore,
       usageStore,
       usageCostPolicy,
+      researchTraceStore,
+      researchTraceVersions: {
+        promptVersion: "minutka-assistant-prompt/v1",
+        processVersion: "minutka-process-catalog/v1",
+        taxonomyVersion: "minutka-activity-taxonomy/v1",
+        model: llmModel,
+      },
       participantStore: stores.profileStore,
       chatProjectionBuilder,
       threadCompactionService,

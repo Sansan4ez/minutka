@@ -1,0 +1,28 @@
+import type { ResearchTraceRecord, ResearchTraceStore } from "./research-trace-store.js";
+import { sanitizeResearchTrace } from "./research-trace-store.js";
+
+export type InMemoryResearchTraceState = {
+  traces: ResearchTraceRecord[];
+};
+
+export function createInMemoryResearchTraceState(): InMemoryResearchTraceState {
+  return { traces: [] };
+}
+
+export function createInMemoryResearchTraceStore(
+  state: InMemoryResearchTraceState,
+  options: { failAppend?: () => boolean } = {},
+): ResearchTraceStore {
+  return {
+    async append(trace) {
+      if (options.failAppend?.()) throw new Error("research trace persistence failed");
+      state.traces.push(structuredClone(sanitizeResearchTrace(trace)));
+    },
+    async list({ companyId, groupId, limit = 1_000 }) {
+      return state.traces
+        .filter((trace) => trace.companyId === companyId && trace.groupId === groupId)
+        .slice(-Math.max(0, limit))
+        .map((trace) => structuredClone(trace));
+    },
+  };
+}
