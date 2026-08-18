@@ -1342,6 +1342,74 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     ]);
   });
 
+  it("10db. Sends consent details without weakening the gate and keeps acceptance available", async () => {
+    const spec = createSpecWorld(dummyAgentRunner);
+    const telegram = new TelegramDriver(spec.world, dummyAgentRunner);
+    const identity = { chatId: "chat_consent_details", userId: "user_consent_details" };
+    await spec.cli.json([
+      "employee",
+      "issue-invite",
+      "--invite",
+      "invite_consent_details",
+      "--employee",
+      "emp_consent_details",
+    ]);
+
+    await telegram.start({ ...identity, inviteCode: "invite_consent_details" });
+    const prompt = telegram.sentMessages()[0];
+    expect(prompt).toEqual(expect.objectContaining({
+      text: privacyExplanation,
+      replyMarkup: expect.objectContaining({
+        inlineKeyboard: [[
+          expect.objectContaining({ callbackData: "tg:consent:emp_consent_details" }),
+          expect.objectContaining({ callbackData: "tg:consent-details:emp_consent_details" }),
+        ]],
+      }),
+    }));
+
+    await telegram.clickCallback({
+      ...identity,
+      callbackData: "tg:consent-details:another_employee",
+      messageId: prompt!.messageId,
+    });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Неверная сессия.");
+    expect(telegram.sentMessages().filter(({ text }) => text === executableSpecFullPrivacyExplanation)).toHaveLength(0);
+
+    await telegram.clickCallback({
+      ...identity,
+      callbackData: "tg:consent-details:emp_consent_details",
+      messageId: prompt!.messageId,
+    });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Полный текст отправлен в чат.");
+    expect(telegram.sentMessages().filter(({ text }) => text === executableSpecFullPrivacyExplanation)).toHaveLength(1);
+    expect(spec.world.consents).toHaveLength(0);
+
+    await telegram.sendText({ ...identity, text: "Можно продолжить без согласия?" });
+    expect(spec.world.consents).toHaveLength(0);
+    expect(spec.world.messages).toHaveLength(0);
+    expect(telegram.sentMessages()).toHaveLength(2);
+
+    await telegram.clickCallback({
+      ...identity,
+      callbackData: "tg:consent:emp_consent_details",
+      messageId: prompt!.messageId,
+    });
+    expect(spec.world.consents).toEqual([
+      expect.objectContaining({ employeeId: "emp_consent_details", privacyVersion: "privacy-v5" }),
+    ]);
+    expect(telegram.sentMessages()).toContainEqual(expect.objectContaining({
+      text: "Выберите вашу должность.",
+    }));
+
+    await telegram.clickCallback({
+      ...identity,
+      callbackData: "tg:consent-details:emp_consent_details",
+      messageId: prompt!.messageId,
+    });
+    expect(telegram.callbackAnswers().at(-1)?.text).toBe("Согласие уже принято.");
+    expect(telegram.sentMessages().filter(({ text }) => text === executableSpecFullPrivacyExplanation)).toHaveLength(1);
+  });
+
   it("10e. Reopens consent when a linked owner has not accepted privacy", async () => {
     const world = createSpecWorld(dummyAgentRunner).world;
     const runtime = createInMemoryRuntime({ world, agentRunner: dummyAgentRunner });
