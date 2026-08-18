@@ -45,7 +45,7 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "owner", acceptedAt: claimedAt });
     expect(await runtime.telegramSessionStore.getByIdentity(identity)).toEqual(expect.objectContaining({
       consentAcceptedAt: claimedAt,
-      consentPrivacyVersion: "privacy-v5",
+      consentPrivacyVersion: "privacy-v6",
     }));
     const chatActions: Array<{ chatId: string; action: string }> = [];
     const telegram = {

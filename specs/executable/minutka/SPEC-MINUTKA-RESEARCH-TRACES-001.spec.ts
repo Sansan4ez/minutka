@@ -25,7 +25,7 @@ async function readyParticipant(world: ReturnType<typeof createInMemoryWorld>, e
   const profiles = createInMemoryProfileStore(world);
   await profiles.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, companyId, groupId, issuedAt: now });
   await profiles.openInvite({ inviteCode: `invite_${employeeId}`, openedAt: now, explanationShownAt: now });
-  await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v5", acceptedAt: now, explanationShownAt: now, source: "test" });
+  await profiles.acceptConsent({ employeeId, privacyVersion: "privacy-v6", acceptedAt: now, explanationShownAt: now, source: "test" });
   await profiles.completeProfile({
     completedAt: now,
     profile: {

@@ -38,8 +38,9 @@
         "chat"
       ],
       "dependencies": [
-        "docs/architecture/rfc-minutka-tenancy-and-reporting.md#26-consent",
-        "src/application/activity-collection.ts",
+        "docs/architecture/rfc-minutka-research-corpus-and-reporting.md#211-consent-до-первого-внешнего-пилота",
+        "docs/product/privacy-v6.html",
+        "src/application/research-corpus-export.ts",
         "src/application/company-reporting.ts",
         "src/application/profile-store.ts"
       ]

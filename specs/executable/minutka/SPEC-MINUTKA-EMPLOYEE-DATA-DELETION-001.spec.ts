@@ -95,7 +95,7 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     await expect(profiles.getParticipant("employee_a")).resolves.toBeDefined();
   });
 
-  it("documents the confirmed operator command and the exact consent scope", () => {
+  it("documents the confirmed operator command and the exact privacy-v6 subject scope", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
     const runtime = readFileSync("src/runtime/delete-employee-data.ts", "utf8");
     const runbook = readFileSync("docs/runbooks/employee-personal-data-deletion.md", "utf8");
@@ -106,27 +106,25 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     expect(runtime).toContain("DELETE ${employeeId}");
     expect(runtime).toContain("confirmation did not match; nothing was deleted");
     expect(runbook).toContain("npm run employee:data:delete -- <employee_id>");
-    for (const phrase of ["профиль", "история диалога", "активности и выводы", "расписания", "документы и файлы", "привязка Telegram", "черновик онбординга"]) {
+    for (const phrase of ["профиль", "Telegram-привязку", "разговоры", "активности", "traces", "feedback", "evaluation cases", "персональные выводы"]) {
       expect(consent).toContain(phrase);
     }
-    expect(consent).toContain("передаст запрос оператору");
-    expect(consent).toContain("Старый инвайт перестанет работать");
-    expect(consent).toContain("обезличенные строки");
+    expect(consent).toContain("subject_key");
+    expect(consent).toContain("старый инвайт перестаёт работать");
+    expect(consent).toContain("отчёт пересчитывается");
 
     const workingSection = skillsMap.split("## 🚧 Следующий срез")[0] ?? "";
     const nextSliceSection = skillsMap.split("## 🚧 Следующий срез")[1]?.split("## ⛔")[0] ?? "";
-    expect(workingSection).toContain("| Удаление личных данных сотрудника |");
-    expect(nextSliceSection).not.toContain("Удаление личных данных сотрудника");
+    expect(workingSection).toContain("| Удаление данных |");
+    expect(nextSliceSection).not.toContain("| Удаление данных |");
     for (const phrase of [
-      "передаёт запрос доверенному оператору",
-      "инструмента удаления у агента нет",
-      "не кнопка и не self-service удаление внутри Telegram",
-      "level-2",
-      "необратимую typed-команду",
-      "обезличенные строки сохраняются до удаления среза компании целиком",
-      "identity-free audit marker",
-      "Старый инвайт отзывается",
-      "только по новому",
+      "передаётся доверенному оператору",
+      "не self-service действие агента",
+      "irreversible typed procedure",
+      "company/group/subject scope",
+      "canonical corpus/traces/evaluation удаляются",
+      "ещё не переданный report пересчитывается",
+      "старый инвайт subject отзывается",
     ]) {
       expect(workingSection).toContain(phrase);
     }

@@ -86,21 +86,19 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     expect(invite.employeeId).toBe(testEmployee.employeeId);
     expect(invite.status).toBe("invite_opened");
     expect(invite.privacyVersion).toBe(currentPrivacyVersion);
-    expect(invite.privacyExplanation).toContain("за пару минут");
-    expect(invite.privacyExplanation).toContain("личном контуре");
-    expect(invite.privacyExplanation).toContain("должность, категория активности, примерная длительность, система и дата");
-    expect(invite.privacyExplanation).toContain("Методолог видит обезличенные записи");
-    expect(invite.privacyExplanation).toContain("Компания получает срезы только от 5 участников");
+    expect(invite.privacyExplanation).toContain("полный корпус");
+    expect(invite.privacyExplanation).toContain("разговоры, активности, feedback и технические execution traces");
+    expect(invite.privacyExplanation).toContain("улучшения промптов и таксономии");
+    expect(invite.privacyExplanation).toContain("для обучения и fine-tuning моделей он не используется");
+    expect(invite.privacyExplanation).toContain("Компания получает только проверенный итоговый отчёт");
     expect(invite.privacyExplanation).toContain("LLM-провайдеру");
-    expect(invite.privacyExplanation).toContain("голос — сервису расшифровки");
-    expect(invite.privacyExplanation).toContain("Личные данные удаляются через оператора");
-    expect(invite.privacyExplanation).toContain("живут до отчёта");
-    expect(invite.privacyExplanation).toContain("точечно их не ищем и не пересчитываем");
+    expect(invite.privacyExplanation).toContain("голос — STT-провайдеру");
+    expect(invite.privacyExplanation).toContain("Автоматического срока удаления в пилоте нет");
+    expect(invite.privacyExplanation).toContain("по сотруднику, группе или компании");
+    expect(invite.privacyExplanation).toContain("отчёт после удаления пересчитывается");
     expect(invite.privacyExplanation).toContain(executableSpecPrivacyPolicyUrl);
-    expect(invite.privacyExplanation.length).toBeLessThanOrEqual(1_000);
-    expect(invite.privacyExplanation).not.toMatch(/компания и методолог видят только агрегаты от пяти человек/i);
-    expect(invite.privacyExplanation).not.toMatch(/вы видите все свои данные/i);
-    expect(invite.privacyExplanation).not.toMatch(/(?:точечно|отдельн\w*)[^.\n]{0,80}удал/iu);
+    expect(invite.privacyExplanation.length).toBeLessThanOrEqual(1_200);
+    expect(invite.privacyExplanation).not.toMatch(/не менее 5|обезличенн(?:ый|ые) след|живут до отч[её]та/iu);
 
     const consent = await spec.cli.json<AcceptConsentResult>([
       "employee",

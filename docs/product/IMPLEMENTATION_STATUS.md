@@ -2,29 +2,29 @@
 
 ## Целевое решение
 
-Принято [RFC исследовательского корпуса и клиентской карты автоматизации](../architecture/rfc-minutka-research-corpus-and-reporting.md). Переиспользуемая модель вынесена в [research-corpus-reporting-pattern.md](../architecture/research-corpus-reporting-pattern.md).
+Принят [RFC исследовательского корпуса и клиентской карты автоматизации](../architecture/rfc-minutka-research-corpus-and-reporting.md). Переиспользуемая модель вынесена в [research-corpus-reporting-pattern.md](../architecture/research-corpus-reporting-pattern.md).
 
 ## Что работает сейчас
 
-До implementation cutover runtime продолжает использовать:
+Runtime использует новый research contour:
 
-- `privacy-v5`;
-- anonymized activity dual-write;
-- текущую ≥5-gated company export;
-- старый consent process;
-- conversation store без full research trace persistence.
+- случайный group-scoped `subject_key`;
+- full execution traces с tenant/subject/message correlation;
+- tenant-scoped corpus export и human evaluation cases;
+- subject-aware canonical reporting с confidence и отдельным client DTO;
+- активный immutable consent snapshot `privacy-v6`;
+- ручной retention/purge по company/group/subject scope и report recompute как заявленная операторская процедура.
 
-Точный список — [skills-map.md](./skills-map.md).
+Точный пользовательский список — [skills-map.md](./skills-map.md).
 
-## Что ещё не работает
+## Что ещё не удалено
 
-- group-scoped `subject_key`;
-- full trace store с input/context/model steps/tools/output;
-- tenant-scoped evidence/evaluation export;
-- subject-aware confidence reporting;
-- активный `privacy-v6`;
-- single canonical activity write без `anonymized_activities`.
+До cleanup-задачи `mnt-cycle-completion-4gd.16` runtime сохраняет legacy anonymized activity dual-write и старую company-anonymized purge command. Эти записи не являются источником canonical research export или client report и не определяют active consent. Следующий срез удаляет:
 
-## Правило cutover
+- `minutka_reporting.anonymized_activities`;
+- `AnonymizedActivityRecord` и `saveActivityPair`;
+- старый reporting retention path и его specs/runbook.
 
-Внешний пилот запускается только после задач `mnt-cycle-completion-4gd.12`–`.16` и integration gate. Draft [privacy-v6.html](./privacy-v6.html) не используется для consent до фактического переключения runtime.
+## Правило внешнего запуска
+
+Новый invite показывает `privacy-v6`; без принятого `privacy-v6` onboarding, диалог и research collection недоступны. Ранее принятое `privacy-v1`–`privacy-v5` требует re-consent. Внешний пилот проходит integration gate только после cleanup-задачи `.16`; сам privacy cutover уже активен и `privacy-v5` остаётся неизменяемым архивом.

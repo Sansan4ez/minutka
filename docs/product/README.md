@@ -5,17 +5,17 @@
 - [Final_Description.md](./Final_Description.md) — основной продуктовый baseline: ценность, роли, двухнедельный цикл, corpus, evidence и client report;
 - [agent-minutka-brief.md](./agent-minutka-brief.md) — краткий продуктовый бриф, гипотеза и критерии пилота;
 - [skills-map.md](./skills-map.md) — только фактически доступные возможности текущего runtime;
-- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) — явная граница между принятым целевым RFC и ещё работающим old dual-write/privacy-v5;
+- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) — явная граница между активным research/privacy-v6 contour и ещё не удалённым legacy dual-write;
 - [evidence-pack-and-client-report-template.md](./evidence-pack-and-client-report-template.md) — принятые internal/client Markdown и JSON-шаблоны, confidence policy и ручной review/publish flow; пока не автоматизированы;
 - [virtual-simulation.md](./virtual-simulation.md) — ранний сценарный baseline; требует синхронизации при реализации нового RFC и не переопределяет текущие границы;
 - [dialogs-for-agent-minutka.md](./dialogs-for-agent-minutka.md) — референсы диалогов и тона;
-- [privacy-v6.html](./privacy-v6.html) — **draft**, целевая policy первого внешнего пилота; не активна до реализации нового corpus/trace/subject contour;
-- [privacy-v5.html](./privacy-v5.html) — текущий неизменяемый runtime snapshot внутренних тестов, на который пока ссылается `PRIVACY_POLICY_V5_URL`;
+- [privacy-v6.html](./privacy-v6.html) — активный неизменяемый policy snapshot первого внешнего пилота, на который ссылается `PRIVACY_POLICY_V6_URL`;
+- [privacy-v5.html](./privacy-v5.html) — архивный неизменяемый snapshot внутренних тестов;
 - [privacy-v4.html](./privacy-v4.html) — архивный неизменяемый snapshot.
 
 Архитектурные границы задаёт [RFC исследовательского корпуса и клиентской карты автоматизации](../architecture/rfc-minutka-research-corpus-and-reporting.md). Переиспользуемая модель для других продуктов описана в [research-corpus-reporting-pattern.md](../architecture/research-corpus-reporting-pattern.md).
 
-Старый [RFC мультитенантного контура и обезличенной отчётности](../architecture/rfc-minutka-tenancy-and-reporting.md) оставлен как провенанс tenant-модели и уже реализованного dual-write, но superseded в части reporting/privacy. До implementation cutover `skills-map.md`, активный consent process и `privacy-v5` честно описывают текущее поведение; целевые документы не означают, что subject key/full traces/privacy-v6 уже работают.
+Старый [RFC мультитенантного контура и обезличенной отчётности](../architecture/rfc-minutka-tenancy-and-reporting.md) оставлен как провенанс tenant-модели и ещё не удалённого dual-write, но superseded в части reporting/privacy. Активный consent process, `privacy-v6`, research export и client DTO описывают живое поведение; legacy writer/table удаляются отдельной cleanup-задачей.
 
 ## Унаследованный и фоновый контекст
 

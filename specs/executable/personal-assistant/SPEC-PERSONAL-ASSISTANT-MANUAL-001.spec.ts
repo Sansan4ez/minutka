@@ -32,8 +32,9 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: morning_activity_collection");
     expect(instructions).toContain('collectActivity` exactly once for each named activity');
     expect(instructions).toContain("Process file: consent_and_privacy");
-    expect(instructions).toContain("The ≥5 rule limits company analytics only");
-    expect(instructions).toContain("manual escalation of the participation fact to company leadership");
+    expect(instructions).toContain("full tenant-scoped research access");
+    expect(instructions).toContain("company behind the client-report boundary");
+    expect(instructions).toContain("manual company/group/subject deletion with report recompute");
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
     expect(instructions).not.toMatch(/\b(?:inbox_capture|knowledge_lookup|day_focus)\b/);

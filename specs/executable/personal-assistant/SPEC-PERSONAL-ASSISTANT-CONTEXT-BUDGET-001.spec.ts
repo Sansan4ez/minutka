@@ -42,7 +42,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * that manual and repinned it. The current increase includes the consent
  * retention disclosure required by mnt-pilot-readiness-w73.30.
  */
-const pinnedAgentManualCharacters = 24_473;
+const pinnedAgentManualCharacters = 26_739;
 
 const projection = {
   schemaVersion: 1 as const,

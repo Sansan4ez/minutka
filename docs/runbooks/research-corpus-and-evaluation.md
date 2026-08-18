@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Operator-команда экспортирует внутренний evidence corpus ровно одной компании и учебной группы. Результат предназначен исследователю/методологу для ручного анализа, разметки и offline evaluation. Это не клиентский отчёт: corpus содержит псевдонимизированные разговоры, активности и полные execution traces. Model training/fine-tuning этим workflow не выполняется.
+Operator-команда экспортирует внутренний evidence corpus ровно одной компании и учебной группы. Результат предназначен исследователю/методологу для ручного анализа, prompt/taxonomy improvement, разметки и offline evaluation. Это не клиентский отчёт: corpus содержит псевдонимизированные разговоры, активности и полные execution traces. Model training/fine-tuning этим workflow не выполняется. Доступ и цели раскрыты участнику в активном `privacy-v6` до consent.
 
 Перед запуском загрузите операторское PostgreSQL-окружение и примените миграции:
 
@@ -77,6 +77,18 @@ npm run research:corpus -- evaluation get \
 ```
 
 После разметки повторите JSONL export: строки `evaluation_case` войдут в corpus рядом с referenced trace/message/subject и сохранят `promptVersion`, `processVersion`, `taxonomyVersion` и `model` для сравнения версий.
+
+## Retention, purge и recompute
+
+Автоматического TTL у corpus/traces в пилоте нет. Operator retention выполняется вручную и одинаково трактуется во всех контурах:
+
+- **company purge** удаляет research scope компании;
+- **group purge** удаляет exact company/group scope;
+- **subject purge** удаляет participant и связанные canonical messages, activities, traces, feedback/evaluation по `subject_key`;
+- после correction или purge report command перечитывает актуальный canonical corpus и пересчитывает evidence/client DTO;
+- уже переданный client artifact не отзывается и не заменяется автоматически.
+
+`subject_key` — lookup/correlation handle, а не credential. Перед irreversible purge оператор сверяет exact company/group/subject scope, фиксирует ticket без raw corpus и использует typed command; ad-hoc unscoped SQL не является штатной процедурой. До cleanup-задачи `.16` legacy anonymized table обслуживается отдельно и не определяет retention canonical research corpus.
 
 ## Ручной analysis workflow
 

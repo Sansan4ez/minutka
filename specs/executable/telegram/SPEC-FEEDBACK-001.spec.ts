@@ -1250,15 +1250,15 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const acceptedAt = world.now();
     await runtime.service.issueInvite({ employeeId: "emp_reconsent", inviteCode: "invite_reconsent", companyId: "default_company", groupId: "default_group" });
     await runtime.service.openInvite({ inviteCode: "invite_reconsent" });
-    world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v1", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
+    world.consents.push({ employeeId: "emp_reconsent", privacyVersion: "privacy-v5", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
     await runtime.telegramSessionStore.claim({
       identity,
       session: { employeeId: "emp_reconsent", threadId: "emp_reconsent", createdAt: acceptedAt, updatedAt: acceptedAt },
     });
-    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_reconsent", acceptedAt, privacyVersion: "privacy-v1" });
+    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_reconsent", acceptedAt, privacyVersion: "privacy-v5" });
     expect(await runtime.telegramSessionStore.getByIdentity(identity)).toEqual(expect.objectContaining({
       consentAcceptedAt: acceptedAt,
-      consentPrivacyVersion: "privacy-v1",
+      consentPrivacyVersion: "privacy-v5",
     }));
     const sent: string[] = [];
     const shell = createTelegramShell({
@@ -1281,7 +1281,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const acceptedAt = spec.world.now();
     await runtime.service.issueInvite({ employeeId: "emp_text_reconsent", inviteCode: "invite_text_reconsent", companyId: "default_company", groupId: "default_group" });
     await runtime.service.openInvite({ inviteCode: "invite_text_reconsent" });
-    spec.world.consents.push({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v1", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
+    spec.world.consents.push({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v5", acceptedAt, explanationShownAt: acceptedAt, source: "test" });
     spec.world.participants[0]!.status = "profile_completed";
     spec.world.profiles.push({
       employeeId: "emp_text_reconsent",
@@ -1301,7 +1301,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       identity,
       session: { employeeId: "emp_text_reconsent", threadId: "emp_text_reconsent", createdAt: acceptedAt, updatedAt: acceptedAt },
     });
-    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_text_reconsent", acceptedAt, privacyVersion: "privacy-v1" });
+    await runtime.telegramSessionStore.markConsentAccepted({ identity, employeeId: "emp_text_reconsent", acceptedAt, privacyVersion: "privacy-v5" });
     const personalService = new PersonalAssistantService(runtime.service, {
       async chat(input) {
         return {
@@ -1338,7 +1338,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       expect.objectContaining({ text: "Я робот-помощник Минутка." }),
     ]);
     expect(spec.world.consents).toEqual([
-      expect.objectContaining({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v5" }),
+      expect.objectContaining({ employeeId: "emp_text_reconsent", privacyVersion: "privacy-v6" }),
     ]);
   });
 
@@ -1395,7 +1395,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       messageId: prompt!.messageId,
     });
     expect(spec.world.consents).toEqual([
-      expect.objectContaining({ employeeId: "emp_consent_details", privacyVersion: "privacy-v5" }),
+      expect.objectContaining({ employeeId: "emp_consent_details", privacyVersion: "privacy-v6" }),
     ]);
     expect(telegram.sentMessages()).toContainEqual(expect.objectContaining({
       text: "Выберите вашу должность.",

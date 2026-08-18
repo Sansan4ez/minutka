@@ -6,7 +6,7 @@
 
 ## Что прогон проверяет и что не проверяет
 
-Проверяет: справочники тенантности → инвайт → consent → онбординг с выбором `role_id` → плановое утреннее касание → сбор активностей и обезличенный след → вечернее касание → изоляция второго сотрудника → отказ выгрузки по правилу ≥5 → удаление данных.
+Проверяет: справочники тенантности → инвайт → privacy-v6 consent/re-consent → онбординг с выбором `role_id` → плановое утреннее касание → canonical activities и research trace → вечернее касание → изоляция второго сотрудника → subject-aware internal/client report boundary → ручное удаление и пересчёт.
 
 **Не проверяет — решение оператора от 2026-08-17, а не пропуск:**
 
@@ -33,7 +33,7 @@ set +a
 
 Отдельно проверить два значения, на которых прогон падает раньше первого шага:
 
-- **`PRIVACY_POLICY_V5_URL`.** Имя переменной выводится из текущей версии согласия (`src/config/privacy.ts`), поэтому `.env` от прежних прогонов с `PRIVACY_POLICY_V4_URL` не подходит: runtime падает fail-closed на старте. URL должен быть HTTPS, без query и fragment, и содержать `privacy-v5` в пути.
+- **`PRIVACY_POLICY_V6_URL`.** Имя переменной выводится из текущей версии согласия (`src/config/privacy.ts`), поэтому `.env` с `PRIVACY_POLICY_V5_URL` не подходит: runtime падает fail-closed на старте. URL должен быть HTTPS, без query и fragment, и содержать `privacy-v6` в пути. Опубликованный snapshot обязан совпадать с `docs/product/privacy-v6.html`.
 - **`MINUTKA_EMPLOYEE_TOKENS`** — пары `employeeId:token` через запятую, **минимум на двух сотрудников** одной учебной группы (второй нужен для шага 8). Токен — не меньше 32 символов; все токены принципалов должны различаться (`src/server/http/auth.ts`).
 
 ```bash
@@ -45,7 +45,7 @@ export MINUTKA_EMPLOYEE_TOKENS="$EMPLOYEE_ONE:$EMPLOYEE_ONE_TOKEN,$EMPLOYEE_TWO:
 
 for name in DATABASE_URL MIGRATION_DATABASE_URL INVITE_CODE_PEPPER \
   TELEGRAM_IDENTITY_PEPPER MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_BUCKET \
-  LLM_MODEL MINUTKA_ADMIN_TOKEN MINUTKA_SERVICE_TOKEN PRIVACY_POLICY_V5_URL \
+  LLM_MODEL MINUTKA_ADMIN_TOKEN MINUTKA_SERVICE_TOKEN PRIVACY_POLICY_V6_URL \
   MINUTKA_EMPLOYEE_TOKENS; do
   test -n "$(printenv "$name")" || { echo "Missing required variable: $name"; exit 1; }
 done
@@ -170,14 +170,14 @@ const fs=require("node:fs");
 const md=fs.readFileSync("vault/assistant/processes/consent_and_privacy.md","utf8");
 const s=md.indexOf("<!-- minutka-consent-short:start -->"), e=md.indexOf("<!-- minutka-consent-short:end -->");
 const expected=md.slice(s+"<!-- minutka-consent-short:start -->".length,e).trim()
-  .replace("{{privacyPolicyUrl}}",process.env.PRIVACY_POLICY_V5_URL);
+  .replace("{{privacyPolicyUrl}}",process.env.PRIVACY_POLICY_V6_URL);
 const actual=JSON.parse(fs.readFileSync("/tmp/open-invite.json","utf8"));
 console.log(JSON.stringify({privacyVersion:actual.privacyVersion,textMatches:actual.privacyExplanation===expected}));
 '
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee accept-consent --yes | tail -n 1
 ```
 
-**Признак `прошло`:** ответ `open-invite` содержит короткий `privacyExplanation` и `"privacyVersion":"privacy-v5"`, сверка печатает `"textMatches":true`; `accept-consent` возвращает `privacy-v5` и непустой `acceptedAt`. Согласие без `--yes` отклоняется с причиной `privacy consent must be explicitly accepted`.
+**Признак `прошло`:** ответ `open-invite` содержит короткий `privacyExplanation` с full corpus/traces, manual analysis + prompt/taxonomy improvement + evaluation, явным исключением model training, company client-report boundary и manual retention; `"privacyVersion":"privacy-v6"`, сверка печатает `"textMatches":true`; `accept-consent` возвращает `privacy-v6` и непустой `acceptedAt`. Согласие без `--yes` отклоняется с причиной `privacy consent must be explicitly accepted`. Сессия с `privacy-v5` получает re-consent prompt, а её текст/voice не попадает в conversation/research stores до принятия v6.
 
 Повторить `open-invite` и `accept-consent` для второго сотрудника.
 
@@ -251,12 +251,15 @@ npm run process:run -- --employee "$EMPLOYEE_ONE" --process morning_activity_col
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
   --text "Сегодня час собирал отчёт по продажам в 1С — половину времени искал данные; потом сорок минут созванивался с логистом по срокам; и ещё полчаса вручную переносил заявки из почты в CRM." | tail -n 1
 
-dbq "SELECT company_id, group_id, role_id, task_category, obstacle_kind, duration_bucket, system, activity_date
-     FROM minutka_reporting.anonymized_activities WHERE company_id = \$1 ORDER BY activity_date" "[\"$COMPANY_ID\"]"
-dbq "SELECT count(*)::int AS personal_rows FROM minutka_private.activities WHERE employee_id = \$1" "[\"$EMPLOYEE_ONE\"]"
+dbq "SELECT activity_id, subject_key, company_id, group_id, role_id, task_category,
+            obstacle_kind, duration_bucket, system, recorded_at
+     FROM minutka_private.activities WHERE employee_id = \$1 ORDER BY recorded_at" "[\"$EMPLOYEE_ONE\"]"
+dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, model
+     FROM minutka_research.traces WHERE company_id = \$1 AND group_id = \$2 ORDER BY started_at DESC"
+    "[\"$COMPANY_ID\",\"$GROUP_ID\"]"
 ```
 
-**Признак `прошло`:** три строки в `minutka_reporting.anonymized_activities` и три — в `minutka_private.activities`; в обезличенной строке есть должность, категория задачи, помеха, диапазон длительности, система и дата — и нет идентификатора сотрудника и свободного текста; категория и помеха стоят в одной строке. Формулировки сотрудника остаются только в личной истории разговора.
+**Признак `прошло`:** три canonical activities содержат один и тот же subject binding сотрудника и точный company/group scope; conversation turn и full research trace сохранены, trace содержит версии prompt/taxonomy/model и не содержит credential fixtures. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Legacy `anonymized_activities` может продолжать заполняться до cleanup-задачи `.16`, но не является источником consent, research export или client report.
 
 Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в два приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента, а `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» в описание инструмента (cross-field `.refine()` не доходил до провайдера) и снял fallback-гейт «не терять ввод». С commit `62ffea2` шаг проходит: три активности одним сообщением дают три личные и три обезличенные строки, `inbox_capture` в `selectedProcessIds` не появляется, `minutka_private.ideas` пуста.
 
