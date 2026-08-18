@@ -6,6 +6,7 @@
 - [agent-minutka-brief.md](./agent-minutka-brief.md) — краткий продуктовый бриф, гипотеза и критерии пилота;
 - [skills-map.md](./skills-map.md) — только фактически доступные возможности текущего runtime;
 - [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) — явная граница между принятым целевым RFC и ещё работающим old dual-write/privacy-v5;
+- [evidence-pack-and-client-report-template.md](./evidence-pack-and-client-report-template.md) — принятые internal/client Markdown и JSON-шаблоны, confidence policy и ручной review/publish flow; пока не автоматизированы;
 - [virtual-simulation.md](./virtual-simulation.md) — ранний сценарный baseline; требует синхронизации при реализации нового RFC и не переопределяет текущие границы;
 - [dialogs-for-agent-minutka.md](./dialogs-for-agent-minutka.md) — референсы диалогов и тона;
 - [privacy-v6.html](./privacy-v6.html) — **draft**, целевая policy первого внешнего пилота; не активна до реализации нового corpus/trace/subject contour;
