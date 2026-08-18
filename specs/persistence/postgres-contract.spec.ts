@@ -44,6 +44,8 @@ import { createPostgresResearchCorpusSource } from "../../src/infrastructure/pos
 import { ResearchEvaluationService } from "../../src/application/research-evaluation.js";
 import { ResearchCorpusExportService } from "../../src/application/research-corpus-export.js";
 import { PersistenceError } from "../../src/application/persistence-error.js";
+import { createPostgresResearchScopePurgeStore } from "../../src/infrastructure/postgres/postgres-research-scope-purge-store.js";
+import { ResearchScopePurgeService } from "../../src/application/research-scope-purge.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -1750,5 +1752,106 @@ describe("PostgreSQL storage contracts", () => {
     expect((await pool.query("SELECT 1 FROM minutka_audit.events WHERE employee_id = 'emp_delete'"))).toMatchObject({ rowCount: 0 });
     const deletionAuditCountAfter = Number((await pool.query<{ count: string }>("SELECT count(*) FROM minutka_audit.events WHERE event_type = 'employee_data_deleted' AND employee_id IS NULL AND metadata = '{}'::jsonb")).rows[0]!.count);
     expect(deletionAuditCountAfter).toBe(deletionAuditCountBefore + 1);
+  });
+
+  it("purges one exact company or group scope and leaves every neighbour scope intact", async () => {
+    const scopes = [
+      { employeeId: "purge_a1", companyId: "company_purge_a", groupId: "group_purge_a1" },
+      { employeeId: "purge_a2", companyId: "company_purge_a", groupId: "group_purge_a2" },
+      { employeeId: "purge_b1", companyId: "company_purge_b", groupId: "group_purge_b1" },
+    ] as const;
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const conversations = createPostgresConversationStore(pool);
+    const traces = createPostgresResearchTraceStore(pool);
+    const evaluations = createPostgresEvaluationCaseStore(pool);
+    for (const scope of scopes) {
+      await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Purge Co') ON CONFLICT (id) DO NOTHING", [scope.companyId]);
+      await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Pilot', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [scope.groupId, scope.companyId]);
+      await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING", [`role_${scope.groupId}`, scope.companyId]);
+      await profiles.issueInvite({ employeeId: scope.employeeId, inviteCode: `invite_${scope.employeeId}`, companyId: scope.companyId, groupId: scope.groupId, issuedAt: now });
+      await profiles.openInvite({ inviteCode: `invite_${scope.employeeId}`, openedAt: now, explanationShownAt: now });
+      await profiles.acceptConsent({ employeeId: scope.employeeId, privacyVersion: "privacy-v6", acceptedAt: now, explanationShownAt: now, source: "test" });
+      await profiles.completeProfile({
+        completedAt: now,
+        profile: { employeeId: scope.employeeId, companyId: scope.companyId, groupId: scope.groupId, roleId: `role_${scope.groupId}`, preferredName: "Analyst", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", persona: "efficiency", responseLength: "short", createdAt: now, updatedAt: now },
+      });
+      const participant = (await profiles.getParticipant(scope.employeeId))!;
+      await new CollectActivityService(
+        createPostgresActivityCollectionStore(pool),
+        { now: () => now },
+        () => `activity_${scope.employeeId}`,
+      ).collect({
+        employeeId: scope.employeeId, subjectKey: participant.subjectKey, companyId: scope.companyId,
+        groupId: scope.groupId, roleId: `role_${scope.groupId}`, timezone: "Etc/UTC",
+        activity: { taskCategory: "reporting" },
+      });
+      await conversations.appendTurn({
+        messageId: `msg_${scope.employeeId}`, employeeId: scope.employeeId, subjectKey: participant.subjectKey,
+        threadId: `thread_${scope.employeeId}`, userText: "утренний чек-ин", agentResponse: "ok", timestamp: now,
+      });
+      await createPostgresFeedbackStore(pool).saveFeedback({
+        id: `feedback_${scope.employeeId}`, employeeId: scope.employeeId, threadId: `thread_${scope.employeeId}`,
+        targetMessageId: `msg_${scope.employeeId}`, rating: "positive", source: "test", updatedAt: now,
+      });
+      await createPostgresAuditEventStore(pool).append({ id: `evt_${scope.employeeId}`, requestId: `req_${scope.employeeId}`, type: "chat_received", employeeId: scope.employeeId, occurredAt: now, metadata: {} });
+      await traces.append({
+        schemaVersion: researchTraceSchemaVersion, traceId: `trace_${scope.employeeId}`, requestId: `req_${scope.employeeId}`,
+        messageId: `msg_${scope.employeeId}`, companyId: scope.companyId, groupId: scope.groupId,
+        subjectKey: participant.subjectKey, processIds: ["core"], promptVersion: "prompt/v1",
+        processVersion: "process/v1", taxonomyVersion: "taxonomy/v1", model: "openai/test", samplingRate: 1,
+        input: { text: "утренний чек-ин", modality: "text" },
+        attempts: [{ attempt: 1, context: "bounded", modelSteps: [], toolCalls: [], toolResults: [] }],
+        output: "ok", startedAt: now, completedAt: now, latencyMs: 0, status: "completed",
+      });
+      await new ResearchEvaluationService(evaluations, traces, { now: () => now }, () => `case_${scope.employeeId}`).create({
+        companyId: scope.companyId, groupId: scope.groupId, traceId: `trace_${scope.employeeId}`,
+        labels: { usefulness: "useful", accuracy: "accurate", clarification: "not_needed", extractionCorrectness: "correct" },
+      });
+    }
+
+    const purgedObjectOwners: string[] = [];
+    const purge = new ResearchScopePurgeService(
+      createPostgresResearchScopePurgeStore(pool, { now: () => now }),
+      { async deleteByEmployee(employeeId) { purgedObjectOwners.push(employeeId); return { deletedObjectVersions: 2 }; } },
+    );
+
+    await expect(purge.preview({ companyId: "company_purge_a", groupId: "group_purge_a1" })).resolves.toMatchObject({
+      scope: { kind: "group", companyId: "company_purge_a", groupId: "group_purge_a1" },
+      counts: { participants: 1, profiles: 1, consents: 1, conversations: 1, messages: 1, activities: 1, feedback: 1, auditEvents: 1, traces: 1, evaluationCases: 1 },
+      confirmation: "PURGE GROUP company_purge_a/group_purge_a1",
+    });
+    await expect(purge.purge({ companyId: "company_purge_a", groupId: "group_purge_a1" })).resolves.toMatchObject({
+      deleted: { participants: 1, messages: 1, activities: 1, traces: 1, evaluationCases: 1, minioObjectVersions: 2 },
+      oldInvitesRevoked: true,
+    });
+    expect(purgedObjectOwners).toEqual(["purge_a1"]);
+
+    // The purged group is empty; the sibling group and the other company are not.
+    for (const [table, column] of [["minutka_private.participants", "employee_id"], ["minutka_private.messages", "employee_id"], ["minutka_private.activities", "employee_id"], ["minutka_private.feedback", "employee_id"], ["minutka_audit.events", "employee_id"]] as const) {
+      const remaining = await pool.query<{ owner: string }>(`SELECT ${column} AS owner FROM ${table} WHERE ${column} = ANY($1::text[]) ORDER BY ${column}`, [["purge_a1", "purge_a2", "purge_b1"]]);
+      expect(remaining.rows.map((row) => row.owner)).toEqual(["purge_a2", "purge_b1"]);
+    }
+    for (const table of ["minutka_research.traces", "minutka_research.evaluation_cases"]) {
+      const remaining = await pool.query<{ group_id: string }>(`SELECT group_id FROM ${table} WHERE company_id = ANY($1::text[]) ORDER BY group_id`, [["company_purge_a", "company_purge_b"]]);
+      expect(remaining.rows.map((row) => row.group_id)).toEqual(["group_purge_a2", "group_purge_b1"]);
+    }
+    // Reference directories survive: the same group can be invited again.
+    expect((await pool.query("SELECT 1 FROM minutka_reference.training_groups WHERE id = 'group_purge_a1'")).rowCount).toBe(1);
+    await expect(profiles.openInvite({ inviteCode: "invite_purge_a1", openedAt: now })).resolves.toBeUndefined();
+    await expect(profiles.openInvite({ inviteCode: "invite_purge_a2", openedAt: now })).resolves.toBeDefined();
+    // Report recompute reads the corpus that is still there.
+    const report = new CompanyReportingService(createPostgresCompanyReportStore(pool));
+    expect((await report.exportGroup({ companyId: "company_purge_a", groupId: "group_purge_a1" })).internal.coverage).toMatchObject({ invitedParticipants: 0, observations: 0 });
+    expect((await report.exportGroup({ companyId: "company_purge_a", groupId: "group_purge_a2" })).internal.coverage).toMatchObject({ invitedParticipants: 1, observations: 1 });
+
+    const purgeAudit = await pool.query<{ metadata: Record<string, unknown> }>("SELECT metadata FROM minutka_audit.events WHERE event_type = 'research_scope_purged' AND employee_id IS NULL");
+    expect(purgeAudit.rows).toEqual([{ metadata: { scope: "group", companyId: "company_purge_a", groupId: "group_purge_a1", outcome: "purged", participants: 1, messages: 1, activities: 1, traces: 1, feedback: 1, evaluationCases: 1, insights: 0, auditEvents: 1, objectVersions: 2 } }]);
+
+    // The remaining company scope is purged whole, and an empty scope is refused.
+    await expect(purge.purge({ companyId: "company_purge_a" })).resolves.toMatchObject({ deleted: { participants: 1, traces: 1, evaluationCases: 1 } });
+    await expect(purge.purge({ companyId: "company_purge_a" })).rejects.toThrow("research_scope_not_found");
+    expect((await pool.query("SELECT 1 FROM minutka_private.participants WHERE company_id = 'company_purge_a'")).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM minutka_private.participants WHERE employee_id = 'purge_b1'")).rowCount).toBe(1);
+    expect((await pool.query("SELECT 1 FROM minutka_research.traces WHERE company_id = 'company_purge_b'")).rowCount).toBe(1);
   });
 });

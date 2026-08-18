@@ -85,3 +85,5 @@ Developer provenance only. These repository files are validated by maintainers a
 - `src/application/research-corpus-export.ts`
 - `src/application/company-reporting.ts`
 - `src/application/profile-store.ts`
+- `src/application/research-scope-purge.ts`
+- `src/application/employee-data-deletion.ts`

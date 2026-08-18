@@ -82,13 +82,13 @@ npm run research:corpus -- evaluation get \
 
 Автоматического TTL у corpus/traces в пилоте нет. Operator retention выполняется вручную и одинаково трактуется во всех контурах:
 
-- **company purge** удаляет research scope компании;
-- **group purge** удаляет exact company/group scope;
-- **subject purge** удаляет participant и связанные canonical messages, activities, traces, feedback/evaluation по `subject_key`;
+- **company purge** удаляет research scope компании: `npm run research:scope:purge -- --company <company_id>`;
+- **group purge** удаляет exact company/group scope: `npm run research:scope:purge -- --company <company_id> --group <group_id>`;
+- **subject purge** удаляет participant и связанные canonical messages, activities, traces, feedback/evaluation по `subject_key`: `npm run employee:data:delete -- <employee_id>`;
 - после correction или purge report command перечитывает актуальный canonical corpus и пересчитывает evidence/client DTO;
 - уже переданный client artifact не отзывается и не заменяется автоматически.
 
-`subject_key` — lookup/correlation handle, а не credential. Перед irreversible purge оператор сверяет exact company/group/subject scope, фиксирует ticket без raw corpus и использует typed command; ad-hoc unscoped SQL не является штатной процедурой. Отдельной anonymized reporting-копии activities нет.
+`subject_key` — lookup/correlation handle, а не credential. Перед irreversible purge оператор сверяет exact company/group/subject scope, фиксирует ticket без raw corpus и использует typed command; ad-hoc unscoped SQL не является штатной процедурой. Порядок исполнения: [`research-scope-purge.md`](./research-scope-purge.md) для company/group и [`employee-personal-data-deletion.md`](./employee-personal-data-deletion.md) для subject. Отдельной anonymized reporting-копии activities нет.
 
 ## Ручной analysis workflow
 

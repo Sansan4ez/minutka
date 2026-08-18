@@ -27,6 +27,13 @@ function worldAuditDeletionMarker(world: InMemoryWorld): void {
 
 const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
 
+/** Adapters over one fixture share the invite index, so a purge revokes the same digests. */
+export function inviteIndexFor(world: InMemoryWorld): Map<string, string> {
+  const index = inviteIndexes.get(world) ?? new Map<string, string>();
+  inviteIndexes.set(world, index);
+  return index;
+}
+
 function researchSubject(world: InMemoryWorld, participant: Participant): ResearchSubject {
   const evidenceRefs: ResearchEvidenceRef[] = world.messages
     .filter((message) => message.subjectKey === participant.subjectKey)
@@ -40,7 +47,7 @@ function researchSubject(world: InMemoryWorld, participant: Participant): Resear
   };
 }
 
-function emptyDeletionCounts(): EmployeePersonalDataDeletionCounts {
+export function emptyDeletionCounts(): EmployeePersonalDataDeletionCounts {
   return {
     participants: 0,
     profiles: 0,
@@ -80,8 +87,7 @@ export function createInMemoryProfileStore(
     subjectKey?: () => string;
   } = {},
 ): ProfileStore {
-  const employeeByInviteCode = inviteIndexes.get(world) ?? new Map<string, string>();
-  inviteIndexes.set(world, employeeByInviteCode);
+  const employeeByInviteCode = inviteIndexFor(world);
 
   return {
     async issueInvite({ employeeId, inviteCode, companyId, groupId, issuedAt }) {

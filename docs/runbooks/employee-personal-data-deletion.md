@@ -2,6 +2,8 @@
 
 Оператор выполняет запрос сотрудника одной irreversible-командой через typed use-case. Агент только объясняет процедуру и передаёт запрос оператору; инструмента удаления у агента нет. Клиентская компания в процедуре не участвует.
 
+Это subject scope. Purge всей компании или одной учебной группы выполняется отдельной процедурой [`research-scope-purge.md`](./research-scope-purge.md).
+
 Основание: [RFC исследовательского корпуса §2.10–2.11](../architecture/rfc-minutka-research-corpus-and-reporting.md#210-retention-и-удаление) и активный процесс [`consent_and_privacy`](../../vault/assistant/processes/consent_and_privacy.md).
 
 ## Что удаляется
