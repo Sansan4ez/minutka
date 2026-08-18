@@ -16,9 +16,9 @@ export type EmployeeDataDeletionResult = {
   employeeId: string;
   deleted: EmployeePersonalDataDeletionCounts & { minioObjectVersions: number };
   preserved: {
-    anonymizedActivities: true;
     anonymousDeletionAudit: true;
     aggregateUsageCounters: "not_configured";
+    deliveredClientArtifacts: "not_recalled";
   };
   oldInviteRevoked: true;
 };
@@ -44,9 +44,9 @@ export class EmployeeDataDeletionService {
       employeeId,
       deleted: { ...deleted, minioObjectVersions: objects.deletedObjectVersions },
       preserved: {
-        anonymizedActivities: true,
         anonymousDeletionAudit: true,
         aggregateUsageCounters: "not_configured",
+        deliveredClientArtifacts: "not_recalled",
       },
       oldInviteRevoked: true,
     };

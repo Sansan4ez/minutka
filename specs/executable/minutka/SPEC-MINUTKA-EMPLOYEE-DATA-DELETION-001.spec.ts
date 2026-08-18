@@ -15,7 +15,7 @@ async function invite(profiles: ReturnType<typeof createInMemoryProfileStore>, i
 }
 
 describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", () => {
-  it("deletes only the requested employee, preserves anonymized rows, and revokes the old invite", async () => {
+  it("deletes only the requested subject-linked data and revokes the old invite", async () => {
     const world = createInMemoryWorld();
     const profiles = createInMemoryProfileStore(world);
     await invite(profiles, { employeeId: "employee_a", inviteCode: "invite_a", companyId: "company_a", groupId: "group_a" });
@@ -26,10 +26,6 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
       { id: "b", employeeId: "employee_b", threadId: "thread_b", text: "private B", response: "reply", timestamp: issuedAt },
       { id: "c", employeeId: "employee_c", threadId: "thread_c", text: "private C", response: "reply", timestamp: issuedAt },
     );
-    const anonymizedRows = [
-      { companyId: "company_a", groupId: "group_a", roleId: "role_a", date: "2026-08-17" },
-      { companyId: "company_b", groupId: "group_c", roleId: "role_c", date: "2026-08-17" },
-    ];
     const deletedObjectOwners: string[] = [];
     const service = new EmployeeDataDeletionService(profiles, {
       async deleteByEmployee(employeeId) { deletedObjectOwners.push(employeeId); return { deletedObjectVersions: 4 }; },
@@ -38,14 +34,13 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     await expect(service.deleteEmployeeData({ employeeId: " employee_a " })).resolves.toMatchObject({
       employeeId: "employee_a",
       deleted: { participants: 1, messages: 1, minioObjectVersions: 4 },
-      preserved: { anonymizedActivities: true, anonymousDeletionAudit: true, aggregateUsageCounters: "not_configured" },
+      preserved: { anonymousDeletionAudit: true, aggregateUsageCounters: "not_configured", deliveredClientArtifacts: "not_recalled" },
       oldInviteRevoked: true,
     });
 
     expect(deletedObjectOwners).toEqual(["employee_a"]);
     expect(world.participants.map(({ employeeId }) => employeeId).sort()).toEqual(["employee_b", "employee_c"]);
     expect(world.messages.map(({ employeeId }) => employeeId).sort()).toEqual(["employee_b", "employee_c"]);
-    expect(anonymizedRows).toHaveLength(2);
     await expect(profiles.openInvite({ inviteCode: "invite_a", openedAt: issuedAt })).resolves.toBeUndefined();
     await expect(profiles.openInvite({ inviteCode: "invite_b", openedAt: issuedAt })).resolves.toBeDefined();
     await expect(profiles.openInvite({ inviteCode: "invite_c", openedAt: issuedAt })).resolves.toBeDefined();

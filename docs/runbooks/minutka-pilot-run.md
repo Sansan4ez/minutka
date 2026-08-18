@@ -259,9 +259,9 @@ dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, mod
     "[\"$COMPANY_ID\",\"$GROUP_ID\"]"
 ```
 
-**Признак `прошло`:** три canonical activities содержат один и тот же subject binding сотрудника и точный company/group scope; conversation turn и full research trace сохранены, trace содержит версии prompt/taxonomy/model и не содержит credential fixtures. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Legacy `anonymized_activities` может продолжать заполняться до cleanup-задачи `.16`, но не является источником consent, research export или client report.
+**Признак `прошло`:** три canonical activities содержат один и тот же subject binding сотрудника, `source_message_id` текущего turn, локальную `activity_date` и точный company/group scope; conversation turn и full research trace сохранены, trace содержит версии prompt/taxonomy/model и не содержит credential fixtures. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Отдельной reporting-копии activity нет.
 
-Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в два приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента, а `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» в описание инструмента (cross-field `.refine()` не доходил до провайдера) и снял fallback-гейт «не терять ввод». С commit `62ffea2` шаг проходит: три активности одним сообщением дают три личные и три обезличенные строки, `inbox_capture` в `selectedProcessIds` не появляется, `minutka_private.ideas` пуста.
+Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в два приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента, а `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» в описание инструмента (cross-field `.refine()` не доходил до провайдера) и снял fallback-гейт «не терять ввод». С commit `62ffea2` шаг проходит: три активности одним сообщением дают три canonical subject-linked записи, `inbox_capture` в `selectedProcessIds` не появляется, `minutka_private.ideas` пуста.
 
 ## Шаг 7. Вечернее касание
 
@@ -295,34 +295,9 @@ MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN" npm run cli -- admin company-report \
   --company "$COMPANY_ID" --group "$GROUP_ID" | tail -n 1
 ```
 
-**Признак `прошло`:** `"status":"refused"` с причинами `insufficient_participants` и/или `insufficient_rows`, каждая — с фактическим и требуемым числом (`"required":5`). Отказ явный: пустой или усечённый отчёт вместо отказа считается `нет`.
-
-Срез по должности проверяется теми же порогами (`src/application/company-reporting.ts`): должность с числом участников меньше пяти не называется, а сливается в `other`; срез с числом строк меньше пяти возвращает `status: "refused"`. Пока группа не отдаёт минимум пять участников **и** пять строк, отказ группы срабатывает раньше срезов и ветка среза не наблюдается — она покрыта `specs/executable/minutka/SPEC-MINUTKA-COMPANY-REPORT-001.spec.ts`. Отметить это в протоколе как факт контура, а не как пропущенную проверку.
-
-Чтобы увидеть отказ среза вживую, контуру нужны пять участников одной должности и пять обезличенных строк группы. Собирается это так: пять сотрудников одной должности плюс хотя бы один сотрудник другой должности, и касания шага 6 распределяются так, чтобы у крупной должности осталось меньше пяти строк, а группа порог прошла:
-
-```bash
-MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat --text "<три активности>"
-MINUTKA_API_TOKEN="$EMPLOYEE_TWO_TOKEN" npm run cli -- employee chat --text "<три активности>"
-MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN" npm run cli -- admin company-report \
-  --company "$COMPANY_ID" --group "$GROUP_ID" | tail -n 1
-```
-
-**Признак `прошло` для среза:** группа отдаёт `"status":"exported"`, срез крупной должности — `"status":"refused"` с `insufficient_rows`, редкая должность по имени не названа и попадает в срез `other`. Ещё три строки крупной должности переводят её срез в `"status":"exported"` с агрегатами без идентификатора сотрудника и свободного текста.
+**Признак `прошло`:** ответ содержит отдельные `internal` и `client` DTO. Internal coverage считает distinct subjects, observations и active dates и помечает evidence как `hypothesis`, `signal` или `confirmed`. Client DTO не содержит subject keys, employee ids, raw messages, traces и evidence refs; слабое evidence остаётся hypothesis/`insufficientEvidence`, а не скрывается универсальным порогом.
 
 ## Шаг 10. Удаление
-
-Сначала — удаление обезличенного среза компании, затем личных данных сотрудника ([retention](./company-anonymized-data-retention.md), [удаление личных данных](./employee-personal-data-deletion.md)).
-
-```bash
-dbq "SELECT count(*)::int AS anonymized FROM minutka_reporting.anonymized_activities WHERE company_id = \$1" "[\"$COMPANY_ID\"]"
-npm run company:anonymized:purge -- "$COMPANY_ID"
-# В интерактивном TTY перечитать preview и ввести точно:
-# PURGE <company_id> <expectedRows>
-dbq "SELECT count(*)::int AS personal FROM minutka_private.activities WHERE employee_id = \$1" "[\"$EMPLOYEE_ONE\"]"
-```
-
-**Признак `прошло`:** level-2 operator CLI challenge печатает `companyId` и `expectedRows`, требует точную строку `PURGE <company_id> <expectedRows>`, а успешный результат содержит `{ companyId, expectedRows, deletedRows }`; `minutka_reporting.anonymized_activities` по этой компании пуста, личные активности сотрудника сохранены полностью. При `expectedRows: 0` команда делает безопасный no-op без challenge. Неверная строка, EOF или запуск без интерактивного TTY ничего не удаляют. Если строки изменились между preview и execute, транзакция откатывается с mismatch: перечитать preview и запустить команду заново.
 
 Удаление личных данных требует level-2 подтверждения строкой `DELETE <employee_id>` на stdin:
 
@@ -332,7 +307,7 @@ dbq "SELECT count(*)::int AS participants FROM minutka_private.participants WHER
 dbq "SELECT count(*)::int AS schedules FROM minutka_private.process_schedules WHERE user_id = \$1" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** команда печатает scope удаления и завершается кодом `0`; участник, профиль, расписания, журнал срабатываний и личные активности исчезли; ранее созданные обезличенные строки других компаний не затронуты; неверная строка подтверждения отклоняется с `confirmation did not match; nothing was deleted`.
+**Признак `прошло`:** команда печатает scope удаления и завершается кодом `0`; участник, профиль, расписания, журнал срабатываний и личные активности исчезли; canonical records других сотрудников и компаний не затронуты; неверная строка подтверждения отклоняется с `confirmation did not match; nothing was deleted`.
 
 ## Что фиксировать при отказе доставки по расписанию
 
@@ -374,11 +349,11 @@ dbq "SELECT schedule_id, user_id, process_id, scheduled_for, status, completed_a
 | 3 | Consent | прошло | `"privacyVersion":"privacy-v4"`, сверка текста с блоком `minutka-consent` → `"textMatches":true`; без `--yes` отказ `privacy consent must be explicitly accepted` |
 | 4 | Онбординг | **нет** | должность своей компании → `"status":"profile_completed"`, расписания `morning_activity_collection` 09:00 и `evening_reflection` 19:00 (`Europe/Moscow`), `day_focus` нет. Чужая должность отклонена, но ответом `Internal server error.` — `mnt-pilot-readiness-w73.8`; флаг `--name` потерян — `mnt-pilot-readiness-w73.9` |
 | 5 | Утреннее касание | прошло | перенос на 05:03 через `employee chat`; `schedule_fires`: `morning_activity_collection`, `scheduled_for 2026-08-17T02:03:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`; лог `Scheduled action failed (…; kind=process).`; `next_fire_at` → `2026-08-18 05:03` в таймзоне профиля; `npm run process:run` печатает приглашение назвать 1–3 активности |
-| 6 | Активности | **нет** | ответ с тремя активностями трижды сохранён как «идея» (`captureIdea`), `minutka_private.activities` и `minutka_reporting.anonymized_activities` пусты — `mnt-pilot-readiness-w73.10` |
+| 6 | Активности | **нет** | ответ с тремя активностями трижды сохранён как «идея» (`captureIdea`), `minutka_private.activities` пуста — `mnt-pilot-readiness-w73.10` |
 | 7 | Вечернее касание | прошло | перенос на 05:08; `schedule_fires`: `evening_reflection`, `scheduled_for 2026-08-17T02:08:00Z`, лог планировщика; `next_fire_at` → `2026-08-18 05:08`; `npm run process:run` печатает вечернюю рефлексию |
 | 8 | Изоляция | прошло | у второго сотрудника свой профиль, пустые `insights`, вопрос о чужих данных отклонён с явной причиной, активности первого не пересказаны |
 | 9 | Выгрузка | прошло | `{"status":"refused",…"insufficient_participants":actual 2/required 5,"insufficient_rows":actual 0/required 5}`; ветка отказа среза по должности в контуре из двух сотрудников не достигается (порог группы срабатывает раньше) — покрыта `SPEC-MINUTKA-COMPANY-REPORT-001` |
-| 10 | Удаление | прошло | `company:anonymized:purge` → `deletedRows: 0` (строк нет из-за шага 6), личные данные не затронуты; `employee:data:delete` удалил профиль, 2 расписания, 2 записи журнала, 3 идеи, 28 audit-событий, 16 usage-записей, 4 версии объектов MinIO; второй сотрудник и маркер `employee_data_deleted` сохранены; неверное подтверждение ничего не удаляет |
+| 10 | Удаление | прошло | `employee:data:delete` удалил профиль, 2 расписания, 2 записи журнала, 3 идеи, 28 audit-событий, 16 usage-записей, 4 версии объектов MinIO; второй сотрудник и маркер `employee_data_deleted` сохранены; неверное подтверждение ничего не удаляет |
 
 Предусловия дев-сервера, потребовавшие правки на месте: в `.env` была `PRIVACY_POLICY_V2_URL` вместо `PRIVACY_POLICY_V4_URL`, и `MINUTKA_EMPLOYEE_TOKENS` была закомментирована — обе переменные заданы в оболочке прогона. Голос и генерация инвайт-ссылки в Telegram не проверялись по решению оператора.
 
@@ -393,11 +368,11 @@ dbq "SELECT schedule_id, user_id, process_id, scheduled_for, status, completed_a
 | 3 | Consent | прошло | `open-invite` → `"status":"invite_opened"`, `"privacyVersion":"privacy-v4"`; сверка с блоком `minutka-consent` → `{"privacyVersion":"privacy-v4","textMatches":true}`; `accept-consent` без `--yes` → `privacy consent must be explicitly accepted`, с `--yes` → `privacy-v4` и непустой `acceptedAt` |
 | 4 | Онбординг | прошло | чужая должность (`role_of_another_company` и реальная `role_other_sales` компании `company_other`) → `roleId must belong to the participant company`, HTTP `400` с кодом `invalid_request`, код возврата `1`, `Internal server error.` нет (`mnt-pilot-readiness-w73.8`); своя должность → `"status":"profile_completed"` с `role_pilotrun_sales` и `"preferredName":"Алексей"` из `--name` (`mnt-pilot-readiness-w73.9`); ровно два расписания — `morning_activity_collection` 09:00 и `evening_reflection` 19:00 в `Europe/Moscow`, `day_focus` отсутствует |
 | 5 | Утреннее касание | прошло | перенос на 09:52 через `employee chat`; `schedule_fires`: `morning_activity_collection`, `scheduled_for 2026-08-17T06:52:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, лог `Scheduled action failed (…; schedule=emp_pilotrun_one:morning_activity_collection-daily; kind=process).`; `next_fire_at 2026-08-18T06:52:00Z` — следующий день, то же локальное время; `npm run process:run` → код `0` и приглашение назвать 1–3 активности (плюс известная строка `Assistant thread compaction audit failed (PersistenceError).`, `mnt-pilot-readiness-w73.11`) |
-| 6 | Активности | **нет** | ответ с тремя активностями → `"Сохранил идею: …"`, `selectedProcessIds ["core","morning_activity_collection","inbox_capture"]`, `effect "business_write_committed"`; `minutka_private.activities` и `minutka_reporting.anonymized_activities` пусты, запись ушла в `minutka_private.ideas` (audit `idea_captured`). Воспроизведено четырьмя формулировками, включая точные словарные значения и чистый тред. Инструмент `captureIdea` в наборе агента отсутствует — запись делает fallback-гейт `AssistantService.chat`, когда ход агента заканчивается без текста и эффекта (`llmSteps: 4`, потолок `maxSteps`). Задача — `mnt-pilot-readiness-w73.13` |
+| 6 | Активности | **нет** | ответ с тремя активностями → `"Сохранил идею: …"`, `selectedProcessIds ["core","morning_activity_collection","inbox_capture"]`, `effect "business_write_committed"`; `minutka_private.activities` пуста, запись ушла в `minutka_private.ideas` (audit `idea_captured`). Воспроизведено четырьмя формулировками, включая точные словарные значения и чистый тред. Инструмент `captureIdea` в наборе агента отсутствует — запись делает fallback-гейт `AssistantService.chat`, когда ход агента заканчивается без текста и эффекта (`llmSteps: 4`, потолок `maxSteps`). Задача — `mnt-pilot-readiness-w73.13` |
 | 7 | Вечернее касание | прошло | перенос на 10:07 через `employee chat`; `schedule_fires`: `evening_reflection`, `scheduled_for 2026-08-17T07:07:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, строка лога планировщика; `next_fire_at 2026-08-18T07:07:00Z`; `npm run process:run` → код `0` и вечерняя рефлексия с предложением подвести итоги дня |
 | 8 | Изоляция | прошло | у `emp_pilotrun_two` свой профиль, `insights` → `[]`, на вопрос «что я записывал сегодня?» агент отвечает, что записей в его контексте нет; активности и имя первого сотрудника не названы |
 | 9 | Выгрузка | прошло | `{"status":"refused",…"insufficient_rows": actual 0 / required 5}` — участников в группе шесть, порог участников пройден, отказ остался по строкам. Ветка отказа среза по должности снова не наблюдалась: строк нет из-за шага 6 — покрыта `SPEC-MINUTKA-COMPANY-REPORT-001` |
-| 10 | Удаление | прошло | `company:anonymized:purge` → `{"deletedRows":0}` (строк нет из-за шага 6), личные данные не затронуты; `employee:data:delete` удалил профиль, участника, 2 расписания, 2 записи журнала, 3 разговора, 8 сообщений, 4 идеи, 25 audit-событий, 16 usage-записей, 4 версии объектов MinIO; `emp_pilotrun_two`…`six`, обезличенные строки других компаний и маркер `employee_data_deleted` сохранены; неверная строка подтверждения → `confirmation did not match; nothing was deleted` |
+| 10 | Удаление | прошло | `employee:data:delete` удалил профиль, участника, 2 расписания, 2 записи журнала, 3 разговора, 8 сообщений, 4 идеи, 25 audit-событий, 16 usage-записей, 4 версии объектов MinIO; `emp_pilotrun_two`…`six`, canonical records других компаний и маркер `employee_data_deleted` сохранены; неверная строка подтверждения → `confirmation did not match; nothing was deleted` |
 
 Механика прогона, не относящаяся к продукту: код первого инвайта `emp_pilotrun_one` был потерян оболочкой прогона до шага 3, участник удалён `employee:data:delete` и инвайт выпущен заново. Голос и переход по инвайт-ссылке в Telegram не проверялись по решению оператора.
 
@@ -409,25 +384,25 @@ dbq "SELECT schedule_id, user_id, process_id, scheduled_for, status, completed_a
 
 | № | Шаг | Результат | Свидетельство |
 |---:|---|---|---|
-| 6 | Активности | прошло | ответ с тремя активностями → `"Записал 3 активности: …"`, `selectedProcessIds ["core","morning_activity_collection"]` (без `inbox_capture`), `effect "business_write_committed"`; `minutka_private.activities` — 3 строки у `emp_pilotrun_one`, `minutka_reporting.anonymized_activities` — 3 строки компании: `role_pilotrun_sales` + `admin/routine_pattern/15_30m/crm`, `meetings/routine_pattern/30_60m/paper_or_verbal`, `reporting/routine_pattern/30_60m/one_c`; идентификатора сотрудника и свободного текста в обезличенных строках нет, `minutka_private.ideas` пуста |
+| 6 | Активности | прошло | ответ с тремя активностями → `"Записал 3 активности: …"`, `selectedProcessIds ["core","morning_activity_collection"]` (без `inbox_capture`), `effect "business_write_committed"`; `minutka_private.activities` — 3 canonical строки у `emp_pilotrun_one`; `minutka_private.ideas` пуста |
 | 9 | Выгрузка | прошло | на 3 строках — `{"status":"refused",…"insufficient_rows": actual 3 / required 5}`; после касания логиста (6 строк, 6 участников) группа → `"status":"exported"`, срез `role_pilotrun_sales` (5 участников, 3 строки) → `"status":"refused"` с `insufficient_rows 3/5`, `role_pilotrun_logistics` по имени не назван и слит в `other` → `"status":"refused"` с `insufficient_participants 1/5` и `insufficient_rows 3/5`; после третьего касания (9 строк) срез `role_pilotrun_sales` → `"status":"exported"`, 6 агрегатов без идентификатора сотрудника и свободного текста, `other` по-прежнему `refused` |
 
 Ветка отказа среза по должности, которую прежние прогоны не наблюдали, воспроизведена вживую — ссылка на `SPEC-MINUTKA-COMPANY-REPORT-001` для неё больше не нужна.
 
-Расхождение прогона: агрегаты отчёта датированы `2026-08-16`, тогда как в `minutka_reporting.anonymized_activities` сохранено `2026-08-17` — чтение колонки `date` шло через локальную таймзону процесса и обратно через UTC. Порогов ≥5 и обезличивания расхождение не нарушало. Закрыто задачей `mnt-pilot-readiness-w73.14`: на том же срезе отчёт печатает `2026-08-17`.
+Историческое расхождение даты activity закрыто задачей `mnt-pilot-readiness-w73.14`; текущая canonical запись хранит отдельную локальную `activity_date`.
 
-Состояние контура после прогона: шаг 10 не выполнялся, у компании `company_pilotrun` осталось 9 обезличенных строк и личные активности `emp_pilotrun_one`, `emp_pilotrun_two`, `emp_pilotrun_three`. Полный повторный прогон начинается с этого состояния — либо после `company:anonymized:purge` и `employee:data:delete`. Токены сотрудников `three`…`six` жили только в оболочке прогона.
+Состояние исторического прогона предшествовало canonical cleanup; полный новый прогон начинается на мигрированной базе и использует subject-scoped deletion/recompute. Токены сотрудников `three`…`six` жили только в оболочке прогона.
 
 ### 2026-08-17, дев-сервер, частичный прогон шагов 5, 7, 8 и 10, commit `b384dda`
 
-Прогон оставшихся четырёх шагов по решению оператора: шаги 1–4 подтверждены прогоном на `e3f0c80`, шаги 6 и 9 — частичным прогоном на `62ffea2`, здесь добираются шаги, которые ещё не выполнялись на текущем коде. Контур продолжает предыдущий прогон: `TELEGRAM_MODE=disabled`, компания `company_pilotrun`, группа `group_pilotrun_2026_08`, шесть участников, 9 обезличенных строк, таймзона профилей `Europe/Moscow`.
+Прогон оставшихся четырёх шагов по решению оператора: шаги 1–4 подтверждены прогоном на `e3f0c80`, шаги 6 и 9 — частичным прогоном на `62ffea2`, здесь добираются шаги, которые ещё не выполнялись на текущем коде. Контур продолжает предыдущий прогон: `TELEGRAM_MODE=disabled`, компания `company_pilotrun`, группа `group_pilotrun_2026_08`, шесть участников, таймзона профилей `Europe/Moscow`.
 
 | № | Шаг | Результат | Свидетельство |
 |---:|---|---|---|
 | 5 | Утреннее касание | прошло | перенос на 11:23 через `employee chat` (`effect "business_write_committed"`); `schedule_fires`: `morning_activity_collection`, `scheduled_for 2026-08-17T08:23:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, лог `Scheduled action failed (…; schedule=emp_pilotrun_one:morning_activity_collection-daily; kind=process).`; `next_fire_at 2026-08-18T08:23:00Z` — следующий день, то же локальное время; `npm run process:run` → код `0` и приглашение назвать 1–3 активности, строки `Assistant thread compaction audit failed (PersistenceError).` больше нет (`mnt-pilot-readiness-w73.11`) |
 | 7 | Вечернее касание | прошло | перенос на 11:27 через `employee chat`; `schedule_fires`: `evening_reflection`, `scheduled_for 2026-08-17T08:27:00Z`, `status failed`, `error_code TelegramDeliveryNotConfiguredError`, строка лога планировщика; `next_fire_at 2026-08-18T08:27:00Z`; `npm run process:run` → код `0` и вечерняя рефлексия с предложением подвести итоги дня |
 | 8 | Изоляция | прошло | вторым сотрудником взят `emp_pilotrun_four` (та же группа, личный контур пуст): `profile` возвращает только его (`"preferredName":"Вера"`), `insights` → `[]`, на вопрос «что я записывал сегодня?» агент отвечает, что записей в его контексте нет; активности и имя `emp_pilotrun_one` не названы |
-| 10 | Удаление | прошло | `company:anonymized:purge` → `{"deletedRows":9}`, `minutka_reporting.anonymized_activities` по компании пуста, личные активности всех троих сотрудников сохранены (3+3+3); неверная строка подтверждения → `confirmation did not match; nothing was deleted`, код возврата `1`; `employee:data:delete emp_pilotrun_one` → код `0` и scope: участник, профиль, согласие, 1 разговор, 6 сообщений, 3 активности, 2 расписания, 2 записи журнала, 20 audit-событий, 12 usage-записей, 4 версии объектов MinIO; `emp_pilotrun_two`…`six` и их личные активности сохранены, маркер `employee_data_deleted` записан |
+| 10 | Удаление | прошло | `employee:data:delete emp_pilotrun_one` → код `0` и scope: участник, профиль, согласие, 1 разговор, 6 сообщений, 3 активности, 2 расписания, 2 записи журнала, 20 audit-событий, 12 usage-записей, 4 версии объектов MinIO; `emp_pilotrun_two`…`six` и их личные активности сохранены, маркер `employee_data_deleted` записан |
 
 Шаг 8 выполнен не на `emp_pilotrun_two`, как в предыдущих прогонах: у него после подготовки шага 9 появились собственные активности, а признак шага требует пустого личного контура. `emp_pilotrun_four` — участник той же группы, онбординг прошёл, активностей не вводил.
 

@@ -40,13 +40,14 @@ function activity(input: {
     ...(input.obstacle ? { obstacle: input.obstacle } : {}),
     ...(input.system ? { system: input.system } : {}),
     durationBucket: "30_60m",
+    activityDate: input.date ?? "2026-08-15",
     recordedAt: `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
   };
 }
 
 function service(participants: Participant[], personalActivities: PersonalActivityRecord[]) {
   const activities = createInMemoryActivityCollectionState();
-  activities.personalActivities.push(...personalActivities);
+  activities.activities.push(...personalActivities);
   return new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities }), () => "2026-08-18T00:00:00.000Z");
 }
 
@@ -134,13 +135,13 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
   it("recomputes from current canonical activities after correction and purge", async () => {
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
     const state = createInMemoryActivityCollectionState();
-    state.personalActivities.push(automationActivity("a1", "subject_one", "2026-08-15"));
+    state.activities.push(automationActivity("a1", "subject_one", "2026-08-15"));
     const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities: state }));
 
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("ручная отчётность");
-    state.personalActivities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", obstacle: { kind: "automation_candidate", value: "report_generation" }, system: "spreadsheets" });
+    state.activities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", obstacle: { kind: "automation_candidate", value: "report_generation" }, system: "spreadsheets" });
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("генерация отчётов");
-    state.personalActivities.length = 0;
+    state.activities.length = 0;
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, recommendations: [] });
   });
 

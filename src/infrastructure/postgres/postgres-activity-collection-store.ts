@@ -5,44 +5,29 @@ import { withTransaction } from "./postgres-pool.js";
 
 export function createPostgresActivityCollectionStore(pool: Pool): ActivityCollectionStore {
   return {
-    async saveActivityPair({ personal, anonymized }) {
+    async saveActivity(activity) {
       try {
         await withTransaction(pool, async (client) => {
           await client.query(
             `INSERT INTO minutka_private.activities
-              (activity_id, employee_id, subject_key, company_id, group_id, role_id, task_category,
-               obstacle_kind, obstacle_value, duration_bucket, system, recorded_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              (activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
+               task_category, obstacle_kind, obstacle_value, duration_bucket, system, activity_date, recorded_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
             [
-              personal.activityId,
-              personal.employeeId,
-              personal.subjectKey,
-              personal.companyId,
-              personal.groupId,
-              personal.roleId,
-              personal.taskCategory ?? null,
-              personal.obstacle?.kind ?? null,
-              personal.obstacle?.value ?? null,
-              personal.durationBucket ?? null,
-              personal.system ?? null,
-              personal.recordedAt,
-            ],
-          );
-          await client.query(
-            `INSERT INTO minutka_reporting.anonymized_activities
-              (company_id, group_id, role_id, task_category, obstacle_kind, obstacle_value,
-               duration_bucket, system, activity_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [
-              anonymized.companyId,
-              anonymized.groupId,
-              anonymized.roleId,
-              anonymized.taskCategory ?? null,
-              anonymized.obstacle?.kind ?? null,
-              anonymized.obstacle?.value ?? null,
-              anonymized.durationBucket ?? null,
-              anonymized.system ?? null,
-              anonymized.date,
+              activity.activityId,
+              activity.employeeId,
+              activity.subjectKey,
+              activity.sourceMessageId ?? null,
+              activity.companyId,
+              activity.groupId,
+              activity.roleId,
+              activity.taskCategory ?? null,
+              activity.obstacle?.kind ?? null,
+              activity.obstacle?.value ?? null,
+              activity.durationBucket ?? null,
+              activity.system ?? null,
+              activity.activityDate,
+              activity.recordedAt,
             ],
           );
         });

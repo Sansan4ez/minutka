@@ -89,17 +89,18 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
 
     expect(result.selectedProcessIds).toEqual(["core", "morning_activity_collection"]);
     expect(result.effect).toBe("business_write_committed");
-    expect(state.personalActivities).toHaveLength(3);
-    expect(state.anonymizedActivities).toHaveLength(3);
-    expect(state.anonymizedActivities[2]).toEqual({
+    expect(state.activities).toHaveLength(3);
+    expect(state.activities[2]).toMatchObject({
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
       taskCategory: "coordination",
-      date: "2026-08-15",
+      activityDate: "2026-08-15",
     });
-    expect(state.anonymizedActivities[2]).not.toHaveProperty("durationBucket");
-    expect(state.anonymizedActivities[2]).not.toHaveProperty("system");
+    expect(state.activities[2]).not.toHaveProperty("durationBucket");
+    expect(state.activities[2]).not.toHaveProperty("system");
   });
 
   it("records the activities through the registered provider tool instead of losing the touch to the capture gate", async () => {
@@ -146,29 +147,27 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
     expect(result.effect).toBe("business_write_committed");
     expect(result.response).toBe("Записал три активности.");
     await expect(ideas.list("employee_a")).resolves.toEqual([]);
-    expect(state.anonymizedActivities).toEqual([
-      {
-        companyId: "company_a",
-        groupId: "group_a",
-        roleId: "role_a",
+    expect(state.activities).toEqual([
+      expect.objectContaining({
+        employeeId: "employee_a",
+        subjectKey: "subject_employee_a",
         taskCategory: "reporting",
         obstacle: { kind: "routine_pattern", value: "manual_reporting" },
         durationBucket: "30_60m",
         system: "one_c",
-        date: "2026-08-15",
-      },
-      {
-        companyId: "company_a",
-        groupId: "group_a",
-        roleId: "role_a",
+        activityDate: "2026-08-15",
+      }),
+      expect.objectContaining({
+        employeeId: "employee_a",
+        subjectKey: "subject_employee_a",
         taskCategory: "meetings",
         durationBucket: "15_30m",
         system: "messengers",
-        date: "2026-08-15",
-      },
-      { companyId: "company_a", groupId: "group_a", roleId: "role_a", taskCategory: "coordination", date: "2026-08-15" },
+        activityDate: "2026-08-15",
+      }),
+      expect.objectContaining({ taskCategory: "coordination", activityDate: "2026-08-15" }),
     ]);
-    expect(state.personalActivities).toHaveLength(3);
+    expect(state.activities).toHaveLength(3);
   });
 
   it("reports a rolled-back storage failure as an ordinary retryable save error", async () => {
@@ -203,7 +202,7 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
     });
   });
 
-  it("keeps the free employee account in private conversation history and out of anonymized rows", async () => {
+  it("keeps free text in conversation history and out of structured canonical activities", async () => {
     const { service, state, conversationStore } = harness();
     const story = "Меня раздражало ждать согласование от Ирины, потом я вручную сводил цифры.";
 
@@ -211,9 +210,9 @@ describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection proce
 
     await expect(conversationStore.getRecentTurns({ employeeId: "employee_a", threadId: "thread_a", limit: 1 }))
       .resolves.toMatchObject([{ userText: story }]);
-    expect(JSON.stringify(state.anonymizedActivities)).not.toContain("Ирины");
-    expect(JSON.stringify(state.anonymizedActivities)).not.toContain("раздражало");
-    expect(JSON.stringify(state.anonymizedActivities)).not.toContain("вручную сводил цифры");
+    expect(JSON.stringify(state.activities)).not.toContain("Ирины");
+    expect(JSON.stringify(state.activities)).not.toContain("раздражало");
+    expect(JSON.stringify(state.activities)).not.toContain("вручную сводил цифры");
   });
 
   it("registers the process and makes it the default morning touch instead of day_focus", () => {

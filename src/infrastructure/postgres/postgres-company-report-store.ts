@@ -17,6 +17,7 @@ type ActivityRow = {
   obstacle_value: string | null;
   duration_bucket: PersonalActivityRecord["durationBucket"] | null;
   system: PersonalActivityRecord["system"] | null;
+  activity_date: string;
   recorded_at: Date;
 };
 
@@ -42,7 +43,8 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
             ),
             client.query<ActivityRow>(
               `SELECT activity_id, subject_key::text AS subject_key, company_id, group_id, role_id,
-                      task_category, obstacle_kind, obstacle_value, duration_bucket, system, recorded_at
+                      task_category, obstacle_kind, obstacle_value, duration_bucket, system,
+                      activity_date::text AS activity_date, recorded_at
                FROM minutka_private.activities
                WHERE company_id=$1 AND group_id=$2
                ORDER BY recorded_at, activity_id`,
@@ -62,7 +64,7 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
   };
 }
 
-function toActivity(row: ActivityRow): Omit<PersonalActivityRecord, "employeeId"> {
+function toActivity(row: ActivityRow): Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId"> {
   return {
     activityId: row.activity_id,
     subjectKey: row.subject_key,
@@ -75,6 +77,7 @@ function toActivity(row: ActivityRow): Omit<PersonalActivityRecord, "employeeId"
       : { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as PersonalActivityRecord["obstacle"] }),
     ...(row.duration_bucket === null ? {} : { durationBucket: row.duration_bucket }),
     ...(row.system === null ? {} : { system: row.system }),
+    activityDate: row.activity_date,
     recordedAt: row.recorded_at.toISOString(),
   };
 }

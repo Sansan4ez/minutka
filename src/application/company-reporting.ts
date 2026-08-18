@@ -15,7 +15,7 @@ export type CompanyReportProcessKey = { taskCategory?: TaskCategory; obstacle?: 
 export type CompanyReportSnapshot = {
   invitedParticipants: number;
   subjects: Array<{ subjectKey: string; roleId?: string }>;
-  activities: Array<Omit<PersonalActivityRecord, "employeeId">>;
+  activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>;
 };
 
 export type CompanyReportStore = {
@@ -138,11 +138,11 @@ function buildInternalReport(
   groupId: string,
   invitedParticipants: number,
   subjectCount: number,
-  activities: Array<Omit<PersonalActivityRecord, "employeeId">>,
+  activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>,
   generatedAt: string,
 ): InternalCompanyEvidenceReport {
   const contributors = new Set(activities.map((activity) => activity.subjectKey)).size;
-  const activeDates = new Set(activities.map((activity) => activity.recordedAt.slice(0, 10))).size;
+  const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
   return {
     schemaVersion: "minutka-internal-report/v1",
     generatedAt,
@@ -160,7 +160,7 @@ function buildInternalReport(
 
 function buildBuckets(
   scope: InternalEvidenceBucket["scope"],
-  activities: Array<Omit<PersonalActivityRecord, "employeeId">>,
+  activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>,
 ): InternalEvidenceBucket[] {
   const processGroups = groupBy(activities, (activity) => JSON.stringify({
     ...(activity.taskCategory ? { taskCategory: activity.taskCategory } : {}),
@@ -169,7 +169,7 @@ function buildBuckets(
   return [...processGroups.entries()].map(([key, observations]) => {
     const process = JSON.parse(key) as CompanyReportProcessKey;
     const contributors = new Set(observations.map((activity) => activity.subjectKey)).size;
-    const activeDates = new Set(observations.map((activity) => activity.recordedAt.slice(0, 10))).size;
+    const activeDates = new Set(observations.map((activity) => activity.activityDate)).size;
     return {
       bucketId: bucketId(scope, process),
       scope,

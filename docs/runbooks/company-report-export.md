@@ -1,6 +1,6 @@
 # Выгрузка evidence и клиентского отчёта компании
 
-Живой report path строится из канонических `minutka_private.activities` и group-scoped participant bindings. Таблица legacy dual-write не является источником отчёта. Каждый запуск перечитывает текущее состояние, поэтому correction, персональное удаление или purge канонических activities сразу меняют результат.
+Живой report path строится из канонических `minutka_private.activities` и group-scoped participant bindings. Отдельного reporting store для activities нет. Каждый запуск перечитывает текущее состояние, поэтому correction, персональное удаление или purge канонических activities сразу меняют результат.
 
 Архитектурная граница задана [RFC исследовательского корпуса §2.7–2.10](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack) и [шаблоном evidence/client report](../product/evidence-pack-and-client-report-template.md).
 
@@ -43,4 +43,4 @@ Contributor считается по distinct `subject_key`: двадцать act
 5. При слабом coverage оставьте hypothesis/`insufficientEvidence`; не повышайте confidence редакторским текстом.
 6. После correction/purge запустите команду повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities.
 
-Старый retention contour и физическое удаление dual-write вынесены в отдельную cleanup-задачу; до неё legacy writer/table могут существовать, но report reader к ним не обращается.
+Отдельного reporting writer/table нет: correction и purge применяются к canonical subject-aware evidence, после чего report command пересчитывает результат.

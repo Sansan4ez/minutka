@@ -88,7 +88,7 @@ npm run research:corpus -- evaluation get \
 - после correction или purge report command перечитывает актуальный canonical corpus и пересчитывает evidence/client DTO;
 - уже переданный client artifact не отзывается и не заменяется автоматически.
 
-`subject_key` — lookup/correlation handle, а не credential. Перед irreversible purge оператор сверяет exact company/group/subject scope, фиксирует ticket без raw corpus и использует typed command; ad-hoc unscoped SQL не является штатной процедурой. До cleanup-задачи `.16` legacy anonymized table обслуживается отдельно и не определяет retention canonical research corpus.
+`subject_key` — lookup/correlation handle, а не credential. Перед irreversible purge оператор сверяет exact company/group/subject scope, фиксирует ticket без raw corpus и использует typed command; ad-hoc unscoped SQL не является штатной процедурой. Отдельной anonymized reporting-копии activities нет.
 
 ## Ручной analysis workflow
 

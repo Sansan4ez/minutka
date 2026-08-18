@@ -47,7 +47,7 @@ function source() {
       ] : [];
     },
     async listActivities({ companyId, groupId }: { companyId: string; groupId: string }) {
-      return companyId === "company-a" && groupId === "group-a" ? [{ activityId: "activity-a", subjectKey: "subject-a", companyId, groupId, roleId: "role-a", taskCategory: "reporting" as const, recordedAt: now }] : [];
+      return companyId === "company-a" && groupId === "group-a" ? [{ activityId: "activity-a", subjectKey: "subject-a", companyId, groupId, roleId: "role-a", taskCategory: "reporting" as const, activityDate: "2026-08-18", recordedAt: now }] : [];
     },
     async listFeedback({ companyId, groupId }: { companyId: string; groupId: string }) {
       return companyId === "company-a" && groupId === "group-a" ? [{ feedbackId: "feedback-a", targetMessageId: "message-a", rating: "positive" as const, createdAt: now, updatedAt: now }] : [];

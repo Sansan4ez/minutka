@@ -425,4 +425,4 @@ Typed команда формирует canonical internal/client DTO. Все р
 - confidence рассчитывается из canonical activities/subjects/dates по §4;
 - report recompute читает актуальный corpus после correction или purge;
 - executable specs покрывают три примера §5 и tenant isolation;
-- legacy `anonymized_activities` не читается canonical report path и удаляется отдельной cleanup-задачей.
+- report path читает только canonical subject-aware activities; отдельной anonymized activity copy нет.

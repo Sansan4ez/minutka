@@ -17,14 +17,10 @@ Runtime использует новый research contour:
 
 Точный пользовательский список — [skills-map.md](./skills-map.md).
 
-## Что ещё не удалено
+## Canonical activity write
 
-До cleanup-задачи `mnt-cycle-completion-4gd.16` runtime сохраняет legacy anonymized activity dual-write и старую company-anonymized purge command. Эти записи не являются источником canonical research export или client report и не определяют active consent. Следующий срез удаляет:
-
-- `minutka_reporting.anonymized_activities`;
-- `AnonymizedActivityRecord` и `saveActivityPair`;
-- старый reporting retention path и его specs/runbook.
+Runtime сохраняет одну subject-aware activity в `minutka_private.activities`. Запись содержит `subject_key`, локальную `activity_date` и, для activity из agent turn, `source_message_id`; research export и company reporting читают эту же каноническую запись. Старые anonymized dual-write, reporting table и отдельная retention-команда удалены.
 
 ## Правило внешнего запуска
 
-Новый invite показывает `privacy-v6`; без принятого `privacy-v6` onboarding, диалог и research collection недоступны. Ранее принятое `privacy-v1`–`privacy-v5` требует re-consent. Внешний пилот проходит integration gate только после cleanup-задачи `.16`; сам privacy cutover уже активен и `privacy-v5` остаётся неизменяемым архивом.
+Новый invite показывает `privacy-v6`; без принятого `privacy-v6` onboarding, диалог и research collection недоступны. Ранее принятое `privacy-v1`–`privacy-v5` требует re-consent. Внешний пилот проходит отдельный integration gate после canonical cleanup; privacy cutover активен, а `privacy-v5` остаётся неизменяемым архивом.

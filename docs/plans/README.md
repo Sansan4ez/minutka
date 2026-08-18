@@ -17,7 +17,7 @@ br show <mnt-id>                 # scope, Design и Acceptance Criteria
 
 ## Архитектура и планка
 
-- [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md) — мультитенантная ось, dual-write, видимость участия, правило ≥5 и retention;
+- [RFC исследовательского корпуса «Минутки»](../architecture/rfc-minutka-research-corpus-and-reporting.md) — canonical corpus, subject-aware evidence, confidence и client-report boundary;
 - [RFC линейки трёх продуктов](../architecture/rfc-three-products-implementation.md) — границы самостоятельных репозиториев и процедура клона;
 - [унаследованная архитектура runtime](../architecture/rfc-personal-assistant-architecture.md) + [agent-led routing](../architecture/rfc-agent-led-routing.md) — фундамент typed use-cases и одного agent-led хода;
 - [планка качества пилота](../architecture/rfc-pilot-quality-bar.md) — красные линии, один раунд ревью на эпик и integration gate;

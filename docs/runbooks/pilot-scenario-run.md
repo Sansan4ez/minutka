@@ -90,7 +90,7 @@ npm run db:status
 
 Не направлять этот прогон или persistence specs на чужую/production-базу без явного разрешения оператора.
 
-Перед первым production invite обязательно прогнать persistence-гейт на отдельной чистой тестовой базе. Это условие запуска проверяет реальные PostgreSQL FK, атомарный dual-write и каскадное удаление завершённого профиля с личной активностью:
+Перед первым production invite обязательно прогнать persistence-гейт на отдельной чистой тестовой базе. Это условие запуска проверяет реальные PostgreSQL FK, single canonical activity write с subject/source links и каскадное удаление завершённого профиля с личной активностью:
 
 ```bash
 set -a; . ./.env; set +a

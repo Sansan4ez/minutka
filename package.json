@@ -14,7 +14,6 @@
     "db:status": "tsx src/infrastructure/postgres/migrate.ts --status",
     "pilot:knowledge-base:import": "tsx src/runtime/import-pilot-knowledge-base.ts",
     "pilot:schedules:backfill": "tsx src/runtime/backfill-default-schedules.ts",
-    "company:anonymized:purge": "tsx src/runtime/purge-company-anonymized-activities.ts",
     "employee:data:delete": "tsx src/runtime/delete-employee-data.ts",
     "research:corpus": "tsx src/runtime/research-corpus.ts",
     "tenant:seed": "tsx src/runtime/seed-tenant-reference-directories.ts",

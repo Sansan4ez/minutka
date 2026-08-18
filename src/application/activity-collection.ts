@@ -24,6 +24,7 @@ export type PersonalActivityRecord = {
   activityId: string;
   employeeId: string;
   subjectKey: string;
+  sourceMessageId?: string;
   companyId: string;
   groupId: string;
   roleId: string;
@@ -31,35 +32,19 @@ export type PersonalActivityRecord = {
   obstacle?: ActivityObstacle;
   durationBucket?: ActivityDurationBucket;
   system?: ActivitySystem;
+  activityDate: string;
   recordedAt: string;
 };
 
-/**
- * Deliberately has no owner identifier, private-record identifier, free text,
- * or timestamp. Its only time dimension is a calendar date.
- */
-export type AnonymizedActivityRecord = {
-  companyId: string;
-  groupId: string;
-  roleId: string;
-  taskCategory?: TaskCategory;
-  obstacle?: ActivityObstacle;
-  durationBucket?: ActivityDurationBucket;
-  system?: ActivitySystem;
-  date: string;
-};
-
 export type ActivityCollectionStore = {
-  /** Persists both records as one atomic unit. */
-  saveActivityPair(input: {
-    personal: PersonalActivityRecord;
-    anonymized: AnonymizedActivityRecord;
-  }): Promise<void>;
+  /** Persists the single canonical, subject-aware activity record. */
+  saveActivity(activity: PersonalActivityRecord): Promise<void>;
 };
 
 const collectActivityCommandSchema = z.strictObject({
   employeeId: z.string().trim().min(1),
   subjectKey: z.string().trim().min(1),
+  sourceMessageId: z.string().trim().min(1).optional(),
   companyId: z.string().trim().min(1),
   groupId: z.string().trim().min(1),
   roleId: z.string().trim().min(1),
@@ -83,35 +68,23 @@ export class CollectActivityService {
     const recordedAt = this.clock.now();
     const activityId = this.activityId();
 
-    const personal: PersonalActivityRecord = {
+    const activity: PersonalActivityRecord = {
       activityId,
       employeeId: input.employeeId,
       subjectKey: input.subjectKey,
+      ...(input.sourceMessageId === undefined ? {} : { sourceMessageId: input.sourceMessageId }),
       companyId: input.companyId,
       groupId: input.groupId,
       roleId: input.roleId,
       ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
       ...(obstacle === undefined ? {} : { obstacle }),
+      activityDate: calendarDateInIanaTimezone(recordedAt, input.timezone),
       recordedAt,
     };
-    const anonymized: AnonymizedActivityRecord = {
-      companyId: input.companyId,
-      groupId: input.groupId,
-      roleId: input.roleId,
-      ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
-      ...(obstacle === undefined ? {} : { obstacle }),
-      date: calendarDateInIanaTimezone(recordedAt, input.timezone),
-    };
-    if (input.activity.durationBucket !== undefined) {
-      personal.durationBucket = input.activity.durationBucket;
-      anonymized.durationBucket = input.activity.durationBucket;
-    }
-    if (input.activity.system !== undefined) {
-      personal.system = input.activity.system;
-      anonymized.system = input.activity.system;
-    }
+    if (input.activity.durationBucket !== undefined) activity.durationBucket = input.activity.durationBucket;
+    if (input.activity.system !== undefined) activity.system = input.activity.system;
 
-    await this.store.saveActivityPair({ personal, anonymized });
+    await this.store.saveActivity(activity);
 
     return { activityId };
   }
