@@ -1,6 +1,6 @@
 # RFC: планка качества пилота (pilot quality bar)
 
-> **Унаследованный фундамент клона.** Документ описывает runtime персонального ассистента, на котором построена «Минутка». Живые продуктовые решения, мультитенантная ось и privacy-границы «Минутки» задаёт [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md).
+> **Унаследованный фундамент клона.** Документ описывает runtime персонального ассистента, на котором построена «Минутка». Живые продуктовые решения, research corpus и company delivery boundary задаёт [RFC исследовательского корпуса](./rfc-minutka-research-corpus-and-reporting.md). Для «Минутки» красные линии дополнены в корневом `AGENTS.md`: tenant isolation, client artifact boundary, reversible research corpus и secrets isolation.
 
 
 ## Status
