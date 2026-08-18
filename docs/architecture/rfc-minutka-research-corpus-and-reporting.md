@@ -67,6 +67,7 @@ Related:
 - не вычисляется из имени или Telegram identifiers;
 - не используется как credential;
 - индексируется в research records;
+- образует с `company_id` и `group_id` неразрывный tuple: composite-ключи схемы отвергают canonical activity, message, trace и evaluation case, у которых subject не принадлежит указанным company/group;
 - не попадает в company report;
 - позволяет считать unique contributors, связывать evidence и выполнять purge/sanitize/recompute;
 - новая программа по умолчанию создаёт новый key, даже если участвует тот же человек.

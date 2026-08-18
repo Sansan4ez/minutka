@@ -34,7 +34,7 @@ import { createInMemoryDocumentStore } from "../../src/application/in-memory-doc
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
 import { createPostgresActivityCollectionStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
-import { CollectActivityService } from "../../src/application/activity-collection.js";
+import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../../src/infrastructure/postgres/postgres-research-trace-store.js";
@@ -43,6 +43,7 @@ import { createPostgresEvaluationCaseStore } from "../../src/infrastructure/post
 import { createPostgresResearchCorpusSource } from "../../src/infrastructure/postgres/postgres-research-corpus-source.js";
 import { ResearchEvaluationService } from "../../src/application/research-evaluation.js";
 import { ResearchCorpusExportService } from "../../src/application/research-corpus-export.js";
+import { PersistenceError } from "../../src/application/persistence-error.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -560,6 +561,104 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect(JSON.stringify(corpus.corpus)).not.toContain("research_export_owner");
     expect(JSON.stringify(corpus.corpus)).not.toContain("thread_research_export");
+  });
+
+  it("rejects cross-tenant subject tuples in canonical and research tables", async () => {
+    const companyA = "company_tuple_a";
+    const groupA = "group_tuple_a";
+    const roleA = "role_tuple_a";
+    const companyB = "company_tuple_b";
+    const groupB = "group_tuple_b";
+    const roleB = "role_tuple_b";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Tuple A'), ($2, 'Tuple B') ON CONFLICT (id) DO NOTHING`,
+      [companyA, companyB],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $3, 'Pilot A', daterange('2026-07-01', '2027-01-01', '[)')),
+              ($2, $4, 'Pilot B', daterange('2026-07-01', '2027-01-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupA, groupB, companyA, companyB],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $3, 'Role A'), ($2, $4, 'Role B')
+       ON CONFLICT (id) DO NOTHING`,
+      [roleA, roleB, companyA, companyB],
+    );
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId: "tuple_owner_a", inviteCode: "invite_tuple_owner_a", companyId: companyA, groupId: groupA, issuedAt: now });
+    await profiles.issueInvite({ employeeId: "tuple_owner_b", inviteCode: "invite_tuple_owner_b", companyId: companyB, groupId: groupB, issuedAt: now });
+    const participantA = (await profiles.getParticipant("tuple_owner_a"))!;
+    const participantB = (await profiles.getParticipant("tuple_owner_b"))!;
+
+    const activities = createPostgresActivityCollectionStore(pool);
+    const activity = (overrides: Partial<PersonalActivityRecord>): PersonalActivityRecord => ({
+      activityId: "activity_tuple_valid",
+      employeeId: "tuple_owner_a",
+      subjectKey: participantA.subjectKey,
+      companyId: companyA,
+      groupId: groupA,
+      roleId: roleA,
+      taskCategory: "reporting",
+      activityDate: "2026-07-12",
+      recordedAt: now,
+      ...overrides,
+    });
+    const conflict = new PersistenceError("persistence_conflict");
+    // A subject of company A next to a valid group of company B.
+    await expect(activities.saveActivity(activity({ activityId: "activity_tuple_cross_tenant", companyId: companyB, groupId: groupB, roleId: roleB })))
+      .rejects.toThrow(conflict);
+    // An employee of company A carrying another participant's subject.
+    await expect(activities.saveActivity(activity({ activityId: "activity_tuple_cross_subject", subjectKey: participantB.subjectKey })))
+      .rejects.toThrow(conflict);
+
+    const traces = createPostgresResearchTraceStore(pool);
+    const trace = (overrides: { traceId: string; companyId: string; groupId: string; subjectKey: string }) => ({
+      schemaVersion: researchTraceSchemaVersion,
+      requestId: `req_${overrides.traceId}`,
+      messageId: `msg_${overrides.traceId}`,
+      processIds: ["core"],
+      promptVersion: "prompt/tuple-v1",
+      processVersion: "process/tuple-v1",
+      taxonomyVersion: "taxonomy/tuple-v1",
+      model: "openai/test",
+      samplingRate: 1 as const,
+      input: { text: "утренний чек-ин", modality: "text" as const },
+      attempts: [{ attempt: 1, context: "bounded", modelSteps: [], toolCalls: [], toolResults: [] }],
+      output: "ok",
+      startedAt: now,
+      completedAt: now,
+      latencyMs: 0,
+      status: "completed" as const,
+      ...overrides,
+    });
+    await expect(traces.append(trace({ traceId: "trace_tuple_cross_tenant", companyId: companyB, groupId: groupB, subjectKey: participantA.subjectKey })))
+      .rejects.toThrow(conflict);
+
+    // Valid same-scope writes still pass.
+    await activities.saveActivity(activity({}));
+    await traces.append(trace({ traceId: "trace_tuple_a", companyId: companyA, groupId: groupA, subjectKey: participantA.subjectKey }));
+    const evaluations = createPostgresEvaluationCaseStore(pool);
+    const created = await new ResearchEvaluationService(evaluations, traces, { now: () => now }, () => "case_tuple_a")
+      .create({ companyId: companyA, groupId: groupA, traceId: "trace_tuple_a", labels: { usefulness: "useful", accuracy: "accurate", clarification: "not_needed", extractionCorrectness: "correct" } });
+    expect(created.subjectKey).toBe(participantA.subjectKey);
+
+    // An evaluation case whose trace belongs to another subject and scope.
+    await expect(evaluations.create({ ...created, caseId: "case_tuple_cross_subject", companyId: companyB, groupId: groupB, subjectKey: participantB.subjectKey }))
+      .rejects.toThrow(conflict);
+
+    const counts = async () => (await pool.query<{ activities: string; traces: string; cases: string }>(
+      `SELECT (SELECT count(*) FROM minutka_private.activities WHERE subject_key = $1) AS activities,
+              (SELECT count(*) FROM minutka_research.traces WHERE subject_key = $1) AS traces,
+              (SELECT count(*) FROM minutka_research.evaluation_cases WHERE subject_key = $1) AS cases`,
+      [participantA.subjectKey],
+    )).rows[0]!;
+    expect(await counts()).toEqual({ activities: "1", traces: "1", cases: "1" });
+
+    // Deleting the participant still cascades through every composite key.
+    await migrationPool.query("DELETE FROM minutka_private.participants WHERE employee_id = $1", ["tuple_owner_a"]);
+    expect(await counts()).toEqual({ activities: "0", traces: "0", cases: "0" });
   });
 
   it("reads the oldest bounded compaction batch in order and persists its watermark", async () => {
