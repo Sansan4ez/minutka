@@ -197,17 +197,17 @@ MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee complete-onboard
   --name Алексей --role-id "$ROLE_ID" --persona support \
   --response-length balanced --timezone Europe/Moscow | tail -n 1
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee profile | tail -n 1
-dbq "SELECT schedule_id, process_id, time_of_day, timezone, enabled, next_fire_at
+dbq "SELECT schedule_id, process_id, time_of_day, days_of_week, timezone, enabled, next_fire_at
      FROM minutka_private.process_schedules WHERE user_id = \$1 ORDER BY process_id" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно два расписания — `morning_activity_collection` на `09:00` и `evening_reflection` на `19:00` в таймзоне профиля. `day_focus` в расписаниях отсутствовать обязан.
+**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно два расписания — `morning_activity_collection` на `08:30` и `evening_reflection` на `19:00`, оба с понедельника по пятницу (`days_of_week = 31`) в таймзоне профиля. `day_focus` в расписаниях отсутствовать обязан.
 
 Онбординг второго сотрудника выполняется так же — с должностью своей компании.
 
 ## Шаг 5. Утреннее касание
 
-Плановое касание проверяется **переносом времени расписания на ближайшие минуты**, а не ожиданием 09:00. Перенос выполняется обычным разговором: агент вызывает `setDailySchedule` (`src/mastra/tools/schedule-tools.ts`).
+Плановое касание проверяется **переносом времени расписания на ближайшие минуты**, а не ожиданием штатных 08:30. Перенос выполняется обычным разговором: агент вызывает `setDailySchedule` (`src/mastra/tools/schedule-tools.ts`).
 
 ```bash
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \

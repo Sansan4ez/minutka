@@ -58,7 +58,7 @@ npm run process:run -- \
 - PostgreSQL, MinIO, миграции или LLM-конфигурация не готовы;
 - выполнение процесса завершилось ошибкой.
 
-Допустимые значения `--process`: `morning_activity_collection`, `day_focus`, `evening_reflection`. Для пилотного утреннего касания используется `morning_activity_collection`; `day_focus` оставлен только как поддерживаемый legacy process ID и не подменяет текущий сценарий «Минутки».
+Допустимые значения `--process`: `morning_activity_collection` и `evening_reflection`.
 
 ## Проверка утреннего и вечернего касания в пилотном прогоне
 

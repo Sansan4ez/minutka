@@ -171,15 +171,16 @@ employee ID, transport identity, or personal content).
 ## Расписания ежедневных касаний
 
 После завершения онбординга application создаёт владельцу два расписания один
-раз: `day_focus` на 09:00 и `evening_reflection` на 19:00 в IANA-таймзоне из
-профиля. Если у владельца уже есть хотя бы одна строка расписания, автоматическое
+раз: `morning_activity_collection` на 08:30 и `evening_reflection` на 19:00,
+оба с понедельника по пятницу (`days_of_week = 31`) в IANA-таймзоне из профиля.
+Если у владельца уже есть хотя бы одна строка расписания, автоматическое
 провижининг ничего не создаёт и не меняет: персональные правки в PostgreSQL имеют
 приоритет.
 
 Проверить расписания конкретного участника:
 
 ```sql
-SELECT schedule_id, process_id, time_of_day, timezone, enabled, next_fire_at
+SELECT schedule_id, process_id, time_of_day, days_of_week, timezone, enabled, next_fire_at
 FROM minutka_private.process_schedules
 WHERE user_id = 'emp_001'
 ORDER BY time_of_day, schedule_id;
