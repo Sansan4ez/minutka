@@ -6,6 +6,7 @@ import { requireTelegramDeliverySession } from "../../../src/telegram/telegram-s
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { DefaultScheduleProvisioner } from "../../../src/application/default-schedules.js";
+import { ScheduleManagementService } from "../../../src/application/schedule-management-service.js";
 import type { AssistantChatResult } from "../../../src/application/assistant-service.js";
 import { renderTelegramMarkdown } from "../../../src/telegram/telegram-renderer.js";
 import { createTelegramScheduledActionRunner } from "../../../src/runtime/scheduled-action-delivery.js";
@@ -34,23 +35,72 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     ]);
     await expect(runtime.scheduleStore.list("other_owner")).resolves.toEqual([]);
 
-    await runtime.scheduleStore.save("owner_moscow", {
-      id: "owner_moscow:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "10:30", timezone: "Europe/Moscow",
-      enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z",
+    const scheduleManagement = new ScheduleManagementService(
+      runtime.scheduleStore,
+      { getProfile: async (employeeId) => runtime.world.profiles.find((profile) => profile.employeeId === employeeId) },
+      { now: () => "2026-01-16T07:00:00.000Z" },
+    );
+    await expect(scheduleManagement.saveDailySchedule("owner_moscow", {
+      processId: "morning_activity_collection",
+      timeOfDay: "09:15",
+    })).resolves.toMatchObject({
+      id: "owner_moscow:morning_activity_collection-daily",
+      timeOfDay: "09:15",
+      daysOfWeek: 31,
+      nextFireAt: "2026-01-19T06:15:00.000Z",
+    });
+    await expect(scheduleManagement.saveDailySchedule("owner_moscow", {
+      processId: "evening_reflection",
+      timeOfDay: "19:15",
+      daysOfWeek: 64,
+    })).resolves.toMatchObject({
+      id: "owner_moscow:evening_reflection-daily",
+      timeOfDay: "19:15",
+      daysOfWeek: 64,
+      nextFireAt: "2026-01-18T16:15:00.000Z",
     });
     await expect(runtime.service.completeOnboarding({ employeeId: "owner_moscow", roleId: "default_role", persona: "efficiency", timezone: "Europe/Moscow" })).resolves.toMatchObject({ completion: "already" });
     const restartedProvisioner = new DefaultScheduleProvisioner(runtime.scheduleStore, { now: () => "2026-01-16T05:30:00.000Z" });
     await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({
       created: false,
       schedules: [
-        { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "10:30", enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z" },
-        { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", daysOfWeek: 31, enabled: true },
+        { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+        { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
       ],
     });
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
-      { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "10:30", enabled: false, nextFireAt: "2026-01-15T07:30:00.000Z" },
-      { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:00", daysOfWeek: 31, enabled: true },
+      { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+      { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
     ]);
+  });
+
+  it("keeps the all-days default when schedule management creates a missing schedule", async () => {
+    const clock = { now: () => "2026-01-15T05:30:00.000Z" };
+    const store = createInMemoryScheduleStore(clock);
+    const scheduleManagement = new ScheduleManagementService(store, {
+      getProfile: async (employeeId) => ({
+        employeeId,
+        companyId: "default_company",
+        groupId: "default_group",
+        roleId: "default_role",
+        preferredName: employeeId,
+        assistantName: "Минутка",
+        addressForm: "informal",
+        persona: "efficiency",
+        responseLength: "balanced",
+        timezone: "Europe/Moscow",
+        createdAt: clock.now(),
+        updatedAt: clock.now(),
+      }),
+    }, clock);
+
+    await expect(scheduleManagement.saveDailySchedule("new_owner", {
+      processId: "morning_activity_collection",
+      timeOfDay: "09:15",
+    })).resolves.toMatchObject({
+      daysOfWeek: 127,
+      nextFireAt: "2026-01-15T06:15:00.000Z",
+    });
   });
 
   it("roundtrips expanded schedule fields and copies the action into the fire ledger", async () => {

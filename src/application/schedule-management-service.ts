@@ -45,16 +45,16 @@ export class ScheduleManagementService {
     if (targetedSchedule && targetedSchedule.kind !== kind) throw new AssistantScheduleKindChangeError(targetedSchedule.kind, kind);
     const process = kind === "process" ? processAction(input) : undefined;
     const action = process ?? reminderAction(input);
+    const existing = targetedSchedule ?? (process
+      ? (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === process.processId)
+      : undefined);
     const profile = await this.profiles.getProfile(safeUserId);
     if (!profile) throw new Error("completed owner profile is required to manage schedules");
     const timezone = normalizeIanaTimezone(input.timezone ?? profile.timezone);
     if (!timezone) throw new Error("timezone must be a valid IANA timezone");
     const timeOfDay = normalizeDailyTime(input.timeOfDay);
-    const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
+    const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek ?? existing?.daysOfWeek);
     const oneShot = input.oneShot ?? false;
-    const existing = targetedSchedule ?? (process
-      ? (await this.store.list(safeUserId)).find((schedule) => schedule.kind === "process" && schedule.processId === process.processId)
-      : undefined);
     const generatedScheduleId = this.ids.scheduleId ?? randomIdGenerator.scheduleId!;
     return this.store.save(safeUserId, {
       id: existing?.id ?? (process ? dailyScheduleId(safeUserId, process.processId) : generatedScheduleId()),

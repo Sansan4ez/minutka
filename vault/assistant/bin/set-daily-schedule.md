@@ -6,7 +6,7 @@ Move or re-enable the authenticated employee's morning or evening message.
 
 ## Inputs
 
-Use the closed `processId` for the morning or evening message, or pass the exact optional `scheduleId` returned by `listSchedules`. Supply `timeOfDay` in 24-hour `HH:mm`, optional IANA `timezone`, and optional 7-bit `daysOfWeek` mask. There is no employee id, reminder text, arbitrary kind, or one-shot input in the agent-facing schema.
+Use the closed `processId` for the morning or evening message, or pass the exact optional `scheduleId` returned by `listSchedules`. Supply `timeOfDay` in 24-hour `HH:mm` and optional IANA `timezone`. Moving only the time preserves the message's current days; pass the optional 7-bit `daysOfWeek` mask only when the employee explicitly asks to change the days. There is no employee id, reminder text, arbitrary kind, or one-shot input in the agent-facing schema.
 
 ## Output
 
