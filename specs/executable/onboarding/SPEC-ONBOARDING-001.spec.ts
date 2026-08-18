@@ -226,7 +226,8 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       { kind: "process", processId: "morning_activity_collection", timeOfDay: "08:45" },
       { kind: "process", processId: "evening_reflection", timeOfDay: "18:30" },
     ] as Parameters<typeof createOnboardingWelcome>[1];
-    const profile = { preferredName: "Максим", addressForm: "informal" } as const;
+    const informalProfile = { preferredName: "Максим", addressForm: "informal" } as const;
+    const formalProfile = { preferredName: "Алексей", addressForm: "formal" } as const;
     const writeWelcome = (content: string) => {
       const root = mkdtempSync(join(tmpdir(), "minutka-welcome-"));
       mkdirSync(join(root, "vault/assistant/texts"), { recursive: true });
@@ -235,17 +236,20 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       return root;
     };
 
-    expect(() => createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome("{{preferredName}} {{morningTime}} {{eveningTime}}") })).toThrow(/one ordered/);
-    expect(() => createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome([
+    expect(() => createOnboardingWelcome(informalProfile, schedules, { repoRoot: writeWelcome("{{preferredName}} {{morningTime}} {{eveningTime}}") })).toThrow(/one ordered/);
+    expect(() => createOnboardingWelcome(informalProfile, schedules, { repoRoot: writeWelcome([
       "<!-- minutka-welcome:start -->",
       "{{preferredName}} {{preferredName}} {{morningTime}} {{eveningTime}}",
       "<!-- minutka-welcome:end -->",
     ].join("\n")) })).toThrow(/preferredName.*exactly once/);
-    expect(createOnboardingWelcome(profile, schedules, { repoRoot: writeWelcome([
+    const welcomeRoot = writeWelcome([
       "<!-- minutka-welcome:start -->",
-      "{{preferredName}}утро {{morningTime}}, вечер {{eveningTime}}",
+      "{{preferredName}}, утро {{morningTime}}, вечер {{eveningTime}}",
       "<!-- minutka-welcome:end -->",
-    ].join("\n")) })).toBe("Максим, утро 08:45, вечер 18:30");
+    ].join("\n"));
+    expect(createOnboardingWelcome(informalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Максим, утро 08:45, вечер 18:30");
+    expect(createOnboardingWelcome(formalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Алексей, утро 08:45, вечер 18:30");
+    expect(() => createOnboardingWelcome({ preferredName: "   " }, schedules, { repoRoot: welcomeRoot })).toThrow(/preferredName.*empty/);
   });
 
   it("requires both layered consent blocks and exactly one policy URL placeholder in each", () => {

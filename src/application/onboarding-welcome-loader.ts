@@ -14,7 +14,7 @@ const welcomePlaceholders = {
 } as const;
 
 export function createOnboardingWelcome(
-  profile: Pick<UserProfile, "preferredName" | "addressForm">,
+  profile: Pick<UserProfile, "preferredName">,
   schedules: ProcessSchedule[],
   input: { repoRoot?: string } = {},
 ): string {
@@ -23,10 +23,10 @@ export function createOnboardingWelcome(
   const template = extractWelcomeTemplate(source);
   const morningTime = scheduleTime(schedules, "morning_activity_collection");
   const eveningTime = scheduleTime(schedules, "evening_reflection");
-  const preferredName = profile.addressForm === "informal" ? `${profile.preferredName}, ` : "";
+  if (!profile.preferredName.trim()) throw new Error("welcome preferredName must not be empty");
 
   return template
-    .replace(welcomePlaceholders.preferredName, preferredName)
+    .replace(welcomePlaceholders.preferredName, profile.preferredName)
     .replace(welcomePlaceholders.morningTime, morningTime)
     .replace(welcomePlaceholders.eveningTime, eveningTime);
 }
