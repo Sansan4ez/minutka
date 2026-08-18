@@ -21,6 +21,8 @@ export type Participant = {
   employeeId: string;
   companyId: string;
   groupId: string;
+  /** Random group-scoped research pseudonym; never accepted as a credential. */
+  subjectKey: string;
   roleId?: string;
   status: OnboardingStatus;
   createdAt: string;

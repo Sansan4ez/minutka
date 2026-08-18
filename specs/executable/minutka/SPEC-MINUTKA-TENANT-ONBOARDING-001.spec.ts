@@ -30,6 +30,7 @@ describe("SPEC-MINUTKA-TENANT-ONBOARDING-001: tenant invite and company role", (
 
     expect(world.participants[0]).toMatchObject({
       employeeId: "employee_a",
+      subjectKey: expect.any(String),
       companyId: "company_a",
       groupId: "group_a",
       status: "invite_opened",

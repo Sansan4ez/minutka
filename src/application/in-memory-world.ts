@@ -10,6 +10,7 @@ import type { InMemoryTenantDirectories } from "./in-memory-tenant-directory-sto
 export type ChatMessage = {
   id: string;
   employeeId: string;
+  subjectKey?: string;
   threadId: string;
   text: string;
   response: string;

@@ -4,6 +4,7 @@ import { systemClock, type Clock } from "../../application/runtime-primitives.js
 import type { EmployeePersonalDataDeletionCounts, ProfileStore } from "../../application/profile-store.js";
 import { PersistenceError, mapPostgresError } from "../../application/persistence-error.js";
 import type { Pool } from "pg";
+import type { ResearchSubject } from "../../application/research-identity-projection.js";
 import { keyedDigest } from "./digests.js";
 import { withTransaction } from "./postgres-pool.js";
 
@@ -11,6 +12,7 @@ type ParticipantRow = {
   employee_id: string;
   company_id: string;
   group_id: string;
+  subject_key: string;
   role_id: string | null;
   status: Participant["status"];
   privacy_explanation_shown_at: Date | null;
@@ -23,6 +25,13 @@ type ConsentRow = {
   accepted_at: Date;
   explanation_shown_at: Date;
   source: Consent["source"];
+};
+type ResearchSubjectRow = {
+  company_id: string;
+  group_id: string;
+  subject_key: string;
+  role_id: string | null;
+  message_ids: string[];
 };
 type ProfileRow = {
   employee_id: string;
@@ -43,7 +52,12 @@ type ProfileRow = {
   updated_at: Date;
 };
 
-const participantColumns = "employee_id, company_id, group_id, role_id, status, privacy_explanation_shown_at, created_at, updated_at";
+const participantColumns = "employee_id, company_id, group_id, subject_key, role_id, status, privacy_explanation_shown_at, created_at, updated_at";
+const researchSubjectSelect = `SELECT participant.company_id, participant.group_id, participant.subject_key, participant.role_id,
+  COALESCE(array_agg(message.message_id ORDER BY message.created_at, message.message_id)
+    FILTER (WHERE message.message_id IS NOT NULL), ARRAY[]::text[]) AS message_ids
+  FROM minutka_private.participants participant
+  LEFT JOIN minutka_private.messages message ON message.subject_key = participant.subject_key`;
 const profileColumns = `p.employee_id, participant.company_id, participant.group_id, p.role_id,
   p.preferred_name, p.assistant_name, p.address_form, p.timezone, p.role, p.typical_tasks,
   p.persona, p.ai_level, p.response_length, p.preferred_checkins_per_day, p.created_at, p.updated_at`;
@@ -52,11 +66,19 @@ const toParticipant = (row: ParticipantRow): Participant => ({
   employeeId: row.employee_id,
   companyId: row.company_id,
   groupId: row.group_id,
+  subjectKey: row.subject_key,
   ...(row.role_id ? { roleId: row.role_id } : {}),
   status: row.status,
   ...(row.privacy_explanation_shown_at ? { privacyExplanationShownAt: row.privacy_explanation_shown_at.toISOString() } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
+});
+const toResearchSubject = (row: ResearchSubjectRow): ResearchSubject => ({
+  companyId: row.company_id,
+  groupId: row.group_id,
+  subjectKey: row.subject_key,
+  ...(row.role_id ? { roleId: row.role_id } : {}),
+  evidenceRefs: row.message_ids.map((id) => ({ kind: "message", id })),
 });
 const toConsent = (row: ConsentRow): Consent => ({
   employeeId: row.employee_id,
@@ -96,8 +118,8 @@ export function createPostgresProfileStore(
         return await withTransaction(pool, async (client) => {
           // Conditional insert avoids the missing-row SELECT FOR UPDATE race.
           const inserted = await client.query<ParticipantRow>(
-            `INSERT INTO minutka_private.participants(employee_id, invite_code_digest, company_id, group_id, status, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, 'invite_issued', $5, $5)
+            `INSERT INTO minutka_private.participants(employee_id, invite_code_digest, company_id, group_id, subject_key, status, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, gen_random_uuid(), 'invite_issued', $5, $5)
              ON CONFLICT DO NOTHING
              RETURNING ${participantColumns}`,
             [employeeId, digest, companyId, groupId, issuedAt],
@@ -259,6 +281,33 @@ export function createPostgresProfileStore(
           [employeeId],
         );
         return result.rows[0] ? toParticipant(result.rows[0]) : undefined;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+    async listResearchSubjects({ companyId, groupId }) {
+      try {
+        const result = await pool.query<ResearchSubjectRow>(
+          `${researchSubjectSelect}
+           WHERE participant.company_id = $1 AND participant.group_id = $2
+           GROUP BY participant.company_id, participant.group_id, participant.subject_key, participant.role_id
+           ORDER BY participant.subject_key ASC`,
+          [companyId, groupId],
+        );
+        return result.rows.map(toResearchSubject);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+    async getResearchSubject({ companyId, groupId, subjectKey }) {
+      try {
+        const result = await pool.query<ResearchSubjectRow>(
+          `${researchSubjectSelect}
+           WHERE participant.company_id = $1 AND participant.group_id = $2 AND participant.subject_key = $3
+           GROUP BY participant.company_id, participant.group_id, participant.subject_key, participant.role_id`,
+          [companyId, groupId, subjectKey],
+        );
+        return result.rows[0] ? toResearchSubject(result.rows[0]) : undefined;
       } catch (error) {
         throw mapPostgresError(error);
       }

@@ -21,7 +21,7 @@ import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
 const createdAt = "2026-08-15T00:00:00.000Z";
 
 function participant(employeeId: string, companyId: string, groupId: string, roleId: string): Participant {
-  return { employeeId, companyId, groupId, roleId, status: "profile_completed", createdAt, updatedAt: createdAt };
+  return { employeeId, companyId, groupId, subjectKey: `subject_${employeeId}`, roleId, status: "profile_completed", createdAt, updatedAt: createdAt };
 }
 
 function reportingRows(companyId: string, groupId: string, roleId: string, count: number) {
@@ -67,6 +67,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: company export privacy threshold", ()
       employeeId: "employee_invited",
       companyId: "company_a",
       groupId: "group_a",
+      subjectKey: "subject_employee_invited",
       status: "invite_issued",
       createdAt,
       updatedAt: createdAt,

@@ -10,12 +10,13 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
         await withTransaction(pool, async (client) => {
           await client.query(
             `INSERT INTO minutka_private.activities
-              (activity_id, employee_id, company_id, group_id, role_id, task_category,
+              (activity_id, employee_id, subject_key, company_id, group_id, role_id, task_category,
                obstacle_kind, obstacle_value, duration_bucket, system, recorded_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
               personal.activityId,
               personal.employeeId,
+              personal.subjectKey,
               personal.companyId,
               personal.groupId,
               personal.roleId,

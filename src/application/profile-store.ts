@@ -1,5 +1,6 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { ParticipantPageCursor } from "./participant-pagination.js";
+import type { ResearchSubject } from "./research-identity-projection.js";
 
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
@@ -61,6 +62,10 @@ export type ProfileStore = {
     deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
+  /** Tenant-scoped research projection without employee or transport identity. */
+  listResearchSubjects(input: { companyId: string; groupId: string }): Promise<ResearchSubject[]>;
+  /** Exact tenant scope is mandatory; subject keys are lookup handles, not credentials. */
+  getResearchSubject(input: { companyId: string; groupId: string; subjectKey: string }): Promise<ResearchSubject | undefined>;
   /** Cursor-paginated operator inventory; callers must not project private profile or Telegram data. */
   listParticipants(input: { limit: number; after?: ParticipantPageCursor }): Promise<Participant[]>;
   /** Private lookup used only by the atomic Telegram invite-redemption adapter. */

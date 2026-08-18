@@ -244,6 +244,7 @@ describe("SPEC-REQUEST-INTEGRITY-001: typed global denial contract", () => {
       employeeId: "maxim",
       companyId: "default_company",
       groupId: "default_group",
+      subjectKey: "subject_maxim",
       roleId: "default_role",
       status: "profile_completed" as const,
       createdAt: "2026-07-16T09:00:00.000Z",

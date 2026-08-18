@@ -174,6 +174,7 @@ describe("PostgreSQL storage contracts", () => {
     );
     await service.collect({
       employeeId: "activity_owner",
+      subjectKey: (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("activity_owner"))!.subjectKey,
       companyId,
       groupId,
       roleId,
@@ -220,6 +221,7 @@ describe("PostgreSQL storage contracts", () => {
       );
       await expect(failingService.collect({
         employeeId: "activity_owner",
+        subjectKey: (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("activity_owner"))!.subjectKey,
         companyId,
         groupId,
         roleId,
@@ -348,6 +350,7 @@ describe("PostgreSQL storage contracts", () => {
     for (let index = 0; index < COMPANY_REPORT_MIN_ROWS; index += 1) {
       await collect.collect({
         employeeId: "report_date_0",
+        subjectKey: (await profiles.getParticipant("report_date_0"))!.subjectKey,
         companyId,
         groupId,
         roleId,
@@ -1529,6 +1532,7 @@ describe("PostgreSQL storage contracts", () => {
       () => "activity_employee_delete_retained",
     ).collect({
       employeeId: "emp_delete",
+      subjectKey: deletionParticipant.subjectKey,
       companyId: deletionParticipant.companyId,
       groupId: deletionParticipant.groupId,
       roleId: deletionParticipant.roleId,

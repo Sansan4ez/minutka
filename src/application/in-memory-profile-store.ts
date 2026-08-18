@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { Participant } from "../domain/employee.js";
 import type { InMemoryWorld } from "./in-memory-world.js";
 import type { EmployeePersonalDataDeletionCounts, ProfileStore } from "./profile-store.js";
 import { PersistenceError } from "./persistence-error.js";
+import type { ResearchEvidenceRef, ResearchSubject } from "./research-identity-projection.js";
 
 function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value: T) {
   const index = items.findIndex((item) => item.employeeId === value.employeeId);
@@ -24,6 +26,19 @@ function worldAuditDeletionMarker(world: InMemoryWorld): void {
 }
 
 const inviteIndexes = new WeakMap<InMemoryWorld, Map<string, string>>();
+
+function researchSubject(world: InMemoryWorld, participant: Participant): ResearchSubject {
+  const evidenceRefs: ResearchEvidenceRef[] = world.messages
+    .filter((message) => message.subjectKey === participant.subjectKey)
+    .map((message) => ({ kind: "message", id: message.id }));
+  return {
+    companyId: participant.companyId,
+    groupId: participant.groupId,
+    subjectKey: participant.subjectKey,
+    ...(participant.roleId ? { roleId: participant.roleId } : {}),
+    evidenceRefs,
+  };
+}
 
 function emptyDeletionCounts(): EmployeePersonalDataDeletionCounts {
   return {
@@ -60,7 +75,10 @@ function emptyDeletionCounts(): EmployeePersonalDataDeletionCounts {
  */
 export function createInMemoryProfileStore(
   world: InMemoryWorld,
-  options: { afterDelete?: (employeeId: string) => Promise<Partial<EmployeePersonalDataDeletionCounts> | void> } = {},
+  options: {
+    afterDelete?: (employeeId: string) => Promise<Partial<EmployeePersonalDataDeletionCounts> | void>;
+    subjectKey?: () => string;
+  } = {},
 ): ProfileStore {
   const employeeByInviteCode = inviteIndexes.get(world) ?? new Map<string, string>();
   inviteIndexes.set(world, employeeByInviteCode);
@@ -79,10 +97,15 @@ export function createInMemoryProfileStore(
       }
       const existingByEmployee = world.participants.find((candidate) => candidate.employeeId === employeeId);
       if (existingByEmployee) return { participant: existingByEmployee, created: false, inviteMatches: false };
+      const subjectKey = options.subjectKey?.() ?? randomUUID();
+      if (!subjectKey.trim() || world.participants.some((candidate) => candidate.subjectKey === subjectKey)) {
+        throw new PersistenceError("persistence_conflict");
+      }
       const participant: Participant = {
         employeeId,
         companyId,
         groupId,
+        subjectKey,
         status: "invite_issued",
         createdAt: issuedAt,
         updatedAt: issuedAt,
@@ -156,6 +179,16 @@ export function createInMemoryProfileStore(
     },
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);
+    },
+    async listResearchSubjects({ companyId, groupId }) {
+      return world.participants
+        .filter((participant) => participant.companyId === companyId && participant.groupId === groupId)
+        .map((participant) => researchSubject(world, participant));
+    },
+    async getResearchSubject({ companyId, groupId, subjectKey }) {
+      const participant = world.participants.find((candidate) =>
+        candidate.companyId === companyId && candidate.groupId === groupId && candidate.subjectKey === subjectKey);
+      return participant ? researchSubject(world, participant) : undefined;
     },
     async listParticipants({ limit, after }) {
       return [...world.participants]

@@ -35,6 +35,13 @@ describe("SPEC-SKELETON-001: agent responds to text message via CLI", () => {
       "Слышу тебя. Давай разберём план на сегодня.";
 
     const spec = createSpecWorld(mockAgentRunner);
+    await spec.cli.json(["employee", "issue-invite", "--employee", testEmployee.employeeId, "--invite", "skeleton-invite"]);
+    await spec.cli.json(["employee", "open-invite", "--employee", testEmployee.employeeId, "--invite", "skeleton-invite"]);
+    await spec.cli.json(["employee", "accept-consent", "--employee", testEmployee.employeeId, "--yes"]);
+    await spec.cli.json([
+      "employee", "complete-onboarding", "--employee", testEmployee.employeeId,
+      "--role-id", "default_role", "--persona", "efficiency",
+    ]);
 
     const result = await spec.cli.json<{
       messageId: string;

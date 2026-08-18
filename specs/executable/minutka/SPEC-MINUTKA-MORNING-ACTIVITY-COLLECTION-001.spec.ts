@@ -23,6 +23,7 @@ function harness(options: {
     employeeId: "employee_a",
     companyId: "company_a",
     groupId: "group_a",
+    subjectKey: "subject_employee_a",
     roleId: "role_a",
     status: "profile_completed",
     createdAt: clock.now(),

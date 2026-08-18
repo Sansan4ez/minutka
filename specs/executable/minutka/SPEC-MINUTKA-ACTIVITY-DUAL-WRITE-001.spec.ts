@@ -70,6 +70,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
 
     const collectForEmployee = service.bind({
       employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
@@ -108,6 +109,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
 
     await expect(service.collect({
       employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",
@@ -129,6 +131,7 @@ describe("SPEC-MINUTKA-ACTIVITY-DUAL-WRITE-001: atomic anonymized trace", () => 
 
     await service.collect({
       employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
       companyId: "company_a",
       groupId: "group_a",
       roleId: "role_a",

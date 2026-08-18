@@ -47,6 +47,22 @@ npm run tenant:seed -- seed --file /secure/path/company-acme.json
 
 Ошибка FK, уникальности, пустого значения или даты откатывает весь комплект. Скрипт требует `MIGRATION_DATABASE_URL`; `DATABASE_URL` runtime-роли для этой операции не используется.
 
+## Приглашение участников и research identity
+
+После создания справочников выдавайте каждый invite в конкретную группу:
+
+```bash
+npm run cli -- admin invite \
+  --employee employee_acme_001 \
+  --company company_acme \
+  --group group_acme_2026_09 \
+  --bot minutka_example_bot
+```
+
+При первом создании participant runtime генерирует случайный `subject_key`. Оператор не задаёт ключ и не передаёт его сотруднику или модели. Повторный вызов для существующего `employeeId` не меняет ключ; участие в новой группе оформляется новым participant/employee identifier и получает новый ключ. В test/dev после миграции `0056_add_research_subject_keys.sql` существующие записи получают случайные ключи автоматически.
+
+Research readers всегда задают одновременно `company_id` и `group_id`. Их DTO содержит только `subjectKey`, `roleId` и evidence refs; ФИО, `employeeId`, invite code и Telegram identifiers в эту проекцию не входят. `subjectKey` служит корреляцией и однозначным lookup для purge/sanitize, но не credential: employee API и agent tools его не принимают.
+
 ## Проверка скоупа компании
 
 Каждая выборка групп и должностей принимает `company_id` явно:

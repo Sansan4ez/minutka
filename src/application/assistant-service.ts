@@ -130,7 +130,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; participantStore?: Pick<ProfileStore, "getParticipant"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -153,6 +153,11 @@ export class AssistantService {
       idGenerator: this.ids,
       operationalLogger: (warning) => this.warnOperationally(warning),
     });
+  }
+
+  private async subjectKeyFor(employeeId: string): Promise<{ subjectKey?: string }> {
+    const subjectKey = (await this.deps.participantStore?.getParticipant(employeeId))?.subjectKey;
+    return subjectKey ? { subjectKey } : {};
   }
 
   /** Explicit onboarding write: reviewed Markdown flows through the ingestion boundary. */
@@ -198,6 +203,7 @@ export class AssistantService {
       await this.deps.conversationStore.appendTurn({
         messageId,
         employeeId: userId,
+        ...(await this.subjectKeyFor(userId)),
         threadId,
         userText: text,
         agentResponse: response,
@@ -431,11 +437,12 @@ export class AssistantService {
       const participant = await this.deps.participantStore?.getParticipant(userId);
       const companyId = participant?.companyId;
       const groupId = participant?.groupId;
+      const subjectKey = participant?.subjectKey;
       const roleId = participant?.roleId;
       const timezone = profile?.timezone;
-      if (!companyId || !groupId || !roleId || !timezone) throw new PersistenceError("profile_not_found");
+      if (!companyId || !groupId || !subjectKey || !roleId || !timezone) throw new PersistenceError("profile_not_found");
       try {
-        const result = await this.deps.collectActivity({ employeeId: userId, companyId, groupId, roleId, timezone, activity });
+        const result = await this.deps.collectActivity({ employeeId: userId, subjectKey, companyId, groupId, roleId, timezone, activity });
         observedExecutionTrace.push({ kind: "tool", toolName: "collectActivity" });
         if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
         return result;
@@ -629,6 +636,7 @@ export class AssistantService {
         // The existing application history store uses employeeId as its neutral
         // owner key. AssistantService maps its trusted userId only at this seam.
         employeeId: userId,
+        ...(await this.subjectKeyFor(userId)),
         threadId,
         userText: text,
         agentResponse: response,

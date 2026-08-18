@@ -39,6 +39,7 @@ import { createOnboardingWelcome } from "./onboarding-welcome-loader.js";
 import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipantsInput } from "./participant-pagination.js";
 import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 import { RoleNotInCompanyError } from "./onboarding-role-error.js";
+import type { ResearchSubject } from "./research-identity-projection.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
@@ -176,6 +177,26 @@ export class MinutkaService {
     if (!result.created && !result.inviteMatches) throw new ParticipantInviteExistsError();
     if ((result.participant.companyId && result.participant.companyId !== companyId) || (result.participant.groupId && result.participant.groupId !== groupId)) throw new Error("employee already has an invite for another tenant");
     return { employeeId, inviteCode, companyId, groupId, status: result.participant.status, created: result.created };
+  }
+
+  async listResearchSubjects(input: { companyId: string; groupId: string }): Promise<ResearchSubject[]> {
+    const companyId = input.companyId.trim();
+    const groupId = input.groupId.trim();
+    if (!companyId) throw new Error("companyId is required");
+    if (!groupId) throw new Error("groupId is required");
+    if (!await this.stores.tenantDirectoryStore.groupBelongsToCompany({ companyId, groupId })) return [];
+    return this.stores.profileStore.listResearchSubjects({ companyId, groupId });
+  }
+
+  async getResearchSubject(input: { companyId: string; groupId: string; subjectKey: string }): Promise<ResearchSubject | undefined> {
+    const companyId = input.companyId.trim();
+    const groupId = input.groupId.trim();
+    const subjectKey = input.subjectKey.trim();
+    if (!companyId) throw new Error("companyId is required");
+    if (!groupId) throw new Error("groupId is required");
+    if (!subjectKey) throw new Error("subjectKey is required");
+    if (!await this.stores.tenantDirectoryStore.groupBelongsToCompany({ companyId, groupId })) return undefined;
+    return this.stores.profileStore.getResearchSubject({ companyId, groupId, subjectKey });
   }
 
   async listParticipants(input: ListParticipantsInput = {}): Promise<ParticipantPage> {
@@ -543,7 +564,7 @@ export class MinutkaService {
         selectedProcessIds: built.selectedProcessIds, purpose: "chat", decision,
       });
     }
-    await this.stores.conversationStore.appendTurn({ messageId, employeeId: input.employeeId, threadId: input.threadId, userText: input.text, agentResponse: response, timestamp });
+    await this.stores.conversationStore.appendTurn({ messageId, employeeId: input.employeeId, subjectKey: (await this.requireParticipant(input.employeeId)).subjectKey, threadId: input.threadId, userText: input.text, agentResponse: response, timestamp });
     // The turn is durable at this point. An audit outage must not turn a
     // successful response into a retry that duplicates the conversation.
     try {

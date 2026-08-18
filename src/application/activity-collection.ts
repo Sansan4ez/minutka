@@ -23,6 +23,7 @@ export type ActivityObstacle =
 export type PersonalActivityRecord = {
   activityId: string;
   employeeId: string;
+  subjectKey: string;
   companyId: string;
   groupId: string;
   roleId: string;
@@ -58,6 +59,7 @@ export type ActivityCollectionStore = {
 
 const collectActivityCommandSchema = z.strictObject({
   employeeId: z.string().trim().min(1),
+  subjectKey: z.string().trim().min(1),
   companyId: z.string().trim().min(1),
   groupId: z.string().trim().min(1),
   roleId: z.string().trim().min(1),
@@ -84,6 +86,7 @@ export class CollectActivityService {
     const personal: PersonalActivityRecord = {
       activityId,
       employeeId: input.employeeId,
+      subjectKey: input.subjectKey,
       companyId: input.companyId,
       groupId: input.groupId,
       roleId: input.roleId,
