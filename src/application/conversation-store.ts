@@ -2,7 +2,7 @@ export type ConversationTurn = {
   messageId: string;
   employeeId: string;
   /** Research correlation only; never used to authorize conversation reads. */
-  subjectKey?: string;
+  subjectKey: string;
   threadId: string;
   userText: string;
   agentResponse: string;

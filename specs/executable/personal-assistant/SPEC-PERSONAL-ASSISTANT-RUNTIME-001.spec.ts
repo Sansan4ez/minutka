@@ -7,6 +7,7 @@ import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
+import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../../src/runtime/create-in-memory-runtime.js";
@@ -43,6 +44,7 @@ describe("SPEC-PERSONAL-ASSISTANT-RUNTIME-001: production-shaped Telegram compos
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
+      participantStore: createInMemoryProfileStore(world),
       ideaStore: ideas,
       auditEventStore: createInMemoryAuditEventStore(world),
       requestIntegrityGuard: async () => ({ status: "allowed" }),

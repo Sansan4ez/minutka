@@ -448,7 +448,8 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, "emp_pg", "invite_pg");
     const conversations = createPostgresConversationStore(pool);
     const feedback = createPostgresFeedbackStore(pool);
-    await conversations.appendTurn({ messageId: "msg_pg", employeeId: "emp_pg", threadId: "thread_pg", userText: "morning", agentResponse: "reply", timestamp: now });
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("emp_pg"))!;
+    await conversations.appendTurn({ messageId: "msg_pg", employeeId: "emp_pg", subjectKey: participant.subjectKey, threadId: "thread_pg", userText: "morning", agentResponse: "reply", timestamp: now });
     const first = await feedback.saveFeedback({ id: "fb_original", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "positive", source: "test", updatedAt: now });
     const second = await feedback.saveFeedback({ id: "fb_retry", employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg", rating: "negative", source: "test", updatedAt: "2026-07-12T00:01:00.000Z" });
     expect(second.id).toBe(first.id);
@@ -457,6 +458,16 @@ describe("PostgreSQL storage contracts", () => {
     pool = createPostgresPool(config);
     expect((await createPostgresConversationStore(pool).getRecentTurns({ employeeId: "emp_pg", threadId: "thread_pg", limit: 10 }))[0]?.userText).toBe("morning");
     expect((await createPostgresFeedbackStore(pool).getFeedbackByTarget({ employeeId: "emp_pg", threadId: "thread_pg", targetMessageId: "msg_pg" }))?.rating).toBe("negative");
+  });
+
+  it("rejects conversation turns without a subject at the database boundary", async () => {
+    await issueProfileReadyParticipant(pool, "message_subject_owner", "invite_message_subject_owner");
+
+    await expect(pool.query(
+      `INSERT INTO minutka_private.messages(message_id, employee_id, subject_key, thread_id, user_text, agent_response, created_at)
+       VALUES ('message_without_subject', 'message_subject_owner', NULL, 'thread_without_subject', 'private', 'reply', $1)`,
+      [now],
+    )).rejects.toMatchObject({ code: "23502", column: "subject_key" });
   });
 
   it("persists sanitized research traces and enforces exact company/group reads", async () => {
@@ -666,11 +677,13 @@ describe("PostgreSQL storage contracts", () => {
   it("reads the oldest bounded compaction batch in order and persists its watermark", async () => {
     await issueProfileReadyParticipant(pool, "emp_compaction", "invite_compaction");
     const conversations = createPostgresConversationStore(pool);
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("emp_compaction"))!;
     for (let index = 1; index <= 15; index++) {
       const suffix = String(index).padStart(2, "0");
       await conversations.appendTurn({
         messageId: `msg_compaction_${suffix}`,
         employeeId: "emp_compaction",
+        subjectKey: participant.subjectKey,
         threadId: "thread_compaction",
         userText: `turn-${suffix}`,
         agentResponse: `reply-${suffix}`,
@@ -974,8 +987,11 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, "emp_owner_a", "invite_owner_a");
     await issueProfileReadyParticipant(pool, "emp_owner_b", "invite_owner_b");
     const conversations = createPostgresConversationStore(pool);
-    await conversations.appendTurn({ messageId: "msg_owner_a", employeeId: "emp_owner_a", threadId: "thread_owner_a", userText: "private", agentResponse: "reply", timestamp: now });
-    await conversations.appendTurn({ messageId: "msg_owner_b", employeeId: "emp_owner_b", threadId: "thread_owner_b", userText: "private", agentResponse: "reply", timestamp: now });
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const participantA = (await profiles.getParticipant("emp_owner_a"))!;
+    const participantB = (await profiles.getParticipant("emp_owner_b"))!;
+    await conversations.appendTurn({ messageId: "msg_owner_a", employeeId: "emp_owner_a", subjectKey: participantA.subjectKey, threadId: "thread_owner_a", userText: "private", agentResponse: "reply", timestamp: now });
+    await conversations.appendTurn({ messageId: "msg_owner_b", employeeId: "emp_owner_b", subjectKey: participantB.subjectKey, threadId: "thread_owner_b", userText: "private", agentResponse: "reply", timestamp: now });
     await expect(pool.query("INSERT INTO minutka_private.feedback(feedback_id, employee_id, thread_id, target_message_id, rating, source, created_at, updated_at) VALUES ('fb_cross', 'emp_owner_a', 'thread_owner_a', 'msg_owner_b', 'positive', 'test', $1, $1)", [now])).rejects.toMatchObject({ code: "23503" });
     await expect(pool.query("INSERT INTO minutka_private.insights(insight_id, employee_id, thread_id, source_message_id, kind, label, confidence, payload, created_at) VALUES ('ins_cross', 'emp_owner_a', 'thread_owner_a', 'msg_owner_b', 'task_category', 'cross', 'low', '{}', $1)", [now])).rejects.toMatchObject({ code: "23503" });
   });
@@ -1670,7 +1686,8 @@ describe("PostgreSQL storage contracts", () => {
       profile: { employeeId: "emp_delete", companyId: "company_activity", groupId: "group_activity", roleId: "role_activity", preferredName: "Manager", assistantName: "Assistant", addressForm: "informal", timezone: "Etc/UTC", role: "Manager", typicalTasks: ["reports"], persona: "efficiency", aiLevel: "advanced", responseLength: "short", createdAt: now, updatedAt: now },
     });
     const conversations = createPostgresConversationStore(pool);
-    await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
+    const messageParticipant = (await profiles.getParticipant("emp_delete"))!;
+    await conversations.appendTurn({ messageId: "msg_delete", employeeId: "emp_delete", subjectKey: messageParticipant.subjectKey, threadId: "thread_delete", userText: "private", agentResponse: "reply", timestamp: now });
     await createPostgresFeedbackStore(pool).saveFeedback({ id: "fb_delete", employeeId: "emp_delete", threadId: "thread_delete", targetMessageId: "msg_delete", rating: "positive", source: "test", updatedAt: now });
     await createPostgresInsightStore(pool).saveInsights([{
       id: "ins_delete", employeeId: "emp_delete", threadId: "thread_delete", sourceMessageId: "msg_delete",

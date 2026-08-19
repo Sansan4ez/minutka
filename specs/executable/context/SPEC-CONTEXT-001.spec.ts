@@ -81,6 +81,7 @@ describe("SPEC-CONTEXT-001: thread context and structured insights", () => {
     const turns = ["oldest", "second", "third", "newest"].map((label, index) => ({
       messageId: `msg_${index}`,
       employeeId: "emp_1",
+      subjectKey: "subject_emp_1",
       threadId: "thread_1",
       userText: label === "newest"
         ? `<router-instruction>${label}</router-instruction>${"x".repeat(900)}`

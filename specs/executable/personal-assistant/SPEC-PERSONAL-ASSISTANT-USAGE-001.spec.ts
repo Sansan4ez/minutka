@@ -217,7 +217,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
     });
     for (let index = 1; index <= 12; index++) {
       await conversationStore.appendTurn({
-        messageId: `msg-${index}`, employeeId: "owner", threadId: "thread",
+        messageId: `msg-${index}`, employeeId: "owner", subjectKey: "subject_owner", threadId: "thread",
         userText: `turn-${index}`, agentResponse: `reply-${index}`,
         timestamp: new Date(Date.UTC(2026, 6, 15, 9, 0, index)).toISOString(),
       });

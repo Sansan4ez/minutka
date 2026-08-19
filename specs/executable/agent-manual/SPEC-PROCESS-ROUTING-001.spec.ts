@@ -193,6 +193,7 @@ describe("SPEC-PROCESS-ROUTING-001: constrained Agent Vault router selects proce
           {
             messageId: "msg_morning_plan",
             employeeId: testEmployee.employeeId,
+            subjectKey: "subject_test_employee",
             threadId: testEmployee.threadId,
             userText: morningPlanText,
             agentResponse: "Зафиксировал приоритет дня.",

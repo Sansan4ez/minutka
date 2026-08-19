@@ -7,7 +7,7 @@ export function createInMemoryConversationStore(world: InMemoryWorld): Conversat
       world.messages.push({
         id: turn.messageId,
         employeeId: turn.employeeId,
-        ...(turn.subjectKey ? { subjectKey: turn.subjectKey } : {}),
+        subjectKey: turn.subjectKey,
         threadId: turn.threadId,
         text: turn.userText,
         response: turn.agentResponse,
@@ -60,7 +60,7 @@ function toTurn(message: InMemoryWorld["messages"][number]): ConversationTurn {
   return {
     messageId: message.id,
     employeeId: message.employeeId,
-    ...(message.subjectKey ? { subjectKey: message.subjectKey } : {}),
+    subjectKey: message.subjectKey,
     threadId: message.threadId,
     userText: message.text,
     agentResponse: message.response,

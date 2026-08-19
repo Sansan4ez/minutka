@@ -142,9 +142,9 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
         createdAt: world.now(), updatedAt: world.now(),
       },
     });
-    await conversations.appendTurn({ messageId: "old", employeeId: "maxim", threadId: "telegram:1", userText: "Обсудим проект Альфа", agentResponse: "Да, зафиксировал контекст.", timestamp: world.now() });
-    await conversations.appendTurn({ messageId: "other-thread", employeeId: "maxim", threadId: "telegram:2", userText: "OTHER_THREAD_SECRET", agentResponse: "secret", timestamp: world.now() });
-    await conversations.appendTurn({ messageId: "other-owner", employeeId: "other", threadId: "telegram:1", userText: "OTHER_OWNER_SECRET", agentResponse: "secret", timestamp: world.now() });
+    await conversations.appendTurn({ messageId: "old", employeeId: "maxim", subjectKey: "subject_maxim", threadId: "telegram:1", userText: "Обсудим проект Альфа", agentResponse: "Да, зафиксировал контекст.", timestamp: world.now() });
+    await conversations.appendTurn({ messageId: "other-thread", employeeId: "maxim", subjectKey: "subject_maxim", threadId: "telegram:2", userText: "OTHER_THREAD_SECRET", agentResponse: "secret", timestamp: world.now() });
+    await conversations.appendTurn({ messageId: "other-owner", employeeId: "other", subjectKey: "subject_other", threadId: "telegram:1", userText: "OTHER_OWNER_SECRET", agentResponse: "secret", timestamp: world.now() });
     let receivedContext = "";
     const chatProjectionBuilder = createRuntimeProjectionBuilder({
       profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),
@@ -206,7 +206,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     const ingestion = createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) });
     await profiles.issueInvite({ employeeId: "maxim", inviteCode: "invite", issuedAt: world.now(), companyId: "default_company", groupId: "default_group" });
     await profiles.completeProfile({ completedAt: world.now(), profile: { employeeId: "maxim", companyId: "default_company", groupId: "default_group", roleId: "default_role", preferredName: "Максим", assistantName: "Генри", addressForm: "informal", persona: "efficiency", responseLength: "short", timezone: "Europe/Moscow", createdAt: world.now(), updatedAt: world.now() } });
-    for (let index = 0; index < 11; index++) await conversations.appendTurn({ messageId: `msg-${index}`, employeeId: "maxim", threadId: "thread", userText: index === 10 ? "x".repeat(7_000) : `turn-${index}`, agentResponse: `reply-${index}`, timestamp: world.now() });
+    for (let index = 0; index < 11; index++) await conversations.appendTurn({ messageId: `msg-${index}`, employeeId: "maxim", subjectKey: "subject_maxim", threadId: "thread", userText: index === 10 ? "x".repeat(7_000) : `turn-${index}`, agentResponse: `reply-${index}`, timestamp: world.now() });
     let receivedContext = "";
     const chatProjectionBuilder = createRuntimeProjectionBuilder({
       profileStore: profiles, conversationStore: conversations, insightStore: createInMemoryInsightStore(world),

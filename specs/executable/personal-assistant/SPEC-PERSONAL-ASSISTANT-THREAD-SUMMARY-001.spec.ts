@@ -53,6 +53,7 @@ async function appendTurns(
     await conversations.appendTurn({
       messageId: `msg-${index}`,
       employeeId: "owner",
+      subjectKey: "subject_owner",
       threadId: "thread",
       userText: options.userText?.(index) ?? `turn-${index}`,
       agentResponse: options.agentResponse?.(index) ?? `reply-${index}`,
@@ -297,6 +298,7 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
         turns: [{
           messageId: "msg-2",
           employeeId: "owner",
+          subjectKey: "subject_owner",
           threadId: "thread",
           userText: "new turn",
           agentResponse: "new reply",

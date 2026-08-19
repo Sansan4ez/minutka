@@ -22,9 +22,9 @@ describe("SPEC-MINUTKA-EMPLOYEE-DATA-DELETION-001: operator employee deletion", 
     await invite(profiles, { employeeId: "employee_b", inviteCode: "invite_b", companyId: "company_a", groupId: "group_a" });
     await invite(profiles, { employeeId: "employee_c", inviteCode: "invite_c", companyId: "company_b", groupId: "group_c" });
     world.messages.push(
-      { id: "a", employeeId: "employee_a", threadId: "thread_a", text: "private A", response: "reply", timestamp: issuedAt },
-      { id: "b", employeeId: "employee_b", threadId: "thread_b", text: "private B", response: "reply", timestamp: issuedAt },
-      { id: "c", employeeId: "employee_c", threadId: "thread_c", text: "private C", response: "reply", timestamp: issuedAt },
+      { id: "a", employeeId: "employee_a", subjectKey: "subject_employee_a", threadId: "thread_a", text: "private A", response: "reply", timestamp: issuedAt },
+      { id: "b", employeeId: "employee_b", subjectKey: "subject_employee_b", threadId: "thread_b", text: "private B", response: "reply", timestamp: issuedAt },
+      { id: "c", employeeId: "employee_c", subjectKey: "subject_employee_c", threadId: "thread_c", text: "private C", response: "reply", timestamp: issuedAt },
     );
     const deletedObjectOwners: string[] = [];
     const service = new EmployeeDataDeletionService(profiles, {

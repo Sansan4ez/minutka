@@ -61,6 +61,7 @@ export const minimumRecentHistoryCharacters = Array.from(renderRecentHistoryProj
   turns: [{
     messageId: "",
     employeeId: "",
+    subjectKey: "",
     threadId: "",
     userText: "",
     agentResponse: "",

@@ -6,7 +6,7 @@ import { withTransaction } from "./postgres-pool.js";
 type Row = {
   message_id: string;
   employee_id: string;
-  subject_key: string | null;
+  subject_key: string;
   thread_id: string;
   user_text: string;
   agent_response: string;
@@ -15,7 +15,7 @@ type Row = {
 const turn = (row: Row): ConversationTurn => ({
   messageId: row.message_id,
   employeeId: row.employee_id,
-  ...(row.subject_key ? { subjectKey: row.subject_key } : {}),
+  subjectKey: row.subject_key,
   threadId: row.thread_id,
   userText: row.user_text,
   agentResponse: row.agent_response,
@@ -36,7 +36,7 @@ export function createPostgresConversationStore(pool: Pool): ConversationStore {
           await client.query(
             `INSERT INTO minutka_private.messages(message_id, employee_id, subject_key, thread_id, user_text, agent_response, created_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [input.messageId, input.employeeId, input.subjectKey ?? null, input.threadId, input.userText, input.agentResponse, input.timestamp],
+            [input.messageId, input.employeeId, input.subjectKey, input.threadId, input.userText, input.agentResponse, input.timestamp],
           );
         });
       } catch (error) {

@@ -170,11 +170,6 @@ export class AssistantService {
     });
   }
 
-  private async subjectKeyFor(employeeId: string): Promise<{ subjectKey?: string }> {
-    const subjectKey = (await this.deps.participantStore?.getParticipant(employeeId))?.subjectKey;
-    return subjectKey ? { subjectKey } : {};
-  }
-
   private async saveResearchTraceSafely(input: Parameters<ResearchTraceStore["append"]>[0]): Promise<void> {
     if (!this.deps.researchTraceStore) return;
     try {
@@ -276,7 +271,7 @@ export class AssistantService {
       await this.deps.conversationStore.appendTurn({
         messageId,
         employeeId: userId,
-        ...(await this.subjectKeyFor(userId)),
+        subjectKey: participant?.subjectKey ?? userId,
         threadId,
         userText: text,
         agentResponse: response,
@@ -759,7 +754,7 @@ export class AssistantService {
         // The existing application history store uses employeeId as its neutral
         // owner key. AssistantService maps its trusted userId only at this seam.
         employeeId: userId,
-        ...(await this.subjectKeyFor(userId)),
+        subjectKey: participant?.subjectKey ?? userId,
         threadId,
         userText: text,
         agentResponse: response,

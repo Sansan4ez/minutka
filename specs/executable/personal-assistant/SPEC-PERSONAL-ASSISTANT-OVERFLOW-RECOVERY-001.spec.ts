@@ -82,7 +82,7 @@ function snapshot(): ChatProcSnapshot {
       schemaVersion: 1, path: "/proc/thread", generatedAt: now, scope,
       data: {
         turns: Array.from({ length: 8 }, (_, index) => ({
-          messageId: `old-${index}`, employeeId: "owner", threadId: "thread",
+          messageId: `old-${index}`, employeeId: "owner", subjectKey: "subject_owner", threadId: "thread",
           userText: `HISTORY-${index}-${"u".repeat(350)}`, agentResponse: `ANSWER-${index}-${"a".repeat(350)}`, timestamp: now,
         })),
         truncated: false,
@@ -152,7 +152,7 @@ describe("SPEC-PERSONAL-ASSISTANT-OVERFLOW-RECOVERY-001: one-shot provider conte
     const escaped = snapshot();
     const normalBudget = createContextBudgetConfig({ sources: { history: 4_000 }, projectionLimits: { historyTurns: 4, historyTurnCharacters: 4_000 } });
     const escapedTurns = [{
-      messageId: "escaped-newest", employeeId: "owner", threadId: "thread",
+      messageId: "escaped-newest", employeeId: "owner", subjectKey: "subject_owner", threadId: "thread",
       userText: "<&>\"😀".repeat(1_000), agentResponse: "&&<<>>😀".repeat(800), timestamp: now,
     }];
     const bounded = boundRecentHistory(escapedTurns, { turns: 4, characters: 4_000, fieldCharacters: 4_000 });
