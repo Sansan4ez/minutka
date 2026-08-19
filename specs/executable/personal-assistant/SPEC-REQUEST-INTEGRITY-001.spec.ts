@@ -12,6 +12,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService } from "../../../src/application/task-mutation-confirmation.js";
 import { createRequestIntegrityGuard } from "../../../src/mastra/request-integrity-guard.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 function createService(input: {
   guard: ConstructorParameters<typeof AssistantService>[1]["requestIntegrityGuard"];
@@ -51,7 +52,7 @@ function createService(input: {
     taskMutations: { propose: taskMutations.propose.bind(taskMutations) },
     auditEventStore: createInMemoryAuditEventStore(world),
     requestIntegrityGuard: input.guard,
-    participantStore: input.participantStore,
+    participantStore: input.participantStore ?? createSpecParticipantStore(clock.now),
     agentInstructions: input.agentInstructions ?? "# Test assistant manual",
     clock,
     idGenerator: createDeterministicIdGenerator(),

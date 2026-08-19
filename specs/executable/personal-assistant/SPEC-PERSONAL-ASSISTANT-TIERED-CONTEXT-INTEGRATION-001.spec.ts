@@ -11,6 +11,7 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { discoverPilotKnowledgeBase, importPilotKnowledgeBase } from "../../../src/application/pilot-knowledge-base-import.js";
 import { createSyntheticPilotKnowledgeBase } from "../support/pilot-knowledge-base-fixture.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-18T12:00:00.000Z";
 const roots: string[] = [];
@@ -47,6 +48,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
       documentStore,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService,
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock: { now: world.now },
     });
@@ -104,6 +106,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TIERED-CONTEXT-INTEGRATION-001: production-sha
         documentStore,
         blobStore: createInMemoryBlobStore({ now: world.now }),
       }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       auditEventStore,
       clock: { now: world.now },

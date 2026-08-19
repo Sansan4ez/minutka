@@ -8,6 +8,7 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
 import { loadAssistantAgentInstructions } from "../../../src/application/assistant-manual-loader.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-28T09:00:00.000Z";
 
@@ -20,6 +21,7 @@ function serviceWithRunner(runner: ConstructorParameters<typeof AssistantService
     conversationStore: createInMemoryConversationStore(createInMemoryWorld(clock.now)),
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
     ideaStore: ideas,
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });

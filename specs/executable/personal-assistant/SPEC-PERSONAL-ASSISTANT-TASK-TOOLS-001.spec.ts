@@ -16,6 +16,7 @@ import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } f
 import { overflowAfterDurableWriteAndPendingActionUserMessage, overflowAfterPendingActionUserMessage } from "../../../src/application/assistant-overflow-recovery.js";
 import { mutationOutcomeUnknownWithPendingActionUserMessage } from "../../../src/application/assistant-mutation-outcome.js";
 import { createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-28T12:00:00.000Z";
 
@@ -64,6 +65,7 @@ function setup(
       : { propose: confirmations.propose.bind(confirmations) },
     ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
     auditEventStore,
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: createDeterministicIdGenerator(),

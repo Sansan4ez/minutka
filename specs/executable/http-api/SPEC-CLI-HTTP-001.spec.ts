@@ -20,6 +20,7 @@ import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-run
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import type { UsageStore } from "../../../src/application/usage-store.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const employeeToken = "a".repeat(64); const serviceToken = "c".repeat(64); const adminToken = "d".repeat(64); const running: RunningHttpServer[] = []; const silent = () => undefined;
 const testTenantBinding = { companyId: "default_company", groupId: "default_group" } as const;
@@ -252,6 +253,7 @@ function createApplication(
     documentStore,
     conversationStore: createInMemoryConversationStore(runtime.world),
     ingestionService,
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: createDeterministicIdGenerator(),

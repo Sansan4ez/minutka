@@ -13,6 +13,7 @@ import { createInMemoryFeedbackStore } from "../../../src/application/in-memory-
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () => {
   it("writes onboarding context through the application boundary and supplies a bounded private projection", async () => {
@@ -52,7 +53,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
         receivedContext = context.systemContext;
         return "Контекст учтён.";
       },
-      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, ideaStore: ideas, taskStore: tasks, requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now } },
+      { documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, ideaStore: ideas, taskStore: tasks, participantStore: createSpecParticipantStore(), requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now } },
     );
     const result = await service.chat({ userId: "maxim", threadId: "telegram:1", text: "Составь план дня" });
 
@@ -117,7 +118,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       return "ok";
     }, {
       documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion, taskStore: tasks,
-      requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+      participantStore: createSpecParticipantStore(), requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
     });
 
     await service.chat({ userId: "maxim", threadId: "thread", text: "Что на сегодня?" });
@@ -237,7 +238,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
     let receivedContext = "";
     const service = new AssistantService(async (_input, context) => { receivedContext = context.systemContext; return "ok"; }, {
       documentStore: documents, conversationStore: createInMemoryConversationStore(world), ingestionService: ingestion,
-      requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
+      participantStore: createSpecParticipantStore(), requestIntegrityGuard: async () => ({ status: "allowed" }), clock: { now: world.now },
     });
 
     const result = await service.chat({ userId: "maxim", threadId: "thread", text: "context" });
@@ -260,7 +261,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
-      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      participantStore: createSpecParticipantStore(), requestIntegrityGuard: async () => ({ status: "allowed" }),
     });
     await expect(service.saveOnboardingContext({ userId: "maxim", path: "context/onboarding.md", content: "reviewed" })).resolves.toMatchObject({ path: "context/onboarding.md" });
     await expect(service.saveOnboardingContext({ userId: "maxim\u0000other", path: "context/onboarding.md", content: "reviewed" })).rejects.toThrow("invalid userId");
@@ -278,7 +279,7 @@ describe("SPEC-PERSONAL-ASSISTANT-PHASE-A-001: owner-scoped personal vault", () 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: ingestion,
-      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      participantStore: createSpecParticipantStore(), requestIntegrityGuard: async () => ({ status: "allowed" }),
       contextBudget: createContextBudgetConfig({ sources: { context: 16_000 }, projectionLimits: { contextDocumentCharacters: 8_000 } }),
     });
     // Earlier paths keep their full-content priority. Overflowing and later

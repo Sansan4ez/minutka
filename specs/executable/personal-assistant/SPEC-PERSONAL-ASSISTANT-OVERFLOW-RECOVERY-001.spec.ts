@@ -27,6 +27,7 @@ import { minimumRecentHistoryCharacters } from "../../../src/application/runtime
 import type { ChatProcSnapshot } from "../../../src/application/runtime-projections/runtime-projection-types.js";
 import { MinutkaApiError } from "../../../src/client/sdk/http-transport.js";
 import { mapError } from "../../../src/server/http/error-mapping.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-26T22:00:00.000Z";
 const coreManifest = {
@@ -58,6 +59,7 @@ function setup(
     ideaStore: ideas,
     taskStore: options.taskStore,
     auditEventStore: createInMemoryAuditEventStore(world),
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     chatProjectionBuilder: { async buildChatProc() { return { snapshot: profileAndHistory }; } },
     contextPriorities: coreManifest,

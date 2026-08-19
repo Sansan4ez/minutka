@@ -8,6 +8,7 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 function createService(runner: ConstructorParameters<typeof AssistantService>[0]) {
   let now = "2026-07-15T09:00:00.000Z";
@@ -31,7 +32,8 @@ function createService(runner: ConstructorParameters<typeof AssistantService>[0]
     ideaStore: ideas,
     ideaAppends: new IdeaAppendService(ideas, { auditEventStore, clock, idGenerator }),
     auditEventStore,
-    requestIntegrityGuard: async () => ({ status: "allowed" }),
+    participantStore: createSpecParticipantStore(clock.now),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator,
   });
@@ -308,7 +310,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
     await expect(ideas.list("maxim")).resolves.toEqual([]);
   });
 
-  it("rejects an unknown participant before invoking the agent or persisting input", async () => {
+  it.each(["allowed", "denied"] as const)("rejects an unresolved participant before the %s turn can reach either conversation write", async (guardStatus) => {
     let agentCalls = 0;
     const clock = { now: () => "2026-07-15T09:00:00.000Z" };
     const documents = createInMemoryDocumentStore(clock);
@@ -320,7 +322,9 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       ingestionService: ingestion,
       ideaStore: ideas,
       participantStore: { async getParticipant() { return undefined; } },
-      requestIntegrityGuard: async () => ({ status: "allowed" }),
+    requestIntegrityGuard: async () => guardStatus === "allowed"
+        ? { status: "allowed" }
+        : { status: "denied", reason: "identity_substitution" },
       clock,
     });
     await expect(guarded.chat({ userId: "missing", threadId: "thread", text: "не терять" })).rejects.toMatchObject({ code: "participant_not_found" });
@@ -341,6 +345,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       ingestionService: ingestion,
       ideaStore: ideas,
       auditEventStore: { async append() { throw new Error("audit unavailable"); }, async listCurrent() { return []; }, async listRecent() { return []; } },
+      participantStore: createSpecParticipantStore(clock.now),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
     });

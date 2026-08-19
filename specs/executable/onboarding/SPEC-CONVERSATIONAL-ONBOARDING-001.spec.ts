@@ -13,6 +13,7 @@ import { createInMemoryConversationStore } from "../../../src/application/in-mem
 import type { DocumentStore } from "../../../src/application/document-store.js";
 import { extractOnboardingProfileWithAgent } from "../../../src/mastra/onboarding-profile-extractor.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -83,6 +84,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
         documentStore: runtime.documentStore,
         conversationStore: createInMemoryConversationStore(runtime.world),
         ingestionService: ingestion,
+        participantStore: createSpecParticipantStore(),
         requestIntegrityGuard: async () => ({ status: "allowed" }),
         clock: { now: runtime.world.now },
       },
@@ -103,6 +105,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
         documentStore: runtime.documentStore,
         conversationStore: createInMemoryConversationStore(runtime.world),
         ingestionService: ingestion,
+        participantStore: createSpecParticipantStore(),
         requestIntegrityGuard: async () => ({ status: "allowed" }),
         clock: { now: runtime.world.now },
       },

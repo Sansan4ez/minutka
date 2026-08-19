@@ -21,6 +21,7 @@ import { createThreadCompactionService } from "../../../src/application/thread-c
 import { minimumThreadSummaryCharacters, threadSummaryReductionMarker, type ThreadSummarizer } from "../../../src/application/thread-summarizer.js";
 import { summarizeThreadWithAgent } from "../../../src/mastra/thread-summarizer.js";
 import { threadSummarizerAgent, threadSummarizerInstructions } from "../../../src/mastra/agents/thread-summarizer-agent.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const structured = (body: string) => [
   "## Факты",
@@ -596,7 +597,8 @@ describe("SPEC-PERSONAL-ASSISTANT-THREAD-SUMMARY-001: two-layer thread history",
     });
     const service = new AssistantService(async (_input, context) => { received = context.systemContext; return "ok"; }, {
       documentStore: documents, conversationStore: conversations, ingestionService: ingestion,
-      chatProjectionBuilder: projection, requestIntegrityGuard: async () => ({ status: "allowed" }),
+      chatProjectionBuilder: projection, participantStore: createSpecParticipantStore(),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
       threadCompactionService: { compact: async () => { scheduled = true; } }, clock: { now: world.now },
     });
 

@@ -6,6 +6,7 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
   const clock = { now: () => "2026-07-29T09:00:00.000Z" };
@@ -17,6 +18,7 @@ function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
     conversationStore: createInMemoryConversationStore(createInMemoryWorld(clock.now)),
     ingestionService: ingestion,
     ideaStore: ideas,
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });

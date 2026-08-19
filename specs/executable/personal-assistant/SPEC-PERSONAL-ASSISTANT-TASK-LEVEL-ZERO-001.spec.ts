@@ -12,6 +12,7 @@ import { IdeaToTaskService } from "../../../src/application/idea-to-task.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { TaskMutationConfirmationService, type TaskMutationConfirmationStore } from "../../../src/application/task-mutation-confirmation.js";
 import { createTaskTools } from "../../../src/mastra/tools/task-tools.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 function setup(
   runner: ConstructorParameters<typeof AssistantService>[0],
@@ -36,6 +37,7 @@ function setup(
     taskStore: tasks,
     taskMutations: confirmations,
     ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
     idGenerator: createDeterministicIdGenerator(),

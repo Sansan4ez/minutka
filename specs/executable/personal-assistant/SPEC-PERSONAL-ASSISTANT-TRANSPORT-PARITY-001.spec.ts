@@ -24,6 +24,7 @@ import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../.
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const ownerToken = "a".repeat(64);
 const otherOwnerToken = "b".repeat(64);
@@ -70,6 +71,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       conversationStore: createInMemoryConversationStore(runtime.world),
       ingestionService: ingestion,
       ideaStore: ideas,
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator: createDeterministicIdGenerator(),
@@ -161,6 +163,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
     }, {
       documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
       ideaStore: ideas, taskStore: tasks, taskMutations: { propose: taskMutations.propose.bind(taskMutations) }, ideaToTask,
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
     });
     const taskFacade = new PersonalAssistantService(runtime.service, createChat, artifacts, taskMutations);
@@ -203,7 +206,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       return "Подтвердите удаление.";
     }, {
       documentStore: documents, conversationStore: createInMemoryConversationStore(runtime.world), ingestionService: ingestion,
-      ideaStore: ideas, ideaDeletions: deletions, requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
+      ideaStore: ideas, ideaDeletions: deletions, participantStore: createSpecParticipantStore(),
+      requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
     });
     const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });
     const server = await listenHttpServer({
@@ -264,6 +268,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
       ideaStore: ideas,
       taskStore: tasks,
       taskMutations: { propose: taskMutations.propose.bind(taskMutations) },
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator: createDeterministicIdGenerator(),
@@ -361,6 +366,7 @@ describe("SPEC-PERSONAL-ASSISTANT-TRANSPORT-PARITY-001: one owner-scoped assista
         },
       },
       ideaStore: ideas,
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator: createDeterministicIdGenerator(),

@@ -21,6 +21,7 @@ import { buildPendingActionGroupCard, maxTelegramMessageCharacters, taskDecision
 import { renderTelegramPlainText } from "../../../src/telegram/telegram-renderer.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
 import { createDefaultSpecDeps } from "../support/scripted-deps.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const owner = { employeeId: "task-owner", inviteCode: "task-invite", chatId: "task-chat", userId: "task-user" };
 
@@ -54,6 +55,7 @@ async function harness(runner: ConstructorParameters<typeof AssistantService>[0]
     conversationStore: createInMemoryConversationStore(legacy.world),
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock), ideaStore: ideas }),
     ideaStore: ideas, ideaDeletions, contextDocuments, taskStore: tasks, taskMutations: taskMutationProposals,
+    participantStore: createSpecParticipantStore(),
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock, idGenerator: createDeterministicIdGenerator(),
   });
   const artifacts = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1024, timeoutMs: 1_000 } });

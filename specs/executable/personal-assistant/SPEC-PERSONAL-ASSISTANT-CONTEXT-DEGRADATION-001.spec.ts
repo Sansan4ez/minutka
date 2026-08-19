@@ -13,6 +13,7 @@ import { createInMemoryDocumentStore } from "../../../src/application/in-memory-
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-18T10:00:00.000Z";
 const coreManifest = {
@@ -376,6 +377,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
       documentStore: store,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: createIngestionService({ documentStore: store, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       auditEventStore,
       clock: { now: world.now },

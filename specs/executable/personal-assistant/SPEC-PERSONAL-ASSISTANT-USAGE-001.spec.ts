@@ -13,6 +13,7 @@ import { createThreadCompactionService } from "../../../src/application/thread-c
 import { createUsageRecorder } from "../../../src/application/usage-recorder.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { estimateUsageCostUsdMicros, type UsageCostPolicy } from "../../../src/application/usage-store.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const policy: UsageCostPolicy = {
   monthlySoftLimitUsdMicros: 300,
@@ -96,6 +97,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       auditEventStore: createInMemoryAuditEventStore(world),
       usageStore,
@@ -170,6 +172,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed", usage: guardUsage }),
       auditEventStore: createInMemoryAuditEventStore(world),
       usageStore,
@@ -300,6 +303,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       auditEventStore: createInMemoryAuditEventStore(world),
       usageStore,
@@ -334,6 +338,7 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       documentStore: documents,
       conversationStore: createInMemoryConversationStore(world),
       ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       usageStore: { async record() { throw new Error("usage unavailable"); }, async getMonthly() { throw new Error("usage unavailable"); } },
       usageCostPolicy: policy,

@@ -20,6 +20,7 @@ import { listenHttpServer, type RunningHttpServer } from "../../../src/server/ht
 import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
 import { HttpServiceMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
 import { assertAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../../src/config/assistant-timeout-budgets.js";
+import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const now = "2026-07-30T12:00:00.000Z";
 const serviceToken = "s".repeat(64);
@@ -69,6 +70,7 @@ function createComposition(options: {
       taskMutations: { propose: confirmations.propose.bind(confirmations) },
       ideaToTask: new IdeaToTaskService(ideas, tasks, confirmations),
       auditEventStore,
+      participantStore: createSpecParticipantStore(),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       clock,
       idGenerator,
@@ -182,7 +184,8 @@ describe("SPEC-POST-ABORT-RECOVERY-001: bounded post-abort proposal recovery", (
         documentStore: documents,
         conversationStore,
         ingestionService: ingestion,
-        requestIntegrityGuard: async () => ({ status: "allowed" }),
+        participantStore: createSpecParticipantStore(),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
         clock,
         idGenerator: createDeterministicIdGenerator(),
         applicationTimeoutMs: budgets.applicationMs,
