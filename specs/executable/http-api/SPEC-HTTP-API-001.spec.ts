@@ -86,7 +86,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
   it("returns only active Minutka schedules when legacy rows still exist", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "response", deps: createDefaultSpecDeps() });
     await runtime.scheduleStore.save("emp_a", {
-      id: "emp_a:morning_activity_collection-daily", daysOfWeek: 31, kind: "process", processId: "morning_activity_collection", oneShot: false,
+      id: "emp_a:morning_planning-daily", daysOfWeek: 31, kind: "process", processId: "morning_planning", oneShot: false,
       timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z",
     });
     await runtime.scheduleStore.save("emp_a", {
@@ -110,7 +110,7 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     const response = await request(server.url, "/v1/service/employees/emp_a/schedules", serviceToken);
     expect(response.status).toBe(200);
     const payload = await response.json();
-    expect(payload).toMatchObject({ schedules: [{ kind: "process", processId: "morning_activity_collection" }] });
+    expect(payload).toMatchObject({ schedules: [{ kind: "process", processId: "morning_planning" }] });
     expect(JSON.stringify(payload)).not.toContain("day_focus");
     expect(JSON.stringify(payload)).not.toContain("Секретный текст");
   });

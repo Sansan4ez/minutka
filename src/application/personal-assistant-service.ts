@@ -193,8 +193,8 @@ export class PersonalAssistantService {
 }
 
 function scheduledProcessPrompt(processId: AssistantScheduledProcessId): string {
-  if (processId === "morning_activity_collection") return "Проведи короткое утреннее касание по процессу morning_activity_collection: предложи сотруднику рассказать об одной-трёх активностях с прошлого касания, их примерной длительности, системах и помехах без обязательной анкеты.";
-  if (processId === "evening_reflection") return "Проведи вечернюю рефлексию по процессу evening_reflection: мягко предложи владельцу подвести итоги дня, назвать препятствия и выбрать один небольшой шаг на завтра.";
+  if (processId === "morning_planning") return "Проведи короткое утреннее планирование по процессу morning_planning: при необходимости предложи один безопасный вопрос о пропущенных вчерашних фактических активностях, затем помоги выбрать до трёх приоритетов на сегодня и один конкретный первый шаг. Не записывай планы как активности.";
+  if (processId === "evening_reflection") return "Проведи вечернюю рефлексию по процессу evening_reflection: предложи назвать до трёх фактически выполненных или начатых активностей, главное препятствие и необязательный сигнал энергии. Не записывай запланированное или не начатое.";
   return assertNever(processId);
 }
 

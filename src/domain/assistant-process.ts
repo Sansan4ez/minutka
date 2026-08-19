@@ -3,6 +3,8 @@ export const assistantProcessIds = [
   "inbox_capture",
   "knowledge_lookup",
   "morning_activity_collection",
+  "morning_planning",
+  "midday_adjustment",
   "consent_and_privacy",
   "day_focus",
   "evening_reflection",
@@ -10,8 +12,8 @@ export const assistantProcessIds = [
 
 export type AssistantProcessId = (typeof assistantProcessIds)[number];
 
-/** Inline read-only processes that may emit diagnostic evidence without granting a capability. */
-export const assistantDiagnosticProcessIds = ["morning_activity_collection", "consent_and_privacy", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
+/** Active inline processes that may emit diagnostic evidence without granting capability by themselves. */
+export const assistantDiagnosticProcessIds = ["morning_planning", "midday_adjustment", "consent_and_privacy", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
 export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds)[number];
 
 /**
@@ -19,7 +21,7 @@ export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds
  * set: `consent_and_privacy` emits evidence inside a conversation but is never
  * scheduled, so it has no scheduled prompt.
  */
-export const assistantScheduledProcessIds = ["morning_activity_collection", "evening_reflection"] as const satisfies readonly AssistantDiagnosticProcessId[];
+export const assistantScheduledProcessIds = ["morning_planning", "evening_reflection"] as const satisfies readonly AssistantDiagnosticProcessId[];
 export type AssistantScheduledProcessId = (typeof assistantScheduledProcessIds)[number];
 
 /**
@@ -27,7 +29,7 @@ export type AssistantScheduledProcessId = (typeof assistantScheduledProcessIds)[
  * `vault/assistant/processes/disabled-registry.json`: their manuals stay out of
  * the prompt and their tools stay out of the agent toolset.
  */
-export const assistantDisabledProcessIds = ["inbox_capture", "knowledge_lookup", "day_focus"] as const satisfies readonly AssistantProcessId[];
+export const assistantDisabledProcessIds = ["inbox_capture", "knowledge_lookup", "morning_activity_collection", "day_focus"] as const satisfies readonly AssistantProcessId[];
 export type AssistantDisabledProcessId = (typeof assistantDisabledProcessIds)[number];
 
 /**
@@ -52,8 +54,7 @@ export const assistantToolProcessOwners: Readonly<Record<string, AssistantProces
   proposeContextDocumentUpdate: "knowledge_lookup",
   proposeContextDocumentMove: "knowledge_lookup",
   proposeContextDocumentDelete: "knowledge_lookup",
-  collectActivity: "morning_activity_collection",
-  updatePersonalContext: "morning_activity_collection",
+  updatePersonalContext: undefined,
 };
 
 export function isAssistantProcessId(value: string): value is AssistantProcessId {

@@ -194,7 +194,7 @@ function isLevelOnePendingAction(action: ActivePendingAction["action"]): boolean
   return action.actionKind === "cancel" || action.actionKind === "delete_idea" || action.actionKind === "move" || action.actionKind === "delete";
 }
 function scheduleProcessLabel(processId: string): string {
-  return processId === "morning_activity_collection"
+  return processId === "morning_planning"
     ? "Утреннее сообщение"
     : processId === "evening_reflection"
       ? "Вечернее сообщение"

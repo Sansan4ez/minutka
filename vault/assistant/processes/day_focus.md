@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-When the owner explicitly asks what to focus on today or now, requests a short plan, or wants to reprioritize current goals, ideas, and tasks. This process is not the scheduled morning touch for «Минутка»; morning activity collection uses `morning_activity_collection`.
+When the owner explicitly asks what to focus on today or now, requests a short plan, or wants to reprioritize current goals, ideas, and tasks. This inherited process is disabled for «Минутка»; the active bounded daily rhythm uses `morning_planning` and chat-only `midday_adjustment` without task or project tools.
 
 ## Inputs
 

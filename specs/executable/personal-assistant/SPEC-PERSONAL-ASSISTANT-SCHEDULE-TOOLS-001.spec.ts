@@ -32,20 +32,20 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     timezones.set("owner-a", "Europe/Moscow");
     timezones.set("owner-b", "Asia/Tokyo");
 
-    const morning = await service.saveDailySchedule("owner-a", { processId: "morning_activity_collection", timeOfDay: "08:30" });
+    const morning = await service.saveDailySchedule("owner-a", { processId: "morning_planning", timeOfDay: "08:30" });
     expect(morning).toMatchObject({
-      id: "owner-a:morning_activity_collection-daily", userId: "owner-a", kind: "process",
-      processId: "morning_activity_collection", timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true,
+      id: "owner-a:morning_planning-daily", userId: "owner-a", kind: "process",
+      processId: "morning_planning", timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true,
     });
     await service.saveDailySchedule("owner-b", { processId: "evening_reflection", timeOfDay: "20:00" });
 
-    await expect(service.listSchedules("owner-a")).resolves.toMatchObject([{ processId: "morning_activity_collection" }]);
+    await expect(service.listSchedules("owner-a")).resolves.toMatchObject([{ processId: "morning_planning" }]);
     await expect(service.listSchedules("owner-b")).resolves.toMatchObject([{ processId: "evening_reflection" }]);
     await expect(service.disableSchedule("owner-b", morning.id)).resolves.toBeNull();
     await expect(store.get("owner-a", morning.id)).resolves.toMatchObject({ enabled: true });
 
     await expect(service.disableSchedule("owner-a", morning.id)).resolves.toMatchObject({ enabled: false });
-    await expect(service.saveDailySchedule("owner-a", { processId: "morning_activity_collection", timeOfDay: "08:45" }))
+    await expect(service.saveDailySchedule("owner-a", { processId: "morning_planning", timeOfDay: "08:45" }))
       .resolves.toMatchObject({ id: morning.id, enabled: true, timeOfDay: "08:45" });
   });
 
@@ -53,7 +53,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     const { timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");
     const morning = await service.saveDailySchedule("owner-a", {
-      processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31,
+      processId: "morning_planning", timeOfDay: "08:30", daysOfWeek: 31,
     });
     await service.saveDailySchedule("owner-a", {
       processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31,
@@ -73,7 +73,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     });
     expect(JSON.stringify(refusal)).not.toMatch(/processId|runtime|scheduleId/iu);
     await expect(service.listSchedules("owner-a")).resolves.toMatchObject([
-      { id: morning.id, processId: "morning_activity_collection", timeOfDay: "08:30", enabled: true },
+      { id: morning.id, processId: "morning_planning", timeOfDay: "08:30", enabled: true },
       { processId: "evening_reflection", timeOfDay: "19:00", enabled: true },
     ]);
   });
@@ -91,7 +91,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
   it("exposes no arbitrary reminder fields and hides all legacy schedule rows", async () => {
     const { store, timezones, service } = setup();
     timezones.set("owner-a", "Europe/Moscow");
-    await service.saveDailySchedule("owner-a", { processId: "morning_activity_collection", timeOfDay: "08:30" });
+    await service.saveDailySchedule("owner-a", { processId: "morning_planning", timeOfDay: "08:30" });
     const legacyReminder = await service.saveDailySchedule("owner-a", {
       kind: "reminder", reminderText: "Выпить воды", timeOfDay: "15:00", oneShot: true,
     });
@@ -109,11 +109,11 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     expect(JSON.stringify(inputSchema)).not.toMatch(/reminder|reminderText|oneShot|kind/);
 
     await expect(service.listSchedules("owner-a")).resolves.toMatchObject([
-      { kind: "process", processId: "morning_activity_collection" },
+      { kind: "process", processId: "morning_planning" },
     ]);
     const listed = await tools.listSchedules.execute?.({}, {} as never);
     expect(() => scheduleListOutputSchema.parse(listed)).not.toThrow();
-    expect(listed).toMatchObject({ schedules: [{ kind: "process", processId: "morning_activity_collection" }] });
+    expect(listed).toMatchObject({ schedules: [{ kind: "process", processId: "morning_planning" }] });
     expect(JSON.stringify(listed)).not.toContain("Выпить воды");
     expect(JSON.stringify(listed)).not.toContain("day_focus");
 
@@ -132,7 +132,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
 
     const unsupported = await tools.setDailySchedule.execute?.({ processId: "day_focus" as never, timeOfDay: "08:30" }, {} as never);
     expect(unsupported).toMatchObject({ error: true });
-    expect(JSON.stringify(unsupported)).toContain("morning_activity_collection");
+    expect(JSON.stringify(unsupported)).toContain("morning_planning");
     expect(JSON.stringify(unsupported)).toContain("evening_reflection");
 
     const saved = await tools.setDailySchedule.execute?.({ processId: "evening_reflection", timeOfDay: "19:30", daysOfWeek: 31 }, {} as never);

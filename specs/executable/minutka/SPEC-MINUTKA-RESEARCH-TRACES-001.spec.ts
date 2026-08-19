@@ -71,7 +71,10 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       world, profiles, traces,
       runner: async () => ({
         text: "Готово для Анны и проекта Альфа.",
-        executionTrace: [{ kind: "tool", toolName: "collectActivity" }],
+        executionTrace: [
+          { kind: "process", processId: "evening_reflection" },
+          { kind: "tool", toolName: "collectActivity" },
+        ],
         usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25, llmSteps: 2 },
         trace: {
           model: "openai/test-model-2026-08-18",
@@ -95,7 +98,7 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       groupId: "group_a",
       status: "completed",
       samplingRate: 1,
-      processIds: ["core", "morning_activity_collection"],
+      processIds: ["core", "evening_reflection"],
       promptVersion: "prompt/v1",
       taxonomyVersion: "taxonomy/v1",
       output: "Готово для Анны и проекта Альфа.",

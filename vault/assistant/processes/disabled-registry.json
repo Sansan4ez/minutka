@@ -12,9 +12,14 @@
       "reason": "Outside the first-version «Минутка» product boundary"
     },
     {
+      "id": "morning_activity_collection",
+      "path": "vault/assistant/processes/morning_activity_collection.md",
+      "reason": "Retired from the active daily rhythm; factual collection moved to evening reflection with a bounded missed-evening catch-up"
+    },
+    {
       "id": "day_focus",
       "path": "vault/assistant/processes/day_focus.md",
-      "reason": "Disabled for «Минутка»; morning activity collection is the active morning process"
+      "reason": "Disabled for «Минутка»; morning_planning keeps only bounded priority rules without task or project tools"
     }
   ]
 }

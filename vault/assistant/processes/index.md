@@ -4,9 +4,10 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 | Process id | When it applies | Allowed effect |
 |---|---|---|
-| `morning_activity_collection` | Scheduled morning touch or an employee account of one to three activities since the previous touch. | Keep it conversational; call `collectActivity` once per named activity and optionally `updatePersonalContext` for recurring tasks, AI experience, or program goal the employee stated without prompting. Missing profile context never blocks the turn. |
+| `morning_planning` | Scheduled morning message or an employee request to choose today's priorities. | Read-only planning: up to three priorities and one concrete first step. Plans never become activities. If bounded history shows a missed evening, ask at most one catch-up question and record only explicitly named, non-duplicate factual activities before planning. |
+| `midday_adjustment` | A voluntary daytime update or request to reprioritize against the visible morning plan. | Chat-only and read-only. Use bounded morning history, keep up to three remaining priorities and one next step; never create a scheduled midday push. |
 | `consent_and_privacy` | Connection/onboarding consent or a question about the research corpus, research-team/company visibility, model use, retention, or deletion. | Use the canonical process-owned consent text; disclose full tenant-scoped research access, keep the company behind the client-report boundary, and explain manual company/group/subject deletion with report recompute. |
-| `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate records without an active typed use case. |
+| `evening_reflection` | End-of-day facts, blockers, work-related energy, or a scheduled evening trigger. | Call `collectActivity` once per explicitly named completed or in-progress activity, up to three. Never record planned/not-started work; then respond with a concise non-judgmental reflection and at most one next step. |
 
 If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.
 

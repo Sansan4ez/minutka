@@ -21,7 +21,7 @@ export function createOnboardingWelcome(
   const repoRoot = findRepoRoot(input.repoRoot ?? process.cwd());
   const source = readFileSync(resolve(repoRoot, welcomeTextPath), "utf8");
   const template = extractWelcomeTemplate(source);
-  const morningTime = scheduleTime(schedules, "morning_activity_collection");
+  const morningTime = scheduleTime(schedules, "morning_planning");
   const eveningTime = scheduleTime(schedules, "evening_reflection");
   if (!profile.preferredName.trim()) throw new Error("welcome preferredName must not be empty");
 

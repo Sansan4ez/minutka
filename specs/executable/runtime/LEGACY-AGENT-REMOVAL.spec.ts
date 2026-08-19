@@ -96,7 +96,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         await expect(profileTool.execute?.({ aiLevel: "intermediate" }, {})).resolves.toEqual({ recorded: true, changedFields: [] });
         const diagnostic = options.toolsets?.diagnostics?.markProcessUsed as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(diagnostic.execute).toBeTypeOf("function");
-        await expect(diagnostic.execute?.({ id: "morning_activity_collection" }, {})).resolves.toEqual({ recorded: true, id: "morning_activity_collection" });
+        await expect(diagnostic.execute?.({ id: "morning_planning" }, {})).resolves.toEqual({ recorded: true, id: "morning_planning" });
         await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toMatchObject({ error: true });
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({
@@ -192,7 +192,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         disableSchedule: async () => null,
       },
       markProcessUsed(id) {
-        expect(id).toBe("morning_activity_collection");
+        expect(id).toBe("morning_planning");
       },
       async captureIdea() {
         throw new Error("captureIdea belongs to the disabled inbox_capture process and must never be reachable");
@@ -301,6 +301,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     records: {} as never,
     source: { kind: "text", text: "usage" },
     collectActivity,
+    updatePersonalContext: async () => ({ changedFields: [] }),
     captureIdea: async () => { throw new Error("not used"); },
     contextDocuments: {} as never,
     documents: {

@@ -1558,6 +1558,31 @@ describe("PostgreSQL storage contracts", () => {
     ]);
   });
 
+  it("rebinds the morning schedule in place while preserving time, timezone, enabled state, and fire history", async () => {
+    await issueProfileReadyParticipant(pool, "daily_rhythm_owner", "invite_daily_rhythm_owner");
+    const schedules = createPostgresScheduleStore(pool);
+    await schedules.save("daily_rhythm_owner", {
+      id: "daily-rhythm-morning", daysOfWeek: 31, kind: "process", processId: "morning_activity_collection", oneShot: false,
+      timeOfDay: "10:17", timezone: "Asia/Yekaterinburg", enabled: false, nextFireAt: "2026-08-20T05:17:00.000Z",
+    });
+    await migrationPool.query(
+      `INSERT INTO minutka_private.schedule_fires
+         (schedule_id,user_id,days_of_week,kind,process_id,one_shot,scheduled_for,status,completed_at)
+       VALUES ('daily-rhythm-morning','daily_rhythm_owner',31,'process','morning_activity_collection',false,'2026-08-19T05:17:00.000Z','succeeded','2026-08-19T05:18:00.000Z')`,
+    );
+
+    await migrationPool.query(readFileSync("migrations/0067_adapt_daily_rhythm.sql", "utf8"));
+
+    await expect(schedules.get("daily_rhythm_owner", "daily-rhythm-morning")).resolves.toMatchObject({
+      id: "daily-rhythm-morning", processId: "morning_planning", timeOfDay: "10:17",
+      timezone: "Asia/Yekaterinburg", daysOfWeek: 31, enabled: false, nextFireAt: "2026-08-20T05:17:00.000Z",
+    });
+    expect((await pool.query<{ process_id: string; count: number }>(
+      `SELECT process_id, count(*)::int AS count FROM minutka_private.schedule_fires
+       WHERE user_id='daily_rhythm_owner' GROUP BY process_id`,
+    )).rows).toEqual([{ process_id: "morning_activity_collection", count: 1 }]);
+  });
+
   it("persists schedules and one idempotent fire across adapter restarts", async () => {
     await issueProfileReadyParticipant(pool, "schedule_owner", "invite_schedule_owner");
     await issueProfileReadyParticipant(pool, "schedule_other", "invite_schedule_other");

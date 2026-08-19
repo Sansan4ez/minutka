@@ -28,7 +28,8 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
   const catalogIds = [registry.core.id, ...registry.processes.map(({ id }) => id)];
   const activeProcessIds = [
     "core",
-    "morning_activity_collection",
+    "morning_planning",
+    "midday_adjustment",
     "consent_and_privacy",
     "evening_reflection",
   ] as const satisfies readonly AssistantProcessId[];

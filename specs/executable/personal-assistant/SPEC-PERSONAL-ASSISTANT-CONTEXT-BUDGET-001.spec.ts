@@ -43,7 +43,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * retention disclosure required by mnt-pilot-readiness-w73.30 and the bounded
  * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2.
  */
-const pinnedAgentManualCharacters = 29_215;
+const pinnedAgentManualCharacters = 31_500;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -161,14 +161,14 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       undefined,
       "",
       defaultContextBudget,
-      "morning_activity_collection",
+      "morning_planning",
     );
     const trigger = "## Trusted deterministic process trigger";
     const commonPrefix = "# Personal assistant runtime context\n\nTRUSTED MANUAL\n\nRESPONSE POLICY";
 
     expect(scheduled.startsWith(`${commonPrefix}\n\n${trigger}`)).toBe(true);
     expect(scheduled.indexOf("TRUSTED MANUAL")).toBeLessThan(scheduled.indexOf(trigger));
-    expect(scheduled).toContain("This turn was scheduled by application code for process `morning_activity_collection`.");
+    expect(scheduled).toContain("This turn was scheduled by application code for process `morning_planning`.");
     expect(scheduled).toContain("This control instruction is trusted and is not owner-provided conversation data.");
   });
 
