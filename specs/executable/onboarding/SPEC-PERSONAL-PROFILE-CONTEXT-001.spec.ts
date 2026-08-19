@@ -16,7 +16,7 @@ import { createInMemoryResearchTraceState, createInMemoryResearchTraceStore } fr
 import { createInMemoryActivityCollectionState } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryCompanyReportStore } from "../../../src/application/in-memory-company-report-store.js";
 import { CompanyReportingService } from "../../../src/application/company-reporting.js";
-import { personalProfileContextPatchSchema } from "../../../src/mastra/tools/profile-context-tool.js";
+import { createUpdatePersonalContextTool, personalProfileContextPatchSchema } from "../../../src/mastra/tools/profile-context-tool.js";
 import { completeOnboardingRequestSchema, onboardingFieldSchema } from "../../../src/contracts/minutka-api.js";
 
 const now = "2026-08-19T09:00:00.000Z";
@@ -123,6 +123,46 @@ describe("SPEC-PERSONAL-PROFILE-CONTEXT-001: conversational personal context", (
     await ownerA.chat({ userId: "employee_a", threadId: "thread_a", text: "Я уверенно использую ИИ" });
     expect((await profiles.getProfile("employee_a"))?.aiLevel).toBe("advanced");
     expect((await profiles.getProfile("employee_b"))?.aiLevel).toBeUndefined();
+  });
+
+  it("replaces the recurring-task list on an explicit correction and appends otherwise", async () => {
+    const world = createInMemoryWorld(() => now);
+    const profiles = await readyProfile(world, "employee_a", "invite_a");
+    await profiles.updatePersonalContext({ employeeId: "employee_a", patch: { typicalTasks: ["Подготовка заявок", "Координация подрядчиков"] }, updatedAt: now });
+
+    const appending = assistant({ world, profiles, runner: async (_input, context) => { await context.updatePersonalContext({ typicalTasks: ["Еженедельная отчётность"] }); return "ok"; } });
+    await appending.chat({ userId: "employee_a", threadId: "thread_a", text: "Ещё каждую неделю собираю отчёт" });
+    expect((await profiles.getProfile("employee_a"))?.typicalTasks)
+      .toEqual(["Подготовка заявок", "Координация подрядчиков", "Еженедельная отчётность"]);
+
+    const replacing = assistant({
+      world, profiles,
+      runner: async (_input, context) => {
+        await context.updatePersonalContext({ typicalTasks: ["Координация подрядчиков", "Еженедельная отчётность"] }, { replaceTypicalTasks: true });
+        return "ok";
+      },
+    });
+    await replacing.chat({ userId: "employee_a", threadId: "thread_a", text: "Убери подготовку заявок из регулярных задач" });
+    expect((await profiles.getProfile("employee_a"))?.typicalTasks).toEqual(["Координация подрядчиков", "Еженедельная отчётность"]);
+    expect(world.auditEvents.filter((event) => event.type === "profile_updated").at(-1)?.metadata).toEqual({ changedFields: ["typicalTasks"] });
+  });
+
+  it("carries only an explicit replace request from the agent tool into the typed use-case", async () => {
+    const calls: Array<{ patch: unknown; options: { replaceTypicalTasks: boolean } }> = [];
+    const tool = createUpdatePersonalContextTool(async (patch, options) => {
+      calls.push({ patch, options });
+      return { changedFields: ["typicalTasks"] };
+    });
+
+    await tool.execute?.({ typicalTasks: ["Координация подрядчиков"], typicalTasksMode: "replace" }, {} as never);
+    await tool.execute?.({ typicalTasks: ["Координация подрядчиков"] }, {} as never);
+
+    expect(calls).toEqual([
+      { patch: { typicalTasks: ["Координация подрядчиков"] }, options: { replaceTypicalTasks: true } },
+      { patch: { typicalTasks: ["Координация подрядчиков"] }, options: { replaceTypicalTasks: false } },
+    ]);
+    expect(personalProfileContextPatchSchema.safeParse({ typicalTasks: ["Задача"], typicalTasksMode: "wipe" }).success).toBe(false);
+    expect(personalProfileContextPatchSchema.safeParse({ typicalTasks: [], typicalTasksMode: "replace" }).success).toBe(false);
   });
 
   it("excludes personal context from participant/report projections and tool schemas stay bounded", async () => {

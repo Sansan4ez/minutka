@@ -93,8 +93,12 @@ export type AssistantAgentContext = {
   readWeeklyActivities(): Promise<WeeklyActivitySummary>;
   /** Employee-bound counted read of the employee's own two-week cycle. */
   readCycleActivities(): Promise<CycleActivitySummary>;
-  /** Employee-bound bounded personal context write from ordinary conversation. */
-  updatePersonalContext(patch: PersonalContextPatch): Promise<{ changedFields: string[] }>;
+  /**
+   * Employee-bound bounded personal context write from ordinary conversation.
+   * Recurring tasks append by default; `replaceTypicalTasks` is reserved for an
+   * explicit employee correction that drops or rewrites the stored list.
+   */
+  updatePersonalContext(patch: PersonalContextPatch, options?: { replaceTypicalTasks?: boolean }): Promise<{ changedFields: string[] }>;
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -572,9 +576,12 @@ export class AssistantService {
       observedExecutionTrace.push({ kind: "tool", toolName: "readCycleActivities" });
       return summary;
     };
-    const updatePersonalContext = async (patch: PersonalContextPatch) => {
+    const updatePersonalContext = async (patch: PersonalContextPatch, options: { replaceTypicalTasks?: boolean } = {}) => {
       if (!this.deps.participantStore.updatePersonalContext) throw new Error("personal profile context update is not configured");
-      const result = await this.deps.participantStore.updatePersonalContext({ employeeId: userId, patch, updatedAt: this.clock.now() });
+      const result = await this.deps.participantStore.updatePersonalContext({
+        employeeId: userId, patch, updatedAt: this.clock.now(),
+        ...(options.replaceTypicalTasks ? { replaceTypicalTasks: true } : {}),
+      });
       observedExecutionTrace.push({ kind: "tool", toolName: "updatePersonalContext" });
       if (result.changedFields.length > 0 && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
       await this.auditSafely({

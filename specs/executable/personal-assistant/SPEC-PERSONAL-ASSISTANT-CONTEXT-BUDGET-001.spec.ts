@@ -50,7 +50,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * seventh active process; its ceiling moved from 34 000 to 35 000 on the same
  * terms — the guaranteed ceilings still sum to 71 000 inside the total budget.
  */
-const pinnedAgentManualCharacters = 34_225;
+const pinnedAgentManualCharacters = 34_361;
 
 const projection = {
   schemaVersion: 1 as const,
