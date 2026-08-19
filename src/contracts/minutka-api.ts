@@ -4,6 +4,7 @@ import { chatInputFitsCharacterLimit, countUnicodeCodePoints, maxChatInputCharac
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledProcessIds } from "../domain/assistant-process.js";
 import { activityDurationBuckets, activitySystems, automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
+import { personalContextPatchFields, personalContextLimits } from "../application/personal-context-review.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -17,6 +18,7 @@ export const timezoneSchema = z.string().min(1).max(64).transform((value, contex
   return z.NEVER;
 });
 export const agentManualProcessIdSchema = z.enum(["core", "consent_and_privacy", "evening_reflection", "workday_guardrails", "insight_extraction", "inbox_capture"]);
+export const personalContextPatchFieldSchema = z.enum(personalContextPatchFields);
 export const assistantProcessIdSchema = z.enum(assistantProcessIds);
 export const assistantDiagnosticProcessIdSchema = z.enum(assistantDiagnosticProcessIds);
 export const assistantScheduledProcessIdSchema = z.enum(assistantScheduledProcessIds);
@@ -49,6 +51,37 @@ export const userProfileSchema = z.strictObject({
   preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+});
+
+const personalContextConfirmedProfileSchema = z.strictObject({
+  preferredName: z.string().min(1).max(personalContextLimits.maximumPreferredNameCharacters),
+  persona: personaSchema,
+  responseLength: responseLengthSchema,
+  timezone: timezoneSchema,
+  exactRole: z.string().min(1).max(256),
+  selfDescription: z.string().min(1).max(personalContextLimits.maximumRoleDescriptionCharacters).optional(),
+  typicalTasks: z.array(z.string().trim().min(1).max(personalContextLimits.maximumTypicalTaskCharacters)).min(1).max(personalContextLimits.maximumTypicalTasks).optional(),
+  aiLevel: aiLevelSchema.optional(),
+  programGoal: z.string().trim().min(1).max(personalContextLimits.maximumProgramGoalCharacters).optional(),
+});
+export const personalContextViewSchema = z.strictObject({
+  confirmedProfile: personalContextConfirmedProfileSchema,
+  observations: z.strictObject({ status: z.literal("none_confirmed"), items: z.tuple([]), note: z.string().min(1) }),
+  editableFields: z.array(personalContextPatchFieldSchema),
+});
+export const personalContextPatchSchema = z.strictObject({
+  preferredName: z.string().trim().min(1).max(personalContextLimits.maximumPreferredNameCharacters).optional(),
+  persona: personaSchema.optional(),
+  responseLength: responseLengthSchema.optional(),
+  timezone: timezoneSchema.optional(),
+  role: z.string().trim().min(1).max(personalContextLimits.maximumRoleDescriptionCharacters).optional(),
+  typicalTasks: z.array(z.string().trim().min(1).max(personalContextLimits.maximumTypicalTaskCharacters)).min(1).max(personalContextLimits.maximumTypicalTasks).optional(),
+  aiLevel: aiLevelSchema.optional(),
+  programGoal: z.string().trim().min(1).max(personalContextLimits.maximumProgramGoalCharacters).optional(),
+}).refine((patch) => Object.values(patch).some((value) => value !== undefined), "Personal context patch must not be empty");
+export const personalContextUpdateResponseSchema = z.strictObject({
+  context: personalContextViewSchema,
+  changedFields: z.array(personalContextPatchFieldSchema),
 });
 
 export const chatInputModalitySchema = z.enum(["text", "voice"]);
@@ -291,6 +324,9 @@ export const errorCodeSchema = z.enum([
 export const errorEnvelopeSchema = z.strictObject({ error: z.strictObject({ code: errorCodeSchema, message: z.string().min(1), requestId: z.string().min(1) }) });
 
 export type ScheduleView = z.infer<typeof scheduleViewSchema>;
+export type PersonalContextView = z.infer<typeof personalContextViewSchema>;
+export type PersonalContextPatch = z.infer<typeof personalContextPatchSchema>;
+export type PersonalContextUpdateResponse = z.infer<typeof personalContextUpdateResponseSchema>;
 export type ChatInputModality = z.infer<typeof chatInputModalitySchema>;
 export type ResponseChannel = z.infer<typeof responseChannelSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

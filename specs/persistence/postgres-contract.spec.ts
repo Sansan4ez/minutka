@@ -185,6 +185,13 @@ describe("PostgreSQL storage contracts", () => {
     const ownerA = await profiles.getProfile("profile_context_owner_a");
     expect(ownerA).toMatchObject({ typicalTasks: ["reports", "Weekly reporting", "Vendor coordination"], aiLevel: "intermediate" });
     expect(Array.from(ownerA?.programGoal ?? "")).toHaveLength(500);
+
+    await expect(profiles.updatePersonalContext({
+      employeeId: "profile_context_owner_a",
+      patch: { preferredName: "Lead", persona: "support", responseLength: "detailed", timezone: "Europe/Moscow", role: "Coordinates reporting" },
+      updatedAt: "2026-08-19T10:02:00.000Z",
+    })).resolves.toMatchObject({ changedFields: ["preferredName", "persona", "responseLength", "timezone", "role"] });
+    expect(await profiles.getProfile("profile_context_owner_a")).toMatchObject({ preferredName: "Lead", persona: "support", responseLength: "detailed", timezone: "Europe/Moscow", role: "Coordinates reporting" });
     expect(await profiles.getProfile("profile_context_owner_b")).not.toMatchObject({ aiLevel: "intermediate" });
 
     await expect(profiles.updatePersonalContext({

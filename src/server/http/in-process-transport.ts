@@ -1,7 +1,7 @@
 import { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, ServiceChatRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, PersonalContextPatch, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   RestoreContextDocumentVersionRequest, SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
@@ -42,6 +42,8 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
   acceptConsent(input: AcceptEmployeeConsentRequest) { return this.application.acceptConsent({ ...input, employeeId: employeeId(this.principal) }); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.application.completeOnboarding({ ...input, employeeId: employeeId(this.principal) }); }
   getProfile() { return this.application.getProfile({ employeeId: employeeId(this.principal) }); }
+  getPersonalContext() { return personal(this.application).getPersonalContext({ employeeId: employeeId(this.principal) }); }
+  updatePersonalContext(input: PersonalContextPatch) { return personal(this.application).updatePersonalContext({ employeeId: employeeId(this.principal), patch: input }); }
   listInsights(input: ListInsightsRequest) { return this.application.listInsights({ ...input, employeeId: employeeId(this.principal) }); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: employeeId(this.principal) }); }
   confirmTaskMutation(confirmationId: string, _input: TaskMutationDecisionRequest) { return personal(this.application).confirmTaskMutation(employeeId(this.principal), confirmationId); }
@@ -82,6 +84,8 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   confirmOnboarding() { return this.application.confirmOnboarding({ employeeId: this.employeeId() }); }
   resetOnboardingDraft() { return this.application.resetOnboardingDraft({ employeeId: this.employeeId() }); }
   getProfile() { return this.application.getProfile({ employeeId: this.employeeId() }); }
+  getPersonalContext() { return personal(this.application).getPersonalContext({ employeeId: this.employeeId() }); }
+  updatePersonalContext(input: PersonalContextPatch) { return personal(this.application).updatePersonalContext({ employeeId: this.employeeId(), patch: input }); }
   resetConversation() { return personal(this.application).resetConversation({ userId: this.employeeId() }); }
   async listSchedules() { return { schedules: (await personal(this.application).listSchedules(this.employeeId())).map(toScheduleView) }; }
   submitFeedback(input: SubmitFeedbackRequest) { return this.application.submitFeedback({ ...input, employeeId: this.employeeId() }); }

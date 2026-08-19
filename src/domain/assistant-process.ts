@@ -5,6 +5,7 @@ export const assistantProcessIds = [
   "morning_activity_collection",
   "morning_planning",
   "midday_adjustment",
+  "personal_context_review",
   "consent_and_privacy",
   "day_focus",
   "evening_reflection",
@@ -13,7 +14,7 @@ export const assistantProcessIds = [
 export type AssistantProcessId = (typeof assistantProcessIds)[number];
 
 /** Active inline processes that may emit diagnostic evidence without granting capability by themselves. */
-export const assistantDiagnosticProcessIds = ["morning_planning", "midday_adjustment", "consent_and_privacy", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
+export const assistantDiagnosticProcessIds = ["morning_planning", "midday_adjustment", "personal_context_review", "consent_and_privacy", "evening_reflection"] as const satisfies readonly AssistantProcessId[];
 export type AssistantDiagnosticProcessId = (typeof assistantDiagnosticProcessIds)[number];
 
 /**

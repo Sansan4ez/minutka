@@ -8,6 +8,7 @@ import type {
   CompleteOnboardingResult,
   ConfirmOnboardingInput,
   GetOnboardingProgressInput,
+  GetPersonalContextInput,
   IssueInviteInput,
   IssueInviteResult,
   ListInsightsInput,
@@ -23,6 +24,7 @@ import type {
   SubmitFeedbackInput,
   SubmitFeedbackResult,
   SubmitOnboardingAnswerInput,
+  UpdatePersonalContextInput,
 } from "./minutka-service.js";
 import type { ListParticipantsInput } from "./participant-pagination.js";
 import type { OnboardingProgress } from "./onboarding-types.js";
@@ -67,6 +69,8 @@ export class PersonalAssistantService {
       | "confirmOnboarding"
       | "resetOnboardingDraft"
       | "getProfile"
+      | "getPersonalContext"
+      | "updatePersonalContext"
       | "listInsights"
       | "submitFeedback"
     >,
@@ -101,6 +105,8 @@ export class PersonalAssistantService {
   confirmOnboarding(input: ConfirmOnboardingInput): Promise<CompleteOnboardingResult> { return this.identityService.confirmOnboarding(input); }
   resetOnboardingDraft(input: ResetOnboardingDraftInput): Promise<OnboardingProgress> { return this.identityService.resetOnboardingDraft(input); }
   getProfile(input: { employeeId: string }): Promise<UserProfile> { return this.identityService.getProfile(input); }
+  getPersonalContext(input: GetPersonalContextInput) { return this.identityService.getPersonalContext(input); }
+  updatePersonalContext(input: UpdatePersonalContextInput) { return this.identityService.updatePersonalContext(input); }
   chat(input: AssistantChatInput): Promise<AssistantChatResult> { return this.conversationService.chat(input); }
 
   resetConversation(input: { userId: string }): Promise<{ threadId: string }> {

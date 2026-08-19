@@ -17,7 +17,7 @@ Logical paths are application API handles, not arbitrary filesystem paths.
 | `/processes/*` | Product-global allow-listed process registry, index, and files | Repository maintenance only |
 | `/docs/*` | Product-global curated runtime policy | Repository maintenance only |
 | `/bin/*` | Application-wired typed capabilities, never shell access; invocations are employee-scoped | Validated use cases and required confirmation |
-| `/proc/profile` | Current employee's structured profile | Profile/onboarding use case |
+| `/proc/profile` | Current employee's structured profile; the `personal_context_review` read model exposes only its employee-safe allow-list | Owner-bound personal-context/profile use case |
 | `/proc/consent` | Current employee's consent state | Authenticated consent use case |
 | `/proc/context` | Current employee's bounded personal context; projection is read-only | Employee-scoped typed use cases only |
 | `/proc/records` | Current employee's bounded typed records | Typed record use cases |
@@ -33,6 +33,7 @@ Logical paths are application API handles, not arbitrary filesystem paths.
 - Logical handles belong to one application read model/component; physical document keys, artifact CAS references, database rows, and retired prefixes are adapter details and never agent-facing paths.
 - Authority files are immutable to the «Минутка» agent, `/proc` is a read-only view, and `/bin` capabilities execute typed employee-bound use cases. Typed mutation tools cannot target `/AGENTS.md`, `/processes`, `/docs`, `/bin`, `/run`, or arbitrary new top-level namespaces.
 - Uploaded/generated artifacts are not promoted into employee context automatically.
-- `/proc/profile` is authoritative for confirmed operational fields such as role, timezone, response length, and selected persona identifier, plus optional employee-only recurring tasks, AI experience, and program goal collected through the typed profile-context use case.
+- `/proc/profile` is authoritative for confirmed profile/context. `personal_context_review` uses an owner-bound closed patch with no target identity; exact directory role is read-only.
+- Confirmed profile and cautious observations stay separate; unconfirmed patterns are not facts or writes.
 - `/proc/context/90_agent_memory/soul.md` may refine style but not override structured fields, policy, or capabilities. A legacy `persona.md` and `/proc/context/99_system/*` remain ordinary untrusted context.
 - Repository `docs/` and `vault/user/**` are never loaded into the «Минутка» prompt implicitly. Production employee data comes from scoped stores and projections.

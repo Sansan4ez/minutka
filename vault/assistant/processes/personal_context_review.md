@@ -1,0 +1,1 @@
+Mark `personal_context_review`. Show profile; observations stay separate. No ids, raw conversation, traces, foreign data, documents, or target identity. Corrections call `updatePersonalContext` only for explicit allow-listed fields; offer `/context`. Exact role comes from `/context`; never persist unverified patterns.

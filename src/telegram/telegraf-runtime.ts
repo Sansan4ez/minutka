@@ -41,6 +41,11 @@ export function createTelegrafBot(deps: {
     await shell.handleSchedule(String(ctx.chat.id), ctx.from ? String(ctx.from.id) : undefined);
   });
 
+  bot.command("context", async (ctx) => {
+    if (!await privateChat(ctx)) return;
+    await shell.handleContext(String(ctx.chat.id), ctx.from ? String(ctx.from.id) : undefined);
+  });
+
   bot.on("text", async (ctx) => {
     if (!await privateChat(ctx)) return;
     await shell.handleText(String(ctx.chat.id), ctx.message.text, ctx.from ? String(ctx.from.id) : undefined);

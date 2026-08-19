@@ -6,7 +6,7 @@
 
 ## Что прогон проверяет и что не проверяет
 
-Проверяет: справочники тенантности → инвайт → privacy-v6 consent/re-consent → онбординг с выбором `role_id` → плановое утреннее касание → canonical activities и research trace → вечернее касание → изоляция второго сотрудника → subject-aware internal/client report boundary → ручное удаление и пересчёт.
+Проверяет: справочники тенантности → инвайт → privacy-v6 consent/re-consent → онбординг с выбором `role_id` → узкий личный контекст (`/context`/`GET /v1/me/context`) → плановое утреннее касание → canonical activities и research trace → вечернее касание → изоляция второго сотрудника → subject-aware internal/client report boundary → ручное удаление и пересчёт. Telegram-проверка и correction examples: [runbook личного контекста](./telegram-personal-context.md).
 
 **Не проверяет — решение оператора от 2026-08-17, а не пропуск:**
 

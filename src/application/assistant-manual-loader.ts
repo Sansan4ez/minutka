@@ -30,6 +30,7 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
     "core",
     "morning_planning",
     "midday_adjustment",
+    "personal_context_review",
     "consent_and_privacy",
     "evening_reflection",
   ] as const satisfies readonly AssistantProcessId[];

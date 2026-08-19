@@ -1,7 +1,8 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { ParticipantPageCursor } from "./participant-pagination.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
-import type { PersonalProfileContextPatch, PersonalProfileContextUpdateResult } from "./personal-profile-context.js";
+import type { PersonalProfileContextUpdateResult } from "./personal-profile-context.js";
+import type { PersonalContextPatch } from "./personal-context-review.js";
 
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
@@ -65,8 +66,10 @@ export type ProfileStore = {
   /** Employee-scoped conversational context write; the adapter resolves and locks the current profile. */
   updatePersonalContext(input: {
     employeeId: string;
-    patch: PersonalProfileContextPatch;
+    patch: PersonalContextPatch;
     updatedAt: string;
+    /** Explicit review corrections replace the task list; conversational capture appends/deduplicates. */
+    replaceTypicalTasks?: boolean;
   }): Promise<PersonalProfileContextUpdateResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
   /** Records only the local calendar date of an inbound employee touch. */

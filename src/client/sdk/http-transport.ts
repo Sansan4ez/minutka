@@ -1,7 +1,7 @@
 import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
-  type CompleteOnboardingRequest, type IssueInviteRequest, type ServiceChatRequest, type ListInsightsRequest,
+  type CompleteOnboardingRequest, type IssueInviteRequest, type PersonalContextPatch, type ServiceChatRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
 import type {
@@ -46,6 +46,8 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
   acceptConsent(input: AcceptEmployeeConsentRequest) { return this.request("POST", "/v1/me/consent", input); }
   completeOnboarding(input: CompleteOnboardingRequest) { return this.request("POST", "/v1/me/onboarding", input); }
   getProfile() { return this.request("GET", "/v1/me/profile"); }
+  getPersonalContext() { return this.request("GET", "/v1/me/context"); }
+  updatePersonalContext(input: PersonalContextPatch) { return this.request("PATCH", "/v1/me/context", input); }
   listInsights(input: ListInsightsRequest) { const query = new URLSearchParams(); if (input.threadId) query.set("threadId", input.threadId); if (input.kind) query.set("kind", input.kind); return this.request("GET", `/v1/me/insights${query.size ? `?${query}` : ""}`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `/v1/me/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest) { return this.request("POST", `/v1/me/task-mutations/${encodeURIComponent(confirmationId)}/confirm`, input); }
@@ -95,6 +97,8 @@ class HttpServiceEmployeeMinutkaTransport extends HttpTransportBase implements S
   confirmOnboarding() { return this.request("POST", `${this.prefix}/onboarding/confirm`, {}); }
   resetOnboardingDraft() { return this.request("POST", `${this.prefix}/onboarding/reset`, {}); }
   getProfile() { return this.request("GET", `${this.prefix}/profile`); }
+  getPersonalContext() { return this.request("GET", `${this.prefix}/context`); }
+  updatePersonalContext(input: PersonalContextPatch) { return this.request("PATCH", `${this.prefix}/context`, input); }
   resetConversation() { return this.request("POST", `${this.prefix}/conversation/reset`, {}); }
   listSchedules() { return this.request("GET", `${this.prefix}/schedules`); }
   submitFeedback(input: SubmitFeedbackRequest) { return this.request("POST", `${this.prefix}/threads/${encodeURIComponent(input.threadId)}/feedback`, { targetMessageId: input.targetMessageId, rating: input.rating, source: input.source }); }

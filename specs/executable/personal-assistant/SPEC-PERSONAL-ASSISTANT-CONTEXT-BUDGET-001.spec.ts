@@ -41,9 +41,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * typed action: 26 793 of 29 000 characters. Later role/process updates reduced
  * that manual and repinned it. The current increase includes the consent
  * retention disclosure required by mnt-pilot-readiness-w73.30 and the bounded
- * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2.
+ * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2 and
+ * the narrow personal-context review required by mnt-cycle-completion-4gd.7.
  */
-const pinnedAgentManualCharacters = 31_500;
+const pinnedAgentManualCharacters = 32_184;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -173,7 +174,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
-    const config = createContextBudgetConfig({ total: 82_096 });
+    const config = createContextBudgetConfig({ total: 83_096 });
     const result = applyContextBudget({
       config,
       userInput: "request",

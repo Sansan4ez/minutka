@@ -1,4 +1,5 @@
 import type { AiLevel, UserProfile } from "../domain/employee.js";
+import type { PersonalContextPatch } from "./personal-context-review.js";
 
 export const maximumTypicalTasks = 7;
 export const maximumTypicalTaskCharacters = 160;
@@ -12,7 +13,7 @@ export type PersonalProfileContextPatch = {
 
 export type PersonalProfileContextUpdateResult = {
   profile: UserProfile;
-  changedFields: Array<keyof PersonalProfileContextPatch>;
+  changedFields: Array<keyof PersonalContextPatch>;
 };
 
 function boundedText(value: string, maximumCharacters: number): string | undefined {

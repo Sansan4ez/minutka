@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 import type { ResearchSubject } from "../../application/research-identity-projection.js";
 import { keyedDigest } from "./digests.js";
 import { withTransaction } from "./postgres-pool.js";
-import { applyPersonalProfileContextPatch } from "../../application/personal-profile-context.js";
+import { applyPersonalContextPatch } from "../../application/personal-context-review.js";
 
 type ParticipantRow = {
   employee_id: string;
@@ -285,7 +285,7 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
-    async updatePersonalContext({ employeeId, patch, updatedAt }) {
+    async updatePersonalContext({ employeeId, patch, updatedAt, replaceTypicalTasks }) {
       try {
         return await withTransaction(pool, async (client) => {
           const current = await client.query<ProfileRow>(
@@ -297,13 +297,16 @@ export function createPostgresProfileStore(
             [employeeId],
           );
           if (!current.rows[0]) throw new PersistenceError("profile_not_found");
-          const result = applyPersonalProfileContextPatch(toProfile(current.rows[0]), patch, updatedAt);
+          const result = applyPersonalContextPatch(toProfile(current.rows[0]), patch, updatedAt, { replaceTypicalTasks });
           if (result.changedFields.length === 0) return result;
           await client.query(
             `UPDATE minutka_private.profiles
-             SET typical_tasks = $2::jsonb, ai_level = $3, program_goal = $4, updated_at = $5
+             SET preferred_name = $2, persona = $3, response_length = $4, timezone = $5, role = $6,
+                 typical_tasks = $7::jsonb, ai_level = $8, program_goal = $9, updated_at = $10
              WHERE employee_id = $1`,
-            [employeeId, result.profile.typicalTasks ? JSON.stringify(result.profile.typicalTasks) : null,
+            [employeeId, result.profile.preferredName, result.profile.persona, result.profile.responseLength,
+              result.profile.timezone, result.profile.role ?? null,
+              result.profile.typicalTasks ? JSON.stringify(result.profile.typicalTasks) : null,
               result.profile.aiLevel ?? null, result.profile.programGoal ?? null, updatedAt],
           );
           return result;

@@ -42,6 +42,7 @@ import { RoleNotInCompanyError } from "./onboarding-role-error.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
 import { participantEngagement, type ParticipantEngagement } from "./participant-engagement.js";
 import { normalizePersonalProfileContextPatch } from "./personal-profile-context.js";
+import { PersonalContextReviewService, type PersonalContextPatch, type PersonalContextUpdateResult, type PersonalContextView } from "./personal-context-review.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
@@ -100,6 +101,8 @@ export type SubmitFeedbackInput = {
   employeeId: string; threadId: string; targetMessageId: string; rating: FeedbackRating; source: FeedbackSource;
 };
 export type SubmitFeedbackResult = { accepted: true; feedbackId: string; selectedProcessIds: AgentManualProcessId[] };
+export type GetPersonalContextInput = { employeeId: string };
+export type UpdatePersonalContextInput = { employeeId: string; patch: PersonalContextPatch };
 
 const defaultOnboardingExtractionTimeoutMs = 20_000;
 
@@ -559,6 +562,20 @@ export class MinutkaService {
     const profile = await this.stores.profileStore.getProfile(input.employeeId);
     if (!profile) throw new PersistenceError("profile_not_found");
     return profile;
+  }
+
+  async getPersonalContext(input: GetPersonalContextInput): Promise<PersonalContextView> {
+    return this.personalContextReview().get(input.employeeId);
+  }
+
+  async updatePersonalContext(input: UpdatePersonalContextInput): Promise<PersonalContextUpdateResult> {
+    const result = await this.personalContextReview().update(input.employeeId, input.patch);
+    await this.audit(this.ids.requestId(), "profile_updated", input.employeeId, undefined, undefined, this.clock.now(), { changedFields: result.changedFields });
+    return result;
+  }
+
+  private personalContextReview(): PersonalContextReviewService {
+    return new PersonalContextReviewService(this.stores.profileStore, this.stores.tenantDirectoryStore, this.clock);
   }
 
   async chat(input: ChatInput): Promise<ChatResult> {

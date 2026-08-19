@@ -207,7 +207,7 @@ function sanitizePersonalContextToolPayload(payload: Record<string, unknown>, se
 
 function personalProfileFieldNames(value: unknown): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  const allowed = new Set(["typicalTasks", "aiLevel", "programGoal"]);
+  const allowed = new Set(["preferredName", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "programGoal"]);
   const existing = (value as { fields?: unknown }).fields;
   if (Array.isArray(existing)) return existing.filter((field): field is string => typeof field === "string" && allowed.has(field));
   return Object.keys(value).filter((key) => allowed.has(key));

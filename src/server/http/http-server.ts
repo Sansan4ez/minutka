@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -36,6 +36,8 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "restoreContextDocumentVersion"
   | "openInvite"
   | "getProfile"
+  | "getPersonalContext"
+  | "updatePersonalContext"
   | "acceptConsent"
   | "completeOnboarding"
   | "listInsights"
@@ -182,6 +184,8 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && url.pathname === "/v1/onboarding/invites/open") { template = "/v1/onboarding/invites/open"; if (!inviteLimiter.allow(clientIp(req, options.trustProxy === true))) throw httpError(429, "rate_limited", "Too many requests."); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.openInvite(parse(openInviteRequestSchema, await body(req)))), id); }
 
       if (req.method === "GET" && url.pathname === "/v1/me/profile") { template = "/v1/me/profile"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: employee.employeeId })), id); }
+      if (req.method === "GET" && url.pathname === "/v1/me/context") { template = "/v1/me/context"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getPersonalContext({ employeeId: employee.employeeId })), id); }
+      if (req.method === "PATCH" && url.pathname === "/v1/me/context") { template = "/v1/me/context"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.updatePersonalContext({ employeeId: employee.employeeId, patch: parse(personalContextPatchSchema, await body(req)) })), id); }
       if (req.method === "POST" && url.pathname === "/v1/me/consent") { template = "/v1/me/consent"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.acceptConsent({ ...parse(acceptEmployeeConsentRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "POST" && url.pathname === "/v1/me/onboarding") { template = "/v1/me/onboarding"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.completeOnboarding({ ...parse(completeOnboardingRequestSchema, await body(req)), employeeId: employee.employeeId })), id); }
       if (req.method === "GET" && url.pathname === "/v1/me/insights") { template = "/v1/me/insights"; const employee = requireKind(principal, "employee"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listInsights({ ...parse(listInsightsRequestSchema, query(url)), employeeId: employee.employeeId })), id); }
@@ -239,6 +243,9 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "POST" && serviceEmployee) { template = "/v1/service/employees/:employeeId/privacy-explanation"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); parse(recordPrivacyExplanationShownRequestSchema, { employeeId: parse(employeeIdSchema, serviceEmployee) }); await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.recordPrivacyExplanationShown({ employeeId: serviceEmployee })); status = 204; return send(res, status, undefined, id); }
       const serviceProfile = pathEmployee(url.pathname, "/profile");
       if (req.method === "GET" && serviceProfile) { template = "/v1/service/employees/:employeeId/profile"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getProfile({ employeeId: parse(employeeIdSchema, serviceProfile) })), id); }
+      const servicePersonalContext = pathEmployee(url.pathname, "/context");
+      if (req.method === "GET" && servicePersonalContext) { template = "/v1/service/employees/:employeeId/context"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getPersonalContext({ employeeId: parse(employeeIdSchema, servicePersonalContext) })), id); }
+      if (req.method === "PATCH" && servicePersonalContext) { template = "/v1/service/employees/:employeeId/context"; requireKind(principal, "service"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.updatePersonalContext({ employeeId: parse(employeeIdSchema, servicePersonalContext), patch: parse(personalContextPatchSchema, await body(req)) })), id); }
       const serviceConversationReset = pathEmployee(url.pathname, "/conversation/reset");
       if (req.method === "POST" && serviceConversationReset) { template = "/v1/service/employees/:employeeId/conversation/reset"; requireKind(principal, "service"); parse(z.strictObject({}), await body(req)); await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.resetConversation({ userId: parse(employeeIdSchema, serviceConversationReset) })); status = 204; return send(res, status, undefined, id); }
       const serviceSchedules = pathEmployee(url.pathname, "/schedules");

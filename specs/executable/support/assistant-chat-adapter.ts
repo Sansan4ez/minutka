@@ -34,6 +34,8 @@ export function createSpecHttpApplication(
     exportCompanyReport: async () => { throw new Error("company reporting is not configured in this spec adapter"); },
     openInvite: (input) => service.openInvite(input),
     getProfile: (input) => service.getProfile(input),
+    getPersonalContext: (input) => service.getPersonalContext(input),
+    updatePersonalContext: (input) => service.updatePersonalContext(input),
     acceptConsent: (input) => service.acceptConsent(input),
     completeOnboarding: (input) => service.completeOnboarding(input),
     listInsights: (input) => service.listInsights(input),

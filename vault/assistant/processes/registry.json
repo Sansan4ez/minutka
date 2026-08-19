@@ -42,6 +42,11 @@
       ]
     },
     {
+      "id": "personal_context_review",
+      "path": "vault/assistant/processes/personal_context_review.md",
+      "appliesTo": ["chat"]
+    },
+    {
       "id": "consent_and_privacy",
       "path": "vault/assistant/processes/consent_and_privacy.md",
       "appliesTo": [

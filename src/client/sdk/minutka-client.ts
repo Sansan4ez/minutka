@@ -5,7 +5,7 @@ import {
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
-  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, contextDocumentDecisionRequestSchema, contextDocumentDecisionResponseSchema, monthlyUsageResponseSchema, scheduleListResponseSchema, userProfileSchema,
+  ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, contextDocumentDecisionRequestSchema, contextDocumentDecisionResponseSchema, monthlyUsageResponseSchema, personalContextPatchSchema, personalContextUpdateResponseSchema, personalContextViewSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
   type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest,
@@ -19,6 +19,8 @@ export type EmployeeMinutkaTransport = {
   acceptConsent(input: AcceptEmployeeConsentRequest): Promise<unknown>;
   completeOnboarding(input: CompleteOnboardingRequest): Promise<unknown>;
   getProfile(): Promise<unknown>;
+  getPersonalContext(): Promise<unknown>;
+  updatePersonalContext(input: unknown): Promise<unknown>;
   listInsights(input: ListInsightsRequest): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
   confirmTaskMutation(confirmationId: string, input: TaskMutationDecisionRequest): Promise<unknown>;
@@ -47,6 +49,8 @@ export type ServiceEmployeeMinutkaTransport = {
   confirmOnboarding(): Promise<unknown>;
   resetOnboardingDraft(): Promise<unknown>;
   getProfile(): Promise<unknown>;
+  getPersonalContext(): Promise<unknown>;
+  updatePersonalContext(input: unknown): Promise<unknown>;
   resetConversation(): Promise<unknown>;
   listSchedules(): Promise<unknown>;
   submitFeedback(input: SubmitFeedbackRequest): Promise<unknown>;
@@ -77,6 +81,8 @@ export class EmployeeMinutkaClient {
   async acceptConsent(input: unknown) { return validate(acceptConsentResponseSchema, await this.transport.acceptConsent(validate(acceptEmployeeConsentRequestSchema, input, "acceptConsent request")), "acceptConsent response"); }
   async completeOnboarding(input: unknown) { return validate(completeOnboardingResponseSchema, await this.transport.completeOnboarding(validate(completeOnboardingRequestSchema, input, "completeOnboarding request")), "completeOnboarding response"); }
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
+  async getPersonalContext() { return validate(personalContextViewSchema, await this.transport.getPersonalContext(), "getPersonalContext response"); }
+  async updatePersonalContext(input: unknown) { return validate(personalContextUpdateResponseSchema, await this.transport.updatePersonalContext(validate(personalContextPatchSchema, input, "updatePersonalContext request")), "updatePersonalContext response"); }
   async listInsights(input: unknown = {}) { return validate(z.array(structuredInsightSchema), await this.transport.listInsights(validate(listInsightsRequestSchema, input, "listInsights request")), "listInsights response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }
   async confirmTaskMutation(confirmationId: string, input: unknown = {}) { return validate(taskMutationDecisionResponseSchema, await this.transport.confirmTaskMutation(confirmationId, validate(taskMutationDecisionRequestSchema, input, "confirmTaskMutation request")), "confirmTaskMutation response"); }
@@ -111,6 +117,8 @@ export class ServiceEmployeeMinutkaClient {
   async confirmOnboarding() { return validate(completeOnboardingResponseSchema, await this.transport.confirmOnboarding(), "confirm onboarding response"); }
   async resetOnboardingDraft() { return validate(onboardingProgressSchema, await this.transport.resetOnboardingDraft(), "reset onboarding response"); }
   async getProfile() { return validate(userProfileSchema, await this.transport.getProfile(), "getProfile response"); }
+  async getPersonalContext() { return validate(personalContextViewSchema, await this.transport.getPersonalContext(), "getPersonalContext response"); }
+  async updatePersonalContext(input: unknown) { return validate(personalContextUpdateResponseSchema, await this.transport.updatePersonalContext(validate(personalContextPatchSchema, input, "updatePersonalContext request")), "updatePersonalContext response"); }
   async resetConversation() { await this.transport.resetConversation(); }
   async listSchedules() { return validate(scheduleListResponseSchema, await this.transport.listSchedules(), "listSchedules response"); }
   async submitFeedback(input: unknown) { return validate(submitFeedbackResponseSchema, await this.transport.submitFeedback(validate(submitFeedbackRequestSchema, input, "submitFeedback request")), "submitFeedback response"); }

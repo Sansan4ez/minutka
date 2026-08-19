@@ -15,7 +15,7 @@ import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js"
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
-import type { PersonalProfileContextPatch } from "./personal-profile-context.js";
+import type { PersonalContextPatch } from "./personal-context-review.js";
 import { boundRecentHistory, type RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { renderRecentHistoryProjection, renderRuntimeProfileProjection, renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import type { ChatProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
@@ -88,7 +88,7 @@ export type AssistantAgentContext = {
   /** Authenticated employee and tenant-bound structured activity write. */
   collectActivity(activity: CollectActivityInput): Promise<{ activityId: string }>;
   /** Employee-bound bounded personal context write from ordinary conversation. */
-  updatePersonalContext(patch: PersonalProfileContextPatch): Promise<{ changedFields: string[] }>;
+  updatePersonalContext(patch: PersonalContextPatch): Promise<{ changedFields: string[] }>;
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -543,7 +543,7 @@ export class AssistantService {
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
     };
-    const updatePersonalContext = async (patch: PersonalProfileContextPatch) => {
+    const updatePersonalContext = async (patch: PersonalContextPatch) => {
       if (!this.deps.participantStore.updatePersonalContext) throw new Error("personal profile context update is not configured");
       const result = await this.deps.participantStore.updatePersonalContext({ employeeId: userId, patch, updatedAt: this.clock.now() });
       observedExecutionTrace.push({ kind: "tool", toolName: "updatePersonalContext" });

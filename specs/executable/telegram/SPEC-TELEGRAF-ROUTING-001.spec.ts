@@ -106,7 +106,7 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     const calls: Array<{ chatId: string; userId?: string }> = [];
     const textCalls: string[] = [];
     const shell = {
-      async handleStart() {}, async handleSchedule() {},
+      async handleStart() {}, async handleSchedule() {}, async handleContext() {},
       async handleNew(chatId: string, userId?: string) { calls.push({ chatId, userId }); },
       async handleText(_chatId: string, text: string) { textCalls.push(text); },
       async handleCallback() {}, async handleFile() {}, async handleVoice() {}, async handleUnsupportedAttachment() {},
@@ -124,7 +124,7 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     const calls: Array<{ chatId: string; userId?: string }> = [];
     const textCalls: string[] = [];
     const shell = {
-      async handleStart() {}, async handleNew() {},
+      async handleStart() {}, async handleNew() {}, async handleContext() {},
       async handleSchedule(chatId: string, userId?: string) { calls.push({ chatId, userId }); },
       async handleText(_chatId: string, text: string) { textCalls.push(text); },
       async handleCallback() {}, async handleFile() {}, async handleVoice() {}, async handleUnsupportedAttachment() {},
@@ -138,12 +138,30 @@ describe("SPEC-TELEGRAF-ROUTING-001: Telegram payload-kind routing", () => {
     expect(textCalls).toEqual([]);
   });
 
+  it("routes /context to the dedicated owner-bound review handler", async () => {
+    const calls: Array<{ chatId: string; userId?: string }> = [];
+    const textCalls: string[] = [];
+    const shell = {
+      async handleStart() {}, async handleNew() {}, async handleSchedule() {},
+      async handleContext(chatId: string, userId?: string) { calls.push({ chatId, userId }); },
+      async handleText(_chatId: string, text: string) { textCalls.push(text); },
+      async handleCallback() {}, async handleFile() {}, async handleVoice() {}, async handleUnsupportedAttachment() {},
+    };
+    const bot = createTelegrafBot({ token: "test", shell: shell as any });
+    bot.botInfo = botInfo;
+
+    await bot.handleUpdate(update({ text: "/context", entities: [{ offset: 0, length: 8, type: "bot_command" }] }, 11));
+
+    expect(calls).toEqual([{ chatId: "1", userId: "2" }]);
+    expect(textCalls).toEqual([]);
+  });
+
   it("registers save-only handlers for supported files and keeps forwarded voice on the STT path", async () => {
     const files: any[] = [];
     const voices: any[] = [];
     const unsupported: string[] = [];
     const shell = {
-      async handleStart() {}, async handleNew() {}, async handleSchedule() {}, async handleText() {}, async handleCallback() {},
+      async handleStart() {}, async handleNew() {}, async handleSchedule() {}, async handleContext() {}, async handleText() {}, async handleCallback() {},
       async handleFile(chatId: string, file: unknown, userId?: string) { files.push({ chatId, userId, file }); },
       async handleVoice(chatId: string, voice: unknown, userId?: string) { voices.push({ chatId, userId, voice }); },
       async handleUnsupportedAttachment(chatId: string) { unsupported.push(chatId); },

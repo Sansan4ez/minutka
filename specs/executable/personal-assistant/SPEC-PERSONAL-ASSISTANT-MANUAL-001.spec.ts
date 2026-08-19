@@ -22,7 +22,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Сам выбери применимые процессы");
   });
 
-  it("loads the «Минутка» role, runtime docs, and exactly four active processes", () => {
+  it("loads the «Минутка» role, runtime docs, and exactly five active processes", () => {
     const instructions = loadAssistantAgentInstructions();
     expect(instructions).toContain("«Минутка» runtime instructions");
     expect(instructions).toContain("helps an employee diagnose working routines");
@@ -35,6 +35,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("chat-only and read-only");
     expect(instructions).toContain("updatePersonalContext");
     expect(instructions).toContain("Do not ask a questionnaire");
+    expect(instructions).toContain("Process file: personal_context_review");
+    expect(instructions).toContain("observations stay separate");
     expect(instructions).toContain("Process file: consent_and_privacy");
     expect(instructions).toContain("full tenant-scoped research access");
     expect(instructions).toContain("company behind the client-report boundary");
@@ -158,6 +160,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(activeRegistry.processes.map(({ path }) => path)).toEqual([
       "vault/assistant/processes/morning_planning.md",
       "vault/assistant/processes/midday_adjustment.md",
+      "vault/assistant/processes/personal_context_review.md",
       "vault/assistant/processes/consent_and_privacy.md",
       "vault/assistant/processes/evening_reflection.md",
     ]);
@@ -186,6 +189,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...disabledPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
     expect([...activePaths]).toContain("vault/assistant/processes/morning_planning.md");
     expect([...activePaths]).toContain("vault/assistant/processes/midday_adjustment.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/personal_context_review.md");
     expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect(legacyPaths).not.toContain("vault/assistant/processes/onboarding.md");

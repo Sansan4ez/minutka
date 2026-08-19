@@ -6,7 +6,7 @@ Record request-scoped diagnostic evidence that the agent actually applied an act
 
 ## Inputs
 
-A closed product process id accepted by the tool schema. The active diagnostic ids are `morning_planning`, `midday_adjustment`, `consent_and_privacy`, and `evening_reflection`; retired `morning_activity_collection` and disabled `day_focus` are rejected.
+A closed product process id accepted by the tool schema. The active diagnostic ids are `morning_planning`, `midday_adjustment`, `personal_context_review`, `consent_and_privacy`, and `evening_reflection`; retired `morning_activity_collection` and disabled `day_focus` are rejected.
 
 ## Output
 

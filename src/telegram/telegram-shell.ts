@@ -79,6 +79,29 @@ class VoiceProcessingTimeoutError extends Error {}
 class TaskProposalTerminalizationUnknownError extends Error {}
 const taskProposalCancelledMessage = "Не удалось доставить предложение. Оно отменено; создайте новое предложение позже.";
 const conversationResetConfirmationMessage = "Готово, начали новый диалог. Предыдущий контекст больше не используется.";
+const personalContextErrorMessage = "Не удалось показать личный контекст. Попробуйте ещё раз позже.";
+const personaLabels = { support: "мягко и поддерживающе", efficiency: "коротко и по делу" } as const;
+const responseLengthLabels = { short: "короткие ответы", balanced: "средняя длина ответов", detailed: "подробные ответы" } as const;
+const aiLevelLabels = { beginner: "начальный", intermediate: "средний", advanced: "уверенный" } as const;
+function renderPersonalContext(context: Awaited<ReturnType<ReturnType<ServiceMinutkaClient["forEmployee"]>["getPersonalContext"]>>): string {
+  const profile = context.confirmedProfile;
+  return [
+    "Ваш подтверждённый профиль:",
+    `- обращение: ${profile.preferredName}`,
+    `- стиль: ${personaLabels[profile.persona]}, ${responseLengthLabels[profile.responseLength]}`,
+    `- часовой пояс: ${profile.timezone}`,
+    `- должность: ${profile.exactRole}`,
+    ...(profile.selfDescription ? [`- описание роли: ${profile.selfDescription}`] : []),
+    ...(profile.typicalTasks?.length ? [`- регулярные задачи: ${profile.typicalTasks.join("; ")}`] : []),
+    ...(profile.aiLevel ? [`- опыт с ИИ: ${aiLevelLabels[profile.aiLevel]}`] : []),
+    ...(profile.programGoal ? [`- личная цель программы: ${profile.programGoal}`] : []),
+    "",
+    "Осторожные наблюдения:",
+    `- ${context.observations.note}`,
+    "",
+    "Чтобы исправить данные, напишите обычным сообщением, например: «Зови меня Максим», «Отвечай короче», «Мой часовой пояс Europe/Moscow» или «Моя роль — …».",
+  ].join("\n");
+}
 const consentRequiredCallbackMessage = "Сначала подтвердите согласие с политикой конфиденциальности. Запрос согласия отправлен в чат отдельным сообщением.";
 function artifactObjectLimitMessage(maximumBytes: number): string {
   const mebibytes = maximumBytes / (1024 * 1024);
@@ -817,6 +840,17 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       } catch (error) {
         logShellError("/schedule", error);
         await replyPort.sendMessage(chatId, "Не удалось показать расписание. Попробуйте ещё раз позже.");
+      } finally { leaveChat(chatId); }
+    },
+    async handleContext(chatId: string, userId?: string) {
+      if (isChatInFlight(chatId)) return void await replyPort.sendMessage(chatId, inFlightDeliveryMessage); enterChat(chatId);
+      try {
+        await removeActiveReplyMarkup(chatId);
+        const session = await authorizedSession(chatId, userId); if (!session) return;
+        await replyPort.sendMessage(chatId, renderPersonalContext(await employeeClient(session.employeeId).getPersonalContext()));
+      } catch (error) {
+        logShellError("/context", error);
+        await replyPort.sendMessage(chatId, personalContextErrorMessage);
       } finally { leaveChat(chatId); }
     },
     async handleNew(chatId: string, userId?: string) {
