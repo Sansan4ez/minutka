@@ -1,18 +1,18 @@
 {
   system = "x86_64-linux";
-  hostName = "personal-assistant-1";
+  hostName = "minutka-1";
   timeZone = "Etc/UTC";
   locale = "en_US.UTF-8";
 
   bootMode = "bios"; # or "efi"
   disk = "/dev/sda";
 
-  publicIPv4 = "169.58.116.31";
+  publicIPv4 = "169.58.201.159";
 
   deploy = {
     sshUser = "admin";
-    sshHost = "169.58.116.31";
-    sshTarget = "admin@169.58.116.31";
+    sshHost = "169.58.201.159";
+    sshTarget = "admin@169.58.201.159";
     sshIdentityFile = "/home/admin/.ssh/id_ed25519";
   };
 
@@ -26,9 +26,9 @@
     # Keep this in sync with phase1-installable-base/site.nix.
     useDHCP = false;
     interface = "eth0";
-    address = "169.58.116.31";
+    address = "169.58.201.159";
     prefixLength = 17;
-    gateway = "169.58.0.1";
+    gateway = "169.58.128.1";
     nameservers = [ "1.1.1.1" "8.8.8.8" ];
   };
 }

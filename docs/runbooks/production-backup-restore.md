@@ -1,6 +1,6 @@
 # Production backup and restore
 
-> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+> Стек унаследован от персонального ассистента и адаптирован под отдельный production-контур «Минутки»: собственный хост, unit names, storage paths и secrets bundle. Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
 
 ## Назначение
@@ -11,7 +11,7 @@ durable-данных:
 
 - `minutka.dump` — custom-format `pg_dump -Fc` PostgreSQL со всеми
   owner-scoped прикладными записями;
-- `minio/personal-assistant/` — полный object-level mirror versioned bucket
+- `minio/minutka/` — полный object-level mirror versioned bucket
   MinIO. Он содержит БЗ и artifacts всех owner-account'ов под prefix'ами
   `{owner}/context/*` и `{owner}/cas/sha256/**`.
 
@@ -22,15 +22,15 @@ durable-данных:
 отсутствием.
 
 Локальный retention — 14 дней. Успешный запуск записывает Unix timestamp в
-`/var/lib/personal-assistant-observability/backup.last_success`; незавершённый
+`/var/lib/minutka-observability/backup.last_success`; незавершённый
 каталог имеет suffix `.incomplete` и не считается backup.
 
 ## Что не входит в backup
 
 Data backup намеренно не содержит:
 
-- Git-репозиторий конфигурации personal-assistant;
-- зашифрованный `nixos/phase3-assistant-stack/secrets/assistant.yaml` как
+- Git-репозиторий конфигурации minutka;
+- зашифрованный `nixos/phase3-assistant-stack/secrets/minutka.yaml` как
   отдельную копию вне config repository;
 - private owner age key;
 - `/etc/ssh/ssh_host_ed25519_key`, который является server age identity;
@@ -49,7 +49,7 @@ PostgreSQL значения `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER` и
 Backup **не шифруется в покое** — ни в `/var/backups/minutka/` на
 production host, ни в snapshot'ах на off-site host. Защита копий состоит из
 двух слоёв: права файловой системы (каталог `0750
-personal-assistant:personal-assistant`, `UMask = 0027` у backup-сервиса,
+minutka:minutka`, `UMask = 0027` у backup-сервиса,
 `0700` у staging-каталога restore smoke) и SSH-транспорт при off-site pull.
 
 Что это означает для содержимого:
@@ -62,7 +62,7 @@ personal-assistant:personal-assistant`, `UMask = 0027` у backup-сервиса,
   внешних интеграций — красная линия «утечка секретов и токенов интеграций»
   ([rfc-pilot-quality-bar](../architecture/rfc-pilot-quality-bar.md) §2.1 п.5)
   не затрагивается;
-- `minio/personal-assistant/` содержит документы БЗ и artifacts как есть.
+- `minio/minutka/` содержит документы БЗ и artifacts как есть.
 
 Решение принято под модель угроз пилота: один оператор управляет обоими
 хостами, круг участников — до 10–15 приглашённых, данные владельца не
@@ -83,7 +83,7 @@ Clean launch не требует rsync dev PostgreSQL, MinIO или owner Git re
 production storage чистые, затем запусти backup:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 set -euo pipefail
 sudo -u postgres psql -d minutka -At <<"SQL"
 SELECT table_name || E'\t' || row_count
@@ -97,10 +97,10 @@ FROM (
 ) AS counts
 ORDER BY table_name;
 SQL
-sudo systemctl start personal-assistant-backup.service
-sudo journalctl -u personal-assistant-backup.service --no-pager -n 100
+sudo systemctl start minutka-backup.service
+sudo journalctl -u minutka-backup.service --no-pager -n 100
 sudo find /var/backups/minutka -maxdepth 4 -type f -printf "%m %U:%G %p\n" | sort | tail -n 30
-sudo cat /var/lib/personal-assistant-observability/backup.last_success
+sudo cat /var/lib/minutka-observability/backup.last_success
 '
 ```
 
@@ -108,17 +108,17 @@ sudo cat /var/lib/personal-assistant-observability/backup.last_success
 credentials, не печатая их:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 sudo sh -eu <<"EOF"
 config="$(mktemp -d)"
 trap "rm -rf $config" EXIT
 export MC_CONFIG_DIR="$config"
-access="$(cat /run/secrets/assistant/minio_access_key)"
-secret="$(cat /run/secrets/assistant/minio_secret_key)"
+access="$(cat /run/secrets/minutka/minio_access_key)"
+secret="$(cat /run/secrets/minutka/minio_secret_key)"
 mc_bin="$(command -v mc || find /nix/store -path '*/bin/mc' -type f -print -quit)"
 test -n "$mc_bin"
 "$mc_bin" alias set production http://127.0.0.1:9000 "$access" "$secret" >/dev/null
-count="$("$mc_bin" find production/personal-assistant --name "*" | wc -l)"
+count="$("$mc_bin" find production/minutka --name "*" | wc -l)"
 test "$count" -eq 0
 echo "Production MinIO is empty"
 EOF
@@ -127,11 +127,11 @@ EOF
 
 Ожидание перед invite: все перечисленные row counts равны `0`, MinIO не
 содержит owner objects, backup содержит PostgreSQL dump и каталог
-`minio/personal-assistant/` даже если bucket пуст.
+`minio/minutka/` даже если bucket пуст.
 
 ## Restore smoke
 
-`personal-assistant-restore-smoke` по умолчанию выбирает последний завершённый
+`minutka-restore-smoke` по умолчанию выбирает последний завершённый
 backup независимо от его возраста. Каталоги с suffix `.incomplete` исключаются;
 root-only staging конкретного timestamp по-прежнему имеет приоритет. Smoke:
 
@@ -150,21 +150,21 @@ root-only staging конкретного timestamp по-прежнему име�
 Запуск последнего завершённого backup:
 
 ```bash
-ssh admin@169.58.116.31 \
-  'sudo systemctl start personal-assistant-restore-smoke.service && sudo journalctl -u personal-assistant-restore-smoke.service --no-pager -n 100'
+ssh admin@169.58.201.159 \
+  'sudo systemctl start minutka-restore-smoke.service && sudo journalctl -u minutka-restore-smoke.service --no-pager -n 100'
 ```
 
 Проверка конкретного timestamp выполняется через root-only staging, потому что
 основные backup-каталоги не выдаются PostgreSQL user напрямую:
 
 ```bash
-ssh admin@169.58.116.31 '
-sudo rm -rf /var/lib/personal-assistant-restore-smoke/backup
-sudo install -d -m 0700 -o postgres -g postgres /var/lib/personal-assistant-restore-smoke/backup
+ssh admin@169.58.201.159 '
+sudo rm -rf /var/lib/minutka-restore-smoke/backup
+sudo install -d -m 0700 -o postgres -g postgres /var/lib/minutka-restore-smoke/backup
 sudo cp -a /var/backups/minutka/20260804T001500Z/. \
-  /var/lib/personal-assistant-restore-smoke/backup/
-sudo chown -R postgres:postgres /var/lib/personal-assistant-restore-smoke/backup
-sudo systemctl start personal-assistant-restore-smoke.service
+  /var/lib/minutka-restore-smoke/backup/
+sudo chown -R postgres:postgres /var/lib/minutka-restore-smoke/backup
+sudo systemctl start minutka-restore-smoke.service
 '
 ```
 
@@ -179,22 +179,22 @@ backup дают информационные строки вида `Count drift 
 ## Pull-based off-site copy
 
 Source-host создаёт системного пользователя
-`personal-assistant-backup-pull`, который входит в read-only группу
-`personal-assistant`. Private key хранится только на off-site host. Production
+`minutka-backup-pull`, который входит в read-only группу
+`minutka`. Private key хранится только на off-site host. Production
 host не имеет credentials, способных удалить off-site snapshots.
 
 На текущем off-site host `v760294.hosted-by-vdsina.com`:
 
 ```bash
 sudo install -d -m 0750 -o admin -g admin \
-  /srv/backups/personal-assistant/{snapshots,logs}
+  /srv/backups/minutka/{snapshots,logs}
 ssh-keygen -t ed25519 \
-  -f ~/.ssh/id_personal_assistant_pull \
-  -C personal-assistant-off-site-pull
-ssh-keyscan -H 169.58.116.31 >> ~/.ssh/known_hosts
+  -f ~/.ssh/id_minutka_pull \
+  -C minutka-off-site-pull
+ssh-keyscan -H 169.58.201.159 >> ~/.ssh/known_hosts
 ```
 
-Публичный ключ `~/.ssh/id_personal_assistant_pull.pub` прописывается только в
+Публичный ключ `~/.ssh/id_minutka_pull.pub` прописывается только в
 `site.backupPull.sshAuthorizedKeys`; админские ключи из
 `site.adminAuthorizedKeys` для pull не переиспользуются. Production ограничивает
 этот ключ forced command `rrsync -ro /var/backups/minutka` и SSH
@@ -202,15 +202,15 @@ ssh-keyscan -H 169.58.116.31 >> ~/.ssh/known_hosts
 недоступны. Для клиента корень `/` в rsync соответствует разрешённому каталогу
 `/var/backups/minutka` на production.
 
-Создать `/home/admin/.local/bin/pull-personal-assistant-backups`:
+Создать `/home/admin/.local/bin/pull-minutka-backups`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-source_host=169.58.116.31
-source_user=personal-assistant-backup-pull
-base=/srv/backups/personal-assistant
+source_host=169.58.201.159
+source_user=minutka-backup-pull
+base=/srv/backups/minutka
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 destination="$base/snapshots/$stamp"
 previous=""
@@ -226,7 +226,7 @@ if [ -n "$previous" ] && [ -d "$previous" ]; then
 fi
 
 rsync "${options[@]}" \
-  -e 'ssh -i /home/admin/.ssh/id_personal_assistant_pull -o IdentitiesOnly=yes -o BatchMode=yes' \
+  -e 'ssh -i /home/admin/.ssh/id_minutka_pull -o IdentitiesOnly=yes -o BatchMode=yes' \
   "$source_user@$source_host:/" \
   "$destination/"
 ln -sfn "$destination" "$base/latest"
@@ -236,9 +236,9 @@ find "$base/snapshots" -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {
 Первый pull и проверка:
 
 ```bash
-chmod 0750 /home/admin/.local/bin/pull-personal-assistant-backups
-/home/admin/.local/bin/pull-personal-assistant-backups
-find /srv/backups/personal-assistant/latest -maxdepth 4 -type f | sort | tail -n 30
+chmod 0750 /home/admin/.local/bin/pull-minutka-backups
+/home/admin/.local/bin/pull-minutka-backups
+find /srv/backups/minutka/latest -maxdepth 4 -type f | sort | tail -n 30
 ```
 
 На off-site host установить oneshot/timer с ежедневным запуском после source
@@ -257,7 +257,7 @@ Off-site retention использует snapshot directories с `--link-dest`, �
 3. Выполнить Phase 1 install, затем Phase 2.
 4. Получить новый server age recipient из нового SSH host key.
 5. Добавить recipient в `.sops.yaml` и выполнить `sops updatekeys
-   secrets/assistant.yaml` owner age key. Сохранить прежние значения
+   secrets/minutka.yaml` owner age key. Сохранить прежние значения
    `INTEGRATION_ENC_KEY`, `INVITE_CODE_PEPPER`, `TELEGRAM_IDENTITY_PEPPER`.
 6. Скопировать hardware configuration в Phase 3 и применить Phase 3. Это
    создаёт roles/database, выполняет migrations и provision MinIO bucket.
@@ -265,9 +265,9 @@ Off-site retention использует snapshot directories с `--link-dest`, �
 ### 2. Доставка backup и остановка writers
 
 ```bash
-rsync -aH /srv/backups/personal-assistant/latest/SELECTED_TIMESTAMP/ \
-  admin@NEW_SERVER_IP:/tmp/personal-assistant-restore/
-ssh admin@NEW_SERVER_IP 'sudo systemctl stop personal-assistant personal-assistant-backup.timer'
+rsync -aH /srv/backups/minutka/latest/SELECTED_TIMESTAMP/ \
+  admin@NEW_SERVER_IP:/tmp/minutka-restore/
+ssh admin@NEW_SERVER_IP 'sudo systemctl stop minutka minutka-backup.timer'
 ```
 
 ### 3. PostgreSQL restore
@@ -275,7 +275,7 @@ ssh admin@NEW_SERVER_IP 'sudo systemctl stop personal-assistant personal-assista
 ```bash
 ssh admin@NEW_SERVER_IP '
 set -euo pipefail
-backup=/tmp/personal-assistant-restore
+backup=/tmp/minutka-restore
 sudo -u postgres dropdb --if-exists minutka
 sudo -u postgres createdb --owner=minutka_migrator --encoding=UTF8 --locale=C --template=template0 minutka
 sudo -u postgres pg_restore \
@@ -296,17 +296,17 @@ bucket:
 
 ```bash
 ssh admin@NEW_SERVER_IP '
-sudo systemctl stop personal-assistant
+sudo systemctl stop minutka
 sudo sh -eu <<"EOF"
 config="$(mktemp -d)"
 trap "rm -rf $config" EXIT
 export MC_CONFIG_DIR="$config"
-root_user="$(cat /run/secrets/assistant/minio_root_user)"
-root_password="$(cat /run/secrets/assistant/minio_root_password)"
+root_user="$(cat /run/secrets/minutka/minio_root_user)"
+root_password="$(cat /run/secrets/minutka/minio_root_password)"
 mc alias set restore http://127.0.0.1:9000 "$root_user" "$root_password" >/dev/null
 mc mirror --overwrite --remove \
-  /tmp/personal-assistant-restore/minio/personal-assistant/ \
-  restore/personal-assistant
+  /tmp/minutka-restore/minio/minutka/ \
+  restore/minutka
 EOF
 '
 ```
@@ -320,10 +320,10 @@ Git source repositories не требуется: owner БЗ всех польз�
 
 ```bash
 ssh admin@NEW_SERVER_IP '
-sudo systemctl start personal-assistant-postgres-migrate personal-assistant-minio-provision personal-assistant
+sudo systemctl start minutka-postgres-migrate minutka-minio-provision minutka
 curl -fsS http://127.0.0.1:8787/healthz
-sudo systemctl start personal-assistant-restore-smoke.service
-sudo systemctl enable --now personal-assistant-backup.timer
+sudo systemctl start minutka-restore-smoke.service
+sudo systemctl enable --now minutka-backup.timer
 '
 ```
 
@@ -333,7 +333,7 @@ sudo systemctl enable --now personal-assistant-backup.timer
 ssh admin@NEW_SERVER_IP '
 set -euo pipefail
 set -a
-. /run/secrets/rendered/personal-assistant.env
+. /run/secrets/rendered/minutka.env
 set +a
 curl -fsS \
   -H "Authorization: Bearer $MINUTKA_SERVICE_TOKEN" \
@@ -348,7 +348,7 @@ active schedules, restore smoke проходит, новый backup появля
 ## Минимальный DR checklist вне production VPS
 
 - config Git repository;
-- encrypted `secrets/assistant.yaml`;
+- encrypted `secrets/minutka.yaml`;
 - owner age private key;
 - свежий off-site timestamp с PostgreSQL dump и полным MinIO mirror;
 - private SSH key off-site pull host;

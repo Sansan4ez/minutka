@@ -1,12 +1,12 @@
 # Production secrets: sops-nix
 
-> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+> Стек унаследован от персонального ассистента и адаптирован под отдельный production-контур «Минутки»: собственный хост, unit names, storage paths и secrets bundle. Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
 
 ## Назначение
 
 Production-секреты хранятся только в зашифрованном
-[`nixos/phase3-assistant-stack/secrets/assistant.yaml`](../../nixos/phase3-assistant-stack/secrets/assistant.yaml).
+[`nixos/phase3-assistant-stack/secrets/minutka.yaml`](../../nixos/phase3-assistant-stack/secrets/minutka.yaml).
 Владелец редактирует bundle локальным age-ключом; production-хост расшифровывает
 его своим `ssh-ed25519` host private key. Расшифрованные значения из sops bundle
 существуют только в tmpfs: sops-nix-файлы и шаблоны — под `/run/secrets*`, а
@@ -15,7 +15,7 @@ mode `0600` и владельцем
 `cliproxyapi:cliproxyapi`.
 
 Конфиг CLIProxyAPI декларативен: источник истины — шаблон `cliproxyConfig` в
-[`modules/assistant-secrets.nix`](../../nixos/phase3-assistant-stack/modules/assistant-secrets.nix).
+[`modules/minutka-secrets.nix`](../../nixos/phase3-assistant-stack/modules/minutka-secrets.nix).
 При каждом старте сервиса он заново копируется в tmpfs, поэтому изменения через
 панель управления не переживают restart или deploy по замыслу. OAuth-креды,
 полученные CLIProxyAPI вне sops bundle, хранятся отдельно в
@@ -33,27 +33,27 @@ sudo rm -f /var/lib/cliproxyapi/config.yaml
 2. Из `nixos/phase3-assistant-stack` открой bundle:
 
    ```bash
-   SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops secrets/assistant.yaml
+   SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops secrets/minutka.yaml
    ```
 
 3. Измени только нужное значение. Не ротируй вместе независимые credentials.
 4. Проверь файл без расшифровки в stdout:
 
    ```bash
-   sops filestatus secrets/assistant.yaml
-   ! grep -Eq 'change-me|REPLACE_ME' secrets/assistant.yaml
-   git diff -- secrets/assistant.yaml
+   sops filestatus secrets/minutka.yaml
+   ! grep -Eq 'change-me|REPLACE_ME' secrets/minutka.yaml
+   git diff -- secrets/minutka.yaml
    ```
 
 5. Выполни `./scripts/deploy.sh --dry-activate`, затем обычный deploy.
 6. Перезапусти consumer, если его модуль ещё не подписан на изменение sops
    template. После смены `minio_secret_key` сначала перезапусти
-   `personal-assistant-minio-provision`, чтобы применить credential
+   `minutka-minio-provision`, чтобы применить credential
    в MinIO, затем перезапусти приложение:
 
    ```bash
-   sudo systemctl restart personal-assistant-minio-provision
-   sudo systemctl restart personal-assistant
+   sudo systemctl restart minutka-minio-provision
+   sudo systemctl restart minutka
    ```
 
    Проверь readiness и хранение/чтение объекта без печати значения секрета.
@@ -84,7 +84,7 @@ production-only. Не копируй dev `.env` целиком. Переиспо
 3. Пока старый ключ доступен, обнови recipients:
 
    ```bash
-   SOPS_AGE_KEY_FILE=/path/to/old-keys.txt sops updatekeys secrets/assistant.yaml
+   SOPS_AGE_KEY_FILE=/path/to/old-keys.txt sops updatekeys secrets/minutka.yaml
    ```
 
 4. Проверь decrypt новым ключом.
@@ -100,7 +100,7 @@ production-only. Не копируй dev `.env` целиком. Переиспо
 2. Рассчитай recipient: `ssh-keyscan -t ed25519 SERVER_IP | ssh-to-age`.
 3. Добавь новый server recipient в `.sops.yaml`, пока старый host key ещё
    доступен.
-4. Выполни `sops updatekeys secrets/assistant.yaml` ключом владельца.
+4. Выполни `sops updatekeys secrets/minutka.yaml` ключом владельца.
 5. Сделай dry activation и deploy.
 6. На хосте проверь успешный `sops-nix.service` и наличие runtime-файлов.
 7. Удали старый recipient из `.sops.yaml`, повтори `sops updatekeys` и deploy.
@@ -123,13 +123,13 @@ git ls-files '.env' '.env_*' '.env.bak*'
 # На хосте plaintext-конфиги и secret files существуют только в runtime tmpfs.
 sudo find /run/secrets /run/cliproxyapi \
   -type f -printf '%m %U:%G %p\n'
-sudo find /var/lib/personal-assistant /var/lib/cliproxyapi /opt /srv \
+sudo find /var/lib/minutka /var/lib/cliproxyapi /opt /srv \
   -xdev -type f \( -name '.env' -o -name '*secret*' -o -name 'config.yaml' \) -print
 ```
 
 Ожидание: первая команда ничего не выводит; application runtime-файлы имеют
-`0400 personal-assistant:personal-assistant`, PostgreSQL role passwords и MinIO
-app credential — `0440 personal-assistant:postgres` для peer-authenticated
+`0400 minutka:minutka`, PostgreSQL role passwords и MinIO
+app credential — `0440 minutka:postgres` для peer-authenticated
 setup/restore smoke, MinIO root
 template — `0400 minio:minio`, CLIProxyAPI runtime config —
 `0600 cliproxyapi:cliproxyapi`; последний поиск не находит production secret

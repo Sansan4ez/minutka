@@ -1,7 +1,7 @@
 { lib, buildNpmPackage, makeWrapper, nodejs_22 }:
 
 buildNpmPackage {
-  pname = "personal-assistant";
+  pname = "minutka";
   version = "0.1.0";
 
   src = lib.cleanSourceWith {
@@ -37,7 +37,7 @@ buildNpmPackage {
   installPhase = ''
     runHook preInstall
 
-    appDir="$out/lib/personal-assistant"
+    appDir="$out/lib/minutka"
     mkdir -p "$appDir"
     cp package.json package-lock.json "$appDir/"
     cp -r node_modules src migrations docs specs "$appDir/"
@@ -45,10 +45,10 @@ buildNpmPackage {
     cp -r vault/assistant "$appDir/vault/"
 
     mkdir -p "$out/bin"
-    makeWrapper ${lib.getExe nodejs_22} "$out/bin/personal-assistant" \
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/runtime/serve.ts"
-    makeWrapper ${lib.getExe nodejs_22} "$out/bin/personal-assistant-db-migrate" \
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-db-migrate" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/infrastructure/postgres/migrate.ts"
 
@@ -56,7 +56,7 @@ buildNpmPackage {
   '';
 
   meta = {
-    description = "Telegram-first personal AI assistant runtime";
-    mainProgram = "personal-assistant";
+    description = "Telegram-first Minutka research assistant runtime";
+    mainProgram = "minutka";
   };
 }

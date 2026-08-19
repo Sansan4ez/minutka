@@ -1,17 +1,17 @@
-{ lib, pkgs, personalAssistantSecrets, ... }:
+{ lib, pkgs, minutkaSecrets, ... }:
 
 let
-  backupRoot = "/var/backups/personal-assistant";
-  stateDir = "/var/lib/personal-assistant-observability";
-  restoreSmokeStateDir = "/var/lib/personal-assistant-restore-smoke";
+  backupRoot = "/var/backups/minutka";
+  stateDir = "/var/lib/minutka-observability";
+  restoreSmokeStateDir = "/var/lib/minutka-restore-smoke";
   restoreSmokeBackupDir = "${restoreSmokeStateDir}/backup";
   database = "minutka";
-  bucket = "personal-assistant";
+  bucket = "minutka";
   endpoint = "http://127.0.0.1:9000";
-  secretPaths = personalAssistantSecrets.runtimeSecretPaths;
+  secretPaths = minutkaSecrets.runtimeSecretPaths;
 
   backupScript = pkgs.writeShellApplication {
-    name = "personal-assistant-backup";
+    name = "minutka-backup";
     runtimeInputs = with pkgs; [
       coreutils
       findutils
@@ -59,7 +59,7 @@ let
   };
 
   restoreSmokeScript = pkgs.writeShellApplication {
-    name = "personal-assistant-restore-smoke";
+    name = "minutka-restore-smoke";
     runtimeInputs = with pkgs; [
       coreutils
       findutils
@@ -94,7 +94,7 @@ let
         exit 1
       fi
 
-      temp_database="personal_assistant_restore_smoke_$(date -u +%s)_$$"
+      temp_database="minutka_restore_smoke_$(date -u +%s)_$$"
       minio_config_dir="$(mktemp -d -p ${restoreSmokeStateDir} minio-config.XXXXXX)"
       minio_restore_dir="$(mktemp -d -p ${restoreSmokeStateDir} minio-restore.XXXXXX)"
 
@@ -172,8 +172,8 @@ in
 {
   assertions = [
     {
-      assertion = personalAssistantSecrets ? runtimeSecretPaths;
-      message = "assistant-secrets.nix must provide backup credential paths.";
+      assertion = minutkaSecrets ? runtimeSecretPaths;
+      message = "minutka-secrets.nix must provide backup credential paths.";
     }
     {
       assertion = secretPaths ? minio_access_key && secretPaths ? minio_secret_key
@@ -185,20 +185,20 @@ in
   environment.systemPackages = [ backupScript restoreSmokeScript ];
 
   systemd.tmpfiles.rules = [
-    "d ${backupRoot} 0750 personal-assistant personal-assistant -"
-    "d ${stateDir} 0750 personal-assistant personal-assistant -"
+    "d ${backupRoot} 0750 minutka minutka -"
+    "d ${stateDir} 0750 minutka minutka -"
     "d ${restoreSmokeStateDir} 0700 postgres postgres -"
     "d ${restoreSmokeBackupDir} 0700 postgres postgres -"
   ];
 
-  systemd.services.personal-assistant-backup = {
-    description = "Back up personal-assistant PostgreSQL and the complete MinIO bucket";
-    after = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
-    requires = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
+  systemd.services.minutka-backup = {
+    description = "Back up minutka PostgreSQL and the complete MinIO bucket";
+    after = [ "postgresql.service" "minio.service" "minutka-minio-provision.service" ];
+    requires = [ "postgresql.service" "minio.service" "minutka-minio-provision.service" ];
 
     environment = {
       PGHOST = "/run/postgresql";
-      PGPASSFILE = personalAssistantSecrets.backupPgpassFile;
+      PGPASSFILE = minutkaSecrets.backupPgpassFile;
       MINIO_ENDPOINT = endpoint;
       MINIO_BUCKET = bucket;
       MINIO_ACCESS_KEY_FILE = secretPaths.minio_access_key;
@@ -207,8 +207,8 @@ in
 
     serviceConfig = {
       Type = "oneshot";
-      User = "personal-assistant";
-      Group = "personal-assistant";
+      User = "minutka";
+      Group = "minutka";
       UMask = "0027";
       ExecStart = lib.getExe backupScript;
       ReadWritePaths = [ backupRoot stateDir ];
@@ -221,21 +221,21 @@ in
     };
   };
 
-  systemd.timers.personal-assistant-backup = {
-    description = "Run personal-assistant backups daily";
+  systemd.timers.minutka-backup = {
+    description = "Run minutka backups daily";
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnCalendar = "daily";
       Persistent = true;
       RandomizedDelaySec = "15m";
-      Unit = "personal-assistant-backup.service";
+      Unit = "minutka-backup.service";
     };
   };
 
-  systemd.services.personal-assistant-restore-smoke = {
-    description = "Restore and verify a completed personal-assistant backup";
-    after = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
-    requires = [ "postgresql.service" "minio.service" "personal-assistant-minio-provision.service" ];
+  systemd.services.minutka-restore-smoke = {
+    description = "Restore and verify a completed minutka backup";
+    after = [ "postgresql.service" "minio.service" "minutka-minio-provision.service" ];
+    requires = [ "postgresql.service" "minio.service" "minutka-minio-provision.service" ];
 
     environment = {
       MINIO_ENDPOINT = endpoint;
@@ -249,7 +249,7 @@ in
       User = "postgres";
       Group = "postgres";
       ExecStart = lib.getExe restoreSmokeScript;
-      SupplementaryGroups = [ "personal-assistant" ];
+      SupplementaryGroups = [ "minutka" ];
       ReadWritePaths = [ restoreSmokeStateDir ];
       NoNewPrivileges = true;
       ProtectSystem = "strict";

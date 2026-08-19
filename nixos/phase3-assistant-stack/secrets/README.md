@@ -1,6 +1,6 @@
 # Секреты production stack
 
-`assistant.yaml` — единственный git-tracked secret bundle. Он зашифрован `sops`
+`minutka.yaml` — единственный git-tracked secret bundle. Он зашифрован `sops`
 для двух получателей: локального age-ключа владельца и `ssh-ed25519` host key
 production-сервера. На хосте `sops-nix` расшифровывает bundle через
 `/etc/ssh/ssh_host_ed25519_key`; отдельный age private key на сервер не копируется.
@@ -29,8 +29,8 @@ production-сервера. На хосте `sops-nix` расшифровывае
 5. Создай bundle и заполни production values:
 
    ```bash
-   cp secrets/assistant.yaml.example secrets/assistant.yaml
-   sops secrets/assistant.yaml
+   cp secrets/minutka.yaml.example secrets/minutka.yaml
+   sops secrets/minutka.yaml
    ```
 
    Выбор значений зависит от режима запуска:
@@ -43,7 +43,10 @@ production-сервера. На хосте `sops-nix` расшифровывае
      новые независимые production-only значения; dev `.env` целиком не копируй;
    - внешний credential переиспользуй только явно. Для controlled Telegram
      cutover это текущий `TELEGRAM_BOT_TOKEN`, причём polling сначала должен
-     быть остановлен на dev.
+     быть остановлен на dev;
+   - `openai_api_key` в bundle — отдельный production client key для локального
+     CLIProxyAPI, а не provider credential и не значение из dev `.env`. Provider
+     OAuth/API credentials добавляются после Phase 3 через SSH tunnel.
 
 6. Для production PostgreSQL URL используй unix socket, а не TCP:
 
@@ -58,19 +61,19 @@ production-сервера. На хосте `sops-nix` расшифровывае
 7. Проверь, что в файле нет plaintext и плейсхолдеров:
 
    ```bash
-   sops filestatus secrets/assistant.yaml
-   ! grep -Eq 'change-me|REPLACE_ME' secrets/assistant.yaml
+   sops filestatus secrets/minutka.yaml
+   ! grep -Eq 'change-me|REPLACE_ME' secrets/minutka.yaml
    ```
 
-Зашифрованный `assistant.yaml` коммитится. Открытый экспорт, расшифрованная копия
+Зашифрованный `minutka.yaml` коммитится. Открытый экспорт, расшифрованная копия
 и production `.env` не создаются и не копируются на сервер.
 
 ## Runtime paths
 
-`modules/assistant-secrets.nix` создаёт:
+`modules/minutka-secrets.nix` создаёт:
 
-- `/run/secrets/assistant/*` — отдельные значения для PostgreSQL/MinIO bootstrap;
-- `/run/secrets/rendered/personal-assistant.env` — чистый `KEY=value` для
+- `/run/secrets/minutka/*` — отдельные значения для PostgreSQL/MinIO bootstrap;
+- `/run/secrets/rendered/minutka.env` — чистый `KEY=value` для
   systemd `EnvironmentFile` приложения и migration oneshot;
 - `/run/secrets/rendered/minio-root.env` — root credential file только для
   `minio.service`.
@@ -80,7 +83,7 @@ credential не входит в его EnvironmentFile. `cliproxy_management_key
 только в `/run/secrets/rendered/cliproxyapi.yaml`: CLIProxyAPI использует его для
 loopback management API, а приложение получает отдельный client key через
 `OPENAI_API_KEY`. Все файлы имеют mode `0400` и принадлежат минимально
-необходимому service user (`personal-assistant`, `cliproxyapi` либо `minio`). В
+необходимому service user (`minutka`, `cliproxyapi` либо `minio`). В
 `/nix/store`, working directory и home сервисов plaintext не попадает.
 
 ## CLIProxyAPI credentials
@@ -94,7 +97,7 @@ restart/deploy. Они намеренно не копируются с dev и н
 Management panel доступна только через SSH tunnel:
 
 ```bash
-ssh -L 8317:127.0.0.1:8317 admin@169.58.116.31
+ssh -L 8317:127.0.0.1:8317 admin@169.58.201.159
 ```
 
 После этого открыть `http://127.0.0.1:8317/management.html`. Management key

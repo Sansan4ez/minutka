@@ -1,4 +1,4 @@
-{ lib, pkgs, personalAssistantSecrets, ... }:
+{ lib, pkgs, minutkaSecrets, ... }:
 
 let
   version = "7.2.110";
@@ -21,8 +21,8 @@ in
 {
   assertions = [
     {
-      assertion = personalAssistantSecrets ? cliproxyConfigFile;
-      message = "assistant-secrets.nix must provide the CLIProxyAPI config file.";
+      assertion = minutkaSecrets ? cliproxyConfigFile;
+      message = "minutka-secrets.nix must provide the CLIProxyAPI config file.";
     }
   ];
 
@@ -55,7 +55,7 @@ in
       ExecStart = "${lib.getExe' package "cli-proxy-api"} -config ${runtimeConfigFile}";
       ExecStartPre = [
         "${pkgs.coreutils}/bin/rm -f ${stateDir}/config.yaml"
-        "${pkgs.coreutils}/bin/install -m 0600 ${personalAssistantSecrets.cliproxyConfigFile} ${runtimeConfigFile}"
+        "${pkgs.coreutils}/bin/install -m 0600 ${minutkaSecrets.cliproxyConfigFile} ${runtimeConfigFile}"
       ];
       Restart = "always";
       RestartSec = 5;

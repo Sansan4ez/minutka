@@ -8,10 +8,10 @@ unix socket; MinIO API и Console слушают только loopback.
 
 ## Что обеспечивает этап
 
-- единственный зашифрованный bundle `secrets/assistant.yaml` в git;
+- единственный зашифрованный bundle `secrets/minutka.yaml` в git;
 - расшифровка хостовым `/etc/ssh/ssh_host_ed25519_key` без отдельного server age key;
-- runtime-файлы только в `/run/secrets*`, owner `personal-assistant`, mode `0400`;
-- systemd-совместимый `/run/secrets/rendered/personal-assistant.env` без кавычек
+- runtime-файлы только в `/run/secrets*`, owner `minutka`, mode `0400`;
+- systemd-совместимый `/run/secrets/rendered/minutka.env` без кавычек
   и комментариев;
 - evaluation failure при отсутствующем, незашифрованном bundle или видимом
   плейсхолдере;
@@ -19,19 +19,19 @@ unix socket; MinIO API и Console слушают только loopback.
   LLM gateway; provider OAuth credentials добавляются оператором через SSH tunnel
   и сохраняются в `/var/lib/cliproxyapi/.cli-proxy-api/`;
 - `pkgs.buildNpmPackage` с pinned `npmDepsHash`, без отдельного build-step;
-- self-contained runtime в `/nix/store/.../lib/personal-assistant` с
+- self-contained runtime в `/nix/store/.../lib/minutka` с
   `package.json`, `node_modules`, `src`, `vault/assistant` и `migrations`;
 - system user, restart через 5 секунд, journald и systemd hardening;
 - reviewable non-secret runtime limits and token-price settings in the NixOS
   module; journal storage capped at 512 MiB;
 - PostgreSQL 16 без TCP, отдельные `minutka_migrator`/`minutka_runtime`,
   идемпотентный database setup и migration oneshot до приложения;
-- MinIO provisioning oneshot: bucket `personal-assistant`, versioning Enabled и
+- MinIO provisioning oneshot: bucket `minutka`, versioning Enabled и
   least-privilege policy/user; root credential не попадает в runtime;
 - MinIO data dir и capacity budget из `site.storage.minio`, с обязательным
   filesystem reserve не меньше 5 GiB;
 - daily `pg_dump -Fc` и полный version-aware mirror owner-scoped MinIO bucket
-  в `/var/backups/personal-assistant/<UTC timestamp>`;
+  в `/var/backups/minutka/<UTC timestamp>`;
 - 14-day local retention, `backup.last_success`, restore smoke и отдельный
   SSH account для pull-based off-site snapshots;
 - smoke каждые 15 минут для PostgreSQL, MinIO, приложения и `/healthz`;
@@ -65,7 +65,7 @@ threshold до filesystem reserve.
 Локально пакет можно собрать отдельно:
 
 ```bash
-nix build .#personal-assistant
+nix build .#minutka
 ```
 
 Проверка после deploy:
@@ -74,38 +74,38 @@ nix build .#personal-assistant
 sudo find /run/secrets \
   -type f -printf '%m %U:%G %p\n'
 sudo systemctl status cliproxyapi postgresql minio \
-  personal-assistant-postgres-setup \
-  personal-assistant-postgres-migrate \
-  personal-assistant-minio-provision \
-  personal-assistant \
-  personal-assistant-backup.timer \
-  personal-assistant-smoke.timer \
-  personal-assistant-observability-collector.timer \
+  minutka-postgres-setup \
+  minutka-postgres-migrate \
+  minutka-minio-provision \
+  minutka \
+  minutka-backup.timer \
+  minutka-smoke.timer \
+  minutka-observability-collector.timer \
   prometheus-node-exporter.service
-sudo systemctl show personal-assistant \
+sudo systemctl show minutka \
   -p EnvironmentFiles -p WorkingDirectory -p Restart -p RestartUSec
-sudo journalctl -u personal-assistant --since today
-sudo systemctl start personal-assistant-backup.service
-sudo find /var/backups/personal-assistant -maxdepth 3 -type f | sort | tail -n 30
-sudo systemctl start personal-assistant-smoke.service
-sudo systemctl start personal-assistant-observability-collector.service
-curl -fsS http://127.0.0.1:9100/metrics | grep '^personal_assistant_'
+sudo journalctl -u minutka --since today
+sudo systemctl start minutka-backup.service
+sudo find /var/backups/minutka -maxdepth 3 -type f | sort | tail -n 30
+sudo systemctl start minutka-smoke.service
+sudo systemctl start minutka-observability-collector.service
+curl -fsS http://127.0.0.1:9100/metrics | grep '^minutka_'
 sudo ss -lntp | grep -E '127\.0\.0\.1:(8317|9000|9001|9100)'
 sudo -u postgres psql -d postgres -Atc \
   "select rolname, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname in ('minutka_runtime','minutka_migrator') order by rolname"
 ```
 
-Ожидаются `0400 personal-assistant:personal-assistant` для application/bootstrap
+Ожидаются `0400 minutka:minutka` для application/bootstrap
 secrets, кроме PostgreSQL role passwords и MinIO app credential
-(`0440 personal-assistant:postgres`, чтобы peer-authenticated setup/restore
+(`0440 minutka:postgres`, чтобы peer-authenticated setup/restore
 smoke могли читать их), и `0400 minio:minio` только для
 `minio-root.env`; `WorkingDirectory`
 должен указывать на пакет в Nix store. Для smoke restart:
 
 ```bash
-pid="$(systemctl show -p MainPID --value personal-assistant)"
+pid="$(systemctl show -p MainPID --value minutka)"
 sudo kill -9 "$pid"
-timeout 10 sh -c 'until systemctl is-active --quiet personal-assistant; do sleep 1; done'
+timeout 10 sh -c 'until systemctl is-active --quiet minutka; do sleep 1; done'
 ```
 
 Содержимое секретов в терминал и журналы не выводится. Версия приложения входит

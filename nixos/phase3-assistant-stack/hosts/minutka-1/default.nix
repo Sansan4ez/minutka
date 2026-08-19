@@ -9,11 +9,11 @@
       ../../modules/firewall.nix
       ../../modules/ssh.nix
       ../../modules/ops-runtime.nix
-      ../../modules/assistant-secrets.nix
+      ../../modules/minutka-secrets.nix
       ../../modules/cliproxyapi.nix
       ../../modules/postgres.nix
       ../../modules/minio.nix
-      ../../modules/personal-assistant.nix
+      ../../modules/minutka.nix
       ../../modules/backup.nix
       ../../modules/backup-pull.nix
       ../../modules/smoke.nix

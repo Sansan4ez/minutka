@@ -28,13 +28,13 @@ in
     openssh.authorizedKeys.keys = adminAuthorizedKeys;
     homeMode = "0710";
   };
-  users.groups.users.members = lib.mkAfter [ "personal-assistant" ];
+  users.groups.users.members = lib.mkAfter [ "minutka" ];
 
-  users.groups.personal-assistant = { };
-  users.users.personal-assistant = {
+  users.groups.minutka = { };
+  users.users.minutka = {
     isSystemUser = true;
-    group = "personal-assistant";
-    description = "Personal assistant service";
+    group = "minutka";
+    description = "Minutka service";
   };
 
   security.sudo = {

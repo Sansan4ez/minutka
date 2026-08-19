@@ -1,18 +1,18 @@
-{ lib, pkgs, site, personalAssistantSecrets, ... }:
+{ lib, pkgs, site, minutkaSecrets, ... }:
 
 let
-  bucket = "personal-assistant";
-  policyName = "personal-vault-app";
+  bucket = "minutka";
+  policyName = "minutka-app";
   endpoint = "http://127.0.0.1:9000";
   dataDir = site.storage.minio.dataDir;
   capacityBytes = site.storage.minio.capacityBytes;
   filesystemReserveBytes = site.storage.minio.filesystemReserveBytes;
   artifactBudgetBytes = 48318382080;
   applicationReserveBytes = 5368709120;
-  secretPaths = personalAssistantSecrets.runtimeSecretPaths;
+  secretPaths = minutkaSecrets.runtimeSecretPaths;
 
   provisionMinio = pkgs.writeShellApplication {
-    name = "personal-assistant-minio-provision";
+    name = "minutka-minio-provision";
     runtimeInputs = [ pkgs.minio-client pkgs.coreutils ];
     text = ''
       set -euo pipefail
@@ -75,8 +75,8 @@ in
 {
   assertions = [
     {
-      assertion = personalAssistantSecrets ? minioRootCredentialsFile && personalAssistantSecrets ? runtimeSecretPaths;
-      message = "assistant-secrets.nix must provide MinIO root credentials and bootstrap secret paths.";
+      assertion = minutkaSecrets ? minioRootCredentialsFile && minutkaSecrets ? runtimeSecretPaths;
+      message = "minutka-secrets.nix must provide MinIO root credentials and bootstrap secret paths.";
     }
     {
       assertion = secretPaths ? minio_root_user && secretPaths ? minio_root_password
@@ -102,7 +102,7 @@ in
     listenAddress = "127.0.0.1:9000";
     consoleAddress = "127.0.0.1:9001";
     dataDir = [ dataDir ];
-    rootCredentialsFile = personalAssistantSecrets.minioRootCredentialsFile;
+    rootCredentialsFile = minutkaSecrets.minioRootCredentialsFile;
   };
 
   systemd.tmpfiles.rules = [
@@ -111,12 +111,12 @@ in
 
   systemd.services.minio.unitConfig.RequiresMountsFor = dataDir;
 
-  systemd.services.personal-assistant-minio-provision = {
-    description = "Provision personal-assistant MinIO bucket and application policy";
+  systemd.services.minutka-minio-provision = {
+    description = "Provision minutka MinIO bucket and application policy";
     after = [ "minio.service" ];
     requires = [ "minio.service" ];
-    before = [ "personal-assistant.service" ];
-    wantedBy = [ "personal-assistant.service" ];
+    before = [ "minutka.service" ];
+    wantedBy = [ "minutka.service" ];
 
     environment = {
       MINIO_ENDPOINT = endpoint;
@@ -130,8 +130,8 @@ in
 
     serviceConfig = {
       Type = "oneshot";
-      User = "personal-assistant";
-      Group = "personal-assistant";
+      User = "minutka";
+      Group = "minutka";
       ExecStart = lib.getExe provisionMinio;
       NoNewPrivileges = true;
       ProtectSystem = "strict";

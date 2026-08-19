@@ -1,6 +1,6 @@
 # NixOS production host
 
-Базовая конфигурация нового VPS для пилота personal-assistant. Она повторяет
+Базовая конфигурация нового VPS для пилота minutka. Она повторяет
 проверенную двухфазную схему из `matrix-server-nixos`, но не переносит Matrix
 stack, Caddy, ACME или coturn. Снаружи открыт только SSH; Telegram использует
 polling, а HTTP API приложения должен оставаться на loopback.
@@ -15,7 +15,7 @@ polling, а HTTP API приложения должен оставаться на
   PostgreSQL 16 и loopback-only MinIO с декларативным provisioning.
 
 Обе фазы используют `github:NixOS/nixpkgs/nixos-25.11` и конфигурацию
-`personal-assistant-1`.
+`minutka-1`.
 
 ## 1. Заполнить параметры площадки
 
@@ -50,7 +50,7 @@ root login запрещён, дальнейшие deploy также идут к�
 Скрипт сохраняет лог в `./logs/`. Параметры:
 
 ```bash
-LOG_DIR=/tmp/personal-assistant-install-logs ./scripts/install-vm-test.sh
+LOG_DIR=/tmp/minutka-install-logs ./scripts/install-vm-test.sh
 NIXOS_ANYWHERE_FLAKE=github:nix-community/nixos-anywhere ./scripts/install-vm-test.sh
 ```
 
@@ -66,7 +66,7 @@ NIXOS_ANYWHERE_FLAKE=github:nix-community/nixos-anywhere ./scripts/install-vm-te
 
 Это **размечает указанный диск и уничтожает его прежнее содержимое**. Скрипт
 запускает `nixos-anywhere` с `disko`, генерирует
-`hosts/personal-assistant-1/hardware-configuration.nix` и пишет полный лог в
+`hosts/minutka-1/hardware-configuration.nix` и пишет полный лог в
 `./logs/`.
 
 Поддерживаемые параметры:
@@ -76,8 +76,13 @@ BUILD_ON=remote ./scripts/install-server.sh        # default
 BUILD_ON=local ./scripts/install-server.sh
 NO_DISKO_DEPS=1 ./scripts/install-server.sh
 NIXOS_ANYWHERE_FLAKE=github:nix-community/nixos-anywhere ./scripts/install-server.sh
-LOG_DIR=/tmp/personal-assistant-install-logs ./scripts/install-server.sh
+LOG_DIR=/tmp/minutka-install-logs ./scripts/install-server.sh
+HOST_KEY_FILE=/secure/path/ssh_host_ed25519_key ./scripts/install-server.sh
 ```
+
+Скрипт по умолчанию переносит заранее сгенерированный production host key из
+`~/.config/minutka/production/ssh_host_ed25519_key`; не удаляй его локальный
+backup, иначе потеряется один из recipients production sops bundle.
 
 После reboot проверь входы по ключу: `root` остаётся аварийным доступом до
 Phase 2, а `admin` уже готов для первого Phase 2 deploy:
@@ -93,8 +98,8 @@ ssh -i /path/to/id_ed25519 admin@SERVER_IP
 
 ```bash
 cp \
-  nixos/phase1-installable-base/hosts/personal-assistant-1/hardware-configuration.nix \
-  nixos/phase2-ops-base/hosts/personal-assistant-1/hardware-configuration.nix
+  nixos/phase1-installable-base/hosts/minutka-1/hardware-configuration.nix \
+  nixos/phase2-ops-base/hosts/minutka-1/hardware-configuration.nix
 ```
 
 Закоммить этот файл вместе с реальными параметрами площадки. Затем из

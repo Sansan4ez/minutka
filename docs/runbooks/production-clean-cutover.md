@@ -1,6 +1,6 @@
 # Clean production bootstrap and Telegram cutover
 
-> **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
+> Стек унаследован от персонального ассистента и адаптирован под отдельный production-контур «Минутки»: собственный хост, unit names, storage paths и secrets bundle. Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
 
 ## Назначение
@@ -41,15 +41,17 @@ runtime с одним bot token. Production нельзя запускать с �
 - MinIO root/application credentials.
 
 Переиспользуется только явно выбранный внешний credential — текущий
-`TELEGRAM_BOT_TOKEN`. Dev `.env` целиком не копируется. Процедура sops описана в
+`TELEGRAM_BOT_TOKEN`. Dev `.env` целиком не копируется. `OPENAI_API_KEY` в
+production bundle — новый client key локального CLIProxyAPI; provider credentials
+добавляются отдельно через SSH tunnel. Процедура sops описана в
 [production secrets](./production-secrets.md).
 
 До cutover проверь только структуру ciphertext, не печатая значения:
 
 ```bash
 cd nixos/phase3-assistant-stack
-sops filestatus secrets/assistant.yaml
-! grep -Eq 'change-me|REPLACE_ME' secrets/assistant.yaml
+sops filestatus secrets/minutka.yaml
+! grep -Eq 'change-me|REPLACE_ME' secrets/minutka.yaml
 ```
 
 ## 2. Deploy без запуска Telegram runtime
@@ -59,8 +61,8 @@ sops filestatus secrets/assistant.yaml
 
 ```bash
 cd nixos/phase3-assistant-stack
-ssh admin@169.58.116.31 \
-  'sudo systemctl mask --runtime --now personal-assistant.service'
+ssh admin@169.58.201.159 \
+  'sudo systemctl mask --runtime --now minutka.service'
 ./scripts/deploy.sh --dry-activate
 ./scripts/deploy.sh
 ```
@@ -75,11 +77,11 @@ migrations, backup и observability при этом можно подготов�
 Проверь:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 set -euo pipefail
 systemctl is-active postgresql minio
-systemctl is-failed personal-assistant-postgres-setup personal-assistant-postgres-migrate personal-assistant-minio-provision && exit 1 || true
-systemctl is-active personal-assistant && { echo "Runtime unexpectedly active" >&2; exit 1; } || true
+systemctl is-failed minutka-postgres-setup minutka-postgres-migrate minutka-minio-provision && exit 1 || true
+systemctl is-active minutka && { echo "Runtime unexpectedly active" >&2; exit 1; } || true
 curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null
 '
 ```
@@ -90,7 +92,7 @@ CLIProxyAPI запускается на `127.0.0.1:8317`; наружу порт 
 provider credentials с dev не копируются. Оператор добавляет их через SSH tunnel:
 
 ```bash
-ssh -L 8317:127.0.0.1:8317 admin@169.58.116.31
+ssh -L 8317:127.0.0.1:8317 admin@169.58.201.159
 ```
 
 Открыть `http://127.0.0.1:8317/management.html` и добавить credential для prefix,
@@ -101,7 +103,7 @@ ssh -L 8317:127.0.0.1:8317 admin@169.58.116.31
 Проверить без печати ключей:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 systemctl is-active cliproxyapi.service
 sudo ss -lnt | grep "127.0.0.1:8317"
 sudo find /var/lib/cliproxyapi/.cli-proxy-api -maxdepth 1 -type f \
@@ -118,7 +120,7 @@ client key из sops. STT остаётся независимым:
 Проверить прикладные таблицы до первого production invite:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 sudo -u postgres psql -d minutka -X -v ON_ERROR_STOP=1 <<"SQL"
 SELECT table_name, row_count
 FROM (
@@ -140,17 +142,17 @@ SQL
 Проверить, что полный production bucket не содержит owner objects:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 sudo sh -eu <<"EOF"
 config="$(mktemp -d)"
 trap "rm -rf $config" EXIT
 export MC_CONFIG_DIR="$config"
-access="$(cat /run/secrets/assistant/minio_access_key)"
-secret="$(cat /run/secrets/assistant/minio_secret_key)"
+access="$(cat /run/secrets/minutka/minio_access_key)"
+secret="$(cat /run/secrets/minutka/minio_secret_key)"
 mc_bin="$(command -v mc || find /nix/store -path '*/bin/mc' -type f -print -quit)"
 test -n "$mc_bin"
 "$mc_bin" alias set production http://127.0.0.1:9000 "$access" "$secret" >/dev/null
-count="$("$mc_bin" find production/personal-assistant --name "*" | wc -l)"
+count="$("$mc_bin" find production/minutka --name "*" | wc -l)"
 test "$count" -eq 0
 echo "Production MinIO owner object count: 0"
 EOF
@@ -166,16 +168,16 @@ EOF
 только PostgreSQL dump плюс полный MinIO mirror:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 set -euo pipefail
-sudo systemctl start personal-assistant-backup.service
-sudo journalctl -u personal-assistant-backup.service --no-pager -n 100
+sudo systemctl start minutka-backup.service
+sudo journalctl -u minutka-backup.service --no-pager -n 100
 latest="$(sudo find /var/backups/minutka -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort | tail -n 1)"
 test -n "$latest"
 sudo test -s "/var/backups/minutka/$latest/minutka.dump"
-sudo test -d "/var/backups/minutka/$latest/minio/personal-assistant"
+sudo test -d "/var/backups/minutka/$latest/minio/minutka"
 sudo test ! -e "/var/backups/minutka/$latest/user-knowledge-base.bundle"
-sudo cat /var/lib/personal-assistant-observability/backup.last_success
+sudo cat /var/lib/minutka-observability/backup.last_success
 '
 ```
 
@@ -208,14 +210,14 @@ Dev PostgreSQL/MinIO untouched: yes
 Только после operator checkpoint:
 
 ```bash
-ssh admin@169.58.116.31 '
+ssh admin@169.58.201.159 '
 set -euo pipefail
-sudo systemctl unmask --runtime personal-assistant.service
+sudo systemctl unmask --runtime minutka.service
 sudo systemctl daemon-reload
-sudo systemctl start personal-assistant.service
-systemctl is-active personal-assistant.service
+sudo systemctl start minutka.service
+systemctl is-active minutka.service
 curl -fsS http://127.0.0.1:8787/healthz
-sudo journalctl -u personal-assistant.service --since "5 minutes ago" --no-pager
+sudo journalctl -u minutka.service --since "5 minutes ago" --no-pager
 '
 ```
 
@@ -254,9 +256,9 @@ Rollback выполняется только в таком порядке:
 5. проверить, что polling consumer снова ровно один.
 
 ```bash
-ssh admin@169.58.116.31 '
-sudo systemctl stop personal-assistant.service
-systemctl is-active personal-assistant.service && exit 1 || true
+ssh admin@169.58.201.159 '
+sudo systemctl stop minutka.service
+systemctl is-active minutka.service && exit 1 || true
 '
 ```
 

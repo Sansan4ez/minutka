@@ -2,7 +2,7 @@
 
 let
   cfg = site.backupPull;
-  backupGroup = "personal-assistant";
+  backupGroup = "minutka";
   keyIdentity = key:
     lib.concatStringsSep " " (lib.take 2 (lib.splitString " " key));
   adminKeyIdentities = map keyIdentity site.adminAuthorizedKeys;
@@ -13,14 +13,14 @@ lib.mkIf cfg.enable {
 
   users.users.${cfg.user} = {
     isSystemUser = true;
-    description = "Read-only SSH user for off-site personal-assistant backup pulls";
+    description = "Read-only SSH user for off-site minutka backup pulls";
     group = cfg.user;
     extraGroups = [ backupGroup ];
     home = "/var/lib/${cfg.user}";
     createHome = true;
     shell = pkgs.bashInteractive + "/bin/bash";
     openssh.authorizedKeys.keys = map
-      (key: "restrict,command=\"${lib.getExe pkgs.rrsync} -ro /var/backups/personal-assistant\" ${key}")
+      (key: "restrict,command=\"${lib.getExe pkgs.rrsync} -ro /var/backups/minutka\" ${key}")
       cfg.sshAuthorizedKeys;
   };
 

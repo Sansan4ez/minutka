@@ -1,7 +1,7 @@
-{ lib, personalAssistantPackage, personalAssistantSecrets, ... }:
+{ lib, minutkaPackage, minutkaSecrets, ... }:
 
 let
-  appDir = "${personalAssistantPackage}/lib/personal-assistant";
+  appDir = "${minutkaPackage}/lib/minutka";
   environment = {
     LLM_MODEL = "openai/11qiw/gpt-5.5";
     OPENAI_BASE_URL = "http://127.0.0.1:8317/v1";
@@ -16,7 +16,7 @@ let
     MINIO_ENDPOINT = "127.0.0.1";
     MINIO_PORT = "9000";
     MINIO_USE_SSL = "false";
-    MINIO_BUCKET = "personal-assistant";
+    MINIO_BUCKET = "minutka";
 
     ASSISTANT_USAGE_MONTHLY_SOFT_LIMIT_USD = "30";
     ASSISTANT_USAGE_INPUT_USD_PER_MILLION_TOKENS = "5";
@@ -63,24 +63,24 @@ in
 {
   assertions = [
     {
-      assertion = personalAssistantSecrets ? environmentFile;
-      message = "assistant-secrets.nix must provide the personal-assistant EnvironmentFile.";
+      assertion = minutkaSecrets ? environmentFile;
+      message = "minutka-secrets.nix must provide the minutka EnvironmentFile.";
     }
   ];
 
-  systemd.services.personal-assistant = {
-    description = "Personal AI assistant";
+  systemd.services.minutka = {
+    description = "Minutka research assistant";
     wantedBy = [ "multi-user.target" ];
     after = [
       "network-online.target"
       "cliproxyapi.service"
-      "personal-assistant-postgres-migrate.service"
-      "personal-assistant-minio-provision.service"
+      "minutka-postgres-migrate.service"
+      "minutka-minio-provision.service"
     ];
     requires = [
       "cliproxyapi.service"
-      "personal-assistant-postgres-migrate.service"
-      "personal-assistant-minio-provision.service"
+      "minutka-postgres-migrate.service"
+      "minutka-minio-provision.service"
     ];
     wants = [ "network-online.target" ];
 
@@ -88,17 +88,17 @@ in
 
     serviceConfig = {
       Type = "simple";
-      User = "personal-assistant";
-      Group = "personal-assistant";
+      User = "minutka";
+      Group = "minutka";
       WorkingDirectory = appDir;
-      ExecStart = lib.getExe personalAssistantPackage;
-      EnvironmentFile = personalAssistantSecrets.environmentFile;
+      ExecStart = lib.getExe minutkaPackage;
+      EnvironmentFile = minutkaSecrets.environmentFile;
       Restart = "always";
       RestartSec = 5;
 
       StandardOutput = "journal";
       StandardError = "journal";
-      SyslogIdentifier = "personal-assistant";
+      SyslogIdentifier = "minutka";
 
       NoNewPrivileges = true;
       ProtectSystem = "strict";

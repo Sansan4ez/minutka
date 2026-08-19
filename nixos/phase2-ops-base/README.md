@@ -14,8 +14,8 @@ admin-пользователя для первого подключения; Pha
 
 ```bash
 cp \
-  ../phase1-installable-base/hosts/personal-assistant-1/hardware-configuration.nix \
-  ./hosts/personal-assistant-1/hardware-configuration.nix
+  ../phase1-installable-base/hosts/minutka-1/hardware-configuration.nix \
+  ./hosts/minutka-1/hardware-configuration.nix
 ```
 
 4. Убедись, что на сервере уже применена актуальная Phase 1 с bootstrap

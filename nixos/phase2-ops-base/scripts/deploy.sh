@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_ARGS=( .#personal-assistant-1 )
+DEPLOY_ARGS=( .#minutka-1 )
 
 if [ -n "${LOG_DIR:-}" ]; then
   mkdir -p "$LOG_DIR"

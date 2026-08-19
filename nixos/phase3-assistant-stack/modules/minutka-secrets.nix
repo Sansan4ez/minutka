@@ -1,7 +1,7 @@
 { lib, config, ... }:
 
 let
-  secretFile = ../secrets/assistant.yaml;
+  secretFile = ../secrets/minutka.yaml;
   placeholderMarkers = [ "change-me" "REPLACE_ME" ];
   secretFileText = builtins.readFile secretFile;
   containsPlaceholder = marker: lib.hasInfix marker secretFileText;
@@ -34,7 +34,7 @@ let
   allSecrets = environmentSecrets // infrastructureSecrets;
   encryptionMarkerCount = builtins.length (lib.splitString "ENC[AES256_GCM" secretFileText) - 1;
   expectedEncryptionMarkerCount = builtins.length (builtins.attrNames allSecrets) + 1; # values + sops.mac
-  secretPath = name: "assistant/${name}";
+  secretPath = name: "minutka/${name}";
   placeholders = lib.mapAttrs'
     (name: _: lib.nameValuePair name config.sops.placeholder.${secretPath name})
     allSecrets;
@@ -96,16 +96,16 @@ lib.mkMerge [
     assertions = [
       {
         assertion = builtins.pathExists secretFile;
-        message = "Create phase3-assistant-stack/secrets/assistant.yaml and encrypt it with sops before deployment.";
+        message = "Create phase3-assistant-stack/secrets/minutka.yaml and encrypt it with sops before deployment.";
       }
     ];
   }
 
   (lib.mkIf (builtins.pathExists secretFile) {
-    _module.args.personalAssistantSecrets = {
-      environmentFile = config.sops.templates."personal-assistant.env".path;
+    _module.args.minutkaSecrets = {
+      environmentFile = config.sops.templates."minutka.env".path;
       minioRootCredentialsFile = config.sops.templates."minio-root.env".path;
-      backupPgpassFile = config.sops.templates."personal-assistant-backup.pgpass".path;
+      backupPgpassFile = config.sops.templates."minutka-backup.pgpass".path;
       cliproxyConfigFile = config.sops.templates."cliproxyapi.yaml".path;
       inherit runtimeSecretPaths;
     };
@@ -113,11 +113,11 @@ lib.mkMerge [
     assertions = [
       {
         assertion = encryptionMarkerCount >= expectedEncryptionMarkerCount;
-        message = "secrets/assistant.yaml must be a fully sops-encrypted document; plaintext or partially encrypted bundles are refused.";
+        message = "secrets/minutka.yaml must be a fully sops-encrypted document; plaintext or partially encrypted bundles are refused.";
       }
       {
         assertion = !(builtins.any containsPlaceholder placeholderMarkers);
-        message = "Replace every change-me/REPLACE_ME placeholder in secrets/assistant.yaml and re-encrypt it before deployment.";
+        message = "Replace every change-me/REPLACE_ME placeholder in secrets/minutka.yaml and re-encrypt it before deployment.";
       }
     ];
 
@@ -128,16 +128,16 @@ lib.mkMerge [
 
       secrets = lib.mapAttrs'
         (name: _: lib.nameValuePair (secretPath name) {
-          owner = "personal-assistant";
-          group = if builtins.elem name [ "minutka_db_password" "minutka_migrator_db_password" "minio_access_key" "minio_secret_key" ] then "postgres" else "personal-assistant";
+          owner = "minutka";
+          group = if builtins.elem name [ "minutka_db_password" "minutka_migrator_db_password" "minio_access_key" "minio_secret_key" ] then "postgres" else "minutka";
           mode = if builtins.elem name [ "minutka_db_password" "minutka_migrator_db_password" "minio_access_key" "minio_secret_key" ] then "0440" else "0400";
         })
         allSecrets;
 
       templates = {
-        "personal-assistant.env" = {
-          owner = "personal-assistant";
-          group = "personal-assistant";
+        "minutka.env" = {
+          owner = "minutka";
+          group = "minutka";
           mode = "0400";
           content = lib.concatStringsSep "\n" environmentLines + "\n";
         };
@@ -149,9 +149,9 @@ lib.mkMerge [
           content = lib.concatStringsSep "\n" minioRootCredentialLines + "\n";
         };
 
-        "personal-assistant-backup.pgpass" = {
-          owner = "personal-assistant";
-          group = "personal-assistant";
+        "minutka-backup.pgpass" = {
+          owner = "minutka";
+          group = "minutka";
           mode = "0400";
           content = backupPgpassLine + "\n";
         };

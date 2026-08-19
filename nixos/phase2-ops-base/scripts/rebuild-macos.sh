@@ -14,6 +14,6 @@ if [ "$SSH_USER" != "root" ]; then
   REBUILD_ARGS+=( --sudo )
 fi
 
-nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- dry-activate --flake .#personal-assistant-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"
-nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- test --flake .#personal-assistant-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"
-nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- switch --flake .#personal-assistant-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"
+nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- dry-activate --flake .#minutka-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"
+nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- test --flake .#minutka-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"
+nix --extra-experimental-features 'nix-command flakes' run nixpkgs#nixos-rebuild -- switch --flake .#minutka-1 "${REBUILD_ARGS[@]}" --build-host "$TARGET" --target-host "$TARGET"

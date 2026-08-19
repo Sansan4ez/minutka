@@ -1,5 +1,5 @@
 {
-  description = "Phase 3: personal assistant production stack";
+  description = "Phase 3: Minutka production stack";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
@@ -17,21 +17,21 @@
   outputs = { self, nixpkgs, disko, sops-nix, deploy-rs, ... }:
     let
       site = import ./site.nix;
-      personalAssistantPackage = nixpkgs.legacyPackages.${site.system}.callPackage ./package.nix { };
+      minutkaPackage = nixpkgs.legacyPackages.${site.system}.callPackage ./package.nix { };
     in {
       packages.${site.system} = {
-        personal-assistant = personalAssistantPackage;
-        default = personalAssistantPackage;
+        minutka = minutkaPackage;
+        default = minutkaPackage;
       };
 
-      nixosConfigurations.personal-assistant-1 = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.minutka-1 = nixpkgs.lib.nixosSystem {
         system = site.system;
-        specialArgs = { inherit site personalAssistantPackage; };
+        specialArgs = { inherit site minutkaPackage; };
         modules = [
           disko.nixosModules.disko
           sops-nix.nixosModules.sops
           ./disk-config.nix
-          ./hosts/personal-assistant-1/default.nix
+          ./hosts/minutka-1/default.nix
         ];
       };
 
@@ -43,13 +43,13 @@
           "IdentitiesOnly=yes"
         ];
 
-        nodes.personal-assistant-1 = {
+        nodes.minutka-1 = {
           hostname = site.deploy.sshHost;
           sshUser = site.deploy.sshUser;
 
           profiles.system = {
             user = "root";
-            path = deploy-rs.lib.${site.system}.activate.nixos self.nixosConfigurations.personal-assistant-1;
+            path = deploy-rs.lib.${site.system}.activate.nixos self.nixosConfigurations.minutka-1;
           };
         };
       };

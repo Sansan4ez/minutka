@@ -21,5 +21,5 @@ fi
 nix --extra-experimental-features 'nix-command flakes' run "$NIXOS_ANYWHERE_FLAKE" -- \
   --debug \
   --print-build-logs \
-  --flake .#personal-assistant-1 \
+  --flake .#minutka-1 \
   --vm-test |& tee "$LOG_FILE"

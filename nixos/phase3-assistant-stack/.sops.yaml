@@ -1,16 +1,13 @@
-# Стек унаследован от репозитория ассистента как шаблон и НЕ переиспользует его
-# секреты: bundle `secrets/assistant.yaml` и recipient production-хоста ассистента
-# сняты при клонировании. До первого деплоя «Минутки» здесь должен появиться
-# recipient её собственного хоста, а bundle — создан заново по `secrets/README.md`.
+# Production bundle is encrypted for the local owner key and the immutable
+# ssh-ed25519 host key of the Minutka production server.
 keys:
   # Local owner key. The private key lives in ~/.config/sops/age/keys.txt.
   - &owner age13fvzv36jr0t29s9wvc84ydgn8vrc3cw2takk500ecjedzxjnr5msac2tqd
-  # Derived from the Minutka production host's ssh-ed25519 host public key.
-  # Placeholder: sops fails loudly until the real recipient is filled in.
-  - &server age1REPLACE_WITH_MINUTKA_HOST_RECIPIENT
+  # Derived from the pinned NixOS host key SHA256:+IYaUr7nIW5m0dozT5jXMbJQ+O8upC+PcIMVXLita3A.
+  - &server age1rzxxak36re7yh2lt5kact3wtj4wtl67nwpg3spnjh5fnuwu5wagqypdpyr
 
 creation_rules:
-  - path_regex: secrets/assistant\.yaml$
+  - path_regex: (secrets/)?minutka\.yaml$
     key_groups:
       - age:
           - *owner

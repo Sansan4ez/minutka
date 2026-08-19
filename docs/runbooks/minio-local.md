@@ -19,7 +19,7 @@ chmod 600 .env
 ```dotenv
 MINIO_ROOT_USER=minio-admin-local
 MINIO_ROOT_PASSWORD=<strong-random-root-password>
-MINIO_ACCESS_KEY=personal-assistant-app
+MINIO_ACCESS_KEY=minutka-app
 MINIO_SECRET_KEY=<strong-random-application-secret>
 MINIO_BUCKET=minutka
 
@@ -84,7 +84,7 @@ http://127.0.0.1:9003
 
 Не использовать `MINIO_ACCESS_KEY` для административного входа: это ограниченная application credential.
 
-После входа открыть **Object Browser** → bucket `personal-assistant`. Канонические durable owner-scoped зоны:
+После входа открыть **Object Browser** → bucket `minutka`. Канонические durable owner-scoped зоны:
 
 ```text
 <owner-id>/context/*

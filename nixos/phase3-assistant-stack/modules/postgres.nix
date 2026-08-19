@@ -1,11 +1,11 @@
-{ lib, pkgs, personalAssistantPackage, personalAssistantSecrets, ... }:
+{ lib, pkgs, minutkaPackage, minutkaSecrets, ... }:
 
 let
   postgres = pkgs.postgresql_16;
-  secretPaths = personalAssistantSecrets.runtimeSecretPaths;
+  secretPaths = minutkaSecrets.runtimeSecretPaths;
 
   databaseSetup = pkgs.writeShellApplication {
-    name = "personal-assistant-postgres-setup";
+    name = "minutka-postgres-setup";
     runtimeInputs = [ postgres pkgs.coreutils ];
     text = ''
       set -euo pipefail
@@ -34,19 +34,19 @@ let
   };
 
   databaseMigrate = pkgs.writeShellApplication {
-    name = "personal-assistant-postgres-migrate";
+    name = "minutka-postgres-migrate";
     runtimeInputs = [ pkgs.coreutils ];
     text = ''
       set -euo pipefail
-      exec ${personalAssistantPackage}/bin/personal-assistant-db-migrate
+      exec ${minutkaPackage}/bin/minutka-db-migrate
     '';
   };
 in
 {
   assertions = [
     {
-      assertion = personalAssistantSecrets ? runtimeSecretPaths;
-      message = "assistant-secrets.nix must provide PostgreSQL bootstrap secret paths.";
+      assertion = minutkaSecrets ? runtimeSecretPaths;
+      message = "minutka-secrets.nix must provide PostgreSQL bootstrap secret paths.";
     }
     {
       assertion = secretPaths ? minutka_db_password && secretPaths ? minutka_migrator_db_password;
@@ -58,7 +58,7 @@ in
     enable = true;
     package = postgres;
     enableTCPIP = false;
-    dataDir = "/var/lib/personal-assistant/postgresql/16";
+    dataDir = "/var/lib/minutka/postgresql/16";
     initdbArgs = [ "--data-checksums" "--encoding=UTF8" "--locale=C" ];
     authentication = lib.mkForce ''
       local all postgres          peer map=postgres
@@ -75,24 +75,24 @@ in
   };
 
   systemd.tmpfiles.rules = [
-    "d /var/lib/personal-assistant 0750 root postgres -"
-    "d /var/lib/personal-assistant/postgresql 0750 postgres postgres -"
-    "d /var/lib/personal-assistant/postgresql/16 0700 postgres postgres -"
+    "d /var/lib/minutka 0750 root postgres -"
+    "d /var/lib/minutka/postgresql 0750 postgres postgres -"
+    "d /var/lib/minutka/postgresql/16 0700 postgres postgres -"
   ];
 
-  systemd.services.postgresql.unitConfig.RequiresMountsFor = "/var/lib/personal-assistant/postgresql/16";
+  systemd.services.postgresql.unitConfig.RequiresMountsFor = "/var/lib/minutka/postgresql/16";
 
-  systemd.services.personal-assistant-postgres-setup = {
-    description = "Provision personal-assistant PostgreSQL roles and database";
+  systemd.services.minutka-postgres-setup = {
+    description = "Provision minutka PostgreSQL roles and database";
     after = [ "postgresql.target" ];
     requires = [ "postgresql.target" ];
-    before = [ "personal-assistant-postgres-migrate.service" ];
-    wantedBy = [ "personal-assistant-postgres-migrate.service" ];
+    before = [ "minutka-postgres-migrate.service" ];
+    wantedBy = [ "minutka-postgres-migrate.service" ];
 
     environment = {
       PGHOST = "/run/postgresql";
       PGUSER = "postgres";
-      PGAPPNAME = "personal-assistant-postgres-setup";
+      PGAPPNAME = "minutka-postgres-setup";
       MINUTKA_DB_PASSWORD_FILE = secretPaths.minutka_db_password;
       MINUTKA_MIGRATOR_DB_PASSWORD_FILE = secretPaths.minutka_migrator_db_password;
     };
@@ -105,26 +105,26 @@ in
     };
   };
 
-  systemd.services.personal-assistant-postgres-migrate = {
-    description = "Apply personal-assistant PostgreSQL migrations";
-    after = [ "personal-assistant-postgres-setup.service" ];
-    requires = [ "personal-assistant-postgres-setup.service" ];
-    before = [ "personal-assistant.service" ];
-    wantedBy = [ "personal-assistant.service" ];
+  systemd.services.minutka-postgres-migrate = {
+    description = "Apply minutka PostgreSQL migrations";
+    after = [ "minutka-postgres-setup.service" ];
+    requires = [ "minutka-postgres-setup.service" ];
+    before = [ "minutka.service" ];
+    wantedBy = [ "minutka.service" ];
 
     environment = {
       DATABASE_SSL_MODE = "disable";
-      PGAPPNAME = "personal-assistant-postgres-migrate";
+      PGAPPNAME = "minutka-postgres-migrate";
       INVITE_CODE_PEPPER = "migration-configuration-only";
       TELEGRAM_IDENTITY_PEPPER = "migration-configuration-only";
     };
 
     serviceConfig = {
       Type = "oneshot";
-      User = "personal-assistant";
-      Group = "personal-assistant";
-      WorkingDirectory = "${personalAssistantPackage}/lib/personal-assistant";
-      EnvironmentFile = personalAssistantSecrets.environmentFile;
+      User = "minutka";
+      Group = "minutka";
+      WorkingDirectory = "${minutkaPackage}/lib/minutka";
+      EnvironmentFile = minutkaSecrets.environmentFile;
       ExecStart = lib.getExe databaseMigrate;
       NoNewPrivileges = true;
       ProtectSystem = "strict";

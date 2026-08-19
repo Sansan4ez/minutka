@@ -1,5 +1,5 @@
 {
-  description = "Phase 2: operational baseline for personal assistant host";
+  description = "Phase 2: operational baseline for Minutka host";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
@@ -15,13 +15,13 @@
     let
       site = import ./site.nix;
     in {
-      nixosConfigurations.personal-assistant-1 = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.minutka-1 = nixpkgs.lib.nixosSystem {
         system = site.system;
         specialArgs = { inherit site; };
         modules = [
           disko.nixosModules.disko
           ./disk-config.nix
-          ./hosts/personal-assistant-1/default.nix
+          ./hosts/minutka-1/default.nix
         ];
       };
 
@@ -33,13 +33,13 @@
           "IdentitiesOnly=yes"
         ];
 
-        nodes.personal-assistant-1 = {
+        nodes.minutka-1 = {
           hostname = site.deploy.sshHost;
           sshUser = site.deploy.sshUser;
 
           profiles.system = {
             user = "root";
-            path = deploy-rs.lib.${site.system}.activate.nixos self.nixosConfigurations.personal-assistant-1;
+            path = deploy-rs.lib.${site.system}.activate.nixos self.nixosConfigurations.minutka-1;
           };
         };
       };
