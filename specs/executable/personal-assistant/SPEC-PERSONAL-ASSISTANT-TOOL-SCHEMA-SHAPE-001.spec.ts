@@ -82,7 +82,8 @@ describe("SPEC-PERSONAL-ASSISTANT-TOOL-SCHEMA-SHAPE-001: registered provider sch
       preferredName: "Owner", assistantName: "Minutka", addressForm: "informal", persona: "support",
       responseLength: "balanced", timezone: "Etc/UTC", createdAt: "2026-08-19T00:00:00.000Z", updatedAt: "2026-08-19T00:00:00.000Z",
     }, patch, "2026-08-19T00:01:00.000Z"));
-    expect(tool.inputSchema?.safeParse({}).success).toBe(true);
+    const inputSchema = tool.inputSchema as unknown as { safeParse(input: unknown): { success: boolean } };
+    expect(inputSchema.safeParse({}).success).toBe(true);
     await expect(tool.execute?.({}, {} as never)).rejects.toThrow("personal profile context patch must not be empty");
   });
 
