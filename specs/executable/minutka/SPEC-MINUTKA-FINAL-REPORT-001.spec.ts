@@ -144,6 +144,27 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     });
   });
 
+  it("anchors the fourteen local days on the profile day, not on the UTC one", async () => {
+    const state = createInMemoryActivityCollectionState();
+    // 00:30 Moscow on 2026-08-28: the local window is 08-15..08-28, while a
+    // UTC-dated clock would read 08-14..08-27 and swap both edge activities.
+    const cycle = new CycleActivitySummaryService(
+      createInMemoryOwnActivityReadStore(state),
+      { now: () => "2026-08-27T21:30:00.000Z" },
+    );
+    state.activities.push(
+      record({ employeeId: "employee_a", activityDate: "2026-08-14", taskCategory: "meetings" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-28", taskCategory: "reporting" }),
+    );
+
+    await expect(cycle.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow" })).resolves.toMatchObject({
+      fromDate: "2026-08-15",
+      toDate: "2026-08-28",
+      activityCount: 1,
+      taskCategories: [{ value: "reporting", count: 1 }],
+    });
+  });
+
   it("confirms as a pattern only what repeated inside the cycle", async () => {
     const { state, cycle } = harness(async () => "unused");
     state.activities.push(...twoWeekCycle(), record({ employeeId: "employee_a", activityDate: "2026-08-24", taskCategory: "meetings" }));

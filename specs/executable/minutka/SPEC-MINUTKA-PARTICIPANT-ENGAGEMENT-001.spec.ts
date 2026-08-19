@@ -108,6 +108,16 @@ describe("SPEC-MINUTKA-PARTICIPANT-ENGAGEMENT-001: the participation label follo
     expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "dropped_off" });
   });
 
+  it("degrades the label on the profile calendar day, not on the UTC one", async () => {
+    const { listEngagement, travelTo } = await onboardedParticipant({ completedAt: "2026-08-17T09:00:00.000Z" });
+
+    // 00:30 Moscow on 2026-08-20 — three missed local days, but only two UTC
+    // ones: a UTC-dated clock would still report this participant as lagging.
+    travelTo("2026-08-19T21:30:00.000Z");
+
+    expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "dropped_off" });
+  });
+
   it("counts an employee-initiated message as a touch on the employee's local day", async () => {
     const { assistant, participant, listEngagement, travelTo } = await onboardedParticipant({ completedAt: "2026-08-17T09:00:00.000Z" });
 

@@ -52,6 +52,44 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     }]);
   });
 
+  // The contract schema cannot forbid a second obstacle without losing the whole
+  // call, so a model that answers through several lenses at once still reaches
+  // the store. The seam that broke the pilot run is here: exactly one obstacle
+  // is stored, chosen by the fixed routine -> automation -> energy order.
+  it("keeps one obstacle in the fixed order when a call carries several lenses", async () => {
+    const state = createInMemoryActivityCollectionState();
+    let index = 0;
+    const service = new CollectActivityService(
+      createInMemoryActivityCollectionStore(state),
+      { now: () => "2026-08-15T12:00:00.000Z" },
+      () => `activity_${++index}`,
+    );
+    const scope = {
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      roleId: "role_a",
+      timezone: "Europe/Moscow",
+    };
+
+    for (const activity of [
+      { taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue" },
+      { taskCategory: "reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue" },
+      { taskCategory: "reporting", energyStressMarker: "fatigue" },
+      { taskCategory: "reporting" },
+    ] as const) {
+      await service.collect({ ...scope, activity });
+    }
+
+    expect(state.activities.map((activity) => activity.obstacle)).toEqual([
+      { kind: "routine_pattern", value: "manual_reporting" },
+      { kind: "automation_candidate", value: "report_generation" },
+      { kind: "energy_stress_marker", value: "fatigue" },
+      undefined,
+    ]);
+  });
+
   it("does not expose a partial record when the canonical write fails", async () => {
     const state = createInMemoryActivityCollectionState();
     const service = new CollectActivityService(

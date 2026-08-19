@@ -120,6 +120,27 @@ describe("SPEC-MINUTKA-WEEKLY-SUMMARY-001: personal weekly checkpoint", () => {
     });
   });
 
+  it("anchors the seven local days on the profile day, not on the UTC one", async () => {
+    const state = createInMemoryActivityCollectionState();
+    // 00:30 Moscow on 2026-08-21: the local window is 08-15..08-21, while a
+    // UTC-dated clock would read 08-14..08-20 and swap both edge activities.
+    const weekly = new WeeklyActivitySummaryService(
+      createInMemoryOwnActivityReadStore(state),
+      { now: () => "2026-08-20T21:30:00.000Z" },
+    );
+    state.activities.push(
+      record({ employeeId: "employee_a", activityDate: "2026-08-14", taskCategory: "meetings" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-21", taskCategory: "reporting" }),
+    );
+
+    await expect(weekly.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow" })).resolves.toMatchObject({
+      fromDate: "2026-08-15",
+      toDate: "2026-08-21",
+      activityCount: 1,
+      taskCategories: [{ value: "reporting", count: 1 }],
+    });
+  });
+
   it("marks a thin week as insufficient instead of naming a pattern", async () => {
     const { state, weekly } = harness(async () => "unused");
     state.activities.push(
