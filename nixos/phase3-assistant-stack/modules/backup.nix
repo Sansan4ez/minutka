@@ -71,7 +71,9 @@ let
 
       backup_dir="''${1:-}"
       if [ -z "$backup_dir" ]; then
-        if [ -d ${restoreSmokeBackupDir} ]; then
+        # tmpfiles always creates the staging directory, so its mere existence
+        # says nothing. Only a staged dump takes priority over the latest backup.
+        if [ -s ${restoreSmokeBackupDir}/${database}.dump ]; then
           backup_dir=${restoreSmokeBackupDir}
         else
           backup_dir="$(find ${backupRoot} -mindepth 1 -maxdepth 1 -type d -not -name '*.incomplete' -printf '%f\n' | sort | tail -n 1)"

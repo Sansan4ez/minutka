@@ -154,8 +154,9 @@ ssh admin@169.58.201.159 \
   'sudo systemctl start minutka-restore-smoke.service && sudo journalctl -u minutka-restore-smoke.service --no-pager -n 100'
 ```
 
-Проверка конкретного timestamp выполняется через root-only staging, потому что
-основные backup-каталоги не выдаются PostgreSQL user напрямую:
+Проверка конкретного timestamp выполняется через staging, потому что unit
+запускается без аргументов и иначе выбрал бы последний backup. Разложенный
+непустой снапшот перекрывает автовыбор:
 
 ```bash
 ssh admin@169.58.201.159 '
