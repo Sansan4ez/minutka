@@ -84,7 +84,7 @@ function createComposition(options: {
     limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 },
   });
   const personalAssistant = new PersonalAssistantService(
-    { issueInvite: notUsed, listParticipants: notUsed, openInvite: notUsed, getProfile: notUsed, acceptConsent: notUsed, completeOnboarding: notUsed, listInsights: notUsed, submitFeedback: notUsed, redeemTelegramInvite: notUsed, recordPrivacyExplanationShown: notUsed, getOnboardingProgress: notUsed, submitOnboardingAnswer: notUsed, confirmOnboarding: notUsed, resetOnboardingDraft: notUsed },
+    { issueInvite: notUsed, listParticipants: notUsed, openInvite: notUsed, getProfile: notUsed, acceptConsent: notUsed, completeOnboarding: notUsed, listInsights: notUsed, submitFeedback: notUsed, redeemTelegramInvite: notUsed, recordPrivacyExplanationShown: notUsed, getOnboardingProgress: notUsed, submitOnboardingAnswer: notUsed, confirmOnboarding: notUsed, resetOnboardingDraft: notUsed, getPersonalContext: notUsed, updatePersonalContext: notUsed },
     assistantService,
     artifactStore,
     confirmations,
