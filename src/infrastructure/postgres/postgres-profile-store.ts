@@ -17,6 +17,8 @@ type ParticipantRow = {
   role_id: string | null;
   status: Participant["status"];
   last_touch_on: string | Date | null;
+  engagement_reminders_sent: number;
+  last_engagement_reminder_at: Date | null;
   privacy_explanation_shown_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -27,6 +29,13 @@ type ConsentRow = {
   accepted_at: Date;
   explanation_shown_at: Date;
   source: Consent["source"];
+};
+type EngagementReminderCandidateRow = {
+  employee_id: string;
+  timezone: string;
+  last_touch_on: string | Date | null;
+  engagement_reminders_sent: number;
+  last_engagement_reminder_at: Date | null;
 };
 type ResearchSubjectRow = {
   company_id: string;
@@ -55,7 +64,13 @@ type ProfileRow = {
   updated_at: Date;
 };
 
-const participantColumns = "employee_id, company_id, group_id, subject_key, role_id, status, last_touch_on, privacy_explanation_shown_at, created_at, updated_at";
+const participantColumns = "employee_id, company_id, group_id, subject_key, role_id, status, last_touch_on, engagement_reminders_sent, last_engagement_reminder_at, privacy_explanation_shown_at, created_at, updated_at";
+const engagementReminderCandidateSelect = `SELECT participant.employee_id, profile.timezone, participant.last_touch_on,
+    participant.engagement_reminders_sent, participant.last_engagement_reminder_at
+  FROM minutka_private.participants participant
+  JOIN minutka_private.profiles profile ON profile.employee_id = participant.employee_id
+  WHERE participant.status = 'profile_completed' AND participant.last_touch_on IS NOT NULL
+  ORDER BY participant.created_at ASC, participant.employee_id ASC`;
 const researchSubjectSelect = `SELECT participant.company_id, participant.group_id, participant.subject_key, participant.role_id,
   COALESCE(array_agg(message.message_id ORDER BY message.created_at, message.message_id)
     FILTER (WHERE message.message_id IS NOT NULL), ARRAY[]::text[]) AS message_ids
@@ -79,6 +94,8 @@ const toParticipant = (row: ParticipantRow): Participant => ({
   ...(row.role_id ? { roleId: row.role_id } : {}),
   status: row.status,
   ...(row.last_touch_on ? { lastTouchOn: calendarDate(row.last_touch_on) } : {}),
+  ...(row.engagement_reminders_sent > 0 ? { engagementRemindersSent: row.engagement_reminders_sent } : {}),
+  ...(row.last_engagement_reminder_at ? { lastEngagementReminderAt: row.last_engagement_reminder_at.toISOString() } : {}),
   ...(row.privacy_explanation_shown_at ? { privacyExplanationShownAt: row.privacy_explanation_shown_at.toISOString() } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -338,6 +355,34 @@ export function createPostgresProfileStore(
            SET last_touch_on = GREATEST(COALESCE(last_touch_on, $2::date), $2::date)
            WHERE employee_id = $1`,
           [employeeId, touchedOn],
+        );
+        if (result.rowCount !== 1) throw new PersistenceError("participant_not_found");
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
+    async listEngagementReminderCandidates() {
+      try {
+        const result = await pool.query<EngagementReminderCandidateRow>(engagementReminderCandidateSelect);
+        return result.rows.map((row) => ({
+          employeeId: row.employee_id,
+          timezone: row.timezone,
+          ...(row.last_touch_on ? { lastTouchOn: calendarDate(row.last_touch_on) } : {}),
+          engagementRemindersSent: row.engagement_reminders_sent,
+          ...(row.last_engagement_reminder_at ? { lastEngagementReminderAt: row.last_engagement_reminder_at.toISOString() } : {}),
+        }));
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+    async recordEngagementReminderSent({ employeeId, sentAt }) {
+      try {
+        const result = await pool.query(
+          `UPDATE minutka_private.participants
+           SET engagement_reminders_sent = engagement_reminders_sent + 1, last_engagement_reminder_at = $2
+           WHERE employee_id = $1`,
+          [employeeId, sentAt],
         );
         if (result.rowCount !== 1) throw new PersistenceError("participant_not_found");
       } catch (error) {

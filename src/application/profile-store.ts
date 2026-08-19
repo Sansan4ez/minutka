@@ -3,6 +3,7 @@ import type { ParticipantPageCursor } from "./participant-pagination.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
 import type { PersonalProfileContextUpdateResult } from "./personal-profile-context.js";
 import type { PersonalContextPatch } from "./personal-context-review.js";
+import type { EngagementReminderStore } from "./engagement-reminder-sweep.js";
 
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
@@ -37,7 +38,7 @@ export type EmployeePersonalDataDeletionCounts = {
 };
 
 /** Owner of participant, consent and profile state. Raw invite codes are inputs only. */
-export type ProfileStore = {
+export type ProfileStore = EngagementReminderStore & {
   issueInvite(input: {
     employeeId: string;
     inviteCode: string;

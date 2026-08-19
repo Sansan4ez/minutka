@@ -54,6 +54,15 @@ export function nextDailyFireAt(input: { after: string; timeOfDay: string; timez
   throw new Error("could not calculate next daily fire");
 }
 
+/** Returns the local wall-clock hour (0-23) of an instant in a validated IANA timezone. */
+export function localHourInIanaTimezone(instant: string, timezone: string): number {
+  const date = new Date(instant);
+  if (Number.isNaN(date.valueOf())) throw new Error("instant must be a valid timestamp");
+  const normalized = normalizeIanaTimezone(timezone);
+  if (!normalized) throw new Error("timezone must be a valid IANA timezone");
+  return localParts(date, normalized).hour;
+}
+
 function instantForLocalDateTime(target: LocalDateTime, timezone: string): Date | undefined {
   const targetAsUtc = Date.UTC(target.year, target.month - 1, target.day, target.hour, target.minute);
   let guess = targetAsUtc;

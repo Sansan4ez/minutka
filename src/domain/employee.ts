@@ -30,6 +30,10 @@ export type Participant = {
    * Onboarding completion counts as that first contact; scheduled fires do not.
    */
   lastTouchOn?: string;
+  /** Automatic soft reminders already sent; bounded before the live escalation tier. */
+  engagementRemindersSent?: number;
+  /** Instant of the latest automatic soft reminder; enforces the rolling daily limit. */
+  lastEngagementReminderAt?: string;
   createdAt: string;
   updatedAt: string;
   /** Internal onboarding timestamp; never included in agent-facing projections. */

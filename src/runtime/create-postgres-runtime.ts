@@ -60,7 +60,9 @@ import { ScheduleManagementService } from "../application/schedule-management-se
 import { ContextDocumentService, contextDocumentConfirmationTtlMilliseconds } from "../application/context-document-service.js";
 import { createPostgresContextDocumentConfirmationStore } from "../infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
-import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
+import { createTelegramEngagementReminderDelivery, createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
+import { EngagementReminderSweep } from "../application/engagement-reminder-sweep.js";
+import { readEngagementReminderText } from "../application/engagement-reminder-text.js";
 import { CollectActivityService } from "../application/activity-collection.js";
 import { WeeklyActivitySummaryService } from "../application/weekly-activity-summary.js";
 import { CycleActivitySummaryService } from "../application/cycle-activity-summary.js";
@@ -279,12 +281,29 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       telegramSessionStore,
       telegramShell: input.telegramShell,
     }));
+    const telegramShell = input.telegramShell;
+    const engagementReminders = telegramShell
+      ? new EngagementReminderSweep(
+        stores.profileStore,
+        createTelegramEngagementReminderDelivery({ telegramSessionStore, telegramShell }),
+        () => readEngagementReminderText(),
+        systemClock,
+      )
+      : undefined;
     // Bounded TTLs permit hourly sweeping; startup cleanup handles restarts.
     const retentionCleanup = setInterval(() => {
       void runRetentionCleanupJobs(retentionCleanupJobs);
     }, 60 * 60 * 1_000);
     retentionCleanup.unref();
     let scheduleTick: ReturnType<typeof setInterval> | undefined;
+    let reminderSweep: ReturnType<typeof setInterval> | undefined;
+    const sweepEngagementReminders = async () => {
+      if (!engagementReminders) return;
+      try { await engagementReminders.run(); }
+      catch (error: unknown) {
+        console.warn(`Engagement reminder sweep failed (${error instanceof Error ? error.name : "UnknownError"}).`);
+      }
+    };
     const startScheduler = async () => {
       if (scheduleTick) return;
       // The pilot runs one process instance. The durable fire ledger recovers
@@ -296,6 +315,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         });
       }, 60_000);
       scheduleTick.unref();
+      // The reminder is bound to a wide local window, not to a wall-clock
+      // minute, so an hourly sweep reaches every participant once a day and
+      // still recovers the day after a restart.
+      await sweepEngagementReminders();
+      reminderSweep = setInterval(() => { void sweepEngagementReminders(); }, 60 * 60 * 1_000);
+      reminderSweep.unref();
     };
     return {
       assistant,
@@ -314,7 +339,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
         catch { return false; }
       },
       drainAssistantWork: () => threadCompactionService.drain(),
-      shutdown: async () => { if (scheduleTick) clearInterval(scheduleTick); clearInterval(retentionCleanup); await pool.end(); },
+      shutdown: async () => { if (scheduleTick) clearInterval(scheduleTick); if (reminderSweep) clearInterval(reminderSweep); clearInterval(retentionCleanup); await pool.end(); },
     };
   } catch (error) { await pool.end(); throw error; }
 }

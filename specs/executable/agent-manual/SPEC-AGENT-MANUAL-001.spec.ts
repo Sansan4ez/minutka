@@ -101,7 +101,7 @@ describe("SPEC-AGENT-MANUAL-001: agent vault is valid", () => {
     expect(privacy).toContain("never contain direct personal identifiers");
     expect(consent).toContain("No direct personal identifiers in structured insights");
     for (const text of [privacy, consent]) {
-      expect(text).toMatch(/preview/iu);
+      expect(text).toMatch(/no operator broadcast command/iu);
       expect(text).toMatch(/24 hours/iu);
       expect(text).toMatch(/methodologist.*company lead/isu);
       expect(text).toMatch(/Conversation content.*not (?:inputs|used)/isu);

@@ -20,7 +20,7 @@ registerSpecMetadata({
   userStory: "US-MINUTKA-ENGAGEMENT-REMINDERS-001",
   requirements: ["FR-MINUTKA-ENGAGEMENT-REMINDERS-001"],
   productParts: ["data-storage-and-privacy-layer"],
-  contracts: ["operatorReminderRunbook"],
+  contracts: ["engagementReminderRunbook"],
   events: [],
   mastra: [],
   cli: [],

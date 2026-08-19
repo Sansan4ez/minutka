@@ -210,6 +210,28 @@ export function createInMemoryProfileStore(
         upsertByEmployeeId(world.participants, { ...participant, lastTouchOn: touchedOn });
       }
     },
+    async listEngagementReminderCandidates() {
+      return world.participants.flatMap((participant) => {
+        const timezone = world.profiles.find((profile) => profile.employeeId === participant.employeeId)?.timezone;
+        if (participant.status !== "profile_completed" || !participant.lastTouchOn || !timezone) return [];
+        return [{
+          employeeId: participant.employeeId,
+          timezone,
+          lastTouchOn: participant.lastTouchOn,
+          engagementRemindersSent: participant.engagementRemindersSent ?? 0,
+          ...(participant.lastEngagementReminderAt ? { lastEngagementReminderAt: participant.lastEngagementReminderAt } : {}),
+        }];
+      });
+    },
+    async recordEngagementReminderSent({ employeeId, sentAt }) {
+      const participant = world.participants.find((candidate) => candidate.employeeId === employeeId);
+      if (!participant) throw new PersistenceError("participant_not_found");
+      upsertByEmployeeId(world.participants, {
+        ...participant,
+        engagementRemindersSent: (participant.engagementRemindersSent ?? 0) + 1,
+        lastEngagementReminderAt: sentAt,
+      });
+    },
     async listResearchSubjects({ companyId, groupId }) {
       return world.participants
         .filter((participant) => participant.companyId === companyId && participant.groupId === groupId)

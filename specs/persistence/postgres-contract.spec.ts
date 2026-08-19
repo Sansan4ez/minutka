@@ -139,6 +139,30 @@ describe("PostgreSQL storage contracts", () => {
     await expect(profiles.getParticipant(employeeId)).resolves.toMatchObject({ lastTouchOn: "2026-07-22" });
   });
 
+  it("projects reminder candidates with the profile timezone and counts sent reminders", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const employeeId = "participant_reminder_candidate";
+    await issueProfileReadyParticipant(pool, employeeId, "invite_participant_reminder_candidate");
+    const profile = {
+      employeeId, companyId: "company_persistence_default", groupId: "group_persistence_default", roleId: "role_persistence_default",
+      preferredName: "Manager", assistantName: "Assistant", addressForm: "informal" as const, timezone: "Europe/Moscow",
+      persona: "support" as const, responseLength: "short" as const, createdAt: now, updatedAt: now,
+    };
+    await profiles.completeProfile({ completedAt: now, completedOn: "2026-07-20", profile });
+
+    const before = (await profiles.listEngagementReminderCandidates()).find((candidate) => candidate.employeeId === employeeId);
+    expect(before).toMatchObject({ timezone: "Europe/Moscow", lastTouchOn: "2026-07-20", engagementRemindersSent: 0 });
+    expect(before).not.toHaveProperty("lastEngagementReminderAt");
+
+    await profiles.recordEngagementReminderSent({ employeeId, sentAt: "2026-07-22T10:30:00.000Z" });
+    await profiles.recordEngagementReminderSent({ employeeId, sentAt: "2026-07-24T10:30:00.000Z" });
+
+    expect((await profiles.listEngagementReminderCandidates()).find((candidate) => candidate.employeeId === employeeId))
+      .toMatchObject({ engagementRemindersSent: 2, lastEngagementReminderAt: "2026-07-24T10:30:00.000Z" });
+    await expect(profiles.recordEngagementReminderSent({ employeeId: "participant_absent", sentAt: now }))
+      .rejects.toMatchObject({ code: "participant_not_found" });
+  });
+
   it("updates a completed profile role together with another profile field", async () => {
     const companyId = "company_profile_role_update";
     const groupId = "group_profile_role_update";
