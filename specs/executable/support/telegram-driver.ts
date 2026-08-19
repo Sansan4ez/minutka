@@ -145,6 +145,7 @@ export class TelegramDriver {
   async start(input: { chatId: string; userId?: string; inviteCode?: string }): Promise<void> { await this.shell.handleStart(input.chatId, input.inviteCode, input.userId ?? this.defaultUserId(input.chatId)); }
   async startNewConversation(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleNew(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async showSchedule(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleSchedule(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
+  async showContext(input: { chatId: string; userId?: string }): Promise<void> { await this.shell.handleContext(input.chatId, input.userId ?? this.defaultUserId(input.chatId)); }
   async deliverProactive(input: { chatId: string; employeeId: string; result: AssistantChatResult }): Promise<void> { await this.shell.deliverProactive(input.chatId, input.result, input.employeeId); }
   async deliverReminder(input: { chatId: string; employeeId: string; text: string }): Promise<void> { await this.shell.deliverReminder(input.chatId, input.text, input.employeeId); }
   restartShell(): void { this.recreateShell(); }

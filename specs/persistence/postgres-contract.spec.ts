@@ -36,6 +36,8 @@ import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/
 import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
+import { WeeklyActivitySummaryService } from "../../src/application/weekly-activity-summary.js";
+import { CycleActivitySummaryService } from "../../src/application/cycle-activity-summary.js";
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../../src/infrastructure/postgres/postgres-research-trace-store.js";
 import { researchTraceSchemaVersion } from "../../src/application/research-trace-store.js";
@@ -422,6 +424,99 @@ describe("PostgreSQL storage contracts", () => {
       if (originalTimezone === undefined) delete process.env.TZ;
       else process.env.TZ = originalTimezone;
     }
+  });
+
+  it("summarizes only the owner's own week and cycle from the durable activity window", async () => {
+    // The personal weekly checkpoint and the final report read the same
+    // canonical rows the research contour writes, so the owner window has to
+    // hold on the PostgreSQL adapter and not only on the fixture.
+    await issueProfileReadyParticipant(pool, "own_window_a", "invite_own_window_a");
+    await issueProfileReadyParticipant(pool, "own_window_b", "invite_own_window_b");
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const scope = {
+      companyId: "company_persistence_default",
+      groupId: "group_persistence_default",
+      roleId: "role_persistence_default",
+      timezone: "Etc/UTC",
+    };
+    let recordedAt = now;
+    let ownWindowIndex = 0;
+    const collect = new CollectActivityService(
+      createPostgresActivityCollectionStore(pool),
+      { now: () => recordedAt },
+      () => `activity_own_window_${(ownWindowIndex += 1)}`,
+    );
+    const collectOn = async (employeeId: string, date: string, activity: Parameters<typeof collect.collect>[0]["activity"]) => {
+      recordedAt = `${date}T12:00:00.000Z`;
+      await collect.collect({
+        ...scope,
+        employeeId,
+        subjectKey: (await profiles.getParticipant(employeeId))!.subjectKey,
+        activity,
+      });
+    };
+
+    // One day before the cycle, six days inside it, and one day of another owner.
+    await collectOn("own_window_a", "2026-08-14", { taskCategory: "coordination" });
+    await collectOn("own_window_a", "2026-08-17", { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" });
+    await collectOn("own_window_a", "2026-08-19", { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" });
+    await collectOn("own_window_a", "2026-08-22", { taskCategory: "reporting", routinePattern: "manual_reporting" });
+    await collectOn("own_window_a", "2026-08-24", { taskCategory: "reporting", automationCandidate: "report_generation", durationBucket: "1_2h" });
+    await collectOn("own_window_a", "2026-08-26", { taskCategory: "reporting" });
+    await collectOn("own_window_a", "2026-08-27", { taskCategory: "meetings", energyStressMarker: "fatigue" });
+    await collectOn("own_window_b", "2026-08-25", { taskCategory: "coordination" });
+
+    const lastCycleDay = { now: () => "2026-08-28T14:00:00.000Z" };
+    const reads = createPostgresOwnActivityReadStore(pool);
+    await expect(new WeeklyActivitySummaryService(reads, lastCycleDay)
+      .summarize({ employeeId: "own_window_a", timezone: "Etc/UTC" })).resolves.toEqual({
+      fromDate: "2026-08-22",
+      toDate: "2026-08-28",
+      activityCount: 4,
+      activeDates: 4,
+      sufficientData: true,
+      taskCategories: [{ value: "reporting", count: 3 }, { value: "meetings", count: 1 }],
+      routinePatterns: [{ value: "manual_reporting", count: 1 }],
+      automationCandidates: [{ value: "report_generation", count: 1 }],
+      energyStressMarkers: [{ value: "fatigue", count: 1 }],
+      durationBuckets: [{ value: "1_2h", count: 1 }],
+      systems: [],
+    });
+
+    await expect(new CycleActivitySummaryService(reads, lastCycleDay)
+      .summarize({ employeeId: "own_window_a", timezone: "Etc/UTC" })).resolves.toEqual({
+      fromDate: "2026-08-15",
+      toDate: "2026-08-28",
+      activityCount: 6,
+      activeDates: 6,
+      sufficientData: true,
+      patternMinimumCount: 2,
+      taskCategories: [{ value: "reporting", count: 5 }, { value: "meetings", count: 1 }],
+      routinePatterns: [{ value: "manual_reporting", count: 3 }],
+      automationCandidates: [{ value: "report_generation", count: 1 }],
+      energyStressMarkers: [{ value: "fatigue", count: 1 }],
+      durationBuckets: [{ value: "1_2h", count: 2 }],
+      systems: [{ value: "spreadsheets", count: 2 }],
+      confirmedPatterns: {
+        taskCategories: ["reporting"],
+        routinePatterns: ["manual_reporting"],
+        // Named once over two weeks: an episode, not a pattern.
+        automationCandidates: [],
+        energyStressMarkers: [],
+        systems: ["spreadsheets"],
+      },
+    });
+
+    // The other owner's single day is neither borrowed nor leaked.
+    await expect(new CycleActivitySummaryService(reads, lastCycleDay)
+      .summarize({ employeeId: "own_window_b", timezone: "Etc/UTC" })).resolves.toMatchObject({
+      activityCount: 1,
+      sufficientData: false,
+      taskCategories: [{ value: "coordination", count: 1 }],
+    });
+    // The window read carries no research identifier toward the personal report.
+    expect(JSON.stringify(await reads.listOwnActivities({ employeeId: "own_window_a", fromDate: "2026-08-15", toDate: "2026-08-28" })))
+      .not.toMatch(/subject|activityId|sourceMessageId/u);
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {
