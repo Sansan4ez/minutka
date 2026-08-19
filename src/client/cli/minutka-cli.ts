@@ -43,12 +43,14 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       stdout.push("Invite link shown once; the code is stored only as a digest and cannot be recovered. If lost, issue a new invite.");
     }));
   admin.addCommand(new Command("list-participants")
+    .requiredOption("--company <companyId>")
+    .requiredOption("--group <groupId>")
     .option("--limit <n>", "Participants per page", (value: string) => Number(value))
     .option("--after <cursor>", "Opaque cursor from the previous page")
-    .action(async (o: { limit?: number; after?: string }) => {
-      const page = await adminClient.listParticipants({ limit: o.limit, after: o.after });
+    .action(async (o: { company: string; group: string; limit?: number; after?: string }) => {
+      const page = await adminClient.listParticipants({ companyId: o.company, groupId: o.group, limit: o.limit, after: o.after });
       stdout.push(JSON.stringify(page));
-      if (page.nextCursor) stdout.push(`Next page: npm run cli -- admin list-participants${o.limit === undefined ? "" : ` --limit ${o.limit}`} --after ${page.nextCursor}`);
+      if (page.nextCursor) stdout.push(`Next page: npm run cli -- admin list-participants --company ${o.company} --group ${o.group}${o.limit === undefined ? "" : ` --limit ${o.limit}`} --after ${page.nextCursor}`);
     }));
   admin.addCommand(new Command("company-report")
     .requiredOption("--company <companyId>")

@@ -52,15 +52,16 @@ Use an operator token only for privileged commands:
 export MINUTKA_API_URL=http://127.0.0.1:8787
 export MINUTKA_API_TOKEN=<admin-token>
 export TELEGRAM_BOT_USERNAME=<bot_username_without_at>
-npm run cli -- admin invite --employee emp_pilot
-npm run cli -- admin list-participants
+npm run cli -- admin invite --employee emp_pilot --company <company_id> --group <group_id>
+npm run cli -- admin list-participants --company <company_id> --group <group_id>
 ```
 
 `admin invite` prints the ready deep-link once. PostgreSQL stores only the code
 digest, so a lost link cannot be recovered; delete the unused participant and
-issue a new invite. `admin list-participants` returns only employee ID, status,
-and timestamps. `TELEGRAM_INVITES` is dev-only and must remain empty in pilot
-configuration.
+issue a new invite. `admin list-participants` requires company/group scope and
+returns only employee ID, onboarding status, nullable local `lastTouchOn`, and
+`active` / `lagging` / `dropped_off`; it never returns content or insights.
+`TELEGRAM_INVITES` is dev-only and must remain empty in pilot configuration.
 
 The CLI is a separate process and never creates a runtime or accesses PostgreSQL
 directly. Employee identity comes from the bearer token, never `--employee`.

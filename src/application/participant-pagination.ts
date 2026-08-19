@@ -1,5 +1,5 @@
 export type ParticipantPageCursor = { createdAt: string; employeeId: string };
-export type ListParticipantsInput = { limit?: number; after?: string };
+export type ListParticipantsInput = { companyId: string; groupId: string; limit?: number; after?: string };
 
 export class InvalidParticipantCursorError extends Error {
   constructor() {

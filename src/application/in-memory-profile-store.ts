@@ -186,6 +186,13 @@ export function createInMemoryProfileStore(
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);
     },
+    async recordParticipantTouch({ employeeId, touchedOn }) {
+      const participant = world.participants.find((candidate) => candidate.employeeId === employeeId);
+      if (!participant) throw new PersistenceError("participant_not_found");
+      if (!participant.lastTouchOn || participant.lastTouchOn < touchedOn) {
+        upsertByEmployeeId(world.participants, { ...participant, lastTouchOn: touchedOn });
+      }
+    },
     async listResearchSubjects({ companyId, groupId }) {
       return world.participants
         .filter((participant) => participant.companyId === companyId && participant.groupId === groupId)
@@ -196,8 +203,9 @@ export function createInMemoryProfileStore(
         candidate.companyId === companyId && candidate.groupId === groupId && candidate.subjectKey === subjectKey);
       return participant ? researchSubject(world, participant) : undefined;
     },
-    async listParticipants({ limit, after }) {
-      return [...world.participants]
+    async listParticipants({ companyId, groupId, limit, after }) {
+      return world.participants
+        .filter((participant) => participant.companyId === companyId && participant.groupId === groupId)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.employeeId.localeCompare(right.employeeId))
         .filter((participant) => !after
           || participant.createdAt > after.createdAt

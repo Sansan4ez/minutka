@@ -62,12 +62,14 @@ export type ProfileStore = {
     deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
+  /** Records only the local calendar date of an inbound employee touch. */
+  recordParticipantTouch(input: { employeeId: string; touchedOn: string }): Promise<void>;
   /** Tenant-scoped research projection without employee or transport identity. */
   listResearchSubjects(input: { companyId: string; groupId: string }): Promise<ResearchSubject[]>;
   /** Exact tenant scope is mandatory; subject keys are lookup handles, not credentials. */
   getResearchSubject(input: { companyId: string; groupId: string; subjectKey: string }): Promise<ResearchSubject | undefined>;
   /** Cursor-paginated operator inventory; callers must not project private profile or Telegram data. */
-  listParticipants(input: { limit: number; after?: ParticipantPageCursor }): Promise<Participant[]>;
+  listParticipants(input: { companyId: string; groupId: string; limit: number; after?: ParticipantPageCursor }): Promise<Participant[]>;
   /** Private lookup used only by the atomic Telegram invite-redemption adapter. */
   getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;

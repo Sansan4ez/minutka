@@ -40,6 +40,7 @@ import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipants
 import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 import { RoleNotInCompanyError } from "./onboarding-role-error.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
+import { participantEngagement, type ParticipantEngagement } from "./participant-engagement.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
@@ -53,7 +54,7 @@ export type AgentRunContext = {
 export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promise<string>;
 export type IssueInviteInput = { employeeId: string; inviteCode: string; companyId: string; groupId: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; companyId: string; groupId: string; status: OnboardingStatus; created: boolean };
-export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "createdAt" | "updatedAt">;
+export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "lastTouchOn"> & { engagement: ParticipantEngagement };
 export type ParticipantPage = { participants: ParticipantSummary[]; nextCursor?: string };
 export type OpenInviteInput = { inviteCode: string };
 export type RecordPrivacyExplanationShownInput = { employeeId: string };
@@ -199,14 +200,28 @@ export class MinutkaService {
     return this.stores.profileStore.getResearchSubject({ companyId, groupId, subjectKey });
   }
 
-  async listParticipants(input: ListParticipantsInput = {}): Promise<ParticipantPage> {
+  async listParticipants(input: ListParticipantsInput): Promise<ParticipantPage> {
+    const companyId = input.companyId.trim();
+    const groupId = input.groupId.trim();
+    if (!companyId) throw new Error("companyId is required");
+    if (!groupId) throw new Error("groupId is required");
     const limit = input.limit ?? 20;
     const after = input.after === undefined ? undefined : decodeParticipantCursor(input.after);
-    const page = await this.stores.profileStore.listParticipants({ limit: limit + 1, after });
+    const page = await this.stores.profileStore.listParticipants({ companyId, groupId, limit: limit + 1, after });
     const participants = page.slice(0, limit);
     const last = participants.at(-1);
+    const now = this.clock.now();
+    const summaries = await Promise.all(participants.map(async ({ employeeId, status, lastTouchOn }) => {
+      const timezone = (await this.stores.profileStore.getProfile(employeeId))?.timezone ?? "Etc/UTC";
+      return {
+        employeeId,
+        status,
+        ...(lastTouchOn ? { lastTouchOn } : {}),
+        engagement: participantEngagement({ lastTouchOn, now, timezone }),
+      };
+    }));
     return {
-      participants: participants.map(({ employeeId, status, createdAt, updatedAt }) => ({ employeeId, status, createdAt, updatedAt })),
+      participants: summaries,
       ...(page.length > limit && last ? { nextCursor: encodeParticipantCursor({ createdAt: last.createdAt, employeeId: last.employeeId }) } : {}),
     };
   }

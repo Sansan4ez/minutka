@@ -25,6 +25,8 @@ export type Participant = {
   subjectKey: string;
   roleId?: string;
   status: OnboardingStatus;
+  /** Latest local calendar date on which the employee contacted the assistant. */
+  lastTouchOn?: string;
   createdAt: string;
   updatedAt: string;
   /** Internal onboarding timestamp; never included in agent-facing projections. */

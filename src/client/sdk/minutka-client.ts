@@ -92,7 +92,7 @@ export class EmployeeMinutkaClient {
 export class AdminMinutkaClient {
   constructor(private readonly transport: AdminMinutkaTransport) {}
   async issueInvite(input: unknown) { return validate(issueInviteResponseSchema, await this.transport.issueInvite(validate(issueInviteRequestSchema, input, "issueInvite request")), "issueInvite response"); }
-  async listParticipants(input: unknown = {}) { const request = validate(listParticipantsRequestSchema, input, "listParticipants request"); return validate(listParticipantsResponseSchema, await this.transport.listParticipants(request), "listParticipants response"); }
+  async listParticipants(input: unknown) { const request = validate(listParticipantsRequestSchema, input, "listParticipants request"); return validate(listParticipantsResponseSchema, await this.transport.listParticipants(request), "listParticipants response"); }
   async getMonthlyUsage(input: unknown) { return validate(monthlyUsageResponseSchema, await this.transport.getMonthlyUsage(validate(adminUsageRequestSchema, input, "getMonthlyUsage request")), "getMonthlyUsage response"); }
   async exportCompanyReport(input: unknown) { return validate(companyReportResponseSchema, await this.transport.exportCompanyReport(validate(companyReportRequestSchema, input, "exportCompanyReport request")), "exportCompanyReport response"); }
   async listContextDocumentVersions(input: unknown) { return validate(contextDocumentVersionsResponseSchema, await this.transport.listContextDocumentVersions(validate(contextDocumentVersionsRequestSchema, input, "listContextDocumentVersions request")), "listContextDocumentVersions response"); }

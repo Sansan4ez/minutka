@@ -82,7 +82,7 @@ export class PersonalAssistantService {
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
-  listParticipants(input: ListParticipantsInput = {}): Promise<ParticipantPage> { return this.identityService.listParticipants(input); }
+  listParticipants(input: ListParticipantsInput): Promise<ParticipantPage> { return this.identityService.listParticipants(input); }
   getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
     if (!this.usage) throw new Error("usage reporting is not configured");
     return this.usage.getMonthly(userId, month);

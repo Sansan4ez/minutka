@@ -321,7 +321,7 @@ describe("SPEC-PERSONAL-ASSISTANT-INBOX-001: classified idea capture", () => {
       conversationStore: createInMemoryConversationStore(createInMemoryWorld(clock.now)),
       ingestionService: ingestion,
       ideaStore: ideas,
-      participantStore: { async getParticipant() { return undefined; } },
+      participantStore: { async getParticipant() { return undefined; }, async recordParticipantTouch() {} },
     requestIntegrityGuard: async () => guardStatus === "allowed"
         ? { status: "allowed" }
         : { status: "denied", reason: "identity_substitution" },

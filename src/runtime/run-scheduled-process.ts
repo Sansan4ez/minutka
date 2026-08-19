@@ -13,7 +13,7 @@ export type ScheduledProcessRunArguments = {
   threadId: string;
 };
 
-type ScheduledProcessApplication = Pick<PersonalAssistantService, "listParticipants" | "runScheduledProcess">;
+type ScheduledProcessApplication = Pick<PersonalAssistantService, "getProfile" | "listParticipants" | "runScheduledProcess">;
 
 export function parseScheduledProcessRunArguments(args: string[]): ScheduledProcessRunArguments {
   const values = new Map<string, string>();
@@ -58,12 +58,20 @@ export async function runScheduledProcessOnDemand(
 }
 
 async function findParticipant(
-  application: Pick<PersonalAssistantService, "listParticipants">,
+  application: Pick<PersonalAssistantService, "getProfile" | "listParticipants">,
   employeeId: string,
 ): Promise<ParticipantPage["participants"][number] | undefined> {
+  // This local operator command identifies one participant directly; it must
+  // not use the group-scoped methodologist inventory as a global lookup.
+  let profile: Awaited<ReturnType<typeof application.getProfile>>;
+  try {
+    profile = await application.getProfile({ employeeId });
+  } catch {
+    return undefined;
+  }
   let after: string | undefined;
   do {
-    const page = await application.listParticipants({ limit: 100, ...(after ? { after } : {}) });
+    const page = await application.listParticipants({ companyId: profile.companyId, groupId: profile.groupId, limit: 100, ...(after ? { after } : {}) });
     const participant = page.participants.find((candidate) => candidate.employeeId === employeeId);
     if (participant) return participant;
     after = page.nextCursor;

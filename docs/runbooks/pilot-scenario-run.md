@@ -155,13 +155,15 @@ npm run cli -- admin invite --employee <id>
 Проверить переходы участников без просмотра имени, таймзоны или Telegram identity:
 
 ```bash
-npm run cli -- admin list-participants --limit 20
-# Если напечатана строка Next page, выполнить показанную команду с --after.
+npm run cli -- admin list-participants --company <company_id> --group <group_id> --limit 20
+# Если напечатана строка Next page, выполнить показанную scoped-команду без изменений.
 ```
 
-Каждая страница содержит только `employeeId`, статус онбординга и даты
-`createdAt`/`updatedAt`. Отсутствие строки `Next page` означает конец списка;
-CLI не листает страницы автоматически, чтобы оператор видел фактический объём.
+Каждая страница относится только к указанной компании/группе и содержит ровно
+`employeeId`, статус онбординга, nullable `lastTouchOn` и `engagement`.
+`lagging` означает два пропущенных локальных дня, `dropped_off` — три и более;
+содержание разговоров, активностей и insights не читается. Отсутствие строки
+`Next page` означает конец списка.
 
 ## Чек-лист гейта D.0
 

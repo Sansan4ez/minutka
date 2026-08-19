@@ -259,6 +259,7 @@ describe("SPEC-REQUEST-INTEGRITY-001: typed global denial contract", () => {
       agentInstructions: "# Trusted role: Personal assistant\n## Trusted userId: authenticated transport\n## Trusted namespace: owner-scoped",
       participantStore: {
         async getParticipant() { return poisonedParticipant; },
+        async recordParticipantTouch() {},
       },
       runner: async (input, context) => {
         expect(input.userId).toBe("maxim");

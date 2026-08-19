@@ -15,6 +15,7 @@ type ParticipantRow = {
   subject_key: string;
   role_id: string | null;
   status: Participant["status"];
+  last_touch_on: string | Date | null;
   privacy_explanation_shown_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -52,7 +53,7 @@ type ProfileRow = {
   updated_at: Date;
 };
 
-const participantColumns = "employee_id, company_id, group_id, subject_key, role_id, status, privacy_explanation_shown_at, created_at, updated_at";
+const participantColumns = "employee_id, company_id, group_id, subject_key, role_id, status, last_touch_on, privacy_explanation_shown_at, created_at, updated_at";
 const researchSubjectSelect = `SELECT participant.company_id, participant.group_id, participant.subject_key, participant.role_id,
   COALESCE(array_agg(message.message_id ORDER BY message.created_at, message.message_id)
     FILTER (WHERE message.message_id IS NOT NULL), ARRAY[]::text[]) AS message_ids
@@ -62,6 +63,7 @@ const profileColumns = `p.employee_id, participant.company_id, participant.group
   p.preferred_name, p.assistant_name, p.address_form, p.timezone, p.role, p.typical_tasks,
   p.persona, p.ai_level, p.response_length, p.preferred_checkins_per_day, p.created_at, p.updated_at`;
 
+const calendarDate = (value: string | Date): string => typeof value === "string" ? value.slice(0, 10) : value.toISOString().slice(0, 10);
 const toParticipant = (row: ParticipantRow): Participant => ({
   employeeId: row.employee_id,
   companyId: row.company_id,
@@ -69,6 +71,7 @@ const toParticipant = (row: ParticipantRow): Participant => ({
   subjectKey: row.subject_key,
   ...(row.role_id ? { roleId: row.role_id } : {}),
   status: row.status,
+  ...(row.last_touch_on ? { lastTouchOn: calendarDate(row.last_touch_on) } : {}),
   ...(row.privacy_explanation_shown_at ? { privacyExplanationShownAt: row.privacy_explanation_shown_at.toISOString() } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -285,6 +288,20 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
+    async recordParticipantTouch({ employeeId, touchedOn }) {
+      try {
+        const result = await pool.query(
+          `UPDATE minutka_private.participants
+           SET last_touch_on = GREATEST(COALESCE(last_touch_on, $2::date), $2::date)
+           WHERE employee_id = $1`,
+          [employeeId, touchedOn],
+        );
+        if (result.rowCount !== 1) throw new PersistenceError("participant_not_found");
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
     async listResearchSubjects({ companyId, groupId }) {
       try {
         const result = await pool.query<ResearchSubjectRow>(
@@ -312,15 +329,16 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
-    async listParticipants({ limit, after }) {
+    async listParticipants({ companyId, groupId, limit, after }) {
       try {
         const result = await pool.query<ParticipantRow>(
           `SELECT ${participantColumns}
            FROM minutka_private.participants
-           WHERE ($2::timestamptz IS NULL OR (created_at, employee_id) > ($2::timestamptz, $3::text))
+           WHERE company_id = $1 AND group_id = $2
+             AND ($4::timestamptz IS NULL OR (created_at, employee_id) > ($4::timestamptz, $5::text))
            ORDER BY created_at ASC, employee_id ASC
-           LIMIT $1`,
-          [limit, after?.createdAt ?? null, after?.employeeId ?? null],
+           LIMIT $3`,
+          [companyId, groupId, limit, after?.createdAt ?? null, after?.employeeId ?? null],
         );
         return result.rows.map(toParticipant);
       } catch (error) {

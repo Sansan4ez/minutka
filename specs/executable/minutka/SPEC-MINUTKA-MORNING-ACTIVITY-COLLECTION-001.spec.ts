@@ -77,6 +77,14 @@ function harness(options: {
 }
 
 describe("SPEC-MINUTKA-MORNING-ACTIVITY-COLLECTION-001: morning collection process", () => {
+  it("records every inbound touch on the profile-local calendar day, even without an activity write", async () => {
+    const { service, world } = harness({ runner: async () => ({ text: "Расскажите подробнее.", executionTrace: [] }) });
+
+    await service.chat({ userId: "employee_a", threadId: "thread_a", text: "Сегодня просто хочу уточнить вопрос." });
+
+    expect(world.participants[0]?.lastTouchOn).toBe("2026-08-15");
+  });
+
   it("records one typed action for each of three named activities and keeps missing values empty", async () => {
     const { service, state } = harness();
 

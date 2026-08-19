@@ -132,20 +132,23 @@ path requires no `.env` edit and no runtime restart:
 export MINUTKA_API_URL=http://127.0.0.1:8787
 export MINUTKA_API_TOKEN="$MINUTKA_ADMIN_TOKEN"
 export TELEGRAM_BOT_USERNAME=<bot_username_without_at>
-npm run cli -- admin invite --employee emp_001
-npm run cli -- admin list-participants --limit 20
-# If the output prints a Next page command, run it with the opaque --after cursor.
+npm run cli -- admin invite --employee emp_001 --company <company_id> --group <group_id>
+npm run cli -- admin list-participants --company <company_id> --group <group_id> --limit 20
+# If the output prints a Next page command, run it unchanged with the opaque --after cursor.
 ```
 
 `admin invite` generates a 32-byte base64url code and prints the ready Telegram
 deep-link. The link is shown once and cannot be recovered: PostgreSQL stores
 only `participants.invite_code_digest`. If it is lost, delete the unused
 participant with the normal owner-delete procedure and issue a new invite.
-`list-participants` exposes one page containing only employee ID, onboarding
-status, and timestamps; it does not expose profile names, timezones, chat IDs,
-or Telegram identities. The default page size is 20 and the maximum is 100.
-When another page exists, the CLI prints the exact follow-up command with an
-opaque `--after` cursor; absence of that line means the inventory is complete.
+`list-participants` requires the exact company/group scope and exposes only the
+closed participation set: employee ID, onboarding status, local date of the
+last inbound touch (when present), and `active` / `lagging` / `dropped_off`.
+It does not expose profile names, timezones, chat IDs, conversation/activity
+content, insights, or Telegram identities. Two missed local calendar days mean
+`lagging`; three or more mean `dropped_off`. The default page size is 20 and the
+maximum is 100. When another page exists, the CLI prints the exact scoped
+follow-up command with an opaque `--after` cursor.
 
 `TELEGRAM_INVITES` remains a dev-only bootstrap convenience. Keep it empty in
 pilot environments. The env path holds plaintext codes, reissues seeds on every

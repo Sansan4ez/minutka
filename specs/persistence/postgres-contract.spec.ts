@@ -101,6 +101,23 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("persists participant touches and scopes participant inventory by company and group", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await issueProfileReadyParticipant(pool, "participant_scope_a", "invite_participant_scope_a");
+    await issueProfileReadyParticipant(pool, "participant_scope_b", "invite_participant_scope_b");
+    await profiles.recordParticipantTouch({ employeeId: "participant_scope_a", touchedOn: "2026-07-14" });
+    await profiles.recordParticipantTouch({ employeeId: "participant_scope_a", touchedOn: "2026-07-13" });
+
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ('company_participant_other', 'Other') ON CONFLICT (id) DO NOTHING");
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ('group_participant_other', 'company_participant_other', 'Other group', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING");
+    await profiles.issueInvite({ employeeId: "participant_scope_other", inviteCode: "invite_participant_scope_other", companyId: "company_participant_other", groupId: "group_participant_other", issuedAt: now });
+
+    await expect(profiles.getParticipant("participant_scope_a")).resolves.toMatchObject({ lastTouchOn: "2026-07-14" });
+    const page = await profiles.listParticipants({ companyId: "company_persistence_default", groupId: "group_persistence_default", limit: 100 });
+    expect(page.map(({ employeeId }) => employeeId)).toEqual(expect.arrayContaining(["participant_scope_a", "participant_scope_b"]));
+    expect(page.map(({ employeeId }) => employeeId)).not.toContain("participant_scope_other");
+  });
+
   it("updates a completed profile role together with another profile field", async () => {
     const companyId = "company_profile_role_update";
     const groupId = "group_profile_role_update";

@@ -60,7 +60,7 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
 export class HttpAdminMinutkaTransport extends HttpTransportBase implements AdminMinutkaTransport {
   issueInvite(input: IssueInviteRequest) { return this.request("POST", "/v1/admin/invites", input); }
   listParticipants(input: ListParticipantsRequest) {
-    const query = new URLSearchParams({ limit: String(input.limit) });
+    const query = new URLSearchParams({ companyId: input.companyId, groupId: input.groupId, limit: String(input.limit) });
     if (input.after) query.set("after", input.after);
     return this.request("GET", `/v1/admin/participants?${query}`);
   }

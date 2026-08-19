@@ -176,8 +176,15 @@ export const listInsightsRequestSchema = z.strictObject({ threadId: threadIdSche
 const onboardingStatusSchema = z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]);
 export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512), companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128) });
 export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), companyId: z.string().min(1), groupId: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
-export const participantSummarySchema = z.strictObject({ employeeId: employeeIdSchema, status: onboardingStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
+export const participantSummarySchema = z.strictObject({
+  employeeId: employeeIdSchema,
+  status: onboardingStatusSchema,
+  lastTouchOn: z.iso.date().optional(),
+  engagement: z.enum(["active", "lagging", "dropped_off"]),
+});
 export const listParticipantsRequestSchema = z.strictObject({
+  companyId: z.string().min(1).max(128),
+  groupId: z.string().min(1).max(128),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   after: z.string().min(1).max(2_048).optional(),
 });

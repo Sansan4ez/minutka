@@ -23,6 +23,8 @@ describe("privacy-v6 deployment policy URL", () => {
     expect(activeV6).toContain("полный корпус явно выбранной компании и учебной группы");
     expect(activeV6).toContain("не используется оператором для обучения или fine-tuning моделей");
     expect(activeV6).toContain("только отдельно подготовленный client report");
+    expect(activeV6).toContain("Оператор участия / методолог");
+    expect(activeV6).toContain("отстаёт после двух пропущенных дней, выпал после трёх и более");
     expect(activeV6).toContain("автоматический срок удаления в пилоте не установлен");
     expect(activeV6).not.toMatch(/Черновик, не активная политика|Runtime продолжает использовать privacy-v5/iu);
   });

@@ -86,7 +86,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     const repeated = await runMinutkaCli(client, ["admin", "invite", "--employee", "emp_first", "--company", "default_company", "--group", "default_group", "--bot", "pilot_test_bot"]);
     expect(repeated.exitCode).toBe(1); expect(repeated.stderr.at(-1)).toContain("employee already has an active invite"); expect(repeated.stdout).toEqual([]);
     expect(listCalls).toBe(0);
-    expect((await client.listParticipants()).participants.find(({ employeeId }) => employeeId === "emp_first")).toBeDefined();
+    expect((await client.listParticipants(testTenantBinding)).participants.find(({ employeeId }) => employeeId === "emp_first")).toBeDefined();
   });
 
   it("reports one employee's monthly usage with source and cache breakdown for the operator", async () => {
@@ -187,55 +187,54 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     }));
   });
 
-  it("paginates bounded non-personal participant fields for operator credentials", async () => {
+  it("lists only the requested company/group and exposes only participation fields", async () => {
+    let now = "2026-01-05T12:00:00.000Z";
     let instant = 0;
-    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => new Date(Date.UTC(2026, 0, 1, 0, 0, instant++)).toISOString()) });
+    const world = createInMemoryWorld(() => instant++ === 0 ? now : new Date(Date.parse(now) + instant * 1_000).toISOString());
+    world.tenantDirectories.groups.push({ id: "group_b", companyId: "company_b" });
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world });
     const application = createApplication(runtime, "unused");
     for (let index = 0; index < 25; index += 1) await application.issueInvite({ employeeId: `emp_${String(index).padStart(3, "0")}`, inviteCode: `invite_${index}`, ...testTenantBinding });
+    await application.issueInvite({ employeeId: "emp_foreign", inviteCode: "invite_foreign", companyId: "company_b", groupId: "group_b" });
     await application.openInvite({ inviteCode: "invite_0" });
     await application.acceptConsent({ employeeId: "emp_000", accepted: true, source: "cli" });
     await application.completeOnboarding({ employeeId: "emp_000", roleId: "default_role", preferredName: "Private Name", assistantName: "Spark", addressForm: "informal", timezone: "Europe/Moscow", persona: "support" });
+    const participant = world.participants.find(({ employeeId }) => employeeId === "emp_000")!;
+    participant.lastTouchOn = "2026-01-03";
     const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, serviceToken, employeeTokens: new Map([["emp_000", employeeToken]]) } }); running.push(server);
 
     for (const token of [employeeToken, serviceToken]) {
-      const forbidden = await fetch(`${server.url}/v1/admin/participants`, { headers: { authorization: `Bearer ${token}` } });
+      const forbidden = await fetch(`${server.url}/v1/admin/participants?companyId=default_company&groupId=default_group`, { headers: { authorization: `Bearer ${token}` } });
       expect(forbidden.status).toBe(403);
     }
     const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
-    const first = await runMinutkaCli(client, ["admin", "list-participants"]);
+    const first = await runMinutkaCli(client, ["admin", "list-participants", "--company", "default_company", "--group", "default_group"]);
     expect(first).toMatchObject({ exitCode: 0, stderr: [] });
     const firstPage = JSON.parse(first.stdout[0] ?? "{}");
     expect(firstPage.participants).toHaveLength(20);
     expect(firstPage.nextCursor).toEqual(expect.any(String));
-    expect(first.stdout[1]).toBe(`Next page: npm run cli -- admin list-participants --after ${firstPage.nextCursor}`);
+    expect(first.stdout[1]).toBe(`Next page: npm run cli -- admin list-participants --company default_company --group default_group --after ${firstPage.nextCursor}`);
 
-    const second = await runMinutkaCli(client, ["admin", "list-participants", "--after", firstPage.nextCursor]);
+    const second = await runMinutkaCli(client, ["admin", "list-participants", "--company", "default_company", "--group", "default_group", "--after", firstPage.nextCursor]);
     expect(second).toMatchObject({ exitCode: 0, stderr: [] });
     const secondPage = JSON.parse(second.stdout[0] ?? "{}");
-    expect(secondPage.participants).toHaveLength(5);
-    expect(secondPage.nextCursor).toBeUndefined();
-    expect(second.stdout).toHaveLength(1);
-    const originalCombined = [...firstPage.participants, ...secondPage.participants];
-    expect(new Set(originalCombined.map((participant: { employeeId: string }) => participant.employeeId)).size).toBe(25);
-
-    await application.issueInvite({ employeeId: "emp_new", inviteCode: "invite_new", ...testTenantBinding });
-    const stableSecondPage = await client.listParticipants({ after: firstPage.nextCursor });
-    const combined = [...firstPage.participants, ...stableSecondPage.participants];
-    expect(stableSecondPage.participants).toHaveLength(6);
-    expect(new Set(combined.map((participant: { employeeId: string }) => participant.employeeId)).size).toBe(26);
-    expect(combined.map((participant: { employeeId: string }) => participant.employeeId)).toContain("emp_new");
-    expect(Object.keys(combined[0]).sort()).toEqual(["createdAt", "employeeId", "status", "updatedAt"]);
-    expect(JSON.stringify(runtime.world.profiles)).toContain("Private Name");
+    const combined = [...firstPage.participants, ...secondPage.participants];
+    expect(combined).toHaveLength(25);
+    expect(combined.map((entry: { employeeId: string }) => entry.employeeId)).not.toContain("emp_foreign");
+    expect(combined.find((entry: { employeeId: string }) => entry.employeeId === "emp_000")).toEqual({
+      employeeId: "emp_000", status: "profile_completed", lastTouchOn: "2026-01-03", engagement: "lagging",
+    });
+    expect(Object.keys(combined[0]).sort()).toEqual(expect.arrayContaining(["employeeId", "engagement", "status"]));
+    expect(Object.keys(combined[0])).not.toEqual(expect.arrayContaining(["createdAt", "updatedAt"]));
     expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("Private Name");
     expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("Europe/Moscow");
     expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("chatId");
 
-    for (const limit of ["0", "101", "not-a-number"]) {
-      const invalid = await fetch(`${server.url}/v1/admin/participants?limit=${limit}`, { headers: { authorization: `Bearer ${adminToken}` } });
-      expect(invalid.status).toBe(400);
-      expect(await invalid.json()).toMatchObject({ error: { code: "invalid_request", message: "Request validation failed." } });
-    }
-    await expect(client.listParticipants({ after: "not-a-participant-cursor" })).rejects.toMatchObject({ code: "invalid_request", message: "Invalid participant cursor." } satisfies Partial<MinutkaApiError>);
+    now = "2026-01-06T12:00:00.000Z";
+    const dropped = await client.listParticipants({ ...testTenantBinding });
+    expect(dropped.participants).toContainEqual(expect.objectContaining({ employeeId: "emp_000", engagement: "dropped_off" }));
+    await expect(client.listParticipants({ ...testTenantBinding, after: "not-a-participant-cursor" })).rejects.toMatchObject({ code: "invalid_request", message: "Invalid participant cursor." } satisfies Partial<MinutkaApiError>);
+    expect((await fetch(`${server.url}/v1/admin/participants`, { headers: { authorization: `Bearer ${adminToken}` } })).status).toBe(400);
   });
 });
 

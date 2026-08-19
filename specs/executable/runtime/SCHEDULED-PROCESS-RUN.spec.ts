@@ -7,6 +7,13 @@ import {
   runScheduledProcessOnDemand,
 } from "../../../src/runtime/run-scheduled-process.js";
 
+const profile = (employeeId: string) => ({
+  employeeId, companyId: "company_a", groupId: "group_a", roleId: "role_a",
+  preferredName: employeeId, assistantName: "Минутка", addressForm: "informal" as const,
+  persona: "support" as const, responseLength: "short" as const, timezone: "Etc/UTC",
+  createdAt: "2026-08-17T00:00:00.000Z", updatedAt: "2026-08-17T00:00:00.000Z",
+});
+
 const completedResult: AssistantChatResult = {
   messageId: "message-1",
   response: "Расскажите об одной-трёх активностях с прошлого касания.",
@@ -47,13 +54,9 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
   it("runs only the typed facade use-case for a completed employee", async () => {
     const runScheduledProcess = vi.fn(async () => completedResult);
     const application = {
+      getProfile: vi.fn(async () => profile("emp_1")),
       listParticipants: vi.fn(async (): Promise<ParticipantPage> => ({
-        participants: [{
-          employeeId: "emp_1",
-          status: "profile_completed",
-          createdAt: "2026-08-17T00:00:00.000Z",
-          updatedAt: "2026-08-17T00:00:00.000Z",
-        }],
+        participants: [{ employeeId: "emp_1", status: "profile_completed", engagement: "active" }],
       })),
       runScheduledProcess,
     };
@@ -73,6 +76,7 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
   it("refuses an absent employee and an employee without completed onboarding", async () => {
     const runScheduledProcess = vi.fn(async () => completedResult);
     const absent = {
+      getProfile: async () => { throw new Error("profile_not_found"); },
       listParticipants: async (): Promise<ParticipantPage> => ({ participants: [] }),
       runScheduledProcess,
     };
@@ -83,13 +87,9 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
     })).rejects.toThrow('employee "missing" was not found');
 
     const incomplete = {
+      getProfile: async () => profile("emp_2"),
       listParticipants: async (): Promise<ParticipantPage> => ({
-        participants: [{
-          employeeId: "emp_2",
-          status: "consent_accepted",
-          createdAt: "2026-08-17T00:00:00.000Z",
-          updatedAt: "2026-08-17T00:00:00.000Z",
-        }],
+        participants: [{ employeeId: "emp_2", status: "consent_accepted", engagement: "active" }],
       }),
       runScheduledProcess,
     };
