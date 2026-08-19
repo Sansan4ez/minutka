@@ -235,7 +235,7 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
-    async completeProfile({ profile, completedAt, allowUpdate = true, deleteOnboardingDraft = false }) {
+    async completeProfile({ profile, completedAt, allowUpdate = true, deleteOnboardingDraft = false, completedOn }) {
       try {
         return await withTransaction(pool, async (client) => {
           const participant = await client.query<{ status: Participant["status"] }>(
@@ -273,9 +273,13 @@ export function createPostgresProfileStore(
               profile.role ?? null, profile.typicalTasks ? JSON.stringify(profile.typicalTasks) : null, profile.persona,
               profile.aiLevel ?? null, profile.programGoal ?? null, profile.responseLength, profile.preferredCheckinsPerDay ?? null, profile.createdAt, profile.updatedAt],
           );
+          // GREATEST ignores NULL arguments, so completion seeds the first touch
+          // and never moves an already later touch back.
           await client.query(
-            "UPDATE minutka_private.participants SET status = 'profile_completed', updated_at = $2 WHERE employee_id = $1",
-            [profile.employeeId, completedAt],
+            `UPDATE minutka_private.participants
+             SET status = 'profile_completed', updated_at = $2, last_touch_on = GREATEST(last_touch_on, $3::date)
+             WHERE employee_id = $1`,
+            [profile.employeeId, completedAt, completedOn ?? null],
           );
           if (deleteOnboardingDraft) await client.query("DELETE FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [profile.employeeId]);
           return { profile, wasCompleted };

@@ -229,7 +229,10 @@ export class AssistantService {
     const chatProc = await this.chatProjectionBuilder?.buildChatProc({ employeeId: userId, threadId, requestId, purpose: "chat" });
     const profile = chatProc?.profile ?? (this.deps.participantStore.getProfile ? await this.deps.participantStore.getProfile(userId) : undefined);
     const ownerToday = calendarDateInIanaTimezone(this.clock.now(), profile?.timezone ?? chatProc?.snapshot.profile.data?.timezone ?? "Etc/UTC");
-    await this.deps.participantStore.recordParticipantTouch({ employeeId: userId, touchedOn: ownerToday });
+    // Only an employee-initiated turn is an incoming touch. Every scheduled fire
+    // reaches chat() with requiredProcessId set; counting those would keep a
+    // silent participant "active" for as long as the default schedules run.
+    if (requiredProcessId === undefined) await this.deps.participantStore.recordParticipantTouch({ employeeId: userId, touchedOn: ownerToday });
     const profileAndHistory = chatProc?.snapshot ?? emptyChatProcSnapshot({ userId, threadId, requestId, now: this.clock.now(), profile });
     const responsePolicy = createResponsePolicy({ channel: input.responseChannel, preferredLength: profile?.responseLength });
     await this.auditSafely({

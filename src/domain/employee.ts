@@ -25,7 +25,10 @@ export type Participant = {
   subjectKey: string;
   roleId?: string;
   status: OnboardingStatus;
-  /** Latest local calendar date on which the employee contacted the assistant. */
+  /**
+   * Latest local calendar date on which the employee contacted the assistant.
+   * Onboarding completion counts as that first contact; scheduled fires do not.
+   */
   lastTouchOn?: string;
   createdAt: string;
   updatedAt: string;

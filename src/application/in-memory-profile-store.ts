@@ -12,6 +12,13 @@ function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value:
   else items[index] = value;
 }
 
+/** Calendar dates are ISO `YYYY-MM-DD`, so lexicographic order is calendar order. */
+function latestDate(left?: string, right?: string): string | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return left < right ? right : left;
+}
+
 const deletionMarkerCounters = new WeakMap<InMemoryWorld, number>();
 function worldAuditDeletionMarker(world: InMemoryWorld): void {
   const counter = (deletionMarkerCounters.get(world) ?? 0) + 1;
@@ -165,7 +172,7 @@ export function createInMemoryProfileStore(
         updatedAt: shownAt,
       });
     },
-    async completeProfile({ profile, completedAt, allowUpdate = true, deleteOnboardingDraft = false }) {
+    async completeProfile({ profile, completedAt, allowUpdate = true, deleteOnboardingDraft = false, completedOn }) {
       const existing = world.profiles.find((candidate) => candidate.employeeId === profile.employeeId);
       const participant = world.participants.find((candidate) => candidate.employeeId === profile.employeeId);
       if (!participant) throw new PersistenceError("participant_not_found");
@@ -175,11 +182,13 @@ export function createInMemoryProfileStore(
         return { profile: existing!, wasCompleted: true };
       }
       upsertByEmployeeId(world.profiles, profile);
+      const lastTouchOn = latestDate(participant.lastTouchOn, completedOn);
       upsertByEmployeeId(world.participants, {
         ...participant,
         roleId: profile.roleId,
         status: "profile_completed",
         updatedAt: completedAt,
+        ...(lastTouchOn ? { lastTouchOn } : {}),
       });
       if (deleteOnboardingDraft) world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== profile.employeeId);
       return { profile, wasCompleted };

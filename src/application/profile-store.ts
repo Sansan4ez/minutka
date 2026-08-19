@@ -62,6 +62,12 @@ export type ProfileStore = {
     allowUpdate?: boolean;
     /** Atomically removes temporary onboarding data when profile completion commits. */
     deleteOnboardingDraft?: boolean;
+    /**
+     * Completion date in the profile timezone. Completing onboarding is the first
+     * employee contact, so it starts the engagement clock in the same transaction;
+     * an already later touch is never moved back.
+     */
+    completedOn?: string;
   }): Promise<CompleteProfileResult>;
   /** Employee-scoped conversational context write; the adapter resolves and locks the current profile. */
   updatePersonalContext(input: {

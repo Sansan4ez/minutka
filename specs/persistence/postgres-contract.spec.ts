@@ -120,6 +120,25 @@ describe("PostgreSQL storage contracts", () => {
     expect(page.map(({ employeeId }) => employeeId)).not.toContain("participant_scope_other");
   });
 
+  it("seeds the engagement clock at profile completion and never moves a later touch back", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const employeeId = "participant_engagement_clock";
+    await issueProfileReadyParticipant(pool, employeeId, "invite_participant_engagement_clock");
+    const profile = {
+      employeeId, companyId: "company_persistence_default", groupId: "group_persistence_default", roleId: "role_persistence_default",
+      preferredName: "Manager", assistantName: "Assistant", addressForm: "informal" as const, timezone: "Europe/Moscow",
+      persona: "support" as const, responseLength: "short" as const, createdAt: now, updatedAt: now,
+    };
+
+    await expect(profiles.getParticipant(employeeId)).resolves.not.toHaveProperty("lastTouchOn");
+    await profiles.completeProfile({ completedAt: now, completedOn: "2026-07-20", profile });
+    await expect(profiles.getParticipant(employeeId)).resolves.toMatchObject({ lastTouchOn: "2026-07-20" });
+
+    await profiles.recordParticipantTouch({ employeeId, touchedOn: "2026-07-22" });
+    await profiles.completeProfile({ completedAt: now, completedOn: "2026-07-21", profile });
+    await expect(profiles.getParticipant(employeeId)).resolves.toMatchObject({ lastTouchOn: "2026-07-22" });
+  });
+
   it("updates a completed profile role together with another profile field", async () => {
     const companyId = "company_profile_role_update";
     const groupId = "group_profile_role_update";

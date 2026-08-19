@@ -1,6 +1,6 @@
 import type { AddressForm, AiLevel, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
-import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
+import { calendarDateInIanaTimezone, normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
 import { loadAgentManualFromDisk } from "./agent-manual-loader.js";
 import { createMinutkaContextBuilder, type MinutkaContextBuilderLike } from "./minutka-context-builder.js";
@@ -383,7 +383,12 @@ export class MinutkaService {
     await this.materializeOnboardingContext(input.employeeId);
     // Profile completion and draft removal are one storage transaction. This
     // makes the finalized profile the source of truth even under stale writes.
-    const completed = await this.stores.profileStore.completeProfile({ profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true });
+    // Completing onboarding is the employee's first contact, so it starts the
+    // engagement clock; otherwise a participant who never writes stays "active".
+    const completed = await this.stores.profileStore.completeProfile({
+      profile, completedAt: timestamp, allowUpdate, deleteOnboardingDraft: true,
+      completedOn: calendarDateInIanaTimezone(timestamp, profile.timezone),
+    });
     const provisionedSchedules = await this.provisionDefaultSchedules(completed.profile);
     if (completed.wasCompleted && !allowUpdate) return { employeeId: input.employeeId, status: "profile_completed", completion: "already", profile: completed.profile, firstResponse: "Профиль уже сохранён." };
     await this.auditProfileCompletionSafely({ requestId, employeeId: input.employeeId, timestamp, changedFields, persona: completed.profile.persona, isNewProfile: !completed.wasCompleted });

@@ -12,6 +12,9 @@ export function participantEngagement(input: {
   now: string;
   timezone: string;
 }): ParticipantEngagement {
+  // Onboarding completion seeds the first touch, so an absent one means the
+  // employee has not finished onboarding yet: there is no participation clock to
+  // degrade, and the participation status already reports that stage.
   if (!input.lastTouchOn) return "active";
   const today = calendarDateInIanaTimezone(input.now, input.timezone);
   const missedDays = Math.max(0, dateOrdinal(today) - dateOrdinal(input.lastTouchOn));
