@@ -1,17 +1,17 @@
 {
   "note": "Planned employee → role mapping for the first cohort. Employee ids are opaque ordinals; the ordinal ↔ person mapping stays in the operator's private list outside this repository. roleId is not seeded: the employee picks it during onboarding, and the operator verifies the choice against plannedRoleId.",
   "bindings": [
-    { "employeeId": "emp_green_line_01", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_tender_specialist" },
-    { "employeeId": "emp_green_line_02", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_logistician" },
-    { "employeeId": "emp_green_line_03", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_sales_manager" },
-    { "employeeId": "emp_green_line_04", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_logistician" },
-    { "employeeId": "emp_green_line_05", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_telemarketing_manager" },
-    { "employeeId": "emp_green_line_06", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_sales_manager" },
-    { "employeeId": "emp_green_line_07", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_accountant" },
-    { "employeeId": "emp_green_line_08", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_deputy_director" },
-    { "employeeId": "emp_green_line_09", "companyId": "company_green_line", "groupId": "group_green_line_2026_09", "plannedRoleId": "role_green_line_director" },
-    { "employeeId": "emp_algoritm_institute_01", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_09", "plannedRoleId": "role_algoritm_institute_methodologist" },
-    { "employeeId": "emp_algoritm_institute_02", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_09", "plannedRoleId": "role_algoritm_institute_teacher" },
-    { "employeeId": "emp_algoritm_institute_03", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_09", "plannedRoleId": "role_algoritm_institute_teacher" }
+    { "employeeId": "emp_green_line_01", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_tender_specialist" },
+    { "employeeId": "emp_green_line_02", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_logistician" },
+    { "employeeId": "emp_green_line_03", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_sales_manager" },
+    { "employeeId": "emp_green_line_04", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_logistician" },
+    { "employeeId": "emp_green_line_05", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_telemarketing_manager" },
+    { "employeeId": "emp_green_line_06", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_sales_manager" },
+    { "employeeId": "emp_green_line_07", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_accountant" },
+    { "employeeId": "emp_green_line_08", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_deputy_director" },
+    { "employeeId": "emp_green_line_09", "companyId": "company_green_line", "groupId": "group_green_line_2026_08", "plannedRoleId": "role_green_line_director" },
+    { "employeeId": "emp_algoritm_institute_01", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_08", "plannedRoleId": "role_algoritm_institute_methodologist" },
+    { "employeeId": "emp_algoritm_institute_02", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_08", "plannedRoleId": "role_algoritm_institute_teacher" },
+    { "employeeId": "emp_algoritm_institute_03", "companyId": "company_algoritm_institute", "groupId": "group_algoritm_institute_2026_08", "plannedRoleId": "role_algoritm_institute_teacher" }
   ]
 }

@@ -1,10 +1,10 @@
 {
   "company": { "id": "company_green_line", "name": "Green-line" },
   "group": {
-    "id": "group_green_line_2026_09",
-    "name": "Пилот — сентябрь 2026",
-    "periodFrom": "2026-09-01",
-    "periodToExclusive": "2026-09-15"
+    "id": "group_green_line_2026_08",
+    "name": "Пилот — август-2026",
+    "periodFrom": "2026-08-19",
+    "periodToExclusive": "2026-09-02"
   },
   "roles": [
     { "id": "role_green_line_tender_specialist", "name": "Специалист по тендерам" },

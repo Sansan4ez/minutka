@@ -1,10 +1,10 @@
 {
   "company": { "id": "company_algoritm_institute", "name": "Институт «Алгоритм»" },
   "group": {
-    "id": "group_algoritm_institute_2026_09",
-    "name": "Организаторский прогон — сентябрь 2026",
-    "periodFrom": "2026-09-01",
-    "periodToExclusive": "2026-09-15"
+    "id": "group_algoritm_institute_2026_08",
+    "name": "Организаторский прогон — август-2026",
+    "periodFrom": "2026-08-19",
+    "periodToExclusive": "2026-09-02"
   },
   "roles": [
     { "id": "role_algoritm_institute_methodologist", "name": "Методист" },
