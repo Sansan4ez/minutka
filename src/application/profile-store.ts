@@ -1,6 +1,7 @@
 import type { Consent, Participant, UserProfile } from "../domain/employee.js";
 import type { ParticipantPageCursor } from "./participant-pagination.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
+import type { PersonalProfileContextPatch, PersonalProfileContextUpdateResult } from "./personal-profile-context.js";
 
 export type IssueInviteResult = { participant: Participant; created: boolean; inviteMatches: boolean };
 export type OpenInviteResult = { participant: Participant; opened: boolean };
@@ -61,6 +62,12 @@ export type ProfileStore = {
     /** Atomically removes temporary onboarding data when profile completion commits. */
     deleteOnboardingDraft?: boolean;
   }): Promise<CompleteProfileResult>;
+  /** Employee-scoped conversational context write; the adapter resolves and locks the current profile. */
+  updatePersonalContext(input: {
+    employeeId: string;
+    patch: PersonalProfileContextPatch;
+    updatedAt: string;
+  }): Promise<PersonalProfileContextUpdateResult>;
   getParticipant(employeeId: string): Promise<Participant | undefined>;
   /** Records only the local calendar date of an inbound employee touch. */
   recordParticipantTouch(input: { employeeId: string; touchedOn: string }): Promise<void>;

@@ -72,6 +72,7 @@ export function createRuntimeProjectionBuilder(deps: {
           ...(profile.role ? { role: profile.role } : {}),
           ...(profile.typicalTasks ? { typicalTasks: [...profile.typicalTasks] } : {}),
           ...(profile.aiLevel ? { aiLevel: profile.aiLevel } : {}),
+          ...(profile.programGoal ? { programGoal: profile.programGoal } : {}),
           ...(profile.preferredCheckinsPerDay
             ? { preferredCheckinsPerDay: profile.preferredCheckinsPerDay }
             : {}),

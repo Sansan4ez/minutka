@@ -4,6 +4,7 @@ import type { InMemoryWorld } from "./in-memory-world.js";
 import type { EmployeePersonalDataDeletionCounts, ProfileStore } from "./profile-store.js";
 import { PersistenceError } from "./persistence-error.js";
 import type { ResearchEvidenceRef, ResearchSubject } from "./research-identity-projection.js";
+import { applyPersonalProfileContextPatch } from "./personal-profile-context.js";
 
 function upsertByEmployeeId<T extends { employeeId: string }>(items: T[], value: T) {
   const index = items.findIndex((item) => item.employeeId === value.employeeId);
@@ -182,6 +183,13 @@ export function createInMemoryProfileStore(
       });
       if (deleteOnboardingDraft) world.onboardingDrafts = world.onboardingDrafts.filter((draft) => draft.employeeId !== profile.employeeId);
       return { profile, wasCompleted };
+    },
+    async updatePersonalContext({ employeeId, patch, updatedAt }) {
+      const profile = world.profiles.find((candidate) => candidate.employeeId === employeeId);
+      if (!profile) throw new PersistenceError("profile_not_found");
+      const result = applyPersonalProfileContextPatch(profile, patch, updatedAt);
+      if (result.changedFields.length > 0) upsertByEmployeeId(world.profiles, result.profile);
+      return result;
     },
     async getParticipant(employeeId) {
       return world.participants.find((participant) => participant.employeeId === employeeId);

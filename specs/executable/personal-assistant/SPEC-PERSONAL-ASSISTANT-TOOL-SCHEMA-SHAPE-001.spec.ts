@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import { assistantActiveToolNames, createAssistantToolsets } from "../../../src/mastra/agent-runner.js";
+import { createUpdatePersonalContextTool } from "../../../src/mastra/tools/profile-context-tool.js";
+import { applyPersonalProfileContextPatch } from "../../../src/application/personal-profile-context.js";
 
 const allowedUnionFields = new Set<string>();
 
@@ -32,6 +34,7 @@ function createStubContext(): AssistantAgentContext {
     projects: capabilities as AssistantAgentContext["projects"],
     schedules: capabilities as AssistantAgentContext["schedules"],
     collectActivity: (async () => ({ activityId: "activity" })) as AssistantAgentContext["collectActivity"],
+    updatePersonalContext: async () => ({ changedFields: [] }),
     markProcessUsed() {},
   } as unknown as AssistantAgentContext;
 }
@@ -71,6 +74,16 @@ describe("SPEC-PERSONAL-ASSISTANT-TOOL-SCHEMA-SHAPE-001: registered provider sch
     const registeredNames = Object.values(toolsets).flatMap((toolset) => Object.keys(toolset));
 
     expect(registeredNames).toEqual([...assistantActiveToolNames]);
+  });
+
+  it("keeps personal context input optional by field but rejects an empty call at the typed use-case", async () => {
+    const tool = createUpdatePersonalContextTool(async (patch) => applyPersonalProfileContextPatch({
+      employeeId: "owner", companyId: "company", groupId: "group", roleId: "role",
+      preferredName: "Owner", assistantName: "Minutka", addressForm: "informal", persona: "support",
+      responseLength: "balanced", timezone: "Etc/UTC", createdAt: "2026-08-19T00:00:00.000Z", updatedAt: "2026-08-19T00:00:00.000Z",
+    }, patch, "2026-08-19T00:01:00.000Z"));
+    expect(tool.inputSchema?.safeParse({}).success).toBe(true);
+    await expect(tool.execute?.({}, {} as never)).rejects.toThrow("personal profile context patch must not be empty");
   });
 
   it("keeps every input rule inside the schema the provider shows the model", () => {

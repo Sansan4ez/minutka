@@ -12,7 +12,8 @@ Use for the scheduled morning touch and for an employee's account of work since 
 4. Include only closed values stated by the employee or following unambiguously from the activity. Map approximate time and system to their dictionaries. Put the activity category and its obstacle in the same call; an obstacle never needs another `collectActivity` call. If duration, system, category, or obstacle is unknown, omit it. Never guess or use `unknown` for an omitted category. Keep category and obstacle comparable across repetitions; never drop either, just to fit the row.
 5. Send at most one obstacle: a routine pattern or automation candidate, or an energy/stress marker only for an explicit signal. Do not infer emotion.
 6. Never pass the employee's wording, names, labels, rationale, obstacle text, or any free text to `collectActivity`. The application keeps the full employee message in the private conversation record; the action receives structured dictionary values only.
-7. Ask at most one useful follow-up about a missing detail, allow incomplete activities, and acknowledge successful recording briefly.
+7. If the same ordinary account explicitly reveals a recurring task, AI experience, or the employee's own goal for the program, call `updatePersonalContext` once with a short bounded summary of only those facts. Do not ask for the missing profile fields and do not delay activity collection.
+8. Ask at most one useful follow-up about a missing activity detail, allow incomplete activities and profile context, and acknowledge successful recording briefly.
 
 ## Outputs
 
@@ -20,7 +21,7 @@ A concise Telegram-friendly invitation or acknowledgement. For an employee accou
 
 ## Privacy notes
 
-The raw account remains in authenticated private conversation history. Employee and tenant ids are bound outside model input. Free text never enters the anonymized trace.
+The raw account remains in authenticated private conversation history and the tenant-scoped research trace. Employee and tenant ids are bound outside model input. Structured activities contain only closed dictionary values. Personal context fields stay in the employee profile and are excluded from company reporting.
 
 ## Anti-patterns
 

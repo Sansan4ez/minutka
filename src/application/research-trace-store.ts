@@ -104,7 +104,11 @@ const traceSchema = z.strictObject({
 });
 
 export function sanitizeResearchTrace(trace: ResearchTraceRecord): ResearchTraceRecord {
-  return traceSchema.parse(sanitizeTraceValue(trace));
+  const withoutPersonalProfileContext: ResearchTraceRecord = {
+    ...trace,
+    attempts: trace.attempts.map((attempt) => ({ ...attempt, context: omitPersonalProfileContext(attempt.context) })),
+  };
+  return traceSchema.parse(sanitizeTraceValue(withoutPersonalProfileContext));
 }
 
 export function parseResearchTrace(value: unknown): ResearchTraceRecord {
@@ -145,9 +149,22 @@ function sanitizeTraceValue(value: unknown, seen = new WeakSet<object>()): unkno
   if (typeof value !== "object") return String(value);
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
+  const record = value as Record<string, unknown>;
+  const payloadToolName = record.payload && typeof record.payload === "object" && !Array.isArray(record.payload)
+    ? (record.payload as Record<string, unknown>).toolName
+    : undefined;
+  const personalContextTool = record.toolName === "updatePersonalContext" || payloadToolName === "updatePersonalContext";
   const safe: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
+  for (const [key, entry] of Object.entries(record)) {
     if (entry === undefined) continue;
+    if (personalContextTool && key === "payload" && entry && typeof entry === "object" && !Array.isArray(entry)) {
+      safe[key] = sanitizePersonalContextToolPayload(entry as Record<string, unknown>, seen);
+      continue;
+    }
+    if (personalContextTool && (key === "args" || key === "input")) {
+      safe[key] = { fields: personalProfileFieldNames(entry) };
+      continue;
+    }
     safe[key] = isSecretKey(key) ? "[REDACTED]" : sanitizeTraceValue(entry, seen);
   }
   seen.delete(value);
@@ -166,6 +183,34 @@ function isSecretKey(key: string): boolean {
     || normalized.endsWith("password")
     || normalized.endsWith("secretkey")
     || normalized.endsWith("encryptionkey");
+}
+
+const personalProfileContextPrefixes = [
+  "- Регулярные задачи:",
+  "- Уровень знакомства с ИИ:",
+  "- Личная цель программы:",
+] as const;
+
+function omitPersonalProfileContext(context: string): string {
+  return context.split("\n").filter((line) => !personalProfileContextPrefixes.some((prefix) => line.startsWith(prefix))).join("\n");
+}
+
+function sanitizePersonalContextToolPayload(payload: Record<string, unknown>, seen: WeakSet<object>): unknown {
+  const safe: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(payload)) {
+    if (entry === undefined) continue;
+    if (key === "args" || key === "input") safe[key] = { fields: personalProfileFieldNames(entry) };
+    else safe[key] = isSecretKey(key) ? "[REDACTED]" : sanitizeTraceValue(entry, seen);
+  }
+  return safe;
+}
+
+function personalProfileFieldNames(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const allowed = new Set(["typicalTasks", "aiLevel", "programGoal"]);
+  const existing = (value as { fields?: unknown }).fields;
+  if (Array.isArray(existing)) return existing.filter((field): field is string => typeof field === "string" && allowed.has(field));
+  return Object.keys(value).filter((key) => allowed.has(key));
 }
 
 const secretKeys = new Set([

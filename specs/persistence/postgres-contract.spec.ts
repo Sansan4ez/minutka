@@ -167,6 +167,33 @@ describe("PostgreSQL storage contracts", () => {
     )).rows[0]).toEqual({ profile_role_id: updatedRoleId, participant_role_id: updatedRoleId });
   });
 
+  it("persists bounded employee-only conversational profile context and preserves owner isolation", async () => {
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await issueProfileReadyParticipant(pool, "profile_context_owner_a", "invite_profile_context_owner_a");
+    await issueProfileReadyParticipant(pool, "profile_context_owner_b", "invite_profile_context_owner_b");
+
+    await expect(profiles.updatePersonalContext({
+      employeeId: "profile_context_owner_a",
+      patch: {
+        typicalTasks: ["  Weekly   reporting  ", "Vendor coordination", "Weekly reporting"],
+        aiLevel: "intermediate",
+        programGoal: `Reduce manual work ${"x".repeat(600)}`,
+      },
+      updatedAt: "2026-07-12T00:02:00.000Z",
+    })).resolves.toMatchObject({ changedFields: ["typicalTasks", "aiLevel", "programGoal"] });
+
+    const ownerA = await profiles.getProfile("profile_context_owner_a");
+    expect(ownerA).toMatchObject({ typicalTasks: ["reports", "Weekly reporting", "Vendor coordination"], aiLevel: "intermediate" });
+    expect(Array.from(ownerA?.programGoal ?? "")).toHaveLength(500);
+    expect(await profiles.getProfile("profile_context_owner_b")).not.toMatchObject({ aiLevel: "intermediate" });
+
+    await expect(profiles.updatePersonalContext({
+      employeeId: "missing_profile_context_owner",
+      patch: { aiLevel: "beginner" },
+      updatedAt: now,
+    })).rejects.toMatchObject({ code: "profile_not_found" });
+  });
+
   it("writes one canonical subject-aware activity and exposes it to research/report readers", async () => {
     const companyId = "company_activity";
     const groupId = "group_activity";

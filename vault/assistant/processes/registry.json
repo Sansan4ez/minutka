@@ -28,7 +28,8 @@
       "dependencies": [
         "docs/architecture/rfc-minutka-tenancy-and-reporting.md#27-утренний-процесс-сбора",
         "src/contracts/minutka-activity.ts",
-        "src/application/activity-collection.ts"
+        "src/application/activity-collection.ts",
+        "src/application/personal-profile-context.ts"
       ]
     },
     {

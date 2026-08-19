@@ -1,4 +1,4 @@
-import type { AddressForm, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
+import type { AddressForm, AiLevel, Consent, OnboardingStatus, Participant, Persona, ResponseLengthPreference, UserProfile } from "../domain/employee.js";
 import { currentPrivacyVersion } from "../domain/privacy.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { AgentManual, AgentManualProcessId, AgentManualPurpose } from "./agent-manual-types.js";
@@ -41,6 +41,7 @@ import { ParticipantInviteExistsError } from "./participant-invite-error.js";
 import { RoleNotInCompanyError } from "./onboarding-role-error.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
 import { participantEngagement, type ParticipantEngagement } from "./participant-engagement.js";
+import { normalizePersonalProfileContextPatch } from "./personal-profile-context.js";
 
 export type ChatInput = { employeeId: string; threadId: string; text: string; inputModality?: ChatInputModality; responseChannel?: ResponseChannel };
 export type ChatResult = { messageId: string; response: string; selectedProcessIds: AgentManualProcessId[]; pendingActions: []; effect: "none" };
@@ -84,6 +85,9 @@ export type CompleteOnboardingInput = {
   persona: Persona; responseLength?: ResponseLengthPreference; preferredCheckinsPerDay?: 1 | 2 | 3;
   roleId: string;
   selfDescription?: string;
+  typicalTasks?: string[];
+  aiLevel?: AiLevel;
+  programGoal?: string;
 };
 export type CompleteOnboardingResult = { employeeId: string; status: "profile_completed"; completion: "new" | "already"; profile: UserProfile; firstResponse: string; firstActivityPrompt?: string };
 export type GetOnboardingProgressInput = { employeeId: string };
@@ -343,6 +347,7 @@ export class MinutkaService {
     const requestId = this.ids.requestId();
     const timestamp = this.clock.now();
     const existing = await this.stores.profileStore.getProfile(input.employeeId);
+    const personalContext = normalizePersonalProfileContextPatch({ typicalTasks: input.typicalTasks, aiLevel: input.aiLevel, programGoal: input.programGoal });
     const profile: UserProfile = {
       employeeId: input.employeeId,
       companyId,
@@ -355,6 +360,9 @@ export class MinutkaService {
       responseLength: input.responseLength ?? "balanced",
       timezone: normalizedTimezone ?? existing?.timezone ?? "Etc/UTC",
       ...(input.selfDescription?.trim() ? { role: input.selfDescription.trim() } : existing?.role ? { role: existing.role } : {}),
+      ...(personalContext.typicalTasks ? { typicalTasks: personalContext.typicalTasks } : existing?.typicalTasks ? { typicalTasks: existing.typicalTasks } : {}),
+      ...(personalContext.aiLevel ? { aiLevel: personalContext.aiLevel } : existing?.aiLevel ? { aiLevel: existing.aiLevel } : {}),
+      ...(personalContext.programGoal ? { programGoal: personalContext.programGoal } : existing?.programGoal ? { programGoal: existing.programGoal } : {}),
       preferredCheckinsPerDay: input.preferredCheckinsPerDay,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -700,6 +708,8 @@ export class MinutkaService {
     if (input.timezone !== undefined && normalizeIanaTimezone(input.timezone) === undefined) throw new Error("timezone must be a valid IANA timezone");
     if (!input.roleId?.trim()) throw new Error("roleId is required");
     if (input.selfDescription !== undefined && !input.selfDescription.trim()) throw new Error("selfDescription must be non-empty");
+    if (input.typicalTasks !== undefined && normalizePersonalProfileContextPatch({ typicalTasks: input.typicalTasks }).typicalTasks === undefined) throw new Error("typicalTasks must contain at least one non-empty task");
+    if (input.programGoal !== undefined && normalizePersonalProfileContextPatch({ programGoal: input.programGoal }).programGoal === undefined) throw new Error("programGoal must be non-empty");
   }
 }
 
@@ -783,12 +793,12 @@ function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false
   if (field === "timezone") return { status: "needs_choice", field, prompt: timezoneUnrecognized ? unrecognizedTimezonePrompt : "Выберите ваш часовой пояс. Если нужного города нет, нажмите «Другой» и напишите город или смещение UTC.", choices: timezoneChoices, allowFreeText: true };
   return { status: "needs_answer", field, prompt: "Давайте познакомимся. Как мне к вам обращаться? Стиль общения потом можно поменять одной фразой." };
 }
-const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "preferredCheckinsPerDay"] as const;
+const trackedProfileFields = ["roleId", "preferredName", "assistantName", "addressForm", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "programGoal", "preferredCheckinsPerDay"] as const;
 function getChangedFields(existing: UserProfile | undefined, next: UserProfile): string[] {
   return trackedProfileFields.filter((field) =>
     // Omitted optional data is not a change on initial creation, while a later
     // removal from an existing profile remains visible in the audit trail.
-    (field !== "preferredCheckinsPerDay" || existing?.[field] !== undefined || next[field] !== undefined)
+    (existing !== undefined || next[field] !== undefined)
     && (!existing || JSON.stringify(existing[field]) !== JSON.stringify(next[field])),
   );
 }

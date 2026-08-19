@@ -46,7 +46,7 @@ export type ProcSnapshot = ChatProcSnapshot & {
 export type ProfileProjection = Pick<
   UserProfile,
   "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone" |
-  "role" | "typicalTasks" | "aiLevel" | "preferredCheckinsPerDay"
+  "role" | "typicalTasks" | "aiLevel" | "programGoal" | "preferredCheckinsPerDay"
 >;
 
 export type ConsentProjection = {

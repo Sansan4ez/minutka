@@ -41,7 +41,7 @@ Related:
 
 ### 2.1. Ценность и роли
 
-- **Сотрудник** ежедневно рассказывает о работе и получает AI-помощника для планирования, рефлексии и упрощения собственной рутины.
+- **Сотрудник** ежедневно рассказывает о работе и получает AI-помощника для планирования, рефлексии и упрощения собственной рутины. Его `typicalTasks`, `aiLevel` и `programGoal` — отдельный employee-only profile context: они помогают персонализировать bounded LLM context, но не являются structured research observations и не входят в participant inventory или company report.
 - **Исследователь/методолог «Алгоритма»** имеет доступ к corpus, structured activities, traces и feedback в пределах выбранной компании/группы; выполняет ручной анализ, улучшает промпты и таксономию, размечает evaluation cases и готовит отчёт.
 - **Оператор участия** заводит справочники, инвайты и сопровождает группу. На пилоте это может быть тот же доверенный человек, что и исследователь; права не требуют отдельной RBAC-роли до расширения команды.
 - **Компания-клиент** не имеет product account/API/DB/trace-viewer доступа и получает только проверенный report artifact.
@@ -158,6 +158,7 @@ Evidence pack является внутренним артефактом. Его
 
 Компания не получает:
 
+- личные profile fields сотрудника (`typicalTasks`, `aiLevel`, `programGoal`);
 - raw conversation/transcript;
 - execution trace;
 - `subject_key` и identity mapping;

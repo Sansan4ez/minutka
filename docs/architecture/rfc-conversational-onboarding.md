@@ -5,9 +5,9 @@
 
 ## Status
 
-**Implemented (фаза 2 «Онбординг, consent, профиль»; extractor-агент подключён в product runtime).** RFC заменил Telegram MVP-ввод профиля одной строкой с техническими
-разделителями на управляемый диалоговый flow. `completeOnboarding()` сохранён
-как единственная точка финального сохранения профиля.
+**Implemented (фаза 2 «Онбординг, consent, профиль»; обновлено 2026-08-19).** Живой онбординг ограничен четырьмя вопросами: должность, обращение, стиль общения и часовой пояс, затем явное подтверждение. `typicalTasks`, `aiLevel` и `programGoal` не являются шагами формы: это опциональный личный контекст, который агент сохраняет позже из обычного разговора через employee-scoped typed use case без допроса и без блокировки первого полезного касания. `completeOnboarding()` остаётся прямым структурированным HTTP/CLI finalizer и может принять те же опциональные поля для совместимости автоматизации.
+
+Текст ниже сохраняет провенанс первоначального extractor-дизайна. В части обязательных полей, порядка вопросов и примеров анкеты он superseded решением о четырёхшаговом онбординге и последующем conversational collection.
 
 Related documents:
 
@@ -48,7 +48,20 @@ Related documents:
 
 ## Decision summary
 
-Вводится отдельный **conversational onboarding** use case, состоящий из:
+Текущая граница разделяет короткий onboarding и последующий разговор:
+
+```text
+invite + consent
+  → четыре onboarding-вопроса
+  → explicit confirmation
+  → durable UserProfile
+  → обычный AssistantService chat
+  → optional updatePersonalContext(typicalTasks | aiLevel | programGoal)
+```
+
+Новые личные поля bounded: до 7 задач по 160 символов, closed `AiLevel`, цель до 500 символов. Они возвращаются только в собственном profile/context сотрудника, не входят в participant list, structured activity, audit metadata values или company report. Отсутствие полей не мешает onboarding, утреннему сбору и вечерней рефлексии.
+
+Исторически вводился отдельный **conversational onboarding** use case, состоящий из:
 
 ```text
 Telegram text

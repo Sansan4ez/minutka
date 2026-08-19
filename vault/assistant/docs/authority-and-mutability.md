@@ -33,6 +33,6 @@ Logical paths are application API handles, not arbitrary filesystem paths.
 - Logical handles belong to one application read model/component; physical document keys, artifact CAS references, database rows, and retired prefixes are adapter details and never agent-facing paths.
 - Authority files are immutable to the «Минутка» agent, `/proc` is a read-only view, and `/bin` capabilities execute typed employee-bound use cases. Typed mutation tools cannot target `/AGENTS.md`, `/processes`, `/docs`, `/bin`, `/run`, or arbitrary new top-level namespaces.
 - Uploaded/generated artifacts are not promoted into employee context automatically.
-- `/proc/profile` is authoritative for confirmed operational fields such as role, timezone, response length, and selected persona identifier.
+- `/proc/profile` is authoritative for confirmed operational fields such as role, timezone, response length, and selected persona identifier, plus optional employee-only recurring tasks, AI experience, and program goal collected through the typed profile-context use case.
 - `/proc/context/90_agent_memory/soul.md` may refine style but not override structured fields, policy, or capabilities. A legacy `persona.md` and `/proc/context/99_system/*` remain ordinary untrusted context.
 - Repository `docs/` and `vault/user/**` are never loaded into the «Минутка» prompt implicitly. Production employee data comes from scoped stores and projections.

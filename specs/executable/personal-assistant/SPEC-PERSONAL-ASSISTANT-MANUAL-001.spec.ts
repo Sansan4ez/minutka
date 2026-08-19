@@ -31,6 +31,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
     expect(instructions).toContain("Process file: morning_activity_collection");
     expect(instructions).toContain('collectActivity` exactly once for each named activity');
+    expect(instructions).toContain("updatePersonalContext");
+    expect(instructions).toContain("Do not ask a questionnaire");
     expect(instructions).toContain("Process file: consent_and_privacy");
     expect(instructions).toContain("full tenant-scoped research access");
     expect(instructions).toContain("company behind the client-report boundary");
@@ -77,7 +79,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .join("\n");
 
     expect(registeredIds).toEqual([
-      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivity", "markProcessUsed",
+      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivity", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
@@ -116,6 +118,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("listDocuments");
     expect(assistantActiveToolNames).not.toContain("createContextNote");
     expect(assistantActiveToolNames).toContain("collectActivity");
+    expect(assistantActiveToolNames).toContain("updatePersonalContext");
     expect(binRegistry.disabledForMinutka.map(({ id }) => id).sort()).toEqual([...disabledToolNames].sort());
     expect(binRegistry.personalAssistant.some(({ id }) => disabledToolNames.includes(id))).toBe(false);
     for (const { manifest, process } of binRegistry.disabledForMinutka) {

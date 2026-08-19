@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import type { ResearchSubject } from "../../application/research-identity-projection.js";
 import { keyedDigest } from "./digests.js";
 import { withTransaction } from "./postgres-pool.js";
+import { applyPersonalProfileContextPatch } from "../../application/personal-profile-context.js";
 
 type ParticipantRow = {
   employee_id: string;
@@ -47,6 +48,7 @@ type ProfileRow = {
   typical_tasks: string[] | null;
   persona: UserProfile["persona"];
   ai_level: UserProfile["aiLevel"] | null;
+  program_goal: string | null;
   response_length: UserProfile["responseLength"];
   preferred_checkins_per_day: 1 | 2 | 3 | null;
   created_at: Date;
@@ -61,9 +63,14 @@ const researchSubjectSelect = `SELECT participant.company_id, participant.group_
   LEFT JOIN minutka_private.messages message ON message.subject_key = participant.subject_key`;
 const profileColumns = `p.employee_id, participant.company_id, participant.group_id, p.role_id,
   p.preferred_name, p.assistant_name, p.address_form, p.timezone, p.role, p.typical_tasks,
-  p.persona, p.ai_level, p.response_length, p.preferred_checkins_per_day, p.created_at, p.updated_at`;
+  p.persona, p.ai_level, p.program_goal, p.response_length, p.preferred_checkins_per_day, p.created_at, p.updated_at`;
 
-const calendarDate = (value: string | Date): string => typeof value === "string" ? value.slice(0, 10) : value.toISOString().slice(0, 10);
+const calendarDate = (value: string | Date): string => {
+  if (typeof value === "string") return value.slice(0, 10);
+  // PostgreSQL DATE values are parsed as local-midnight Date objects by `pg`.
+  // Formatting through UTC shifts the day west of UTC, so preserve local parts.
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+};
 const toParticipant = (row: ParticipantRow): Participant => ({
   employeeId: row.employee_id,
   companyId: row.company_id,
@@ -104,6 +111,7 @@ const toProfile = (row: ProfileRow): UserProfile => ({
   ...(row.role ? { role: row.role } : {}),
   ...(row.typical_tasks ? { typicalTasks: row.typical_tasks } : {}),
   ...(row.ai_level ? { aiLevel: row.ai_level } : {}),
+  ...(row.program_goal ? { programGoal: row.program_goal } : {}),
   ...(row.preferred_checkins_per_day ? { preferredCheckinsPerDay: row.preferred_checkins_per_day } : {}),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -253,17 +261,17 @@ export function createPostgresProfileStore(
             [profile.employeeId, profile.roleId],
           );
           await client.query(
-            `INSERT INTO minutka_private.profiles(employee_id, role_id, preferred_name, assistant_name, address_form, timezone, role, typical_tasks, persona, ai_level, response_length, preferred_checkins_per_day, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14)
+            `INSERT INTO minutka_private.profiles(employee_id, role_id, preferred_name, assistant_name, address_form, timezone, role, typical_tasks, persona, ai_level, program_goal, response_length, preferred_checkins_per_day, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15)
              ON CONFLICT (employee_id) DO UPDATE SET
                role_id=EXCLUDED.role_id, preferred_name=EXCLUDED.preferred_name, assistant_name=EXCLUDED.assistant_name,
                address_form=EXCLUDED.address_form, timezone=EXCLUDED.timezone,
                role=EXCLUDED.role, typical_tasks=EXCLUDED.typical_tasks, persona=EXCLUDED.persona,
-               ai_level=EXCLUDED.ai_level, response_length=EXCLUDED.response_length,
+               ai_level=EXCLUDED.ai_level, program_goal=EXCLUDED.program_goal, response_length=EXCLUDED.response_length,
                preferred_checkins_per_day=EXCLUDED.preferred_checkins_per_day, updated_at=EXCLUDED.updated_at`,
             [profile.employeeId, profile.roleId, profile.preferredName, profile.assistantName, profile.addressForm, profile.timezone,
               profile.role ?? null, profile.typicalTasks ? JSON.stringify(profile.typicalTasks) : null, profile.persona,
-              profile.aiLevel ?? null, profile.responseLength, profile.preferredCheckinsPerDay ?? null, profile.createdAt, profile.updatedAt],
+              profile.aiLevel ?? null, profile.programGoal ?? null, profile.responseLength, profile.preferredCheckinsPerDay ?? null, profile.createdAt, profile.updatedAt],
           );
           await client.query(
             "UPDATE minutka_private.participants SET status = 'profile_completed', updated_at = $2 WHERE employee_id = $1",
@@ -271,6 +279,34 @@ export function createPostgresProfileStore(
           );
           if (deleteOnboardingDraft) await client.query("DELETE FROM minutka_private.onboarding_drafts WHERE employee_id = $1", [profile.employeeId]);
           return { profile, wasCompleted };
+        });
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
+    async updatePersonalContext({ employeeId, patch, updatedAt }) {
+      try {
+        return await withTransaction(pool, async (client) => {
+          const current = await client.query<ProfileRow>(
+            `SELECT ${profileColumns}
+             FROM minutka_private.profiles p
+             JOIN minutka_private.participants participant USING (employee_id)
+             WHERE p.employee_id = $1
+             FOR UPDATE OF p`,
+            [employeeId],
+          );
+          if (!current.rows[0]) throw new PersistenceError("profile_not_found");
+          const result = applyPersonalProfileContextPatch(toProfile(current.rows[0]), patch, updatedAt);
+          if (result.changedFields.length === 0) return result;
+          await client.query(
+            `UPDATE minutka_private.profiles
+             SET typical_tasks = $2::jsonb, ai_level = $3, program_goal = $4, updated_at = $5
+             WHERE employee_id = $1`,
+            [employeeId, result.profile.typicalTasks ? JSON.stringify(result.profile.typicalTasks) : null,
+              result.profile.aiLevel ?? null, result.profile.programGoal ?? null, updatedAt],
+          );
+          return result;
         });
       } catch (error) {
         if (error instanceof PersistenceError) throw error;

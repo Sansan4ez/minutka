@@ -34,8 +34,10 @@ export function renderRuntimeProfileProjection(profile: ProfileProjection | null
     `- Стиль общения: ${profile.persona}`,
     `- Предпочтительная длина ответа: ${profile.responseLength}`,
     `- Часовой пояс: ${profile.timezone}`,
-    ...(profile.role ? [`- Legacy role context: ${escapeUserControlledText(profile.role)}`] : []),
-    ...(profile.typicalTasks?.length ? [`- Legacy task context: ${profile.typicalTasks.map(escapeUserControlledText).join(", ")}`] : []),
+    ...(profile.role ? [`- Рабочая роль: ${escapeUserControlledText(profile.role)}`] : []),
+    ...(profile.typicalTasks?.length ? [`- Регулярные задачи: ${profile.typicalTasks.map(escapeUserControlledText).join(", ")}`] : []),
+    ...(profile.aiLevel ? [`- Уровень знакомства с ИИ: ${profile.aiLevel}`] : []),
+    ...(profile.programGoal ? [`- Личная цель программы: ${escapeUserControlledText(profile.programGoal)}`] : []),
   ].join("\n");
 }
 

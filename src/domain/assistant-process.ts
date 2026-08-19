@@ -53,6 +53,7 @@ export const assistantToolProcessOwners: Readonly<Record<string, AssistantProces
   proposeContextDocumentMove: "knowledge_lookup",
   proposeContextDocumentDelete: "knowledge_lookup",
   collectActivity: "morning_activity_collection",
+  updatePersonalContext: "morning_activity_collection",
 };
 
 export function isAssistantProcessId(value: string): value is AssistantProcessId {

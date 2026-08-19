@@ -55,9 +55,10 @@ export type UserProfile = {
   timezone: string;
   /** Personal self-description; never copied into anonymized reporting rows. */
   role?: string;
-  /** Stored legacy profile context; no longer accepted by Minutka onboarding. */
+  /** Bounded personal context gathered from ordinary employee conversation. */
   typicalTasks?: string[];
   aiLevel?: AiLevel;
+  programGoal?: string;
   preferredCheckinsPerDay?: 1 | 2 | 3;
   createdAt: string;
   updatedAt: string;

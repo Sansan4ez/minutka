@@ -11,7 +11,8 @@ This README is developer documentation, not prompt input or a capability source.
 | `/bin/list-schedules.md` | `listSchedules` | No | Authenticated employee | Show only the morning and evening message times. |
 | `/bin/set-daily-schedule.md` | `setDailySchedule` | Yes, reversible | Authenticated employee and closed morning/evening ids | Move or re-enable the morning or evening message. Arbitrary reminders are not accepted by the agent-facing schema. |
 | `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible | Authenticated employee and exact visible id | Switch off the morning or evening message without deleting delivery history. |
-| `/bin/collect-activity.md` | `collectActivity` | Yes, atomic private + anonymized write | Employee and tenant ids bound by `AssistantService` | Record exactly one structured employee activity; omit unknown values and accept no free text. |
+| `/bin/collect-activity.md` | `collectActivity` | Yes, canonical structured write | Employee and tenant ids bound by `AssistantService` | Record exactly one structured employee activity; omit unknown values and accept no free text. |
+| `/bin/update-personal-context.md` | `updatePersonalContext` | Yes, employee-only profile write | Authenticated employee | Save bounded recurring tasks, AI experience, or program goal stated in ordinary conversation; never require them. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | Request-scoped closed active process catalog | Record diagnostic evidence for an inline process; grants no capability. |
 
 Schedule changes are level 0 reversible internal writes. Employee-facing replies use product language—morning or evening message—and never advertise arbitrary reminders or runtime ids.

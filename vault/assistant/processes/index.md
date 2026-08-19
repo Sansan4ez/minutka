@@ -4,7 +4,7 @@ Choose the applicable registered process by meaning in the main answer turn; the
 
 | Process id | When it applies | Allowed effect |
 |---|---|---|
-| `morning_activity_collection` | Scheduled morning touch or an employee account of one to three activities since the previous touch. | Keep it conversational; call `collectActivity` once per named activity, omit unknown fields, and keep all free text in the private conversation record. |
+| `morning_activity_collection` | Scheduled morning touch or an employee account of one to three activities since the previous touch. | Keep it conversational; call `collectActivity` once per named activity and optionally `updatePersonalContext` for recurring tasks, AI experience, or program goal the employee stated without prompting. Missing profile context never blocks the turn. |
 | `consent_and_privacy` | Connection/onboarding consent or a question about the research corpus, research-team/company visibility, model use, retention, or deletion. | Use the canonical process-owned consent text; disclose full tenant-scoped research access, keep the company behind the client-report boundary, and explain manual company/group/subject deletion with report recompute. |
 | `evening_reflection` | Reflect on the workday, blockers, meetings, fatigue, missed priorities, or a scheduled evening trigger. | Concise non-judgmental reflection and one small next step; do not invent events, score productivity, or mutate records without an active typed use case. |
 

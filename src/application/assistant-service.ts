@@ -15,6 +15,7 @@ import { safeAuditMetadata, type AuditEventStore } from "./audit-event-store.js"
 import { loadAssistantAgentInstructions } from "./assistant-manual-loader.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import type { ProfileStore } from "./profile-store.js";
+import type { PersonalProfileContextPatch } from "./personal-profile-context.js";
 import { boundRecentHistory, type RuntimeProjectionBuilder } from "./runtime-projections/runtime-projection-builder.js";
 import { renderRecentHistoryProjection, renderRuntimeProfileProjection, renderThreadSummaryProjection } from "./runtime-projections/runtime-projection-renderer.js";
 import type { ChatProcSnapshot } from "./runtime-projections/runtime-projection-types.js";
@@ -86,6 +87,8 @@ export type AssistantAgentContext = {
   schedules: OwnerScheduleCapabilities;
   /** Authenticated employee and tenant-bound structured activity write. */
   collectActivity(activity: CollectActivityInput): Promise<{ activityId: string }>;
+  /** Employee-bound bounded personal context write from ordinary conversation. */
+  updatePersonalContext(patch: PersonalProfileContextPatch): Promise<{ changedFields: string[] }>;
   /** Request-scoped diagnostic evidence only; it grants no capability or authority. */
   markProcessUsed(id: AssistantDiagnosticProcessId): void;
 };
@@ -145,7 +148,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -540,6 +543,17 @@ export class AssistantService {
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
     };
+    const updatePersonalContext = async (patch: PersonalProfileContextPatch) => {
+      if (!this.deps.participantStore.updatePersonalContext) throw new Error("personal profile context update is not configured");
+      const result = await this.deps.participantStore.updatePersonalContext({ employeeId: userId, patch, updatedAt: this.clock.now() });
+      observedExecutionTrace.push({ kind: "tool", toolName: "updatePersonalContext" });
+      if (result.changedFields.length > 0 && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      await this.auditSafely({
+        id: this.ids.auditEventId(), requestId, type: "profile_updated", employeeId: userId, threadId, messageId,
+        occurredAt: this.clock.now(), metadata: safeAuditMetadata("profile_updated", { changedFields: result.changedFields }),
+      }, "personal profile context audit");
+      return { changedFields: result.changedFields };
+    };
     const tasks = createAssistantTaskCapabilities({
       ownerId: userId,
       tasks: this.deps.taskStore,
@@ -591,6 +605,7 @@ export class AssistantService {
       projects,
       schedules,
       collectActivity,
+      updatePersonalContext,
       markProcessUsed,
     } satisfies AssistantAgentContext;
     let executionTrace: AssistantExecutionTrace = [];
@@ -950,6 +965,7 @@ function emptyChatProcSnapshot(input: { userId: string; threadId: string; reques
     ...(input.profile.role ? { role: input.profile.role } : {}),
     ...(input.profile.typicalTasks ? { typicalTasks: [...input.profile.typicalTasks] } : {}),
     ...(input.profile.aiLevel ? { aiLevel: input.profile.aiLevel } : {}),
+    ...(input.profile.programGoal ? { programGoal: input.profile.programGoal } : {}),
     ...(input.profile.preferredCheckinsPerDay ? { preferredCheckinsPerDay: input.profile.preferredCheckinsPerDay } : {}),
   } : null;
   return {

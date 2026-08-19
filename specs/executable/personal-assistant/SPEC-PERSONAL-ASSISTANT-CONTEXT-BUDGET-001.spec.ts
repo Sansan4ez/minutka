@@ -43,7 +43,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * retention disclosure required by mnt-pilot-readiness-w73.30 and the bounded
  * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2.
  */
-const pinnedAgentManualCharacters = 27_854;
+const pinnedAgentManualCharacters = 29_215;
 
 const projection = {
   schemaVersion: 1 as const,

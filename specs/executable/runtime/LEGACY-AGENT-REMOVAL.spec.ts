@@ -89,7 +89,11 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(options.toolsets?.contextDocuments).toBeUndefined();
         expect(options.toolsets?.tasks).toBeUndefined();
         expect(Object.keys(options.toolsets?.schedules ?? {})).toEqual(["listSchedules", "setDailySchedule", "disableSchedule"]);
+        expect(Object.keys(options.toolsets?.profile ?? {})).toEqual(["updatePersonalContext"]);
         expect(JSON.stringify(options.toolsets)).not.toMatch(/listTasks|proposeTaskMutation|proposeIdeaToTask|listDocuments|readDocument|searchDocuments|createContextNote/);
+        const profileTool = options.toolsets?.profile?.updatePersonalContext as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        expect(profileTool.execute).toBeTypeOf("function");
+        await expect(profileTool.execute?.({ aiLevel: "intermediate" }, {})).resolves.toEqual({ recorded: true, changedFields: [] });
         const diagnostic = options.toolsets?.diagnostics?.markProcessUsed as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(diagnostic.execute).toBeTypeOf("function");
         await expect(diagnostic.execute?.({ id: "morning_activity_collection" }, {})).resolves.toEqual({ recorded: true, id: "morning_activity_collection" });
@@ -132,6 +136,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         captured.push(activity);
         return { activityId: "activity_1" };
       },
+      async updatePersonalContext() { return { changedFields: [] }; },
       tasks: {
         async list() { return []; },
         async propose() {
@@ -224,6 +229,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     expect(generateOptions?.toolsets?.tasks).toBeUndefined();
     expect(Object.keys(generateOptions?.toolsets?.schedules ?? {})).toEqual([...assistantRuntimeToolsets.schedules]);
     expect(Object.keys(generateOptions?.toolsets?.activities ?? {})).toEqual([...assistantRuntimeToolsets.activities]);
+    expect(Object.keys(generateOptions?.toolsets?.profile ?? {})).toEqual([...assistantRuntimeToolsets.profile]);
     expect(Object.keys(generateOptions?.toolsets?.diagnostics ?? {})).toEqual([...assistantRuntimeToolsets.diagnostics]);
   });
 

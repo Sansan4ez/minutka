@@ -4,6 +4,7 @@ import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/proc
 import { normalizeMastraUsage, type MastraTokenUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
+import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
 
 /**
@@ -15,12 +16,14 @@ import { llmModel } from "../config/llm.js";
 export const assistantRuntimeToolsets = {
   schedules: assistantScheduleToolNames,
   activities: [collectActivityToolName],
+  profile: [updatePersonalContextToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
 
 export const assistantActiveToolNames = [
   ...assistantRuntimeToolsets.schedules,
   ...assistantRuntimeToolsets.activities,
+  ...assistantRuntimeToolsets.profile,
   ...assistantRuntimeToolsets.diagnostics,
 ] as const;
 
@@ -58,6 +61,7 @@ export function createAssistantToolsets(context: AssistantAgentContext) {
   return {
     schedules: createScheduleTools(context.schedules),
     activities: { collectActivity: createCollectActivityTool(context.collectActivity) },
+    profile: { updatePersonalContext: createUpdatePersonalContextTool(context.updatePersonalContext) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
   };
 }

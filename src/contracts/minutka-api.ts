@@ -43,8 +43,9 @@ export const userProfileSchema = z.strictObject({
   responseLength: responseLengthSchema,
   timezone: timezoneSchema,
   role: z.string().min(1).optional(),
-  typicalTasks: z.array(z.string().min(1)).min(1).max(7).optional(),
+  typicalTasks: z.array(z.string().trim().min(1).max(160)).min(1).max(7).optional(),
   aiLevel: aiLevelSchema.optional(),
+  programGoal: z.string().trim().min(1).max(500).optional(),
   preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
@@ -268,6 +269,7 @@ export const completeOnboardingRequestSchema = z.strictObject({
   preferredName: z.string().min(1).max(128).optional(), assistantName: z.string().min(1).max(128).optional(), addressForm: addressFormSchema.optional(), timezone: timezoneSchema.optional(),
   persona: personaSchema, responseLength: responseLengthSchema.optional(), preferredCheckinsPerDay: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   roleId: z.string().min(1).max(128), selfDescription: z.string().min(1).max(2_000).optional(),
+  typicalTasks: z.array(z.string().trim().min(1).max(160)).min(1).max(7).optional(), aiLevel: aiLevelSchema.optional(), programGoal: z.string().trim().min(1).max(500).optional(),
 });
 export const completeOnboardingResponseSchema = z.strictObject({ employeeId: employeeIdSchema, status: z.literal("profile_completed"), completion: z.enum(["new", "already"]), profile: userProfileSchema, firstResponse: z.string(), firstActivityPrompt: z.string().min(1).optional() });
 export const onboardingFieldSchema = z.enum(["roleId", "preferredName", "communicationStyle", "timezone"]);
