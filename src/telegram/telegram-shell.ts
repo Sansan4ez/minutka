@@ -221,7 +221,9 @@ function scheduleProcessLabel(processId: string): string {
     ? "Утреннее сообщение"
     : processId === "evening_reflection"
       ? "Вечернее сообщение"
-      : processId;
+      : processId === "weekly_summary"
+        ? "Недельная сводка"
+        : processId;
 }
 function scheduleDaysLabel(daysOfWeek: number): string {
   if (daysOfWeek === 127) return "каждый день";

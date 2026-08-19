@@ -38,7 +38,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
   return {
     listSchedules: createTool({
       id: "listSchedules",
-      description: "List the authenticated employee's morning and evening message times, including days and next delivery times.",
+      description: "List the authenticated employee's morning, evening, and weekly message times, including days and next delivery times.",
       strict: true,
       inputSchema: z.strictObject({}),
       outputSchema: scheduleListOutputSchema,
@@ -47,7 +47,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
     }),
     setDailySchedule: createTool({
       id: "setDailySchedule",
-      description: "Change or re-enable the authenticated employee's morning or evening message time. Use the exact processId or scheduleId returned by listSchedules. Timezone defaults to the employee profile.",
+      description: "Change or re-enable the authenticated employee's morning, evening, or weekly message time. Use the exact processId or scheduleId returned by listSchedules. Timezone defaults to the employee profile.",
       strict: true,
       inputSchema: z.strictObject({
         scheduleId: z.string().min(1).optional(),
@@ -64,13 +64,13 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
         } catch (error) {
           if (error instanceof AssistantScheduleNotFoundError) return { status: "not_found" as const };
           if (error instanceof UnsupportedAssistantScheduleProcessError) {
-            return { status: "unsupported_process" as const, message: `Можно перенести только утреннее или вечернее сообщение. Значение ${error.processId || "не указано"} не поддерживается.` };
+            return { status: "unsupported_process" as const, message: `Можно перенести только утреннее, вечернее или недельное сообщение. Значение ${error.processId || "не указано"} не поддерживается.` };
           }
           if (error instanceof AssistantScheduleKindChangeError) {
-            return { status: "unsupported_process" as const, message: "Можно менять только время утреннего или вечернего сообщения." };
+            return { status: "unsupported_process" as const, message: "Можно менять только время утреннего, вечернего или недельного сообщения." };
           }
           if (error instanceof AssistantScheduleProcessChangeError) {
-            return { status: "unsupported_process" as const, message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего или вечернего сообщения." };
+            return { status: "unsupported_process" as const, message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего, вечернего или недельного сообщения." };
           }
           throw error;
         }
@@ -78,7 +78,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
     }),
     disableSchedule: createTool({
       id: "disableSchedule",
-      description: "Disable one authenticated employee's morning or evening message by exact id without deleting its delivery history.",
+      description: "Disable one authenticated employee's morning, evening, or weekly message by exact id without deleting its delivery history.",
       strict: true,
       inputSchema: z.strictObject({ scheduleId: z.string().min(1) }),
       outputSchema: scheduleMutationOutputSchema,

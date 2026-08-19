@@ -33,7 +33,7 @@ import { ContextDocumentService } from "../../src/application/context-document-s
 import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
-import { createPostgresActivityCollectionStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
+import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../../src/infrastructure/postgres/postgres-company-report-store.js";
@@ -267,6 +267,13 @@ describe("PostgreSQL storage contracts", () => {
     )).rows).toEqual([{ user_text: "private activity text" }]);
     const corpusActivities = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
     expect(corpusActivities).toEqual([expect.objectContaining({ activityId: "activity_pg_one", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one", activityDate: "2026-08-16" })]);
+    const ownActivities = createPostgresOwnActivityReadStore(pool);
+    expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([{
+      employeeId: "activity_owner", taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+      durationBucket: "1_2h", system: "spreadsheets", activityDate: "2026-08-16",
+    }]);
+    expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-09", toDate: "2026-08-15" })).toEqual([]);
+    expect(await ownActivities.listOwnActivities({ employeeId: "another_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([]);
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool)).exportGroup({ companyId, groupId });
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);

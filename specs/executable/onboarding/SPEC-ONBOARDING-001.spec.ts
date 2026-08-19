@@ -223,6 +223,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
     const schedules = [
       { kind: "process", processId: "morning_planning", timeOfDay: "08:45" },
       { kind: "process", processId: "evening_reflection", timeOfDay: "18:30" },
+      { kind: "process", processId: "weekly_summary", timeOfDay: "17:15" },
     ] as Parameters<typeof createOnboardingWelcome>[1];
     const informalProfile = { preferredName: "Максим", addressForm: "informal" } as const;
     const formalProfile = { preferredName: "Алексей", addressForm: "formal" } as const;
@@ -234,19 +235,19 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
       return root;
     };
 
-    expect(() => createOnboardingWelcome(informalProfile, schedules, { repoRoot: writeWelcome("{{preferredName}} {{morningTime}} {{eveningTime}}") })).toThrow(/one ordered/);
+    expect(() => createOnboardingWelcome(informalProfile, schedules, { repoRoot: writeWelcome("{{preferredName}} {{morningTime}} {{eveningTime}} {{weeklyTime}}") })).toThrow(/one ordered/);
     expect(() => createOnboardingWelcome(informalProfile, schedules, { repoRoot: writeWelcome([
       "<!-- minutka-welcome:start -->",
-      "{{preferredName}} {{preferredName}} {{morningTime}} {{eveningTime}}",
+      "{{preferredName}} {{preferredName}} {{morningTime}} {{eveningTime}} {{weeklyTime}}",
       "<!-- minutka-welcome:end -->",
     ].join("\n")) })).toThrow(/preferredName.*exactly once/);
     const welcomeRoot = writeWelcome([
       "<!-- minutka-welcome:start -->",
-      "{{preferredName}}, утро {{morningTime}}, вечер {{eveningTime}}",
+      "{{preferredName}}, утро {{morningTime}}, вечер {{eveningTime}}, неделя {{weeklyTime}}",
       "<!-- minutka-welcome:end -->",
     ].join("\n"));
-    expect(createOnboardingWelcome(informalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Максим, утро 08:45, вечер 18:30");
-    expect(createOnboardingWelcome(formalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Алексей, утро 08:45, вечер 18:30");
+    expect(createOnboardingWelcome(informalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Максим, утро 08:45, вечер 18:30, неделя 17:15");
+    expect(createOnboardingWelcome(formalProfile, schedules, { repoRoot: welcomeRoot })).toBe("Алексей, утро 08:45, вечер 18:30, неделя 17:15");
     expect(() => createOnboardingWelcome({ preferredName: "   " }, schedules, { repoRoot: welcomeRoot })).toThrow(/preferredName.*empty/);
   });
 

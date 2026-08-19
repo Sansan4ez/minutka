@@ -1,6 +1,6 @@
 # Операторский запуск планового процесса по требованию
 
-Команда показывает содержание утреннего или вечернего сообщения без ожидания расписания и без доставки в Telegram. Она собирает обычный PostgreSQL runtime и вызывает typed use-case `PersonalAssistantService.runScheduledProcess`; прямого доступа к stores у скрипта нет.
+Команда показывает содержание утреннего, вечернего или недельного сообщения без ожидания расписания и без доставки в Telegram. Она собирает обычный PostgreSQL runtime и вызывает typed use-case `PersonalAssistantService.runScheduledProcess`; прямого доступа к stores у скрипта нет.
 
 Это проверка **содержания процесса**, а не планировщика. Команда не меняет `minutka_private.process_schedules` и `minutka_private.schedule_fires`. Срабатывание расписания и Telegram-доставка проверяются отдельно в прогоне пилотного сценария.
 
@@ -41,6 +41,18 @@ npm run process:run -- \
 
 Ожидаемое содержание: приглашение назвать до трёх фактически выполненных или начатых активностей, препятствие и необязательный рабочий сигнал энергии. `collectActivity` выполняется только после ответа сотрудника, один раз на каждую фактическую activity.
 
+Недельная личная сводка:
+
+```bash
+npm run process:run -- \
+  --employee <employeeId> \
+  --process weekly_summary
+```
+
+Ожидаемое содержание: сводка по собственным активностям сотрудника за последние семь локальных дней — какие категории повторялись, что называлось помехой, какой сигнал энергии был явно назван — и приглашение подтвердить или поправить замеченное. Значения берутся из typed `readWeeklyActivities`; обезличенные строки и данные других участников не читаются. Если данных за окно мало (порог: меньше трёх активностей или меньше двух дней с активностями), ответ прямо говорит о нехватке данных и не называет паттерн. Личный контекст (`updatePersonalContext`) меняется только после явного подтверждения сотрудника, поэтому один запуск команды сам по себе профиль не меняет.
+
+По умолчанию расписание недельного касания — пятница, 17:00 по времени сотрудника (`defaultSchedules` в `src/application/default-schedules.ts`, маска дней `16`). Сотрудник переносит или отключает его теми же `listSchedules` / `setDailySchedule` / `disableSchedule`. День и время калибруются после первой пилотной недели.
+
 По умолчанию используется ветка `default`. Чтобы проверить bounded continuity утро → добровольный дневной апдейт → вечер, передавайте один и тот же Telegram thread ID:
 
 ```bash
@@ -62,7 +74,7 @@ npm run process:run -- --employee <employeeId> --process evening_reflection --th
 - PostgreSQL, MinIO, миграции или LLM-конфигурация не готовы;
 - выполнение процесса завершилось ошибкой.
 
-Допустимые значения `--process`: `morning_planning` и `evening_reflection`.
+Допустимые значения `--process`: `morning_planning`, `evening_reflection` и `weekly_summary`.
 
 ## Проверка в пилотном прогоне
 
@@ -71,6 +83,7 @@ npm run process:run -- --employee <employeeId> --process evening_reflection --th
 ```bash
 npm run process:run -- --employee <employeeId> --process morning_planning --thread <threadId>
 npm run process:run -- --employee <employeeId> --process evening_reflection --thread <threadId>
+npm run process:run -- --employee <employeeId> --process weekly_summary --thread <threadId>
 ```
 
 Для каждого запуска зафиксировать код `0` и минимальный фрагмент stdout без персонального диалога. Не считать успешный запуск этой команды свидетельством срабатывания расписания или Telegram-доставки.

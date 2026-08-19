@@ -69,7 +69,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULE-TOOLS-001: narrow owner schedule capa
     }, {} as never);
     expect(refusal).toEqual({
       status: "unsupported_process",
-      message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего или вечернего сообщения.",
+      message: "Выбранное расписание относится к другому сообщению. Используйте расписание для нужного утреннего, вечернего или недельного сообщения.",
     });
     expect(JSON.stringify(refusal)).not.toMatch(/processId|runtime|scheduleId/iu);
     await expect(service.listSchedules("owner-a")).resolves.toMatchObject([

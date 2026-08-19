@@ -11,6 +11,7 @@ const welcomePlaceholders = {
   preferredName: "{{preferredName}}",
   morningTime: "{{morningTime}}",
   eveningTime: "{{eveningTime}}",
+  weeklyTime: "{{weeklyTime}}",
 } as const;
 
 export function createOnboardingWelcome(
@@ -23,12 +24,14 @@ export function createOnboardingWelcome(
   const template = extractWelcomeTemplate(source);
   const morningTime = scheduleTime(schedules, "morning_planning");
   const eveningTime = scheduleTime(schedules, "evening_reflection");
+  const weeklyTime = scheduleTime(schedules, "weekly_summary");
   if (!profile.preferredName.trim()) throw new Error("welcome preferredName must not be empty");
 
   return template
     .replace(welcomePlaceholders.preferredName, profile.preferredName)
     .replace(welcomePlaceholders.morningTime, morningTime)
-    .replace(welcomePlaceholders.eveningTime, eveningTime);
+    .replace(welcomePlaceholders.eveningTime, eveningTime)
+    .replace(welcomePlaceholders.weeklyTime, weeklyTime);
 }
 
 function extractWelcomeTemplate(source: string): string {

@@ -62,7 +62,8 @@ import { createPostgresContextDocumentConfirmationStore } from "../infrastructur
 import { createPostgresPendingActionGroupStore } from "../infrastructure/postgres/postgres-pending-action-group-store.js";
 import { createTelegramScheduledActionRunner } from "./scheduled-action-delivery.js";
 import { CollectActivityService } from "../application/activity-collection.js";
-import { createPostgresActivityCollectionStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
+import { WeeklyActivitySummaryService } from "../application/weekly-activity-summary.js";
+import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
 import { CompanyReportingService } from "../application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../infrastructure/postgres/postgres-research-trace-store.js";
@@ -227,6 +228,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ideaToTask = new IdeaToTaskService(ideaStore, taskStore, taskMutations);
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock, randomIdGenerator);
     const activityCollection = new CollectActivityService(createPostgresActivityCollectionStore(pool), systemClock);
+    const weeklyActivitySummary = new WeeklyActivitySummaryService(createPostgresOwnActivityReadStore(pool), systemClock);
     const researchTraceStore = createPostgresResearchTraceStore(pool);
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
@@ -238,6 +240,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextDocuments,
       scheduleManagement,
       collectActivity: (command) => activityCollection.collect(command),
+      readWeeklyActivities: (input) => weeklyActivitySummary.summarize(input),
       projectLabels,
       taskStore,
       taskMutations,

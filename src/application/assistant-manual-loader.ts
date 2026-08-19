@@ -33,6 +33,7 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
     "personal_context_review",
     "consent_and_privacy",
     "evening_reflection",
+    "weekly_summary",
   ] as const satisfies readonly AssistantProcessId[];
   if (catalogIds.join("\n") !== activeProcessIds.join("\n")) {
     throw new Error(`assistant process catalog drift: expected ${activeProcessIds.join(", ")}; received ${catalogIds.join(", ")}`);

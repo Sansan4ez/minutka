@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { ActivityCollectionStore } from "../../application/activity-collection.js";
+import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/weekly-activity-summary.js";
 import { mapPostgresError, PersistenceError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
 
@@ -45,6 +46,46 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
         });
       } catch (error) {
         if (error instanceof PersistenceOutcomeUnknownError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
+  };
+}
+
+type OwnActivityRow = {
+  employee_id: string;
+  task_category: OwnActivityFacet["taskCategory"] | null;
+  obstacle_kind: NonNullable<OwnActivityFacet["obstacle"]>["kind"] | null;
+  obstacle_value: string | null;
+  duration_bucket: OwnActivityFacet["durationBucket"] | null;
+  system: OwnActivityFacet["system"] | null;
+  activity_date: string;
+};
+
+/** Owner-scoped window read behind the weekly personal summary. */
+export function createPostgresOwnActivityReadStore(pool: Pool): OwnActivityReadStore {
+  return {
+    async listOwnActivities({ employeeId, fromDate, toDate }) {
+      try {
+        const result = await pool.query<OwnActivityRow>(
+          `SELECT employee_id, task_category, obstacle_kind, obstacle_value, duration_bucket, system,
+                  activity_date::text AS activity_date
+           FROM minutka_private.activities
+           WHERE employee_id = $1 AND activity_date BETWEEN $2::date AND $3::date
+           ORDER BY activity_date, recorded_at, activity_id`,
+          [employeeId, fromDate, toDate],
+        );
+        return result.rows.map((row): OwnActivityFacet => ({
+          employeeId: row.employee_id,
+          ...(row.task_category ? { taskCategory: row.task_category } : {}),
+          ...(row.obstacle_kind && row.obstacle_value
+            ? { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as OwnActivityFacet["obstacle"] }
+            : {}),
+          ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
+          ...(row.system ? { system: row.system } : {}),
+          activityDate: row.activity_date,
+        }));
+      } catch (error) {
         throw mapPostgresError(error);
       }
     },

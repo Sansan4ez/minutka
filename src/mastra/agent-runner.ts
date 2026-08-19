@@ -4,6 +4,7 @@ import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/proc
 import { normalizeMastraUsage, type MastraTokenUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
 import { collectActivityToolName, createCollectActivityTool } from "./tools/activity-collection-tool.js";
+import { createReadWeeklyActivitiesTool, readWeeklyActivitiesToolName } from "./tools/weekly-activity-tool.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
 
@@ -15,7 +16,7 @@ import { llmModel } from "../config/llm.js";
  */
 export const assistantRuntimeToolsets = {
   schedules: assistantScheduleToolNames,
-  activities: [collectActivityToolName],
+  activities: [collectActivityToolName, readWeeklyActivitiesToolName],
   profile: [updatePersonalContextToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -60,7 +61,10 @@ type AssistantMastraAgent = Pick<Agent, "generate">;
 export function createAssistantToolsets(context: AssistantAgentContext) {
   return {
     schedules: createScheduleTools(context.schedules),
-    activities: { collectActivity: createCollectActivityTool(context.collectActivity) },
+    activities: {
+      collectActivity: createCollectActivityTool(context.collectActivity),
+      readWeeklyActivities: createReadWeeklyActivitiesTool(context.readWeeklyActivities),
+    },
     profile: { updatePersonalContext: createUpdatePersonalContextTool(context.updatePersonalContext) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
   };

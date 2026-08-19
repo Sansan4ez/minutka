@@ -43,8 +43,11 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * retention disclosure required by mnt-pilot-readiness-w73.30 and the bounded
  * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2 and
  * the narrow personal-context review required by mnt-cycle-completion-4gd.7.
+ * The weekly checkpoint required by mnt-cycle-completion-4gd.3 adds a sixth
+ * active process; its ceiling moved from 33 000 to 34 000 so the manual keeps
+ * the same headroom, while the guaranteed ceilings still fit the total budget.
  */
-const pinnedAgentManualCharacters = 32_184;
+const pinnedAgentManualCharacters = 32_940;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -174,7 +177,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
-    const config = createContextBudgetConfig({ total: 83_096 });
+    const config = createContextBudgetConfig({ total: 84_096 });
     const result = applyContextBudget({
       config,
       userInput: "request",

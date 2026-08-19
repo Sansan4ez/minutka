@@ -27,10 +27,12 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
 
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
       { id: "owner_moscow:morning_planning-daily", processId: "morning_planning", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-16T05:30:00.000Z" },
+      { id: "owner_moscow:weekly_summary-daily", processId: "weekly_summary", timeOfDay: "17:00", daysOfWeek: 16, timezone: "Europe/Moscow", nextFireAt: "2026-01-16T14:00:00.000Z" },
       { id: "owner_moscow:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-15T16:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("owner_tokyo")).resolves.toMatchObject([
       { id: "owner_tokyo:morning_planning-daily", processId: "morning_planning", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T23:30:00.000Z" },
+      { id: "owner_tokyo:weekly_summary-daily", processId: "weekly_summary", timeOfDay: "17:00", daysOfWeek: 16, timezone: "Asia/Tokyo", nextFireAt: "2026-01-16T08:00:00.000Z" },
       { id: "owner_tokyo:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T10:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("other_owner")).resolves.toEqual([]);
@@ -65,11 +67,13 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       created: false,
       schedules: [
         { id: "owner_moscow:morning_planning-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+        { id: "owner_moscow:weekly_summary-daily", timeOfDay: "17:00", daysOfWeek: 16, enabled: true, nextFireAt: "2026-01-16T14:00:00.000Z" },
         { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
       ],
     });
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
       { id: "owner_moscow:morning_planning-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+      { id: "owner_moscow:weekly_summary-daily", timeOfDay: "17:00", daysOfWeek: 16, enabled: true, nextFireAt: "2026-01-16T14:00:00.000Z" },
       { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
     ]);
   });

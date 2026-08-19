@@ -64,7 +64,7 @@ export class ScheduleManagementService {
     const oneShot = input.oneShot ?? false;
     const generatedScheduleId = this.ids.scheduleId ?? randomIdGenerator.scheduleId!;
     return this.store.save(safeUserId, {
-      id: existing?.id ?? (process ? dailyScheduleId(safeUserId, process.processId) : generatedScheduleId()),
+      id: existing?.id ?? (process ? defaultScheduleId(safeUserId, process.processId) : generatedScheduleId()),
       daysOfWeek,
       kind,
       ...action,
@@ -137,6 +137,11 @@ function reminderAction(input: SaveDailyScheduleInput): { reminderText: string }
   return { reminderText };
 }
 
-function dailyScheduleId(userId: string, processId: AssistantScheduledProcessId): string {
+/**
+ * Stable owner-scoped id of a default touch, shared with provisioning so the
+ * same process never gets two rows. The `-daily` suffix is historical and also
+ * carries the weekly checkpoint; changing it would orphan existing rows.
+ */
+export function defaultScheduleId(userId: string, processId: AssistantScheduledProcessId): string {
   return `${userId}:${processId}-daily`;
 }

@@ -201,7 +201,7 @@ dbq "SELECT schedule_id, process_id, time_of_day, days_of_week, timezone, enable
      FROM minutka_private.process_schedules WHERE user_id = \$1 ORDER BY process_id" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно два расписания — `morning_planning` на `08:30` и `evening_reflection` на `19:00`, оба с понедельника по пятницу (`days_of_week = 31`) в таймзоне профиля. `day_focus`, retired `morning_activity_collection` и отдельный midday process в расписаниях отсутствуют.
+**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно три расписания — `morning_planning` на `08:30` и `evening_reflection` на `19:00` с понедельника по пятницу (`days_of_week = 31`), плюс `weekly_summary` на `17:00` по пятницам (`days_of_week = 16`), все в таймзоне профиля. `day_focus`, retired `morning_activity_collection` и отдельный midday process в расписаниях отсутствуют.
 
 Онбординг второго сотрудника выполняется так же — с должностью своей компании.
 
@@ -276,6 +276,20 @@ npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection -
 ```
 
 **Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии и завершается кодом `0`. На ответ сотрудника одна named factual activity даёт ровно один `collectActivity`; неизвестные поля отсутствуют, а не выдуманы.
+
+## Шаг 7a. Недельная сводка
+
+Повторить процедуру шага 5 для `weekly_summary`:
+
+```bash
+MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
+  --text "Перенеси недельную сводку на 17:41 по моему часовому поясу." | tail -n 1
+npm run process:run -- --employee "$EMPLOYEE_ONE" --process weekly_summary --thread pilot-daily
+```
+
+**Признак `прошло`:** запись `schedule_fires` с `process_id = weekly_summary` и перенесённым `scheduled_for`; `npm run process:run` завершается кодом `0` и печатает сводку **только по собственным активностям сотрудника за последние семь локальных дней**. Если за окно записано меньше трёх активностей или они попали меньше чем в два дня, ответ прямо говорит о нехватке данных и не называет паттерн. В ответе нет оценки продуктивности и сравнения с другими участниками. Профиль после одного запуска не меняется: `updatePersonalContext` вызывается только после явного подтверждения сотрудника — проверить `dbq "SELECT typical_tasks, ai_level, program_goal FROM minutka_private.profiles WHERE employee_id = \$1" "[\"$EMPLOYEE_ONE\"]"` до и после подтверждающего сообщения.
+
+Сотрудникам, завершившим онбординг до появления недельного касания, строку расписания добавляет `npm run pilot:schedules:backfill` — он создаёт только отсутствующие default-расписания и не трогает уже настроенные.
 
 ## Шаг 8. Изоляция
 

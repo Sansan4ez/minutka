@@ -72,6 +72,19 @@
         "src/contracts/minutka-activity.ts",
         "src/application/activity-collection.ts"
       ]
+    },
+    {
+      "id": "weekly_summary",
+      "path": "vault/assistant/processes/weekly_summary.md",
+      "appliesTo": [
+        "chat",
+        "scheduled"
+      ],
+      "dependencies": [
+        "docs/product/Final_Description.md",
+        "src/application/weekly-activity-summary.ts",
+        "src/application/default-schedules.ts"
+      ]
     }
   ]
 }
