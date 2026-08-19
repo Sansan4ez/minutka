@@ -29,7 +29,7 @@ buildNpmPackage {
       || lib.hasPrefix "vault/assistant/" relative;
   };
 
-  npmDepsHash = "sha256-rfnTVVyiKfcsbd+Neo5oMbeIzge0ex8qJfnXLgmiKIY=";
+  npmDepsHash = "sha256-tYnMyAgxKqJRK3fF4Fte54We6IC2AOLSApLH5roKH9c=";
   dontNpmBuild = true;
   npmFlags = [ "--legacy-peer-deps" ];
   nativeBuildInputs = [ makeWrapper ];

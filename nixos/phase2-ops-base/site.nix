@@ -20,6 +20,7 @@
 
   adminAuthorizedKeys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILtxITw5sdJKdp5x+uzAcXVHHFn74yBREgZCazjm0mOC"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDIdBSYWtYAjptO95urpYB1k49odiCBvz75iUtFvh/jK"
   ];
 
   network = {
