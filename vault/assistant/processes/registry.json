@@ -85,6 +85,20 @@
         "src/application/weekly-activity-summary.ts",
         "src/application/default-schedules.ts"
       ]
+    },
+    {
+      "id": "final_report",
+      "path": "vault/assistant/processes/final_report.md",
+      "appliesTo": [
+        "chat",
+        "scheduled"
+      ],
+      "dependencies": [
+        "docs/product/Final_Description.md",
+        "docs/runbooks/end-of-cycle.md",
+        "src/application/cycle-activity-summary.ts",
+        "src/application/final-report-arming.ts"
+      ]
     }
   ]
 }

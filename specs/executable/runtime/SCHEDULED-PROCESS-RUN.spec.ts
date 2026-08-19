@@ -46,6 +46,13 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
       processId: "weekly_summary",
       threadId: "default",
     });
+    expect(parseScheduledProcessRunArguments([
+      "--employee", "emp_1", "--process", "final_report",
+    ])).toEqual({
+      employeeId: "emp_1",
+      processId: "final_report",
+      threadId: "default",
+    });
   });
 
   it("refuses unknown processes and incomplete arguments with an explicit reason", () => {

@@ -22,7 +22,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Сам выбери применимые процессы");
   });
 
-  it("loads the «Минутка» role, runtime docs, and exactly six active processes", () => {
+  it("loads the «Минутка» role, runtime docs, and exactly seven active processes", () => {
     const instructions = loadAssistantAgentInstructions();
     expect(instructions).toContain("«Минутка» runtime instructions");
     expect(instructions).toContain("helps an employee diagnose working routines");
@@ -46,6 +46,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: weekly_summary");
     expect(instructions).toContain("readWeeklyActivities");
     expect(instructions).toContain("too thin for a pattern");
+    expect(instructions).toContain("Process file: final_report");
+    expect(instructions).toContain("readCycleActivities");
+    expect(instructions).toContain("call a pattern only what the result confirms as repeated");
+    expect(instructions).toContain("does not reach the methodologist or the company");
     expect(instructions).not.toMatch(/\b(?:inbox_capture|knowledge_lookup|day_focus)\b/);
     expect(instructions).toContain("In-the-moment help is limited to discussing how the employee uses working time and work-related emotional state");
     expect(instructions).toContain("ask a clarifying question or suggest an approach, structure, method, or simplification, including how to structure a report");
@@ -87,7 +91,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
 
     expect(registeredIds).toEqual([
       "listSchedules", "setDailySchedule", "disableSchedule", "collectActivity", "readWeeklyActivities",
-      "updatePersonalContext", "markProcessUsed",
+      "readCycleActivities", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
@@ -127,6 +131,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("createContextNote");
     expect(assistantActiveToolNames).toContain("collectActivity");
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
+    expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");
     expect(binRegistry.disabledForMinutka.map(({ id }) => id).sort()).toEqual([...disabledToolNames].sort());
     expect(binRegistry.personalAssistant.some(({ id }) => disabledToolNames.includes(id))).toBe(false);
@@ -169,6 +174,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       "vault/assistant/processes/consent_and_privacy.md",
       "vault/assistant/processes/evening_reflection.md",
       "vault/assistant/processes/weekly_summary.md",
+      "vault/assistant/processes/final_report.md",
     ]);
     expect(disabledRegistry).toEqual({
       version: 1,
@@ -199,6 +205,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect([...activePaths]).toContain("vault/assistant/processes/weekly_summary.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/final_report.md");
     expect(legacyPaths).not.toContain("vault/assistant/processes/onboarding.md");
     expect(processFiles).not.toContain("vault/assistant/processes/onboarding.md");
     for (const draft of draftRegistry.drafts) expect(draft.brEpicId).toMatch(/^prs-[a-z0-9]+$/);

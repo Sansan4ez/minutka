@@ -137,6 +137,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         return { activityId: "activity_1" };
       },
       async readWeeklyActivities() { throw new Error("not used"); },
+      async readCycleActivities() { throw new Error("not used"); },
       async updatePersonalContext() { return { changedFields: [] }; },
       tasks: {
         async list() { return []; },
@@ -303,6 +304,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     source: { kind: "text", text: "usage" },
     collectActivity,
     readWeeklyActivities: async () => { throw new Error("not used"); },
+    readCycleActivities: async () => { throw new Error("not used"); },
     updatePersonalContext: async () => ({ changedFields: [] }),
     captureIdea: async () => { throw new Error("not used"); },
     contextDocuments: {} as never,

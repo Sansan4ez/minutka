@@ -7,7 +7,7 @@ import {
   UnsupportedAssistantScheduleProcessError,
   type OwnerScheduleCapabilities,
 } from "../../application/schedule-management-service.js";
-import { assistantScheduledProcessIds } from "../../domain/assistant-process.js";
+import { assistantScheduledProcessIds, ownerManagedScheduledProcessIds } from "../../domain/assistant-process.js";
 import { toScheduleView } from "../../application/schedule-view.js";
 import { timezoneSchema } from "../../contracts/minutka-api.js";
 
@@ -51,7 +51,7 @@ export function createScheduleTools(schedules: OwnerScheduleCapabilities) {
       strict: true,
       inputSchema: z.strictObject({
         scheduleId: z.string().min(1).optional(),
-        processId: z.enum(assistantScheduledProcessIds).optional(),
+        processId: z.enum(ownerManagedScheduledProcessIds).optional(),
         timeOfDay: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u),
         timezone: timezoneSchema.optional(),
         daysOfWeek: z.number().int().min(1).max(127).optional(),

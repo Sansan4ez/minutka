@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { ActivityCollectionStore } from "../../application/activity-collection.js";
-import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/weekly-activity-summary.js";
+import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/own-activity-window.js";
 import { mapPostgresError, PersistenceError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
 

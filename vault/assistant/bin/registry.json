@@ -6,6 +6,7 @@
     { "id": "disableSchedule", "manifest": "disable-schedule.md", "mutating": true },
     { "id": "collectActivity", "manifest": "collect-activity.md", "mutating": true },
     { "id": "readWeeklyActivities", "manifest": "read-weekly-activities.md", "mutating": false },
+    { "id": "readCycleActivities", "manifest": "read-cycle-activities.md", "mutating": false },
     { "id": "updatePersonalContext", "manifest": "update-personal-context.md", "mutating": true },
     { "id": "markProcessUsed", "manifest": "mark-process-used.md", "mutating": false }
   ],

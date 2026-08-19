@@ -44,3 +44,5 @@ Contributor считается по distinct `subject_key`: двадцать act
 6. После correction/purge запустите команду повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities.
 
 Отдельного reporting writer/table нет: correction и purge применяются к canonical subject-aware evidence, после чего report command пересчитывает результат.
+
+Личный финальный отчёт сотрудника в этот артефакт не входит и готовится отдельным контуром: [завершение двухнедельного цикла](end-of-cycle.md). Порядок конца цикла — сначала личные отчёты, затем evidence pack и клиентский отчёт, и только потом ручные удаления.

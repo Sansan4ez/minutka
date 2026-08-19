@@ -1,4 +1,4 @@
-import { isAssistantScheduledProcessId, type AssistantScheduledProcessId } from "../domain/assistant-process.js";
+import { isAssistantScheduledProcessId, isOwnerManagedScheduledProcessId, type AssistantScheduledProcessId } from "../domain/assistant-process.js";
 import type { ProcessSchedule } from "../domain/schedule.js";
 import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { nextDailyFireAt, normalizeDailyTime, normalizeDaysOfWeek } from "../shared/schedule-time.js";
@@ -33,12 +33,13 @@ export class ScheduleManagementService {
     private readonly ids: Pick<IdGenerator, "scheduleId"> = randomIdGenerator,
   ) {}
 
+  /** Only the touches the employee owns; the operator-armed final report is not a personal setting. */
   async listSchedules(userId: string): Promise<ProcessSchedule[]> {
     const schedules = await this.store.list(assertUserId(userId));
     return schedules.filter((schedule) =>
       schedule.kind === "process"
       && schedule.processId !== undefined
-      && isAssistantScheduledProcessId(schedule.processId));
+      && isOwnerManagedScheduledProcessId(schedule.processId));
   }
 
   async saveDailySchedule(userId: string, input: SaveDailyScheduleInput): Promise<ProcessSchedule> {

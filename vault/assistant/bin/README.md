@@ -13,6 +13,7 @@ This README is developer documentation, not prompt input or a capability source.
 | `/bin/disable-schedule.md` | `disableSchedule` | Yes, reversible | Authenticated employee and exact visible id | Switch off the morning, evening, or weekly message without deleting delivery history. |
 | `/bin/collect-activity.md` | `collectActivity` | Yes, canonical structured write | Employee and tenant ids bound by `AssistantService` | Record exactly one structured employee activity; omit unknown values and accept no free text. |
 | `/bin/read-weekly-activities.md` | `readWeeklyActivities` | No | Authenticated employee | Return counted own activities of the last seven days for the weekly summary; no free text and no other participant's data. |
+| `/bin/read-cycle-activities.md` | `readCycleActivities` | No | Authenticated employee | Return counted own activities of the last fourteen days for the final personal report, with the values confirmed as repeated; no free text and no other participant's data. |
 | `/bin/update-personal-context.md` | `updatePersonalContext` | Yes, employee-only profile write | Authenticated employee | Save explicit allow-listed profile corrections and bounded recurring tasks, AI experience, or program goal; never accept a target employee id. |
 | `/bin/mark-process-used.md` | `markProcessUsed` | No | Request-scoped closed active process catalog | Record diagnostic evidence for an inline process; grants no capability. |
 

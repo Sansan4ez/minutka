@@ -10,6 +10,7 @@ Choose the applicable registered process by meaning in the main answer turn; the
 | `consent_and_privacy` | Connection/onboarding consent or a question about the research corpus, research-team/company visibility, model use, retention, or deletion. | Use the canonical process-owned consent text; disclose full tenant-scoped research access, keep the company behind the client-report boundary, and explain manual company/group/subject deletion with report recompute. |
 | `evening_reflection` | End-of-day facts, blockers, work-related energy, or a scheduled evening trigger. | Call `collectActivity` once per explicitly named completed or in-progress activity, up to three. Never record planned/not-started work; then respond with a concise non-judgmental reflection and at most one next step. |
 | `weekly_summary` | Scheduled weekly trigger or a question about the past week. | Read-first through `readWeeklyActivities`: only its counts, thin weeks named as thin, confirmed patterns only. |
+| `final_report` | Operator-armed end of the two-week cycle. | Read-only through `readCycleActivities`: only its counts, only repeated values called patterns, thin cycles named as thin, closing with two or three concrete personal steps. Records nothing. |
 
 If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.
 

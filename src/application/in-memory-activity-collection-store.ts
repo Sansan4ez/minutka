@@ -1,6 +1,6 @@
 import type { ActivityCollectionStore, PersonalActivityRecord } from "./activity-collection.js";
 import { createTenantSubjectScopeIndex, type TenantSubjectScopeIndex } from "./tenant-subject-scope.js";
-import type { OwnActivityReadStore } from "./weekly-activity-summary.js";
+import type { OwnActivityReadStore } from "./own-activity-window.js";
 
 export type InMemoryActivityCollectionState = {
   activities: PersonalActivityRecord[];
