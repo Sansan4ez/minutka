@@ -26,11 +26,11 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await onboard(runtime, "owner_tokyo", "Asia/Tokyo");
 
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
-      { id: "owner_moscow:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-16T05:30:00.000Z" },
+      { id: "owner_moscow:morning_planning-daily", processId: "morning_planning", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-16T05:30:00.000Z" },
       { id: "owner_moscow:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Europe/Moscow", nextFireAt: "2026-01-15T16:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("owner_tokyo")).resolves.toMatchObject([
-      { id: "owner_tokyo:morning_activity_collection-daily", processId: "morning_activity_collection", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T23:30:00.000Z" },
+      { id: "owner_tokyo:morning_planning-daily", processId: "morning_planning", timeOfDay: "08:30", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T23:30:00.000Z" },
       { id: "owner_tokyo:evening_reflection-daily", processId: "evening_reflection", timeOfDay: "19:00", daysOfWeek: 31, timezone: "Asia/Tokyo", nextFireAt: "2026-01-15T10:00:00.000Z" },
     ]);
     await expect(runtime.scheduleStore.list("other_owner")).resolves.toEqual([]);
@@ -41,10 +41,10 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       { now: () => "2026-01-16T07:00:00.000Z" },
     );
     await expect(scheduleManagement.saveDailySchedule("owner_moscow", {
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       timeOfDay: "09:15",
     })).resolves.toMatchObject({
-      id: "owner_moscow:morning_activity_collection-daily",
+      id: "owner_moscow:morning_planning-daily",
       timeOfDay: "09:15",
       daysOfWeek: 31,
       nextFireAt: "2026-01-19T06:15:00.000Z",
@@ -64,12 +64,12 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await expect(restartedProvisioner.provision("owner_moscow", "Europe/Moscow")).resolves.toMatchObject({
       created: false,
       schedules: [
-        { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+        { id: "owner_moscow:morning_planning-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
         { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
       ],
     });
     await expect(runtime.scheduleStore.list("owner_moscow")).resolves.toMatchObject([
-      { id: "owner_moscow:morning_activity_collection-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
+      { id: "owner_moscow:morning_planning-daily", timeOfDay: "09:15", daysOfWeek: 31, enabled: true, nextFireAt: "2026-01-19T06:15:00.000Z" },
       { id: "owner_moscow:evening_reflection-daily", timeOfDay: "19:15", daysOfWeek: 64, enabled: true, nextFireAt: "2026-01-18T16:15:00.000Z" },
     ]);
   });
@@ -95,7 +95,7 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     }, clock);
 
     await expect(scheduleManagement.saveDailySchedule("new_owner", {
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       timeOfDay: "09:15",
     })).resolves.toMatchObject({
       daysOfWeek: 127,
@@ -302,14 +302,14 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     await expect(store.list("owner-b")).resolves.toMatchObject([{ reminderText: "Секрет владельца B" }]);
   });
 
-  it("runs morning_activity_collection through the deterministic facade trigger and records a successful outcome", async () => {
+  it("runs morning_planning through the deterministic facade trigger and records a successful outcome", async () => {
     const clock = { now: () => "2026-07-30T06:00:00.000Z" };
     const store = createInMemoryScheduleStore(clock);
     const facadeCalls: Array<{ userId: string; threadId: string; processId: string }> = [];
     const deliveries: Array<{ chatId: string; employeeId: string; result: AssistantChatResult }> = [];
-    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Расскажите об одной-трёх активностях.", selectedProcessIds: ["core", "morning_activity_collection"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
+    const result: AssistantChatResult = { messageId: "scheduled-message", response: "Назовите до трёх приоритетов на сегодня и один первый шаг.", selectedProcessIds: ["core", "morning_planning"], outcome: { status: "completed" }, effect: "none", pendingActions: [] };
     const facade = {
-      async runScheduledProcess(input: { userId: string; threadId: string; processId: "morning_activity_collection" }) {
+      async runScheduledProcess(input: { userId: string; threadId: string; processId: "morning_planning" }) {
         facadeCalls.push(input);
         return result;
       },
@@ -317,16 +317,16 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
     const telegramShell = { async deliverProactive(chatId: string, delivered: AssistantChatResult, employeeId: string) { deliveries.push({ chatId, employeeId, result: delivered }); } };
     const scheduler = new SchedulerService(store, clock, async (fire) => {
       if (fire.kind !== "process") throw new Error("unexpected reminder action");
-      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "morning_activity_collection" });
+      const scheduled = await facade.runScheduledProcess({ userId: fire.userId, threadId: "owner-thread", processId: fire.processId as "morning_planning" });
       await telegramShell.deliverProactive("owner-chat", scheduled, fire.userId);
     });
     await store.save("maxim", {
-      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_planning", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
-    await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "morning_activity_collection", status: "pending" }]);
-    expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "morning_activity_collection" }]);
+    await expect(scheduler.tick()).resolves.toMatchObject([{ processId: "morning_planning", status: "pending" }]);
+    expect(facadeCalls).toEqual([{ userId: "maxim", threadId: "owner-thread", processId: "morning_planning" }]);
     expect(deliveries).toEqual([{ chatId: "owner-chat", employeeId: "maxim", result }]);
     await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "succeeded", completedAt: clock.now(),
@@ -375,12 +375,12 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       ({ fire, errorCode }) => logged.push({ errorCode, processId: fire.processId }),
     );
     await store.save("maxim", {
-      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_planning", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
     await expect(scheduler.tick()).resolves.toHaveLength(1);
-    expect(logged).toEqual([{ errorCode: "TelegramDeliverySessionNotFoundError", processId: "morning_activity_collection" }]);
+    expect(logged).toEqual([{ errorCode: "TelegramDeliverySessionNotFoundError", processId: "morning_planning" }]);
     await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "failed", errorCode: "TelegramDeliverySessionNotFoundError", completedAt: clock.now(),
     }]);
@@ -397,12 +397,12 @@ describe("SPEC-PERSONAL-ASSISTANT-SCHEDULER-001: durable slim scheduler", () => 
       ({ fire, errorCode }) => logged.push({ errorCode, processId: fire.processId }),
     );
     await store.save("maxim", {
-      id: "morning-touch", processId: "morning_activity_collection", timeOfDay: "09:00", timezone: "Europe/Moscow",
+      id: "morning-touch", processId: "morning_planning", timeOfDay: "09:00", timezone: "Europe/Moscow",
       enabled: true, nextFireAt: clock.now(),
     });
 
     await expect(scheduler.tick()).resolves.toHaveLength(1);
-    expect(logged).toEqual([{ errorCode: "TelegramUnavailableError", processId: "morning_activity_collection" }]);
+    expect(logged).toEqual([{ errorCode: "TelegramUnavailableError", processId: "morning_planning" }]);
     await expect(store.listFires("maxim", "morning-touch")).resolves.toMatchObject([{
       status: "failed", errorCode: "TelegramUnavailableError", completedAt: clock.now(),
     }]);

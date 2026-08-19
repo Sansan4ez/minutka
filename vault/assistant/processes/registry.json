@@ -20,16 +20,25 @@
   ],
   "processes": [
     {
-      "id": "morning_activity_collection",
-      "path": "vault/assistant/processes/morning_activity_collection.md",
+      "id": "morning_planning",
+      "path": "vault/assistant/processes/morning_planning.md",
+      "appliesTo": [
+        "chat",
+        "scheduled"
+      ],
+      "dependencies": [
+        "docs/architecture/rfc-minutka-daily-rhythm.md#3-утро-morning_planning",
+        "src/application/default-schedules.ts"
+      ]
+    },
+    {
+      "id": "midday_adjustment",
+      "path": "vault/assistant/processes/midday_adjustment.md",
       "appliesTo": [
         "chat"
       ],
       "dependencies": [
-        "docs/architecture/rfc-minutka-tenancy-and-reporting.md#27-утренний-процесс-сбора",
-        "src/contracts/minutka-activity.ts",
-        "src/application/activity-collection.ts",
-        "src/application/personal-profile-context.ts"
+        "docs/architecture/rfc-minutka-daily-rhythm.md#4-день-midday_adjustment"
       ]
     },
     {
@@ -50,12 +59,13 @@
       "id": "evening_reflection",
       "path": "vault/assistant/processes/evening_reflection.md",
       "appliesTo": [
-        "chat"
+        "chat",
+        "scheduled"
       ],
       "dependencies": [
-        "docs/product/Final_Description.md#scenario-5-employee-completes-evening-reflection",
-        "docs/product/virtual-simulation.md#scenario-6-вечерняя-голосовая-рефлексия",
-        "specs/executable/context/SPEC-CONTEXT-001.spec.ts"
+        "docs/architecture/rfc-minutka-daily-rhythm.md#5-вечер-evening_reflection",
+        "src/contracts/minutka-activity.ts",
+        "src/application/activity-collection.ts"
       ]
     }
   ]

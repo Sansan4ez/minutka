@@ -17,7 +17,7 @@ const profile = (employeeId: string) => ({
 const completedResult: AssistantChatResult = {
   messageId: "message-1",
   response: "Расскажите об одной-трёх активностях с прошлого касания.",
-  selectedProcessIds: ["core", "morning_activity_collection"],
+  selectedProcessIds: ["core", "morning_planning"],
   outcome: { status: "completed" },
   pendingActions: [],
   effect: "none",
@@ -26,10 +26,10 @@ const completedResult: AssistantChatResult = {
 describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
   it("parses the explicit employee and scheduled process with a default thread", () => {
     expect(parseScheduledProcessRunArguments([
-      "--employee", "emp_1", "--process", "morning_activity_collection",
+      "--employee", "emp_1", "--process", "morning_planning",
     ])).toEqual({
       employeeId: "emp_1",
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       threadId: "default",
     });
     expect(parseScheduledProcessRunArguments([
@@ -63,12 +63,12 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
 
     await expect(runScheduledProcessOnDemand(application, {
       employeeId: "emp_1",
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       threadId: "default",
     })).resolves.toEqual(completedResult);
     expect(runScheduledProcess).toHaveBeenCalledWith({
       userId: "emp_1",
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       threadId: "default",
     });
   });
@@ -82,7 +82,7 @@ describe("SCHEDULED-PROCESS-RUN: operator on-demand process command", () => {
     };
     await expect(runScheduledProcessOnDemand(absent, {
       employeeId: "missing",
-      processId: "morning_activity_collection",
+      processId: "morning_planning",
       threadId: "default",
     })).rejects.toThrow('employee "missing" was not found');
 

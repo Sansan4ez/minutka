@@ -69,7 +69,7 @@ function createGateHarness() {
   const documents = createInMemoryDocumentStore(clock);
   const runner: AssistantAgentRunner = async (input, context) => {
     if (input.text.startsWith("ACTIVITY:")) {
-      context.markProcessUsed("morning_activity_collection");
+      context.markProcessUsed("evening_reflection");
       await context.collectActivity({
         taskCategory: "reporting",
         routinePattern: "manual_reporting",

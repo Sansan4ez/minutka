@@ -22,15 +22,17 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Сам выбери применимые процессы");
   });
 
-  it("loads the «Минутка» role, runtime docs, and exactly three active processes", () => {
+  it("loads the «Минутка» role, runtime docs, and exactly four active processes", () => {
     const instructions = loadAssistantAgentInstructions();
     expect(instructions).toContain("«Минутка» runtime instructions");
     expect(instructions).toContain("helps an employee diagnose working routines");
     expect(instructions).toContain("«Минутка» process index");
     expect(instructions).toContain("Runtime document: /docs/authority-and-mutability.md");
     expect(instructions).toContain("Runtime document: /docs/privacy-boundary.md");
-    expect(instructions).toContain("Process file: morning_activity_collection");
-    expect(instructions).toContain('collectActivity` exactly once for each named activity');
+    expect(instructions).toContain("Process file: morning_planning");
+    expect(instructions).toContain("Plans never become activities");
+    expect(instructions).toContain("Process file: midday_adjustment");
+    expect(instructions).toContain("chat-only and read-only");
     expect(instructions).toContain("updatePersonalContext");
     expect(instructions).toContain("Do not ask a questionnaire");
     expect(instructions).toContain("Process file: consent_and_privacy");
@@ -154,7 +156,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .sort();
 
     expect(activeRegistry.processes.map(({ path }) => path)).toEqual([
-      "vault/assistant/processes/morning_activity_collection.md",
+      "vault/assistant/processes/morning_planning.md",
+      "vault/assistant/processes/midday_adjustment.md",
       "vault/assistant/processes/consent_and_privacy.md",
       "vault/assistant/processes/evening_reflection.md",
     ]);
@@ -163,7 +166,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       disabled: [
         { id: "inbox_capture", path: "vault/assistant/processes/inbox_capture.md", reason: "Outside the first-version «Минутка» product boundary" },
         { id: "knowledge_lookup", path: "vault/assistant/processes/knowledge_lookup.md", reason: "Outside the first-version «Минутка» product boundary" },
-        { id: "day_focus", path: "vault/assistant/processes/day_focus.md", reason: "Disabled for «Минутка»; morning activity collection is the active morning process" },
+        { id: "morning_activity_collection", path: "vault/assistant/processes/morning_activity_collection.md", reason: "Retired from the active daily rhythm; factual collection moved to evening reflection with a bounded missed-evening catch-up" },
+        { id: "day_focus", path: "vault/assistant/processes/day_focus.md", reason: "Disabled for «Минутка»; morning_planning keeps only bounded priority rules without task or project tools" },
       ],
     });
     expect(draftRegistry.version).toBe(1);
@@ -180,7 +184,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect([...draftPaths].filter((path) => activePaths.has(path) || disabledPaths.has(path) || legacyPaths.has(path))).toEqual([]);
     expect([...disabledPaths].filter((path) => activePaths.has(path))).toEqual([]);
     expect([...disabledPaths].filter((path) => !processFiles.includes(path))).toEqual([]);
-    expect([...activePaths]).toContain("vault/assistant/processes/morning_activity_collection.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/morning_planning.md");
+    expect([...activePaths]).toContain("vault/assistant/processes/midday_adjustment.md");
     expect([...activePaths]).toContain("vault/assistant/processes/consent_and_privacy.md");
     expect([...activePaths]).toContain("vault/assistant/processes/evening_reflection.md");
     expect(legacyPaths).not.toContain("vault/assistant/processes/onboarding.md");

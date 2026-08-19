@@ -51,7 +51,7 @@ describe("SPEC-SCHEDULE-COMMAND-001: deterministic Telegram /schedule", () => {
   it("shows only the authenticated owner's schedules through safe HTML rendering", async () => {
     const { shell, messages } = await setup({
       ownerA: [
-        { id: "ownerA:morning_activity_collection-daily", kind: "process", processId: "morning_activity_collection", daysOfWeek: 31, oneShot: false, timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z" },
+        { id: "ownerA:morning_planning-daily", kind: "process", processId: "morning_planning", daysOfWeek: 31, oneShot: false, timeOfDay: "08:30", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T05:30:00.000Z" },
         { id: "schedule-reminder", kind: "reminder", reminderText: "<b>вода</b> 💧", daysOfWeek: 127, oneShot: true, timeOfDay: "15:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T12:00:00.000Z" },
         { id: "ownerA:day_focus-daily", kind: "process", processId: "day_focus", daysOfWeek: 127, oneShot: false, timeOfDay: "09:00", timezone: "Europe/Moscow", enabled: true, nextFireAt: "2026-07-30T06:00:00.000Z" },
       ],

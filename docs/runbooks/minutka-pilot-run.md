@@ -201,7 +201,7 @@ dbq "SELECT schedule_id, process_id, time_of_day, days_of_week, timezone, enable
      FROM minutka_private.process_schedules WHERE user_id = \$1 ORDER BY process_id" "[\"$EMPLOYEE_ONE\"]"
 ```
 
-**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно два расписания — `morning_activity_collection` на `08:30` и `evening_reflection` на `19:00`, оба с понедельника по пятницу (`days_of_week = 31`) в таймзоне профиля. `day_focus` в расписаниях отсутствовать обязан.
+**Признак `прошло`:** чужая должность отклоняется причиной `roleId must belong to the participant company` (HTTP 400, код ошибки `invalid_request`) и кодом возврата `1`, ответа `Internal server error.` быть не должно; своя должность даёт `"status":"profile_completed"` с этим `roleId`; профиль показывает выбранную должность, таймзону и `"preferredName":"Алексей"` из флага `--name`; провижинятся ровно два расписания — `morning_planning` на `08:30` и `evening_reflection` на `19:00`, оба с понедельника по пятницу (`days_of_week = 31`) в таймзоне профиля. `day_focus`, retired `morning_activity_collection` и отдельный midday process в расписаниях отсутствуют.
 
 Онбординг второго сотрудника выполняется так же — с должностью своей компании.
 
@@ -211,7 +211,7 @@ dbq "SELECT schedule_id, process_id, time_of_day, days_of_week, timezone, enable
 
 ```bash
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
-  --text "Перенеси утренний сбор активностей на 09:37 по моему часовому поясу." | tail -n 1
+  --text "Перенеси утреннее планирование на 09:37 по моему часовому поясу." | tail -n 1
 
 dbq "SELECT process_id, time_of_day, timezone, next_fire_at
      FROM minutka_private.process_schedules WHERE user_id = \$1" "[\"$EMPLOYEE_ONE\"]"
@@ -227,7 +227,7 @@ dbq "SELECT schedule_id, process_id, scheduled_for, status, completed_at, error_
 
 **Признак `прошло`:**
 
-- запись `minutka_private.schedule_fires` с `process_id = morning_activity_collection` и `scheduled_for`, равным перенесённому моменту. `day_focus` в журнале не появляется;
+- запись `minutka_private.schedule_fires` с `process_id = morning_planning` и `scheduled_for`, равным перенесённому моменту. `day_focus` и `midday_adjustment` в журнале не появляются;
 - `next_fire_at` расписания после срабатывания приходится на **следующий день в то же локальное время таймзоны профиля** — граница дня берётся из профиля, а не из UTC;
 - статус записи:
   - `succeeded` — если сотрудник привязан к Telegram и доставка ушла штатно;
@@ -238,14 +238,16 @@ dbq "SELECT schedule_id, process_id, scheduled_for, status, completed_at, error_
 Содержание процесса проверяется отдельно и без ожидания:
 
 ```bash
-npm run process:run -- --employee "$EMPLOYEE_ONE" --process morning_activity_collection
+npm run process:run -- --employee "$EMPLOYEE_ONE" --process morning_planning --thread pilot-daily
 ```
 
-**Признак `прошло`:** команда завершается кодом `0` и печатает содержательный текст утреннего сбора активностей на языке профиля. Строки `Assistant thread compaction audit failed (PersistenceError).` в выводе быть не должно: расхождение закрыто `mnt-pilot-readiness-w73.11` (разовый прогон дожидается фоновой компакции перед остановкой рантайма), и её появление снова — отказ шага.
+**Признак `прошло`:** команда завершается кодом `0` и предлагает выбрать не более трёх приоритетов и один конкретный первый шаг. В ответе нет утверждения о сохранении planned work, а в `minutka_private.activities` после одного scheduled prompt новых строк нет. Строки `Assistant thread compaction audit failed (PersistenceError).` в выводе быть не должно.
 
-## Шаг 6. Активности
+## Шаг 6. Добровольный дневной апдейт и вечерние активности
 
-Назвать три активности в одном разговоре:
+Сначала в том же thread добровольно сообщить об изменении плана. Это обычный employee chat, не `process:run`: отдельного midday schedule нет. Ответ должен опираться на видимый утренний план, оставить до трёх приоритетов и один следующий шаг, не создавая activity для планов.
+
+Затем вечером назвать три фактические активности в одном разговоре:
 
 ```bash
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
@@ -259,7 +261,7 @@ dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, mod
     "[\"$COMPANY_ID\",\"$GROUP_ID\"]"
 ```
 
-**Признак `прошло`:** три canonical activities содержат один и тот же subject binding сотрудника, `source_message_id` текущего turn, локальную `activity_date` и точный company/group scope; conversation turn и full research trace сохранены, trace содержит версии prompt/taxonomy/model и не содержит credential fixtures. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Отдельной reporting-копии activity нет.
+**Признак `прошло`:** `selectedProcessIds` содержит `evening_reflection`; три canonical activities содержат один и тот же subject binding сотрудника, `source_message_id` текущего turn, локальную `activity_date` и точный company/group scope; conversation turn и full research trace сохранены. Planned/not-started work не создаёт строк. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Отдельной reporting-копии activity нет.
 
 Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в два приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента, а `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» в описание инструмента (cross-field `.refine()` не доходил до провайдера) и снял fallback-гейт «не терять ввод». С commit `62ffea2` шаг проходит: три активности одним сообщением дают три canonical subject-linked записи, `inbox_capture` в `selectedProcessIds` не появляется, `minutka_private.ideas` пуста.
 
@@ -270,10 +272,10 @@ dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, mod
 ```bash
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
   --text "Перенеси вечернюю рефлексию на 19:41 по моему часовому поясу." | tail -n 1
-npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection
+npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection --thread pilot-daily
 ```
 
-**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` печатает вечернюю рефлексию с предложением подвести итоги дня и завершается кодом `0`.
+**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии и завершается кодом `0`. На ответ сотрудника одна named factual activity даёт ровно один `collectActivity`; неизвестные поля отсутствуют, а не выдуманы.
 
 ## Шаг 8. Изоляция
 

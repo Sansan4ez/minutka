@@ -123,7 +123,9 @@ Trace failure не откатывает сохранённый conversation turn
 
 Fine-tuning и model training не входят в текущую цель и не подразумеваются формулировкой «улучшение продукта». Их включение требует отдельной ревизии RFC и policy.
 
-### 2.7. Внутренний evidence pack
+### 2.7. Ежедневный producer и внутренний evidence pack
+
+Ежедневный runtime следует принятому [ритму](./rfc-minutka-daily-rhythm.md): `morning_planning` даёт до трёх приоритетов и один первый шаг, но не пишет планы как activities; `midday_adjustment` остаётся добровольным chat-only и read-only; `evening_reflection` вызывает `collectActivity` ровно один раз на каждую явно названную выполненную или начатую activity, максимум три. Утренний missed-evening catch-up допустим только по bounded history, не выдумывает факты и не дублирует уже отмеченные как записанные активности.
 
 Tenant/group-scoped research export объединяет:
 
@@ -280,6 +282,7 @@ Policy draft не становится активным только от поя
 
 - Trace exporter failure не отменяет ответ и conversation persistence; создаётся drop/missing signal.
 - Activity persistence failure виден как неуспешный structured collection; conversation turn сохраняется и может быть размечен вручную.
+- Ежедневный producer structured activities — `evening_reflection`: утренний `morning_planning` не превращает планы в факты, а chat-only `midday_adjustment` остаётся read-only. Утренний missed-evening catch-up пишет только явно названные фактические и ещё не записанные активности.
 - Research export требует tenant/group scope и прекращается целиком при mismatch.
 - Report generation с малым coverage возвращает `hypothesis`/coverage notes, а не выдумывает подтверждённость.
 - До удаления old dual-write новая и старая отчётность могут существовать параллельно только на migration stage; клиентский артефакт формируется одним выбранным implementation path.
@@ -301,7 +304,7 @@ Policy draft не становится активным только от поя
 2. `subject_key` и research identity projection.
 3. Full trace store/exporter и trace-drop monitoring.
 4. Evidence/evaluation export.
-5. Subject-aware canonical reporting и client DTO/template.
+5. Subject-aware canonical reporting и client DTO/template; ежедневный цикл `morning_planning` → chat-only `midday_adjustment` → `evening_reflection` даёт план утром и canonical factual activities вечером без task contour.
 6. Переключение consent/runtime на новую policy до первого внешнего invite.
 7. Удаление anonymized dual-write и старых retention paths.
 8. Integration gate: Telegram → corpus/activity/trace → evidence pack → client report.

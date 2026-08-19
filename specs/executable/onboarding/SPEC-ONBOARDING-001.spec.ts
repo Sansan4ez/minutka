@@ -221,7 +221,7 @@ describe("SPEC-ONBOARDING-001: onboarding consent and profile context", () => {
 
   it("rejects malformed welcome marker blocks and placeholder counts", () => {
     const schedules = [
-      { kind: "process", processId: "morning_activity_collection", timeOfDay: "08:45" },
+      { kind: "process", processId: "morning_planning", timeOfDay: "08:45" },
       { kind: "process", processId: "evening_reflection", timeOfDay: "18:30" },
     ] as Parameters<typeof createOnboardingWelcome>[1];
     const informalProfile = { preferredName: "Максим", addressForm: "informal" } as const;
