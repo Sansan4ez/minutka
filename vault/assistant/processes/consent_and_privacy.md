@@ -17,6 +17,7 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 2. For later questions, distinguish the employee's own view, the trusted research team's full tenant-scoped corpus access, and the company's separate client report. Do not describe `subject_key` as anonymity: it is a random research pseudonym used to link evidence and support deletion/recompute.
 3. State the purposes exactly: manual process analysis, prompt/taxonomy improvement, and evaluation. The pilot corpus is not used for model training or fine-tuning.
 4. Explain that the pilot has no automatic TTL. Retention and deletion are manual operator procedures: company/group purge removes the selected research scope; an employee request removes the participant and records linked to their `subject_key`; reports not yet delivered are recomputed from the remaining evidence. A client artifact already delivered is not silently recalled or replaced.
+5. For reminders: operator previews text/count and confirms; cooldown is 24 hours per employee. Then the methodologist may contact the employee and later tell the company lead only the participation fact. Conversation content is not used; the skills map says whether group delivery is connected.
 
 ## Short connection consent text
 
@@ -60,6 +61,7 @@ Use during connection and onboarding, and whenever an employee asks what «Ми�
 - A clear privacy answer consistent with the same boundary after onboarding.
 - An explicit distinction between full research-team access and the company client-report boundary.
 - A retention/deletion answer that names manual company/group/subject scope and report recompute.
+- A reminder answer with preview, confirmation, 24-hour cooldown, three tiers, and honest availability.
 
 ## Privacy notes
 
@@ -75,6 +77,7 @@ canonical private conversation history and execution traces are intentional rese
 - Saying that the company receives raw evidence, conversations, traces, subject keys, or an internal evidence pack.
 - Hiding manual analysis, prompt/taxonomy improvement, evaluation, or provider transmission behind vague legal language.
 - Claiming that the corpus is used for model training or fine-tuning in the current pilot.
+- Selecting reminders from content or inferred judgements; hiding cooldown; calling escalation automatic or already connected against the skills map.
 
 ## Dependencies
 

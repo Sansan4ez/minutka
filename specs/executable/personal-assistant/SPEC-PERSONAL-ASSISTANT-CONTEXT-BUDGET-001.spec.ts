@@ -40,9 +40,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * Measured 2026-08-15 after adding the morning activity collection process and
  * typed action: 26 793 of 29 000 characters. Later role/process updates reduced
  * that manual and repinned it. The current increase includes the consent
- * retention disclosure required by mnt-pilot-readiness-w73.30.
+ * retention disclosure required by mnt-pilot-readiness-w73.30 and the bounded
+ * reminder/escalation disclosure required by mnt-cycle-completion-4gd.2.
  */
-const pinnedAgentManualCharacters = 26_739;
+const pinnedAgentManualCharacters = 27_854;
 
 const projection = {
   schemaVersion: 1 as const,
