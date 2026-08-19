@@ -425,6 +425,61 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(runtime.world.profiles[0].timezone).toBe("Etc/GMT");
   });
 
+  it("allows the profile extractor up to twenty seconds by default", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = await consentedRuntime("emp_default_extraction_timeout");
+      const extractedRuntime = createInMemoryRuntime({
+        world: runtime.world,
+        agentRunner: async () => "ok",
+        deps: {
+          onboardingProfileExtractor: async () => {
+            await new Promise<void>((resolve) => setTimeout(resolve, 15_000));
+            return {
+              preferredName: "Максим",
+              addressForm: "informal",
+              persona: "efficiency",
+              timezone: "Europe/Moscow",
+              ambiguousFields: [],
+            };
+          },
+        },
+      });
+
+      const answer = extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_default_extraction_timeout", text: "данные профиля" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(answer).resolves.toMatchObject({ status: "needs_confirmation" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs timeout diagnostics and falls back without exposing the onboarding answer", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const runtime = await consentedRuntime("emp_timeout_fallback");
+      const extractedRuntime = createInMemoryRuntime({
+        world: runtime.world,
+        agentRunner: async () => "ok",
+        deps: {
+          onboardingExtractionTimeoutMs: 50,
+          onboardingProfileExtractor: async () => await new Promise(() => undefined),
+        },
+      });
+
+      const answer = extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_timeout_fallback", text: completeAnswer });
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(answer).resolves.toMatchObject({ status: "needs_confirmation" });
+      expect(warning).toHaveBeenCalledWith(expect.stringMatching(
+        /^Minutka onboarding profile extraction timed out \(employeeId=emp_timeout_fallback; waitedMs=50; timeoutMs=50\)\.$/,
+      ));
+      expect(warning.mock.calls.flat().join(" ")).not.toContain(completeAnswer);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {
     const invalid = await consentedRuntime("emp_invalid_tz");
     await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | На ты, коротко и по делу | ?" });

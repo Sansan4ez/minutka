@@ -97,6 +97,8 @@ export type SubmitFeedbackInput = {
 };
 export type SubmitFeedbackResult = { accepted: true; feedbackId: string; selectedProcessIds: AgentManualProcessId[] };
 
+const defaultOnboardingExtractionTimeoutMs = 20_000;
+
 export type MinutkaServiceDeps = {
   profileStore?: ProfileStore;
   tenantDirectoryStore?: TenantDirectoryStore;
@@ -408,12 +410,18 @@ export class MinutkaService {
       if (isNegativeOnboardingAnswer(text)) return { status: "needs_correction", prompt: onboardingCorrectionPrompt };
     }
     let extracted: OnboardingProfileExtraction;
+    const extractionTimeoutMs = this.deps.onboardingExtractionTimeoutMs ?? defaultOnboardingExtractionTimeoutMs;
+    const extractionStartedAt = Date.now();
     try {
       extracted = this.deps.onboardingProfileExtractor
-        ? await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, this.deps.onboardingExtractionTimeoutMs ?? 10_000)
+        ? await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, extractionTimeoutMs)
         : extractDeterministicOnboardingPatch({ text, currentDraft: current });
     } catch (error) {
-      logOperationalError("onboarding profile extraction", error);
+      if (isOnboardingExtractorTimeout(error)) {
+        console.warn(`Minutka onboarding profile extraction timed out (employeeId=${employeeId}; waitedMs=${Date.now() - extractionStartedAt}; timeoutMs=${extractionTimeoutMs}).`);
+      } else {
+        logOperationalError("onboarding profile extraction", error);
+      }
       extracted = extractDeterministicOnboardingPatch({ text, currentDraft: current });
     }
     // Extraction runs on every onboarding answer, so it is a recurring spend of
@@ -759,6 +767,9 @@ async function extractOnboardingPatchWithTimeout(
       }),
     ]);
   } finally { if (timer) clearTimeout(timer); }
+}
+function isOnboardingExtractorTimeout(error: unknown): error is Error {
+  return error instanceof Error && error.message === "onboarding_extractor_timeout";
 }
 function onboardingProgress(draft: OnboardingDraft, timezoneUnrecognized = false, roleName?: string): OnboardingProgress {
   if (isCompleteOnboardingDraft(draft)) {
