@@ -8,6 +8,8 @@ import {
   countUnicodeCharacters,
   createContextBudgetConfig,
   defaultContextBudget,
+  guaranteedContextSourceIds,
+  minimumContextBudgetTotal,
   sourceCharacterCeiling,
 } from "../../../src/application/context-budget.js";
 import { assistantContextLimits } from "../../../src/application/assistant-context-projection.js";
@@ -16,7 +18,7 @@ import { loadAssistantAgentInstructions } from "../../../src/application/assista
 import { renderAssistantAgentManual } from "../../../src/application/assistant-static-context.js";
 import { renderMaximumResponsePolicy } from "../../../src/domain/response-policy.js";
 import { renderEmptyContextTreeIndex } from "../../../src/application/context-tree-index.js";
-import { assertGeneratedContextSourceMinimums } from "../../../src/application/generated-context-startup-validator.js";
+import { assertGeneratedContextSourceMinimums, generatedContextSourceMinimums } from "../../../src/application/generated-context-startup-validator.js";
 import { assistantRecordsLimits } from "../../../src/application/assistant-records-projection.js";
 import { buildAssistantSystemContext } from "../../../src/application/assistant-service.js";
 import { conversationContextLimits } from "../../../src/application/conversation-context-limits.js";
@@ -48,9 +50,27 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * the same headroom, while the guaranteed ceilings still fit the total budget.
  * The final personal report required by mnt-cycle-completion-4gd.4 adds a
  * seventh active process; its ceiling moved from 34 000 to 35 000 on the same
- * terms — the guaranteed ceilings still sum to 71 000 inside the total budget.
+ * terms. mnt-pilot-readiness-w73.36 then moved the ceiling to 45 000 and the
+ * total to 110 000 at once, because per-process 1 000 steps had left only 409
+ * characters before a fail-closed production start; the guaranteed ceilings now
+ * sum to 81 000 inside the total budget.
  */
 const pinnedAgentManualCharacters = 34_361;
+
+/**
+ * The startup check fails closed: a manual above its ceiling stops the service
+ * from coming up at all instead of degrading it. So the ceiling has to hold not
+ * just today's manual but every edit made between two deploys.
+ *
+ * At 34 591 worst-case characters the previous 35 000 ceiling left 409 — any
+ * noticeable `vault/assistant` edit stopped a running pilot production instance
+ * (mnt-pilot-readiness-w73.36, reproduced 2026-08-19). The 45 000 ceiling keeps
+ * roughly a third of the manual free, which is about ten more processes at the
+ * ~1 000 characters each of the last seven. This threshold fails `npm run
+ * verify` while that headroom is still thousands of characters, so a growing
+ * manual is a budget decision here rather than a production restart failure.
+ */
+const minimumAgentManualHeadroomCharacters = 8_000;
 
 const projection = {
   schemaVersion: 1 as const,
@@ -66,7 +86,7 @@ const projection = {
 
 describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context budget", () => {
   it("keeps the documented defaults as the single source for legacy limit exports", () => {
-    expect(defaultContextBudget.total).toBe(88_000);
+    expect(defaultContextBudget.total).toBe(110_000);
     expect(defaultContextBudget.sources.map(({ id }) => id)).toEqual([
       "base_instructions", "agent_manual", "profile", "context", "context_index", "records", "inbox", "thread_summary", "history", "actions",
     ]);
@@ -180,28 +200,26 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
   });
 
   it("keeps context_index in every owner chat and omits only lower-priority sources", () => {
-    const config = createContextBudgetConfig({ total: 85_096 });
+    // The smallest admissible total: every guaranteed source still fits at its full ceiling,
+    // and the first lower-priority source no longer does. Derived so raising a ceiling in the
+    // defaults keeps this the exact boundary instead of silently loosening it.
+    const config = createContextBudgetConfig({ total: minimumContextBudgetTotal(defaultContextBudget.sources, defaultContextBudget.responseReserve) });
+    const ceilings = Object.fromEntries(guaranteedContextSourceIds.map((id) => [id, sourceCharacterCeiling(config, id)])) as Record<typeof guaranteedContextSourceIds[number], number>;
     const result = applyContextBudget({
       config,
       userInput: "request",
       sections: [
-        { sourceId: "base_instructions", content: "B".repeat(2_000) },
-        { sourceId: "agent_manual", content: "M".repeat(32_000) },
-        { sourceId: "profile", content: "P".repeat(4_000) },
-        { sourceId: "context", content: "C".repeat(24_000) },
-        { sourceId: "context_index", content: `index${"I".repeat(5_995)}` },
+        { sourceId: "base_instructions", content: "B".repeat(ceilings.base_instructions) },
+        { sourceId: "agent_manual", content: "M".repeat(ceilings.agent_manual) },
+        { sourceId: "profile", content: "P".repeat(ceilings.profile) },
+        { sourceId: "context", content: "C".repeat(ceilings.context) },
+        { sourceId: "context_index", content: `index${"I".repeat(ceilings.context_index - 5)}` },
         { sourceId: "records", content: "R".repeat(12_000) },
       ],
     });
     expect(result.text).toContain("index");
     expect(result.omittedSourceIds).toEqual(["records"]);
-    expect(result.contextSourceCharacters).toEqual({
-      base_instructions: 2_000,
-      agent_manual: 32_000,
-      profile: 4_000,
-      context: 24_000,
-      context_index: 6_000,
-    });
+    expect(result.contextSourceCharacters).toEqual(ceilings);
     expect(result.contextSourceCharacters).not.toHaveProperty("records");
   });
 
@@ -336,6 +354,18 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
     }), agentInstructions)).toThrow(/context source base_instructions requires a minimum rendered representation of \d+ Unicode characters, but its configured ceiling is 1/u);
     expect(summaryMinimum).toBeLessThanOrEqual(defaultContextBudget.projectionLimits.threadSummaryCharacters);
     expect(() => assertGeneratedContextSourceMinimums(defaultContextBudget, agentInstructions)).not.toThrow();
+  });
+
+  it("keeps thousands of characters between the worst-case manual and its fail-closed ceiling", () => {
+    const minimums = generatedContextSourceMinimums(defaultContextBudget, loadAssistantAgentInstructions());
+    const worstCase = minimums.find(({ sourceId }) => sourceId === "agent_manual")?.minimum ?? 0;
+    const ceiling = sourceCharacterCeiling(defaultContextBudget, "agent_manual");
+    const measured = `worst-case rendered agent_manual is ${worstCase} characters; ceiling ${ceiling}; headroom ${ceiling - worstCase}`;
+
+    // The worst case is the scheduled-trigger render, which is larger than the chat render pinned below.
+    expect(worstCase, measured).toBeGreaterThanOrEqual(pinnedAgentManualCharacters);
+    expect(ceiling - worstCase, `${measured}. Raise the ceiling and the total budget together: see docs/architecture/runtime-context-contract.md.`)
+      .toBeGreaterThanOrEqual(minimumAgentManualHeadroomCharacters);
   });
 
   it("keeps the rendered agent manual inside its ceiling and pins deliberate growth", () => {

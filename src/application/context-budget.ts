@@ -97,11 +97,11 @@ export const guaranteedContextSourceIds = [
 
 /** Canonical request-context limits. Character counts are Unicode code points. */
 export const defaultContextBudget: ContextBudgetConfig = {
-  total: 88_000,
+  total: 110_000,
   responseReserve: 8_000,
   sources: [
     { id: "base_instructions", priority: 1, ceiling: 2_000 },
-    { id: "agent_manual", priority: 2, ceiling: 35_000 },
+    { id: "agent_manual", priority: 2, ceiling: 45_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
     { id: "context", priority: 4, ceiling: 24_000 },
     { id: "context_index", priority: 5, ceiling: 6_000 },
@@ -146,6 +146,15 @@ export const defaultContextBudget: ContextBudgetConfig = {
   },
 };
 
+/**
+ * Smallest total that admits every guaranteed source at its ceiling alongside a
+ * maximum user turn, the response reserve, and renderer markup. Deployments and
+ * specs derive their totals from this instead of restating the arithmetic.
+ */
+export function minimumContextBudgetTotal(sources: readonly ContextSourceBudget[], responseReserve: number): number {
+  return guaranteedContextCeiling(sources) + maxChatInputCharacters + responseReserve + contextWrapperMarkupAllowance;
+}
+
 export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}): ContextBudgetConfig {
   const sourceOverrides = overrides.sources ?? {};
   for (const id of Object.keys(sourceOverrides)) {
@@ -185,7 +194,7 @@ export function createContextBudgetConfig(overrides: ContextBudgetOverrides = {}
   }
   if (projectionLimits.threadSummaryCharacters > sourceCeiling(sources, "thread_summary")) throw new Error("thread summary limit must not exceed the thread_summary source ceiling");
   const guaranteedCeiling = guaranteedContextCeiling(sources);
-  if (guaranteedCeiling + maxChatInputCharacters + responseReserve + contextWrapperMarkupAllowance > total) {
+  if (minimumContextBudgetTotal(sources, responseReserve) > total) {
     throw new Error(
       `guaranteed context ceilings (${guaranteedCeiling}) plus maximum user input (${maxChatInputCharacters}), response reserve (${responseReserve}), and wrapper markup allowance (${contextWrapperMarkupAllowance}) must not exceed total budget (${total})`,
     );

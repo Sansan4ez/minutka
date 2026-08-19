@@ -13,11 +13,42 @@ import { renderMaximumResponsePolicy } from "../domain/response-policy.js";
 import { assistantDiagnosticProcessIds } from "../domain/assistant-process.js";
 
 /**
+ * Minimum rendered representation of every generated source, computed by running
+ * the production renderers rather than by restating magic constants. Exported so
+ * budget specs can assert headroom against the exact number the startup check
+ * uses; `vault/assistant` growth then fails `npm run verify`, not a production
+ * restart.
+ */
+export function generatedContextSourceMinimums(
+  config: ContextBudgetConfig,
+  agentInstructions: string,
+): ReadonlyArray<{ sourceId: ContextSourceId; minimum: number }> {
+  return generatedContextSections(config, agentInstructions).map(({ sourceId, content }) => ({
+    sourceId,
+    minimum: countUnicodeCharacters(content),
+  }));
+}
+
+/**
  * Rejects source ceilings that cannot hold generated sections even when the
  * authenticated owner has no context documents.
  */
 export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig, agentInstructions: string): void {
-  const generatedSections: ReadonlyArray<{ sourceId: ContextSourceId; content: string }> = [
+  for (const { sourceId, minimum } of generatedContextSourceMinimums(config, agentInstructions)) {
+    const ceiling = sourceCharacterCeiling(config, sourceId);
+    if (ceiling < minimum) {
+      throw new Error(
+        `context source ${sourceId} requires a minimum rendered representation of ${minimum} Unicode characters, but its configured ceiling is ${ceiling}`,
+      );
+    }
+  }
+}
+
+function generatedContextSections(
+  config: ContextBudgetConfig,
+  agentInstructions: string,
+): ReadonlyArray<{ sourceId: ContextSourceId; content: string }> {
+  return [
     {
       sourceId: "base_instructions",
       content: renderAssistantBaseInstructions(),
@@ -49,14 +80,4 @@ export function assertGeneratedContextSourceMinimums(config: ContextBudgetConfig
       }),
     },
   ];
-
-  for (const section of generatedSections) {
-    const minimum = countUnicodeCharacters(section.content);
-    const ceiling = sourceCharacterCeiling(config, section.sourceId);
-    if (ceiling < minimum) {
-      throw new Error(
-        `context source ${section.sourceId} requires a minimum rendered representation of ${minimum} Unicode characters, but its configured ceiling is ${ceiling}`,
-      );
-    }
-  }
 }

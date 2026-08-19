@@ -5,7 +5,7 @@ import {
   type ContextProjectionAudit,
 } from "../../../src/application/assistant-context-projection.js";
 import { renderAssistantContextSection, renderedAssistantContextDocumentCharacters } from "../../../src/application/assistant-context-renderer.js";
-import { createContextBudgetConfig, countUnicodeCharacters, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
+import { createContextBudgetConfig, countUnicodeCharacters, defaultContextBudget, minimumContextBudgetTotal, sourceCharacterCeiling } from "../../../src/application/context-budget.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -21,12 +21,19 @@ const coreManifest = {
   rules: [{ id: "constitution", pattern: "^/proc/context/01_core\\.md$", matcher: /^\/proc\/context\/01_core\.md$/u }],
 };
 
-function budget(input: { context?: number; perFile?: number; documents?: number; index?: number; total?: number; maximumDocumentBytes?: number } = {}) {
+function budget(input: { context?: number; perFile?: number; documents?: number; index?: number; maximumDocumentBytes?: number } = {}) {
   const context = input.context ?? 16_000;
+  const index = input.index ?? 6_000;
   const perFile = input.perFile ?? Math.min(4_000, context);
+  // Ceilings above the defaults need a total that still admits every guaranteed source.
+  const sources = defaultContextBudget.sources.map((source) => {
+    if (source.id === "context") return { ...source, ceiling: context };
+    if (source.id === "context_index") return { ...source, ceiling: index };
+    return source;
+  });
   return createContextBudgetConfig({
-    ...(input.total === undefined ? {} : { total: input.total }),
-    sources: { context, context_index: input.index ?? 6_000 },
+    total: Math.max(defaultContextBudget.total, minimumContextBudgetTotal(sources, defaultContextBudget.responseReserve)),
+    sources: { context, context_index: index },
     projectionLimits: {
       contextDocuments: input.documents ?? 12,
       contextDocumentCharacters: perFile,
@@ -182,7 +189,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-DEGRADATION-001: explicit deterministi
         matcher: new RegExp(`^/proc/context/0${index + 1}_core\\.md$`, "u"),
       })),
     };
-    const config = budget({ context: 105_000, perFile: 41_000, index: 6_000, total: 169_096 });
+    const config = budget({ context: 105_000, perFile: 41_000, index: 6_000 });
     const documents = ["<", ">", "&"].map((character, index) => ({ path: `0${index + 1}_core.md`, content: character.repeat(8_000) }));
     const { projection } = await build({ documents, config, manifest: contextPriorities });
     const rendered = renderAssistantContextProjection(projection);
