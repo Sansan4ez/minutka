@@ -1,0 +1,18 @@
+{
+  "company": { "id": "company_green_line", "name": "Green-line" },
+  "group": {
+    "id": "group_green_line_2026_09",
+    "name": "Пилот — сентябрь 2026",
+    "periodFrom": "2026-09-01",
+    "periodToExclusive": "2026-09-15"
+  },
+  "roles": [
+    { "id": "role_green_line_tender_specialist", "name": "Специалист по тендерам" },
+    { "id": "role_green_line_logistician", "name": "Логист" },
+    { "id": "role_green_line_sales_manager", "name": "Менеджер отдела продаж" },
+    { "id": "role_green_line_telemarketing_manager", "name": "Менеджер отдела телемаркетинга" },
+    { "id": "role_green_line_accountant", "name": "Бухгалтер" },
+    { "id": "role_green_line_deputy_director", "name": "Заместитель директора" },
+    { "id": "role_green_line_director", "name": "Директор" }
+  ]
+}

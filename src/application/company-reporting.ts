@@ -268,7 +268,7 @@ function obstacleLabel(obstacle: ActivityObstacle): string {
   return labels[obstacle.value] ?? "рабочее препятствие";
 }
 function systemLabel(value: ActivitySystem): string {
-  return ({ bitrix24: "Bitrix24", one_c: "1С", spreadsheets: "Электронные таблицы", email: "Почта", messengers: "Мессенджеры", crm: "CRM", task_tracker: "Таск-трекер", paper_or_verbal: "Бумага или устно", other: "Другая система" } as const)[value];
+  return ({ bitrix24: "Bitrix24", one_c: "1С", spreadsheets: "Электронные таблицы", email: "Почта", messengers: "Мессенджеры", crm: "CRM", task_tracker: "Таск-трекер", telephony: "Телефония", tender_platform: "Тендерная площадка", logistics_system: "Логистическая система", learning_platform: "Платформа обучения", paper_or_verbal: "Бумага или устно", other: "Другая система" } as const)[value];
 }
 function automationOption(process: CompanyReportProcessKey): string {
   if (process.obstacle?.kind === "automation_candidate") return `Проверить вариант «${obstacleLabel(process.obstacle)}» на ограниченном участке`;

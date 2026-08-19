@@ -37,6 +37,10 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
       "messengers",
       "crm",
       "task_tracker",
+      "telephony",
+      "tender_platform",
+      "logistics_system",
+      "learning_platform",
       "paper_or_verbal",
       "other",
     ]);

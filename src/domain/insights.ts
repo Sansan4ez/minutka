@@ -68,7 +68,13 @@ export const activityDurationBuckets = [
 
 export type ActivityDurationBucket = (typeof activityDurationBuckets)[number];
 
-/** Global closed dictionary; additions require a code change, never company input. */
+/**
+ * Global closed dictionary of generic system types; additions require a code
+ * change, never company input. Company-specific brand and internal names are
+ * mapped to these generic values by the operator before the pilot starts and
+ * never reach an activity row — see
+ * `docs/runbooks/tenant-reference-directories.md#generic-mapping-типов-систем`.
+ */
 export const activitySystems = [
   "bitrix24",
   "one_c",
@@ -77,6 +83,10 @@ export const activitySystems = [
   "messengers",
   "crm",
   "task_tracker",
+  "telephony",
+  "tender_platform",
+  "logistics_system",
+  "learning_platform",
   "paper_or_verbal",
   "other",
 ] as const;
