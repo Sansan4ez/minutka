@@ -438,6 +438,19 @@ dbq "SELECT schedule_id, user_id, process_id, scheduled_for, status, completed_a
 
 Все десять шагов выполнены на дев-сервере и дали `прошло`, но не одним проходом: шаги 1–4 — на `e3f0c80`, шаги 6 и 9 — на `62ffea2` (расхождение дат закрыто `mnt-pilot-readiness-w73.14` и перепроверено на том же срезе), шаги 5, 7, 8 и 10 — на `b384dda`. Так решил оператор: контур между прогонами не пересобирался, а каждая починка между ними затрагивала только те шаги, которые после неё и перевыполнялись. Ни один шаг не остался неподтверждённым на текущем коде.
 
+### 2026-08-20, дев-сервер, дневной сценарий 5+ activities, commit `a670b24`
+
+Частичный прогон по задаче `mnt-unbounded-activity-capture-yc3.4` после закрытия `.1`–`.3`; полный десятишаговый гейт не повторялся. На дев-сервер активирован commit `a670b24`, runtime после рестарта использовал `openai/nath/gpt-5.6-terra`. Контур: `TELEGRAM_MODE=polling`, сотрудник `emp_algoritm_institute_01`, компания `company_algoritm_institute`, группа `group_algoritm_institute_2026_08`, должность `role_algoritm_institute_methodologist`, timezone `Europe/Moscow`, отдельный thread `yc3-4-20260820T095402Z`. Итог четырёх проверок: **прошло**.
+
+| № | Проверка | Результат | Свидетельство |
+|---:|---|---|---|
+| 1 | 5+ фактических activities днём | прошло | обычный service/employee turn вернул HTTP `200`, непустой ответ и `effect = business_write_committed`; `message_id = msg_77d99e61-b177-4c9e-9a59-422c116b33a6`. В `minutka_private.activities` записано ровно 5 строк с одним `subject_key = 4549d172-3fbd-419d-93a9-3c3aba9e9418`, одним `source_message_id`, scope `company_algoritm_institute/group_algoritm_institute_2026_08/role_algoritm_institute_methodologist` и локальной `activity_date = 2026-08-20`. Trace `trace_cb39a434-6fec-4b3c-9bb6-c36752c8009a` имеет `status = completed`, ровно один `collectActivities` с 5 элементами, result `savedCount = 5`, `llmSteps = 2 < maxSteps 4`. Отдельной `minutka_reporting.anonymized_activities` уже нет: `to_regclass(...) IS NULL` после canonical cleanup миграции `0060`. |
+| 2 | Смесь фактов и плана | прошло | turn `msg_1ba833f1-0088-4128-949f-06f3430bc13d` содержал три факта и план «завтра подготовить коммерческое предложение»; ответ явно сообщил, что план не записан. В БД — ровно 3 новые строки; trace `trace_c6b8eee9-6d3c-4aa1-b9d1-5b62615156e4`: один `collectActivities`, 3 элемента, `llmSteps = 2`. |
+| 3 | Вечернее касание и bounded-history дедуп | прошло | `process:run evening_reflection` в том же thread ответил: «что ещё добавить к уже отмеченному за сегодня», без лимита количества. До ответа было 8 дневных строк. Ответ с одной новой activity и явным запретом повторять пять ранних фактов создал ровно 1 строку (`msg_afea3fac-b62b-4f46-ba29-e118d30b098a`), итог дня стал 9, ранние source-message counts остались `5 + 3`; trace `trace_33a3c9f2-2e88-491e-821f-d31b1d745064`: один `collectActivities`, 1 элемент. |
+| 4 | Утреннее планирование следующего дня | прошло | сообщение `msg_e166a091-f6b7-4003-a529-ab8358f90dac` с тремя планами на завтра выбрало `morning_planning`, вернуло приоритеты и первый шаг, `effect = none`; новых activities по этому `source_message_id` — `0`, дневной count до вечернего ответа остался `8`; trace `trace_9142825c-72ea-4b37-b62b-a87cd5faf3be` — `status = completed`, вызовов `collectActivities` — `0`, `llmSteps = 2`. |
+
+Расхождений с активным canonical RFC и runbook не наблюдалось, новые задачи не заведены. Формулировка Success Criteria родительского эпика про вторую reporting-строку историческая: accepted RFC `rfc-minutka-research-corpus-and-reporting.md` и миграция `0060` удалили dual-write до этого прогона; проверялся действующий canonical writer и full trace.
+
 ## Завершение прогона
 
 1. Поставить итог `прошло` или `нет` в шапке протокола.
