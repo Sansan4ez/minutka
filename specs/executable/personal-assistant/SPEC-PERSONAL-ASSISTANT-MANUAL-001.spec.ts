@@ -33,8 +33,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Plans never become activities");
     expect(instructions).toContain("Process file: midday_adjustment");
     expect(instructions).toContain("chat-only and read-only");
-    expect(instructions).toContain("In any applicable process at any time of day");
+    expect(instructions).toContain("Except in `final_report`");
+    expect(instructions).toContain("in any applicable process at any time of day");
     expect(instructions).toContain("an array item for every named factual activity");
+    expect(instructions).toContain("today's work in any morning turn");
     expect(instructions).toContain("Plans, intentions, future tasks, and not-started work never go to `collectActivities`");
     expect(instructions).toContain("what else to add to what is already noted");
     expect(instructions).not.toMatch(/(?:up to|one to) three activities/i);
@@ -54,6 +56,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: final_report");
     expect(instructions).toContain("readCycleActivities");
     expect(instructions).toContain("call a pattern only what the result confirms as repeated");
+    expect(instructions).toContain("send it as a separate message after the report");
     expect(instructions).toContain("does not reach the methodologist or the company");
     expect(instructions).not.toMatch(/\b(?:inbox_capture|knowledge_lookup|day_focus)\b/);
     expect(instructions).toContain("In-the-moment help is limited to discussing how the employee uses working time and work-related emotional state");

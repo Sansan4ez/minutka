@@ -320,6 +320,7 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(skillsMap).toContain("readCycleActivities");
     const process = readFileSync("vault/assistant/processes/final_report.md", "utf8");
     expect(process).toContain("read-only");
+    expect(process).toContain("send it as a separate message after the report");
     expect(process).toContain("does not reach the methodologist or the company");
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
     expect(packageJson.scripts["cycle:final-reports"]).toBe("tsx src/runtime/arm-final-reports.ts");

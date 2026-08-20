@@ -57,9 +57,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * repins the manual after making factual activity collection a cross-process,
  * any-time rule and documenting batch collection plus evening deduplication.
  * mnt-unbounded-activity-capture-yc3.6 repins the explicit handling of failed
- * and partial collection results.
+ * and partial collection results. mnt-unbounded-activity-capture-yc3.7 repins
+ * today's morning factual writes and the final-report exception.
  */
-const pinnedAgentManualCharacters = 35_960;
+const pinnedAgentManualCharacters = 36_440;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
