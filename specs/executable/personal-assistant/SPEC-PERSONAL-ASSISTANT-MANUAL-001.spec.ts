@@ -33,6 +33,11 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Plans never become activities");
     expect(instructions).toContain("Process file: midday_adjustment");
     expect(instructions).toContain("chat-only and read-only");
+    expect(instructions).toContain("In any applicable process at any time of day");
+    expect(instructions).toContain("an array item for every named factual activity");
+    expect(instructions).toContain("Plans, intentions, future tasks, and not-started work never go to `collectActivities`");
+    expect(instructions).toContain("what else to add to what is already noted");
+    expect(instructions).not.toMatch(/(?:up to|one to) three activities/i);
     expect(instructions).toContain("updatePersonalContext");
     expect(instructions).toContain("Do not ask a questionnaire");
     expect(instructions).toContain("Process file: personal_context_review");

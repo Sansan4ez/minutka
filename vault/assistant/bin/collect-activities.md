@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Record a bounded batch of separate employee activities through the authenticated tenant-bound activity collection use-case.
+Record every explicitly named completed or in-progress employee activity in one batch through the authenticated tenant-bound activity collection use-case.
 
 ## Mutating
 
@@ -10,7 +10,7 @@ Yes: sequentially writes one canonical private activity record per array item. A
 
 ## Input
 
-Input is `{ activities: [...] }` with 1 to 30 items. Each item uses only optional closed-dictionary fields:
+Input is `{ activities: [...] }`. Send one item for every explicitly named completed or in-progress activity in the employee's message. Each item uses only optional closed-dictionary fields:
 
 - `taskCategory`
 - `routinePattern`
@@ -19,7 +19,7 @@ Input is `{ activities: [...] }` with 1 to 30 items. Each item uses only optiona
 - `durationBucket`
 - `system`
 
-`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same item. The obstacle never requires a separate item. Send at most one obstacle field per item. The batch is not rejected when several arrive — only the first of that order is recorded — because a rejected call loses the whole batch. One array item always represents one activity; no item has a free-text field.
+`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same item. Each activity has at most one obstacle; the obstacle never requires a separate item. The batch is not rejected when several obstacle fields arrive — only the first of that order is recorded — because a rejected call loses the whole batch. One array item always represents one activity; no item has a free-text field.
 
 ## Output
 

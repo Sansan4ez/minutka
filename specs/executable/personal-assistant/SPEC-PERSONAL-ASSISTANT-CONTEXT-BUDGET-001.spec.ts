@@ -53,9 +53,11 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * terms. mnt-pilot-readiness-w73.36 then moved the ceiling to 45 000 and the
  * total to 110 000 at once, because per-process 1 000 steps had left only 409
  * characters before a fail-closed production start; the guaranteed ceilings now
- * sum to 81 000 inside the total budget.
+ * sum to 81 000 inside the total budget. mnt-unbounded-activity-capture-yc3.2
+ * repins the manual after making factual activity collection a cross-process,
+ * any-time rule and documenting batch collection plus evening deduplication.
  */
-const pinnedAgentManualCharacters = 34_414;
+const pinnedAgentManualCharacters = 35_908;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
