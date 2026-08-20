@@ -100,6 +100,11 @@ function createHarness() {
     if (text.includes("morning_planning")) {
       observed.scheduledPrompts.push(text);
       context.markProcessUsed("morning_planning");
+      const unrecordedYesterdayFact = context.profileAndHistory.thread.data.turns
+        .find((turn) => turn.userText.includes("Вчера завершил незаписанный отчёт"));
+      if (unrecordedYesterdayFact && text.includes("запиши")) {
+        await context.collectActivities({ activities: [{ taskCategory: "reporting" }] });
+      }
       return { text: "1. Сверить цифры\nПервый шаг: открыть таблицу.", executionTrace: [] };
     }
     if (text.includes("evening_reflection")) {
@@ -279,17 +284,27 @@ describe("SPEC-MINUTKA-PERSONAL-GATE-001: personal context to weekly summary to 
     }
 
     // 3. Scheduled daily prompts keep planning bounded but do not limit factual activity capture.
+    const activitiesBeforeScheduledPrompts = harness.activityState.activities.length;
+    await harness.application.chat({
+      userId: employeeA.employeeId,
+      threadId: "scheduled-with-history",
+      text: "Вчера завершил незаписанный отчёт",
+    });
     await harness.application.runScheduledProcess({
-      userId: employeeA.employeeId, threadId: "cycle", processId: "morning_planning",
+      userId: employeeA.employeeId, threadId: "scheduled-with-history", processId: "morning_planning",
     });
     await harness.application.runScheduledProcess({
       userId: employeeA.employeeId, threadId: "cycle", processId: "evening_reflection",
     });
+    expect(harness.activityState.activities).toHaveLength(activitiesBeforeScheduledPrompts);
     expect(harness.observed.scheduledPrompts).toHaveLength(2);
     expect(harness.observed.scheduledPrompts[0]).toContain("до трёх приоритетов");
-    expect(harness.observed.scheduledPrompts[0]).toContain("все явно названные факты одним вызовом collectActivities");
+    expect(harness.observed.scheduledPrompts[0]).toContain("В этом сообщении ничего не записывай");
+    expect(harness.observed.scheduledPrompts[0]).toContain("запись выполняется по ответу сотрудника");
     expect(harness.observed.scheduledPrompts[1]).toContain("без ограничения их количества");
-    expect(harness.observed.scheduledPrompts[1]).toContain("одним вызовом collectActivities");
+    expect(harness.observed.scheduledPrompts[1]).toContain("В этом сообщении ничего не записывай");
+    expect(harness.observed.scheduledPrompts[1]).toContain("запись выполняется по ответу сотрудника");
+    expect(harness.observed.scheduledPrompts.join("\n")).not.toContain("collectActivities");
     expect(harness.observed.scheduledPrompts.join("\n")).not.toContain("до трёх фактически");
 
     // 4. The scheduled weekly checkpoint reads the employee's own seven days.
