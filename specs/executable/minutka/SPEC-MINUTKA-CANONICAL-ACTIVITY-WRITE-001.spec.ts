@@ -6,6 +6,7 @@ import {
   createInMemoryActivityCollectionStore,
 } from "../../../src/application/in-memory-activity-collection-store.js";
 import { CompanyReportingService } from "../../../src/application/company-reporting.js";
+import { PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 
 const cleanupMigrationPath = "migrations/0060_remove_anonymized_activity_contour.sql";
 const evidenceLinkMigrationPath = "migrations/0061_link_activity_source_message_without_insert_order.sql";
@@ -135,6 +136,37 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       ],
     })).resolves.toMatchObject({ status: "partial", savedCount: 2, activityIds: ["activity_partial_1", "activity_partial_2"] });
     expect(partialState.activities).toHaveLength(2);
+  });
+
+  it("propagates an unknown persistence outcome before and after earlier batch writes", async () => {
+    for (const uncertainWrite of [1, 3]) {
+      const state = createInMemoryActivityCollectionState();
+      let writes = 0;
+      let ids = 0;
+      const service = new CollectActivityService({
+        async saveActivity(activity) {
+          writes += 1;
+          if (writes === uncertainWrite) throw new PersistenceOutcomeUnknownError();
+          state.activities.push(structuredClone(activity));
+        },
+      }, { now: () => "2026-08-15T22:17:35.000Z" }, () => `activity_uncertain_${++ids}`);
+
+      await expect(service.collectBatch({
+        employeeId: "employee_a",
+        subjectKey: "subject_employee_a",
+        sourceMessageId: "message_a",
+        companyId: "company_a",
+        groupId: "group_a",
+        roleId: "role_a",
+        timezone: "Europe/Moscow",
+        activities: [
+          { taskCategory: "reporting" },
+          { taskCategory: "meetings" },
+          { taskCategory: "coordination" },
+        ],
+      })).rejects.toBeInstanceOf(PersistenceOutcomeUnknownError);
+      expect(state.activities).toHaveLength(uncertainWrite - 1);
+    }
   });
 
   it("does not expose a partial record when the canonical write fails", async () => {

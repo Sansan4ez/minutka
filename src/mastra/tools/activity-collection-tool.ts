@@ -14,7 +14,7 @@ export function createCollectActivitiesTool(
 ) {
   return createTool({
     id: collectActivitiesToolName,
-    description: "Record all employee activities named in the current message through one authenticated tenant-bound typed call. Put each activity in its own array item. Omit unknown fields and never send free text. For each item send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded.",
+    description: "Record all employee activities named in the current message through one authenticated tenant-bound typed call. Put each activity in its own array item. Omit unknown fields and never send free text. For each item send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded. If the result status is failed or partial, tell the employee the savedCount, plainly say the remaining activities were not recorded, do not claim a complete write, and do not retry automatically.",
     strict: true,
     inputSchema: collectActivitiesInputSchema,
     outputSchema: z.strictObject({

@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createAssistantAgentRunner } from "../../../src/mastra/agent-runner.js";
-import { CollectActivityService } from "../../../src/application/activity-collection.js";
+import { CollectActivityService, type CollectActivitiesResult } from "../../../src/application/activity-collection.js";
+import { AssistantMutationOutcomeUnknownError } from "../../../src/application/assistant-mutation-outcome.js";
 import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore } from "../../../src/application/in-memory-activity-collection-store.js";
+import { PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
@@ -16,7 +18,10 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 
-function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
+function harness(
+  runner: ConstructorParameters<typeof AssistantService>[0],
+  collectActivitiesOverride?: (command: Parameters<NonNullable<ConstructorParameters<typeof AssistantService>[1]["collectActivities"]>>[0]) => Promise<CollectActivitiesResult>,
+) {
   const clock = { now: () => "2026-08-15T07:00:00.000Z" };
   const world = createInMemoryWorld(clock.now);
   world.participants.push({
@@ -51,7 +56,7 @@ function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
       auditEventStore: createInMemoryAuditEventStore(world),
       clock,
     }),
-    collectActivities: (command) => activities.collectBatch(command),
+    collectActivities: collectActivitiesOverride ?? ((command) => activities.collectBatch(command)),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
@@ -127,6 +132,34 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
     expect(state.activities[2]).toMatchObject({ taskCategory: "coordination", activityDate: "2026-08-15" });
     expect(state.activities[2]).not.toHaveProperty("durationBucket");
     expect(state.activities[2]).not.toHaveProperty("system");
+  });
+
+  it.each([
+    ["known failure", { status: "failed", savedCount: 0, activityIds: [], error: new Error("rejected") } satisfies CollectActivitiesResult, "none"],
+    ["partial write", { status: "partial", savedCount: 1, activityIds: ["activity_saved"], error: new Error("rejected") } satisfies CollectActivitiesResult, "business_write_committed"],
+    ["completed write", { status: "completed", savedCount: 2, activityIds: ["activity_one", "activity_two"] } satisfies CollectActivitiesResult, "business_write_committed"],
+  ] as const)("maps an activity %s result to the turn effect", async (_label, collectionResult, expectedEffect) => {
+    const { service } = harness(async (_input, context) => {
+      await expect(context.collectActivities({ activities: [{ taskCategory: "reporting" }, { taskCategory: "meetings" }] }))
+        .resolves.toEqual(collectionResult);
+      return { text: `Статус записи: ${collectionResult.status}, сохранено: ${collectionResult.savedCount}.`, executionTrace: [] };
+    }, async () => collectionResult);
+
+    await expect(service.chat({
+      userId: "employee_a", threadId: "daily", text: "Запиши факты дня", requiredProcessId: "evening_reflection",
+    })).resolves.toMatchObject({ effect: expectedEffect });
+  });
+
+  it("surfaces an unknown activity persistence outcome through the turn-level error", async () => {
+    const { service, conversationStore } = harness(async (_input, context) => {
+      await context.collectActivities({ activities: [{ taskCategory: "reporting" }] });
+      return { text: "Записал активность.", executionTrace: [] };
+    }, async () => { throw new PersistenceOutcomeUnknownError(); });
+
+    await expect(service.chat({
+      userId: "employee_a", threadId: "daily", text: "Завершил отчёт", requiredProcessId: "evening_reflection",
+    })).rejects.toBeInstanceOf(AssistantMutationOutcomeUnknownError);
+    await expect(conversationStore.getRecentTurns({ employeeId: "employee_a", threadId: "daily", limit: 10 })).resolves.toEqual([]);
   });
 
   it("offers a missed-evening catch-up, records only a new factual activity, and then returns to planning", async () => {

@@ -56,8 +56,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * sum to 81 000 inside the total budget. mnt-unbounded-activity-capture-yc3.2
  * repins the manual after making factual activity collection a cross-process,
  * any-time rule and documenting batch collection plus evening deduplication.
+ * mnt-unbounded-activity-capture-yc3.6 repins the explicit handling of failed
+ * and partial collection results.
  */
-const pinnedAgentManualCharacters = 35_908;
+const pinnedAgentManualCharacters = 35_960;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

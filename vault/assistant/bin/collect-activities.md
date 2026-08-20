@@ -23,7 +23,7 @@ Input is `{ activities: [...] }`. Send one item for every explicitly named compl
 
 ## Output
 
-A typed `completed`, `failed`, or `partial` status with `savedCount`. Private activity ids and storage errors are not exposed to the model.
+A typed `completed`, `failed`, or `partial` status with `savedCount`. Private activity ids and storage errors are not exposed to the model. For `failed` or `partial`, tell the employee the `savedCount`, plainly say the remaining activities were not recorded, do not claim a complete write, and do not retry the call automatically.
 
 ## Confirmation level
 

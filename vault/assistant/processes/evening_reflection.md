@@ -24,7 +24,7 @@ Use for an employee's end-of-day account, blockers, meetings, work-related energ
 ## Outputs
 
 - For a scheduled message: a concise invitation to report result, obstacle, and optional energy.
-- For an employee answer: one successful `collectActivities` call containing every factual activity, followed by a short non-judgmental reflection and at most one next step.
+- For an employee answer: one successful `collectActivities` call containing every factual activity, or a plainly reported failure with the saved count, followed by a short non-judgmental reflection and at most one next step.
 
 ## Privacy notes
 

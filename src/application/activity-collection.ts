@@ -15,6 +15,7 @@ import type {
   TaskCategory,
 } from "../domain/insights.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
+import { PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
 export type ActivityObstacle =
@@ -113,6 +114,7 @@ export class CollectActivityService {
         const result = await this.collect({ ...scope, activity });
         activityIds.push(result.activityId);
       } catch (error) {
+        if (error instanceof PersistenceOutcomeUnknownError) throw error;
         return activityIds.length === 0
           ? { status: "failed", savedCount: 0, activityIds: [], error }
           : { status: "partial", savedCount: activityIds.length, activityIds, error };
