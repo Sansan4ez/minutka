@@ -77,6 +77,9 @@ production-сервера. На хосте `sops-nix` расшифровывае
   systemd `EnvironmentFile` приложения и migration oneshot;
 - `/run/secrets/rendered/minio-root.env` — root credential file только для
   `minio.service`.
+- `/run/secrets/minutka/ops_telegram_bot_token`,
+  `/run/secrets/minutka/ops_telegram_chat_id` — операторский алертинг (отдельный
+  бот, не продуктовый).
 
 Application runtime получает только `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`; root
 credential не входит в его EnvironmentFile. `cliproxy_management_key` рендерится

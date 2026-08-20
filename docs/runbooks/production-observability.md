@@ -108,3 +108,73 @@ sudo ss -lntp | grep '127.0.0.1:9100'
 Если timestamp равен `0`, соответствующая успешная операция ещё не выполнялась
 или state-файл отсутствует. Collector пишет временный файл и делает `mv`, поэтому
 `node_exporter` не читает частично сформированный набор метрик.
+
+## Алертинг оператору
+
+Systemd-таймер `minutka-alerting.timer` каждые 10 минут запускает oneshot-сервис
+`minutka-alerting.service`, который читает textfile-набор
+`/var/lib/node-exporter-textfile/minutka.prom`, сравнивает пороги и отправляет
+уведомление оператору в Telegram при нарушении.
+
+### Проверяемые сигналы и пороги
+
+| Сигнал | Метрика / условие | Порог |
+|---|---|---|
+| `unit_down` | `minutka_systemd_unit_active{unit="minutka.service"} == 0` | — |
+| `smoke_stale` | `time() - minutka_smoke_last_success_timestamp_seconds` | > 30 мин |
+| `smoke_never` | `minutka_smoke_last_success_timestamp_seconds == 0` | — |
+| `backup_stale` | `time() - minutka_backup_last_success_timestamp_seconds` | > 86 400 с |
+| `minio_capacity` | `minutka_minio_capacity_soft_threshold_exceeded == 1` | — |
+| `artifact_owner_quota` | `minutka_artifact_owner_soft_quota_exceeded_count > 0` | — |
+
+### Anti-flap
+
+Для каждого сигнала ведётся файл
+`/var/lib/minutka-alerting/<signal>.last_alert` с unix-timestamp последней
+отправки. Повторное уведомление по тому же сигналу подавляется в пределах
+4-часового окна.
+
+### Канал доставки
+
+Уведомление идёт через **отдельный бот-токен** (`ops_telegram_bot_token`) в
+личный чат оператора (`ops_telegram_chat_id`). Оба значения хранятся в
+[sops bundle](../../nixos/phase3-assistant-stack/secrets/minutka.yaml) и
+расшифровываются sops-nix в `/run/secrets/minutka/`. Продуктовый бот-токен
+(`TELEGRAM_BOT_TOKEN`) для алертинга не используется; контур рассылок
+участникам не задет.
+
+Для создания операторского бота:
+
+1. Создай нового бота через `@BotFather`, получи токен.
+2. Узнай numeric chat id оператора (например, через `@userinfobot`).
+3. Добавь оба значения в sops bundle:
+
+   ```bash
+   SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops secrets/minutka.yaml
+   ```
+
+4. Разверни (`./scripts/deploy.sh`) — таймер начнёт проверки автоматически.
+
+### Быстрая проверка
+
+```bash
+sudo systemctl status minutka-alerting.timer
+sudo systemctl list-timers minutka-alerting.timer
+sudo systemctl start minutka-alerting.service
+sudo journalctl -u minutka-alerting.service --since today
+ls -la /var/lib/minutka-alerting/
+```
+
+### Проверка алерта остановкой сервиса
+
+```bash
+sudo systemctl stop minutka.service
+sudo systemctl start minutka-observability-collector.service
+sudo systemctl start minutka-alerting.service
+sudo journalctl -u minutka-alerting.service -n 20 --no-pager
+# Ожидание: Telegram-уведомление «minutka.service is not active»
+sudo systemctl start minutka.service
+```
+
+Текст уведомления не содержит owner id, имён или content — только название
+сигнала и метрику.

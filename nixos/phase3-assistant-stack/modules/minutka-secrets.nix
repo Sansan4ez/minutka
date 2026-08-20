@@ -29,6 +29,8 @@ let
     postgres_superuser_password = "POSTGRES_SUPERUSER_PASSWORD";
     minutka_db_password = "MINUTKA_DB_PASSWORD";
     minutka_migrator_db_password = "MINUTKA_MIGRATOR_DB_PASSWORD";
+    ops_telegram_bot_token = "OPS_TELEGRAM_BOT_TOKEN";
+    ops_telegram_chat_id = "OPS_TELEGRAM_CHAT_ID";
   };
 
   allSecrets = environmentSecrets // infrastructureSecrets;

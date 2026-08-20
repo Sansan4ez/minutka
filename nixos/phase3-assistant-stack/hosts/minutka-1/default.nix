@@ -18,6 +18,7 @@
       ../../modules/backup-pull.nix
       ../../modules/smoke.nix
       ../../modules/observability.nix
+      ../../modules/alerting.nix
     ]
     ++ lib.optionals (builtins.pathExists ./hardware-configuration.nix) [
       ./hardware-configuration.nix
