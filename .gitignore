@@ -9,6 +9,7 @@ dist/
 result
 docs/generated/
 reports/*.html
+docs/reports/*.html
 .belief_map.sexp
 .belief_map_cache.json
 belief_map.sexp
