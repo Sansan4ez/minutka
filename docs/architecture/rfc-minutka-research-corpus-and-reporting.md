@@ -131,7 +131,7 @@ Fine-tuning и model training не входят в текущую цель и н
 
 ### 2.7. Ежедневный producer и внутренний evidence pack
 
-Ежедневный runtime следует принятому [ритму](./rfc-minutka-daily-rhythm.md): `morning_planning` даёт до трёх приоритетов и один первый шаг, но не пишет планы как activities; `midday_adjustment` остаётся добровольным chat-only и read-only; `evening_reflection` вызывает `collectActivity` ровно один раз на каждую явно названную выполненную или начатую activity, максимум три. Утренний missed-evening catch-up допустим только по bounded history, не выдумывает факты и не дублирует уже отмеченные как записанные активности.
+Ежедневный runtime следует принятому [ритму](./rfc-minutka-daily-rhythm.md): `morning_planning` даёт до трёх приоритетов и один первый шаг, но не пишет планы как activities; `midday_adjustment` остаётся добровольным chat-only процессом, в котором планирование read-only, а явно сообщённые выполненные или начатые работы записываются; `evening_reflection` остаётся плановым producer, но не монополизирует запись факта. В любом применимом процессе все явно названные factual activities передаются одним вызовом `collectActivities` без продуктового лимита количества; provider-visible `maxItems` — только защитная граница batch-контракта. Утренний missed-evening catch-up допустим только по bounded history, не выдумывает факты и не дублирует уже отмеченные как записанные активности.
 
 Tenant/group-scoped research export объединяет:
 
@@ -288,7 +288,7 @@ Policy draft не становится активным только от поя
 
 - Trace exporter failure не отменяет ответ и conversation persistence; создаётся drop/missing signal.
 - Activity persistence failure виден как неуспешный structured collection; conversation turn сохраняется и может быть размечен вручную.
-- Ежедневный producer structured activities — `evening_reflection`: утренний `morning_planning` не превращает планы в факты, а chat-only `midday_adjustment` остаётся read-only. Утренний missed-evening catch-up пишет только явно названные фактические и ещё не записанные активности.
+- `evening_reflection` остаётся плановым producer structured activities, но явно названные факты записываются в любое время дня; утренний `morning_planning` и планирующая часть chat-only `midday_adjustment` не превращают планы в факты. Утренний missed-evening catch-up пишет только явно названные фактические и ещё не записанные активности.
 - Research export требует tenant/group scope и прекращается целиком при mismatch.
 - Report generation с малым coverage возвращает `hypothesis`/coverage notes, а не выдумывает подтверждённость.
 - До удаления old dual-write новая и старая отчётность могут существовать параллельно только на migration stage; клиентский артефакт формируется одним выбранным implementation path.

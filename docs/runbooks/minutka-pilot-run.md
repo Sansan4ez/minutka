@@ -241,29 +241,37 @@ dbq "SELECT schedule_id, process_id, scheduled_for, status, completed_at, error_
 npm run process:run -- --employee "$EMPLOYEE_ONE" --process morning_planning --thread pilot-daily
 ```
 
-**Признак `прошло`:** команда завершается кодом `0` и предлагает выбрать не более трёх приоритетов и один конкретный первый шаг. В ответе нет утверждения о сохранении planned work, а в `minutka_private.activities` после одного scheduled prompt новых строк нет. Строки `Assistant thread compaction audit failed (PersistenceError).` в выводе быть не должно.
+**Признак `прошло`:** команда завершается кодом `0` и предлагает выбрать не более трёх приоритетов и один конкретный первый шаг. Если bounded history показывает пропущенный вечер, catch-up не задаёт лимит количества фактических активностей. В ответе нет утверждения о сохранении planned work, а в `minutka_private.activities` после одного scheduled prompt новых строк нет. Строки `Assistant thread compaction audit failed (PersistenceError).` в выводе быть не должно.
 
 ## Шаг 6. Добровольный дневной апдейт и вечерние активности
 
-Сначала в том же thread добровольно сообщить об изменении плана. Это обычный employee chat, не `process:run`: отдельного midday schedule нет. Ответ должен опираться на видимый утренний план, оставить до трёх приоритетов и один следующий шаг, не создавая activity для планов.
-
-Затем вечером назвать три фактические активности в одном разговоре:
+В том же thread днём отправить обычный employee chat, не `process:run`: отдельного midday schedule нет. Сообщение должно содержать пять или больше фактически выполненных/начатых активностей и одно явное намерение на будущее. Пример:
 
 ```bash
 MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
-  --text "Сегодня час собирал отчёт по продажам в 1С — половину времени искал данные; потом сорок минут созванивался с логистом по срокам; и ещё полчаса вручную переносил заявки из почты в CRM." | tail -n 1
+  --text "Сегодня уже провёл планёрку, собрал отчёт по продажам, начал согласование с логистом, разобрал данные в таблице и перенёс заявки из почты в CRM; вечером ещё собираюсь подготовить презентацию." | tee /tmp/minutka-midday.json | tail -n 1
 
-dbq "SELECT activity_id, subject_key, company_id, group_id, role_id, task_category,
-            obstacle_kind, duration_bucket, system, recorded_at
+dbq "SELECT activity_id, subject_key, source_message_id, company_id, group_id, role_id,
+            task_category, obstacle_kind, duration_bucket, system, activity_date, recorded_at
      FROM minutka_private.activities WHERE employee_id = \$1 ORDER BY recorded_at" "[\"$EMPLOYEE_ONE\"]"
-dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, model
-     FROM minutka_research.traces WHERE company_id = \$1 AND group_id = \$2 ORDER BY started_at DESC"
-    "[\"$COMPANY_ID\",\"$GROUP_ID\"]"
+dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, model,
+            payload->'attempts' AS attempts
+     FROM minutka_research.traces
+     WHERE company_id = \$1 AND group_id = \$2
+     ORDER BY started_at DESC LIMIT 1" "[\"$COMPANY_ID\",\"$GROUP_ID\"]"
 ```
 
-**Признак `прошло`:** `selectedProcessIds` содержит `evening_reflection`; три canonical activities содержат один и тот же subject binding сотрудника, `source_message_id` текущего turn, локальную `activity_date` и точный company/group scope; conversation turn и full research trace сохранены. Planned/not-started work не создаёт строк. Research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Отдельной reporting-копии activity нет.
+**Признак `прошло`:** дневной turn получает непустой текстовый ответ; пять factual activities дают пять новых canonical строк с одним subject binding сотрудника, `source_message_id` текущего turn, локальной `activity_date` и точным company/group scope. Будущее намерение про презентацию строки не создаёт. В последнем trace один tool call имеет `toolName = collectActivities`, а его input содержит пять элементов; `usage.llmSteps`, если присутствует, меньше `maxSteps = 4`, ход не заканчивается на потолке. Conversation turn и full research trace сохранены, research export выбранной группы связывает messages, activities и traces по subject/evidence refs. Отдельной reporting-копии activity нет.
 
-Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в два приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента, а `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» в описание инструмента (cross-field `.refine()` не доходил до провайдера) и снял fallback-гейт «не терять ввод». С commit `62ffea2` шаг проходит: три активности одним сообщением дают три canonical subject-linked записи, `inbox_capture` в `selectedProcessIds` не появляется, `minutka_private.ideas` пуста.
+После этого отправить вечернее касание в том же thread:
+
+```bash
+npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection --thread pilot-daily
+```
+
+**Признак `прошло`:** приглашение спрашивает, что **ещё** добавить к уже отмеченному, и не задаёт лимит количества. На ответ сотрудника с одной новой фактической activity выполняется один batch-вызов `collectActivities`; дневные activities не дублируются, если bounded history явно показывает, что они уже записаны.
+
+Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в три приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента; `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» и снял fallback-гейт «не терять ввод»; `mnt-unbounded-activity-capture-yc3.1` заменил последовательные одиночные вызовы одним provider-visible batch-вызовом `collectActivities`. Проверка пяти и более дневных activities выполняется задачей `mnt-unbounded-activity-capture-yc3.4`.
 
 ## Шаг 7. Вечернее касание
 
@@ -275,7 +283,7 @@ MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
 npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection --thread pilot-daily
 ```
 
-**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии и завершается кодом `0`. На ответ сотрудника одна named factual activity даёт ровно один `collectActivity`; неизвестные поля отсутствуют, а не выдуманы.
+**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии без лимита количества и завершается кодом `0`. На ответ сотрудника все named factual activities передаются одним вызовом `collectActivities`; неизвестные поля отсутствуют, а не выдуманы.
 
 ## Шаг 7a. Недельная сводка
 

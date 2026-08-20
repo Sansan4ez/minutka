@@ -84,6 +84,7 @@ function createHarness() {
 
   /** What the agent actually saw, so the gate asserts the read and not the wording. */
   const observed = {
+    scheduledPrompts: [] as string[],
     weekly: [] as Array<Awaited<ReturnType<WeeklyActivitySummaryService["summarize"]>>>,
     cycle: [] as Array<Awaited<ReturnType<CycleActivitySummaryService["summarize"]>>>,
   };
@@ -97,8 +98,14 @@ function createHarness() {
       return { text: "Записал факт дня.", executionTrace: [] };
     }
     if (text.includes("morning_planning")) {
+      observed.scheduledPrompts.push(text);
       context.markProcessUsed("morning_planning");
       return { text: "1. Сверить цифры\nПервый шаг: открыть таблицу.", executionTrace: [] };
+    }
+    if (text.includes("evening_reflection")) {
+      observed.scheduledPrompts.push(text);
+      context.markProcessUsed("evening_reflection");
+      return { text: "Что ещё добавить к уже отмеченным фактическим активностям?", executionTrace: [] };
     }
     if (text.includes("weekly_summary") || text.startsWith("Да,") || text.startsWith("Нет,")) {
       context.markProcessUsed("weekly_summary");
@@ -271,7 +278,21 @@ describe("SPEC-MINUTKA-PERSONAL-GATE-001: personal context to weekly summary to 
       expect(activity.subjectKey).not.toBe(activity.employeeId);
     }
 
-    // 3. The scheduled weekly checkpoint reads the employee's own seven days.
+    // 3. Scheduled daily prompts keep planning bounded but do not limit factual activity capture.
+    await harness.application.runScheduledProcess({
+      userId: employeeA.employeeId, threadId: "cycle", processId: "morning_planning",
+    });
+    await harness.application.runScheduledProcess({
+      userId: employeeA.employeeId, threadId: "cycle", processId: "evening_reflection",
+    });
+    expect(harness.observed.scheduledPrompts).toHaveLength(2);
+    expect(harness.observed.scheduledPrompts[0]).toContain("до трёх приоритетов");
+    expect(harness.observed.scheduledPrompts[0]).toContain("все явно названные факты одним вызовом collectActivities");
+    expect(harness.observed.scheduledPrompts[1]).toContain("без ограничения их количества");
+    expect(harness.observed.scheduledPrompts[1]).toContain("одним вызовом collectActivities");
+    expect(harness.observed.scheduledPrompts.join("\n")).not.toContain("до трёх фактически");
+
+    // 4. The scheduled weekly checkpoint reads the employee's own seven days.
     const weeklyRun = await harness.application.runScheduledProcess({
       userId: employeeA.employeeId, threadId: "cycle", processId: "weekly_summary",
     });
