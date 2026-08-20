@@ -93,7 +93,7 @@ function createHarness() {
     const fact = scriptedFacts.get(text);
     if (fact) {
       context.markProcessUsed("evening_reflection");
-      await context.collectActivity(fact.activity);
+      await context.collectActivities({ activities: [fact.activity] });
       return { text: "Записал факт дня.", executionTrace: [] };
     }
     if (text.includes("morning_planning")) {
@@ -143,7 +143,7 @@ function createHarness() {
       auditEventStore: createInMemoryAuditEventStore(world),
       clock,
     }),
-    collectActivity: (command) => activities.collect(command),
+    collectActivities: (command) => activities.collectBatch(command),
     readWeeklyActivities: (command) => weekly.summarize(command),
     readCycleActivities: (command) => cycle.summarize(command),
     auditEventStore: createInMemoryAuditEventStore(world),

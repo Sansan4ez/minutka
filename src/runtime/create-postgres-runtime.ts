@@ -244,7 +244,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
-      collectActivity: (command) => activityCollection.collect(command),
+      collectActivities: (command) => activityCollection.collectBatch(command),
       readWeeklyActivities: (input) => weeklyActivitySummary.summarize(input),
       readCycleActivities: (input) => cycleActivitySummary.summarize(input),
       projectLabels,

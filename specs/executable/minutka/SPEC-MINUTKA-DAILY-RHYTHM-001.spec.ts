@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import { createAssistantAgentRunner } from "../../../src/mastra/agent-runner.js";
 import { CollectActivityService } from "../../../src/application/activity-collection.js";
 import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
@@ -50,7 +51,7 @@ function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
       auditEventStore: createInMemoryAuditEventStore(world),
       clock,
     }),
-    collectActivity: (command) => activities.collect(command),
+    collectActivities: (command) => activities.collectBatch(command),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
@@ -97,23 +98,32 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
     expect(state.activities).toEqual([]);
   });
 
-  it("records exactly one structured activity per named evening fact and leaves unknown fields empty", async () => {
-    const { service, state } = harness(async (_input, context) => {
-      context.markProcessUsed("evening_reflection");
-      await context.collectActivity({ taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" });
-      await context.collectActivity({ taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" });
-      await context.collectActivity({ taskCategory: "coordination" });
-      return "Записал три фактические активности. Завтра начните с проверки итоговых цифр.";
-    });
+  it("records more than three structured activities through one registered Mastra tool call", async () => {
+    let toolCalls = 0;
+    const { service, state } = harness(createAssistantAgentRunner({
+      async generate(_text, options) {
+        const tool = options.toolsets.activities.collectActivities as { execute(input: unknown, context: unknown): Promise<unknown> };
+        toolCalls += 1;
+        await expect(tool.execute({ activities: [
+          { taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" },
+          { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" },
+          { taskCategory: "coordination" },
+          { taskCategory: "focus_work", automationCandidate: "data_entry_reduction" },
+          { taskCategory: "communication", energyStressMarker: "focus_loss" },
+        ] }, {})).resolves.toEqual({ status: "completed", savedCount: 5 });
+        return { text: "Записал пять фактических активностей.", toolCalls: [], toolResults: [] };
+      },
+    }));
 
     const result = await service.chat({
       userId: "employee_a", threadId: "daily",
-      text: "Провёл планёрку, свёл отчёт и начал согласование поставки.", requiredProcessId: "evening_reflection",
+      text: "Провёл планёрку, свёл отчёт, начал согласование, разобрал данные и ответил коллегам.", requiredProcessId: "evening_reflection",
     });
 
     expect(result.selectedProcessIds).toEqual(["core", "evening_reflection"]);
     expect(result.effect).toBe("business_write_committed");
-    expect(state.activities).toHaveLength(3);
+    expect(toolCalls).toBe(1);
+    expect(state.activities).toHaveLength(5);
     expect(state.activities[2]).toMatchObject({ taskCategory: "coordination", activityDate: "2026-08-15" });
     expect(state.activities[2]).not.toHaveProperty("durationBucket");
     expect(state.activities[2]).not.toHaveProperty("system");
@@ -124,7 +134,7 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
       const history = context.profileAndHistory.thread.data.turns;
       if (input.text === "Отчёт завершил") {
         context.markProcessUsed("evening_reflection");
-        await context.collectActivity({ taskCategory: "reporting" });
+        await context.collectActivities({ activities: [{ taskCategory: "reporting" }] });
         return "Записал отчёт.";
       }
       if (input.text === "Вечернее сообщение") {
@@ -138,7 +148,7 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
       }
       context.markProcessUsed("morning_planning");
       expect(history.some((turn) => turn.agentResponse.includes("Записал отчёт"))).toBe(true);
-      await context.collectActivity({ taskCategory: "coordination" });
+      await context.collectActivities({ activities: [{ taskCategory: "coordination" }] });
       return "Записал только новое согласование. Сегодня: 1) завершить согласование; 2) проверить отчёт. Первый шаг: открыть последнее письмо.";
     });
 

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
-  collectActivityInputSchema,
+  activityCollectionItemSchema,
+  collectActivitiesInputSchema,
+  type CollectActivitiesInput,
   type CollectActivityInput,
 } from "../contracts/minutka-activity.js";
 import type {
@@ -49,10 +51,19 @@ const collectActivityCommandSchema = z.strictObject({
   groupId: z.string().trim().min(1),
   roleId: z.string().trim().min(1),
   timezone: z.string().trim().min(1),
-  activity: collectActivityInputSchema,
+  activity: activityCollectionItemSchema,
+});
+
+const collectActivitiesCommandSchema = collectActivityCommandSchema.omit({ activity: true }).extend({
+  activities: collectActivitiesInputSchema.shape.activities,
 });
 
 export type CollectActivityCommand = z.input<typeof collectActivityCommandSchema>;
+export type CollectActivitiesCommand = z.input<typeof collectActivitiesCommandSchema>;
+export type CollectActivitiesResult =
+  | { status: "completed"; savedCount: number; activityIds: string[] }
+  | { status: "failed"; savedCount: 0; activityIds: []; error: unknown }
+  | { status: "partial"; savedCount: number; activityIds: string[]; error: unknown };
 
 /** Typed application boundary used by the agent-facing collection action. */
 export class CollectActivityService {
@@ -89,9 +100,31 @@ export class CollectActivityService {
     return { activityId };
   }
 
+  /**
+   * Validates the full batch before the first write, then preserves the existing
+   * one-record-per-activity persistence path in input order.
+   */
+  async collectBatch(command: CollectActivitiesCommand): Promise<CollectActivitiesResult> {
+    const { activities, ...scope } = collectActivitiesCommandSchema.parse(command);
+    const activityIds: string[] = [];
+
+    for (const activity of activities) {
+      try {
+        const result = await this.collect({ ...scope, activity });
+        activityIds.push(result.activityId);
+      } catch (error) {
+        return activityIds.length === 0
+          ? { status: "failed", savedCount: 0, activityIds: [], error }
+          : { status: "partial", savedCount: activityIds.length, activityIds, error };
+      }
+    }
+
+    return { status: "completed", savedCount: activityIds.length, activityIds };
+  }
+
   /** Agent-facing callback: the authenticated tenant scope is bound outside the model input. */
-  bind(scope: Omit<z.infer<typeof collectActivityCommandSchema>, "activity">): (activity: CollectActivityInput) => Promise<{ activityId: string }> {
-    return (activity) => this.collect({ ...scope, activity });
+  bind(scope: Omit<z.infer<typeof collectActivitiesCommandSchema>, "activities">): (input: CollectActivitiesInput) => Promise<CollectActivitiesResult> {
+    return ({ activities }) => this.collectBatch({ ...scope, activities });
   }
 }
 

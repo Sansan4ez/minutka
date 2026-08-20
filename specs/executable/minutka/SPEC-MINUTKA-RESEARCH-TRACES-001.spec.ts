@@ -73,14 +73,14 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
         text: "Готово для Анны и проекта Альфа.",
         executionTrace: [
           { kind: "process", processId: "evening_reflection" },
-          { kind: "tool", toolName: "collectActivity" },
+          { kind: "tool", toolName: "collectActivities" },
         ],
         usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25, llmSteps: 2 },
         trace: {
           model: "openai/test-model-2026-08-18",
           modelSteps: [{ text: "step", request: { body: { authorization: "Bearer super-secret", note: "Анна ведёт проект Альфа" } } }],
-          toolCalls: [{ payload: { toolName: "collectActivity", args: { taskCategory: "reporting", inviteCode: "invite-secret" } } }],
-          toolResults: [{ payload: { toolName: "collectActivity", result: { recorded: true, apiKey: "sk-secret-value" } } }],
+          toolCalls: [{ payload: { toolName: "collectActivities", args: { taskCategory: "reporting", inviteCode: "invite-secret" } } }],
+          toolResults: [{ payload: { toolName: "collectActivities", result: { recorded: true, apiKey: "sk-secret-value" } } }],
         },
       }),
     });

@@ -55,7 +55,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * characters before a fail-closed production start; the guaranteed ceilings now
  * sum to 81 000 inside the total budget.
  */
-const pinnedAgentManualCharacters = 34_361;
+const pinnedAgentManualCharacters = 34_414;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

@@ -33,7 +33,7 @@ function createStubContext(): AssistantAgentContext {
     ideas: capabilities as AssistantAgentContext["ideas"],
     projects: capabilities as AssistantAgentContext["projects"],
     schedules: capabilities as AssistantAgentContext["schedules"],
-    collectActivity: (async () => ({ activityId: "activity" })) as AssistantAgentContext["collectActivity"],
+    collectActivities: (async ({ activities }) => ({ status: "completed", savedCount: activities.length, activityIds: [] })) as AssistantAgentContext["collectActivities"],
     updatePersonalContext: async () => ({ changedFields: [] }),
     markProcessUsed() {},
   } as unknown as AssistantAgentContext;

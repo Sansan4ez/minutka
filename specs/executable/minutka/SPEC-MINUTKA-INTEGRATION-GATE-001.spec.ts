@@ -70,12 +70,12 @@ function createGateHarness() {
   const runner: AssistantAgentRunner = async (input, context) => {
     if (input.text.startsWith("ACTIVITY:")) {
       context.markProcessUsed("evening_reflection");
-      await context.collectActivity({
+      await context.collectActivities({ activities: [{
         taskCategory: "reporting",
         routinePattern: "manual_reporting",
         durationBucket: "30_60m",
         system: "spreadsheets",
-      });
+      }] });
     }
     return {
       text: `Ответ: ${input.text}`,
@@ -90,7 +90,7 @@ function createGateHarness() {
     ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore(clock) }),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     participantStore: profileStore,
-    collectActivity: (command) => activities.collect(command),
+    collectActivities: (command) => activities.collectBatch(command),
     researchTraceStore: traces,
     researchTraceVersions: traceVersions,
     auditEventStore: createInMemoryAuditEventStore(world),

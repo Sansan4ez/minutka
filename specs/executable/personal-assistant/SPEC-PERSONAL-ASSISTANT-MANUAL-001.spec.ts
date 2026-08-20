@@ -90,7 +90,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .join("\n");
 
     expect(registeredIds).toEqual([
-      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivity", "readWeeklyActivities",
+      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivities", "readWeeklyActivities",
       "readCycleActivities", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
@@ -129,7 +129,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("listTasks");
     expect(assistantActiveToolNames).not.toContain("listDocuments");
     expect(assistantActiveToolNames).not.toContain("createContextNote");
-    expect(assistantActiveToolNames).toContain("collectActivity");
+    expect(assistantActiveToolNames).toContain("collectActivities");
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
     expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");

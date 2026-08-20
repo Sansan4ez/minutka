@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { collectActivityInputSchema } from "../../../src/contracts/minutka-activity.js";
+import { activityCollectionItemSchema } from "../../../src/contracts/minutka-activity.js";
 import { tenantDirectorySeedInputSchema } from "../../../src/runtime/seed-tenant-reference-directories.js";
 
 const examples = "docs/runbooks/examples";
@@ -21,7 +21,7 @@ const bindings = (JSON.parse(readFileSync(`${examples}/pilot-participant-binding
 
 /**
  * One representative account per role of the first cohort, written the way the
- * agent must call `collectActivity`: closed values only, one obstacle, and a
+ * agent must call `collectActivities`: closed values only, one obstacle, and a
  * system the operator's generic mapping already covers.
  */
 const dryRuns: Record<string, unknown> = {
@@ -91,7 +91,7 @@ describe("SPEC-MINUTKA-PILOT-COHORT-DIRECTORY-001: narrow roles and a covered sy
     expect(Object.keys(dryRuns).sort()).toEqual([...seededRoles].sort());
 
     for (const [roleId, sample] of Object.entries(dryRuns)) {
-      const parsed = collectActivityInputSchema.parse(sample);
+      const parsed = activityCollectionItemSchema.parse(sample);
       const obstacles = ["routinePattern", "automationCandidate", "energyStressMarker"]
         .filter((field) => field in parsed);
 

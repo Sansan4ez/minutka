@@ -6,7 +6,7 @@ import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assi
 import { assistantActiveToolNames, assistantRuntimeToolsets, createAssistantAgentRunner, type MastraAgentLike } from "../../../src/mastra/agent-runner.js";
 import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
 
-const collectActivity = (async () => ({ activityId: "activity" })) as AssistantAgentContext["collectActivity"];
+const collectActivities = (async ({ activities }) => ({ status: "completed", savedCount: activities.length, activityIds: [] })) as AssistantAgentContext["collectActivities"];
 
 const source = (path: string) => readFileSync(path, "utf8");
 
@@ -82,7 +82,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     const runner = createAssistantAgentRunner({
       async generate(_text, options) {
         generateOptions = options;
-        const tool = options.toolsets?.activities?.collectActivity as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        const tool = options.toolsets?.activities?.collectActivities as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(options.toolsets?.inbox).toBeUndefined();
         expect(options.toolsets?.documents).toBeUndefined();
@@ -99,21 +99,21 @@ describe("A2.6: legacy Minutka agent removal", () => {
         await expect(diagnostic.execute?.({ id: "morning_planning" }, {})).resolves.toEqual({ recorded: true, id: "morning_planning" });
         await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toMatchObject({ error: true });
         expect(tool.execute).toBeTypeOf("function");
-        const result = await tool.execute?.({
+        const result = await tool.execute?.({ activities: [{
           taskCategory: "reporting",
           durationBucket: "30_60m",
           system: "spreadsheets",
-        }, {});
-        expect(result).toEqual({ recorded: true });
+        }] }, {});
+        expect(result).toEqual({ status: "completed", savedCount: 1 });
         return {
           text: "done",
           toolCalls: [
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed" } },
-            { payload: { toolCallId: "call-2", toolName: "collectActivity" } },
+            { payload: { toolCallId: "call-2", toolName: "collectActivities" } },
           ],
           toolResults: [
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed", isError: false } },
-            { payload: { toolCallId: "call-2", toolName: "collectActivity", isError: false } },
+            { payload: { toolCallId: "call-2", toolName: "collectActivities", isError: false } },
           ],
           usage: { promptTokens: 70, completionTokens: 20, totalTokens: 90, cachedInputTokens: 50 },
           totalUsage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, cachedInputTokens: 80 },
@@ -132,9 +132,9 @@ describe("A2.6: legacy Minutka agent removal", () => {
       profileAndHistory: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture" },
-      async collectActivity(activity) {
-        captured.push(activity);
-        return { activityId: "activity_1" };
+      async collectActivities(input) {
+        captured.push(input);
+        return { status: "completed", savedCount: input.activities.length, activityIds: ["activity_1"] };
       },
       async readWeeklyActivities() { throw new Error("not used"); },
       async readCycleActivities() { throw new Error("not used"); },
@@ -203,18 +203,18 @@ describe("A2.6: legacy Minutka agent removal", () => {
       text: "done",
       executionTrace: [
         { kind: "tool", toolName: "markProcessUsed" },
-        { kind: "tool", toolName: "collectActivity" },
+        { kind: "tool", toolName: "collectActivities" },
       ],
       trace: {
         model: expect.any(String),
         modelSteps: expect.arrayContaining([expect.objectContaining({ usage: expect.any(Object) })]),
-        toolCalls: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivity" }) })]),
-        toolResults: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivity" }) })]),
+        toolCalls: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivities" }) })]),
+        toolResults: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivities" }) })]),
       },
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
     });
 
-    expect(captured).toEqual([{ taskCategory: "reporting", durationBucket: "30_60m", system: "spreadsheets" }]);
+    expect(captured).toEqual([{ activities: [{ taskCategory: "reporting", durationBucket: "30_60m", system: "spreadsheets" }] }]);
     expect(generateOptions).toMatchObject({
       system: "private context",
       toolChoice: "auto",
@@ -302,7 +302,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     profileAndHistory: {} as never,
     records: {} as never,
     source: { kind: "text", text: "usage" },
-    collectActivity,
+    collectActivities,
     readWeeklyActivities: async () => { throw new Error("not used"); },
     readCycleActivities: async () => { throw new Error("not used"); },
     updatePersonalContext: async () => ({ changedFields: [] }),

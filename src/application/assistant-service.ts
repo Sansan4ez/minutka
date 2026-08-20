@@ -47,7 +47,8 @@ import { createAssistantContextDocumentCapabilities, type AssistantContextDocume
 import type { ContextDocumentService, PendingContextDocumentMutationReceipt } from "./context-document-service.js";
 import { ProjectLabelService, type AssistantProjectListResult, type ProjectLabelCollectCache } from "./project-labels.js";
 import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
-import type { CollectActivityInput } from "../contracts/minutka-activity.js";
+import type { CollectActivitiesInput } from "../contracts/minutka-activity.js";
+import type { CollectActivitiesResult } from "./activity-collection.js";
 import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
 import type { CycleActivitySummary } from "./cycle-activity-summary.js";
 import {
@@ -87,8 +88,8 @@ export type AssistantAgentContext = {
   };
   /** Owner-bound daily schedule reads and reversible writes. */
   schedules: OwnerScheduleCapabilities;
-  /** Authenticated employee and tenant-bound structured activity write. */
-  collectActivity(activity: CollectActivityInput): Promise<{ activityId: string }>;
+  /** Authenticated employee and tenant-bound structured activity batch write. */
+  collectActivities(input: CollectActivitiesInput): Promise<CollectActivitiesResult>;
   /** Employee-bound counted read of the employee's own last seven days. */
   readWeeklyActivities(): Promise<WeeklyActivitySummary>;
   /** Employee-bound counted read of the employee's own two-week cycle. */
@@ -158,7 +159,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivity?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activity: CollectActivityInput }) => Promise<{ activityId: string }>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -536,8 +537,8 @@ export class AssistantService {
     // turn that is still running. When the turn later fails before the
     // conversation append, the activity stays — the corpus keeps what the
     // employee reported — and the evidence link resolves to no message.
-    const collectActivity = async (activity: CollectActivityInput) => {
-      if (!this.deps.collectActivity) throw new Error("activity collection is not configured");
+    const collectActivities = async ({ activities }: CollectActivitiesInput) => {
+      if (!this.deps.collectActivities) throw new Error("activity collection is not configured");
       const participant = await this.deps.participantStore?.getParticipant(userId);
       const companyId = participant?.companyId;
       const groupId = participant?.groupId;
@@ -546,9 +547,9 @@ export class AssistantService {
       const timezone = profile?.timezone;
       if (!companyId || !groupId || !subjectKey || !roleId || !timezone) throw new PersistenceError("profile_not_found");
       try {
-        const result = await this.deps.collectActivity({ employeeId: userId, subjectKey, sourceMessageId: messageId, companyId, groupId, roleId, timezone, activity });
-        observedExecutionTrace.push({ kind: "tool", toolName: "collectActivity" });
-        if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+        const result = await this.deps.collectActivities({ employeeId: userId, subjectKey, sourceMessageId: messageId, companyId, groupId, roleId, timezone, activities });
+        observedExecutionTrace.push({ kind: "tool", toolName: "collectActivities" });
+        if (result.savedCount > 0 && chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
         return result;
       } catch (cause) {
         if (!(cause instanceof PersistenceOutcomeUnknownError)) throw cause;
@@ -640,7 +641,7 @@ export class AssistantService {
       ideas,
       projects,
       schedules,
-      collectActivity,
+      collectActivities,
       readWeeklyActivities,
       readCycleActivities,
       updatePersonalContext,

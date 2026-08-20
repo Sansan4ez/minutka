@@ -90,6 +90,53 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     ]);
   });
 
+  it("validates the whole batch before writing and reports a mid-batch storage failure", async () => {
+    const invalidState = createInMemoryActivityCollectionState();
+    const invalidService = new CollectActivityService(
+      createInMemoryActivityCollectionStore(invalidState),
+      { now: () => "2026-08-15T22:17:35.000Z" },
+      () => "activity_invalid",
+    );
+
+    await expect(invalidService.collectBatch({
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
+      sourceMessageId: "message_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      roleId: "role_a",
+      timezone: "Europe/Moscow",
+      activities: [{ taskCategory: "reporting" }, { taskCategory: "not_in_dictionary" as never }],
+    })).rejects.toThrow();
+    expect(invalidState.activities).toEqual([]);
+
+    const partialState = createInMemoryActivityCollectionState();
+    let writes = 0;
+    let ids = 0;
+    const partialService = new CollectActivityService(
+      createInMemoryActivityCollectionStore(partialState, { failWrite: () => ++writes === 3 }),
+      { now: () => "2026-08-15T22:17:35.000Z" },
+      () => `activity_partial_${++ids}`,
+    );
+
+    await expect(partialService.collectBatch({
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
+      sourceMessageId: "message_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      roleId: "role_a",
+      timezone: "Europe/Moscow",
+      activities: [
+        { taskCategory: "reporting" },
+        { taskCategory: "meetings" },
+        { taskCategory: "coordination" },
+        { taskCategory: "focus_work" },
+      ],
+    })).resolves.toMatchObject({ status: "partial", savedCount: 2, activityIds: ["activity_partial_1", "activity_partial_2"] });
+    expect(partialState.activities).toHaveLength(2);
+  });
+
   it("does not expose a partial record when the canonical write fails", async () => {
     const state = createInMemoryActivityCollectionState();
     const service = new CollectActivityService(

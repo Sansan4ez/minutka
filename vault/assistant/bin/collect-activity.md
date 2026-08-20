@@ -1,16 +1,16 @@
-# `collectActivity`
+# `collectActivities`
 
 ## Purpose
 
-Record exactly one employee activity through the authenticated tenant-bound activity collection use-case.
+Record a bounded batch of separate employee activities through the authenticated tenant-bound activity collection use-case.
 
 ## Mutating
 
-Yes: atomically writes one private activity record and one anonymized structured row.
+Yes: sequentially writes one canonical private activity record per array item. A storage failure returns how many earlier items were saved.
 
 ## Input
 
-All fields are optional and use closed dictionaries:
+Input is `{ activities: [...] }` with 1 to 30 items. Each item uses only optional closed-dictionary fields:
 
 - `taskCategory`
 - `routinePattern`
@@ -19,11 +19,11 @@ All fields are optional and use closed dictionaries:
 - `durationBucket`
 - `system`
 
-`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same call. The obstacle never requires a separate call. Send at most one obstacle field. The call is not rejected when several arrive — only the first of that order is recorded — because a rejected call loses the whole activity. One call always represents one activity; the input has no array and no free-text field.
+`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same item. The obstacle never requires a separate item. Send at most one obstacle field per item. The batch is not rejected when several arrive — only the first of that order is recorded — because a rejected call loses the whole batch. One array item always represents one activity; no item has a free-text field.
 
 ## Output
 
-A typed acknowledgement that the activity was recorded. The private activity id is not exposed to the model.
+A typed `completed`, `failed`, or `partial` status with `savedCount`. Private activity ids and storage errors are not exposed to the model.
 
 ## Confirmation level
 

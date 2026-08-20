@@ -1,26 +1,30 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import {
-  collectActivityInputSchema,
-  type CollectActivityInput,
+  collectActivitiesInputSchema,
+  type CollectActivitiesInput,
 } from "../../contracts/minutka-activity.js";
+import type { CollectActivitiesResult } from "../../application/activity-collection.js";
 
-export const collectActivityToolName = "collectActivity" as const;
+export const collectActivitiesToolName = "collectActivities" as const;
 
-/** Records one structured activity for the authenticated employee. */
-export function createCollectActivityTool(
-  collectActivity: (activity: CollectActivityInput) => Promise<{ activityId: string }>,
+/** Records a batch of separate structured activities for the authenticated employee. */
+export function createCollectActivitiesTool(
+  collectActivities: (input: CollectActivitiesInput) => Promise<CollectActivitiesResult>,
 ) {
   return createTool({
-    id: collectActivityToolName,
-    description: "Record exactly one employee activity through the authenticated tenant-bound typed use-case. Omit unknown fields; never send free text or combine several activities in one call. Send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded.",
+    id: collectActivitiesToolName,
+    description: "Record all employee activities named in the current message through one authenticated tenant-bound typed call. Put each activity in its own array item. Omit unknown fields and never send free text. For each item send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded.",
     strict: true,
-    inputSchema: collectActivityInputSchema,
-    outputSchema: z.strictObject({ recorded: z.literal(true) }),
+    inputSchema: collectActivitiesInputSchema,
+    outputSchema: z.strictObject({
+      status: z.enum(["completed", "failed", "partial"]),
+      savedCount: z.number().int().nonnegative(),
+    }),
     mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
-    execute: async (activity) => {
-      await collectActivity(activity);
-      return { recorded: true as const };
+    execute: async (input) => {
+      const result = await collectActivities(input);
+      return { status: result.status, savedCount: result.savedCount };
     },
   });
 }

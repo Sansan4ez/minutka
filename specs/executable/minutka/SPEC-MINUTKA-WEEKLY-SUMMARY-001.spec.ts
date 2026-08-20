@@ -60,7 +60,7 @@ function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
       auditEventStore: createInMemoryAuditEventStore(world),
       clock,
     }),
-    collectActivity: (command) => activities.collect(command),
+    collectActivities: (command) => activities.collectBatch(command),
     readWeeklyActivities: (input) => weekly.summarize(input),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
