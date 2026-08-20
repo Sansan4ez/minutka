@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Record every explicitly named completed or in-progress employee activity in one batch through the authenticated tenant-bound activity collection use-case.
+Record all explicitly named completed or in-progress employee activities through the authenticated, tenant-bound use-case.
 
 ## Mutating
 
@@ -10,7 +10,7 @@ Yes: sequentially writes one canonical private activity record per array item. A
 
 ## Input
 
-Input is `{ activities: [...] }`. Send one item for every explicitly named completed or in-progress activity in the employee's message. Each item uses only optional closed-dictionary fields:
+Input is `{ activities: [...] }`. Send one item per fact. A call accepts at most 50 items; continue in input order in the next call rather than dropping facts. Items use only optional closed-dictionary fields:
 
 - `taskCategory`
 - `routinePattern`
@@ -23,7 +23,7 @@ Input is `{ activities: [...] }`. Send one item for every explicitly named compl
 
 ## Output
 
-A typed `completed`, `failed`, or `partial` status with `savedCount`. Private activity ids and storage errors are not exposed to the model. For `failed` or `partial`, tell the employee the `savedCount`, plainly say the remaining activities were not recorded, do not claim a complete write, and do not retry the call automatically.
+A typed `completed`, `failed`, or `partial` status with `savedCount`; ids and errors stay private. For `failed` or `partial`, report `savedCount`, say the rest was not recorded, and do not retry it automatically. The application reconciles an unknown outcome by exact-id read-back without changing activity meaning.
 
 ## Confirmation level
 

@@ -42,6 +42,8 @@ export type PersonalActivityRecord = {
 export type ActivityCollectionStore = {
   /** Persists the single canonical, subject-aware activity record. */
   saveActivity(activity: PersonalActivityRecord): Promise<void>;
+  /** Optional read-back used only to reconcile an unknown non-idempotent write outcome. */
+  getActivityById?(activityId: string): Promise<PersonalActivityRecord | undefined>;
 };
 
 const collectActivityCommandSchema = z.strictObject({
@@ -96,7 +98,13 @@ export class CollectActivityService {
     if (input.activity.durationBucket !== undefined) activity.durationBucket = input.activity.durationBucket;
     if (input.activity.system !== undefined) activity.system = input.activity.system;
 
-    await this.store.saveActivity(activity);
+    try {
+      await this.store.saveActivity(activity);
+    } catch (error) {
+      if (!(error instanceof PersistenceOutcomeUnknownError) || !this.store.getActivityById) throw error;
+      const recovered = await this.store.getActivityById(activityId).catch(() => undefined);
+      if (!recovered || !samePersonalActivity(recovered, activity)) throw error;
+    }
 
     return { activityId };
   }
@@ -128,6 +136,11 @@ export class CollectActivityService {
   bind(scope: Omit<z.infer<typeof collectActivitiesCommandSchema>, "activities">): (input: CollectActivitiesInput) => Promise<CollectActivitiesResult> {
     return ({ activities }) => this.collectBatch({ ...scope, activities });
   }
+}
+
+/** Unknown commit recovery succeeds only when read-back proves the exact intended record. */
+function samePersonalActivity(left: PersonalActivityRecord, right: PersonalActivityRecord): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 /**

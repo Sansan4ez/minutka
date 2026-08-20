@@ -10,6 +10,7 @@ import {
 
 export const activityDurationBucketSchema = z.enum(activityDurationBuckets);
 export const activitySystemSchema = z.enum(activitySystems);
+export const collectActivitiesMaximumItems = 50;
 
 /**
  * Every field is optional so an incomplete activity stays incomplete rather
@@ -33,7 +34,7 @@ export const activityCollectionItemSchema = z.strictObject({
 
 /** One provider-visible call records a bounded batch of separate activities. */
 export const collectActivitiesInputSchema = z.strictObject({
-  activities: z.array(activityCollectionItemSchema).min(1).max(30),
+  activities: z.array(activityCollectionItemSchema).min(1).max(collectActivitiesMaximumItems),
 });
 
 export type CollectActivityInput = z.infer<typeof activityCollectionItemSchema>;

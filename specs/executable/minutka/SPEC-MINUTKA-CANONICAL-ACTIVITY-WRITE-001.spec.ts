@@ -138,7 +138,72 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     expect(partialState.activities).toHaveLength(2);
   });
 
-  it("propagates an unknown persistence outcome before and after earlier batch writes", async () => {
+  it("reconciles a committed activity after an unknown persistence outcome without retrying the write", async () => {
+    const state = createInMemoryActivityCollectionState();
+    let writes = 0;
+    const service = new CollectActivityService({
+      async saveActivity(activity) {
+        writes += 1;
+        state.activities.push(structuredClone(activity));
+        throw new PersistenceOutcomeUnknownError();
+      },
+      async getActivityById(activityId) {
+        const activity = state.activities.find((candidate) => candidate.activityId === activityId);
+        return activity ? structuredClone(activity) : undefined;
+      },
+    }, { now: () => "2026-08-15T22:17:35.000Z" }, () => "activity_recovered");
+
+    await expect(service.collectBatch({
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
+      sourceMessageId: "message_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      roleId: "role_a",
+      timezone: "Europe/Moscow",
+      activities: [{ taskCategory: "reporting", system: "spreadsheets" }],
+    })).resolves.toEqual({ status: "completed", savedCount: 1, activityIds: ["activity_recovered"] });
+    expect(writes).toBe(1);
+    expect(state.activities).toHaveLength(1);
+  });
+
+  it("does not treat a different exact-id record as successful reconciliation", async () => {
+    let writes = 0;
+    const service = new CollectActivityService({
+      async saveActivity() {
+        writes += 1;
+        throw new PersistenceOutcomeUnknownError();
+      },
+      async getActivityById(activityId) {
+        return {
+          activityId,
+          employeeId: "employee_a",
+          subjectKey: "subject_employee_a",
+          sourceMessageId: "message_a",
+          companyId: "company_a",
+          groupId: "group_a",
+          roleId: "role_a",
+          taskCategory: "meetings",
+          activityDate: "2026-08-16",
+          recordedAt: "2026-08-15T22:17:35.000Z",
+        };
+      },
+    }, { now: () => "2026-08-15T22:17:35.000Z" }, () => "activity_conflict");
+
+    await expect(service.collect({
+      employeeId: "employee_a",
+      subjectKey: "subject_employee_a",
+      sourceMessageId: "message_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      roleId: "role_a",
+      timezone: "Europe/Moscow",
+      activity: { taskCategory: "reporting" },
+    })).rejects.toBeInstanceOf(PersistenceOutcomeUnknownError);
+    expect(writes).toBe(1);
+  });
+
+  it("propagates an unknown persistence outcome when exact-id reconciliation cannot prove the write", async () => {
     for (const uncertainWrite of [1, 3]) {
       const state = createInMemoryActivityCollectionState();
       let writes = 0;
@@ -148,6 +213,10 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
           writes += 1;
           if (writes === uncertainWrite) throw new PersistenceOutcomeUnknownError();
           state.activities.push(structuredClone(activity));
+        },
+        async getActivityById(activityId) {
+          const activity = state.activities.find((candidate) => candidate.activityId === activityId);
+          return activity ? structuredClone(activity) : undefined;
         },
       }, { now: () => "2026-08-15T22:17:35.000Z" }, () => `activity_uncertain_${++ids}`);
 

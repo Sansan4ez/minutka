@@ -4,6 +4,7 @@ import {
   activitySystemSchema,
   activityCollectionItemSchema,
   collectActivitiesInputSchema,
+  collectActivitiesMaximumItems,
 } from "../../../src/contracts/minutka-activity.js";
 import {
   activityDurationBuckets,
@@ -58,7 +59,8 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ durationBucket: "40m" }] }).success).toBe(false);
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ system: "Zoom" }] }).success).toBe(false);
     expect(collectActivitiesInputSchema.safeParse({ activities: [] }).success).toBe(false);
-    expect(collectActivitiesInputSchema.safeParse({ activities: Array.from({ length: 31 }, () => ({})) }).success).toBe(false);
+    expect(collectActivitiesInputSchema.safeParse({ activities: Array.from({ length: collectActivitiesMaximumItems }, () => ({})) }).success).toBe(true);
+    expect(collectActivitiesInputSchema.safeParse({ activities: Array.from({ length: collectActivitiesMaximumItems + 1 }, () => ({})) }).success).toBe(false);
   });
 
   it("has no free-text fields and rejects unknown keys", () => {
@@ -69,7 +71,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     const activitiesSchema = jsonSchema.properties?.activities;
     const itemSchema = activitiesSchema?.items;
 
-    expect(activitiesSchema).toMatchObject({ minItems: 1, maxItems: 30 });
+    expect(activitiesSchema).toMatchObject({ minItems: 1, maxItems: collectActivitiesMaximumItems });
     expect(Object.keys(itemSchema?.properties ?? {}).sort()).toEqual([...expectedFields].sort());
     expect(itemSchema?.additionalProperties).toBe(false);
     expect(jsonSchema.additionalProperties).toBe(false);

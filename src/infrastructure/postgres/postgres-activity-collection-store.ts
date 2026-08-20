@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { ActivityCollectionStore } from "../../application/activity-collection.js";
+import type { ActivityCollectionStore, PersonalActivityRecord } from "../../application/activity-collection.js";
 import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/own-activity-window.js";
 import { mapPostgresError, PersistenceError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
@@ -49,6 +49,59 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
         throw mapPostgresError(error);
       }
     },
+    async getActivityById(activityId) {
+      try {
+        const result = await pool.query<ActivityRow>(
+          `SELECT activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
+                  task_category, obstacle_kind, obstacle_value, duration_bucket, system,
+                  activity_date::text AS activity_date, recorded_at
+           FROM minutka_private.activities
+           WHERE activity_id = $1`,
+          [activityId],
+        );
+        const row = result.rows[0];
+        return row ? personalActivity(row) : undefined;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+  };
+}
+
+type ActivityRow = {
+  activity_id: string;
+  employee_id: string;
+  subject_key: string;
+  source_message_id: string | null;
+  company_id: string;
+  group_id: string;
+  role_id: string;
+  task_category: OwnActivityFacet["taskCategory"] | null;
+  obstacle_kind: NonNullable<OwnActivityFacet["obstacle"]>["kind"] | null;
+  obstacle_value: string | null;
+  duration_bucket: OwnActivityFacet["durationBucket"] | null;
+  system: OwnActivityFacet["system"] | null;
+  activity_date: string;
+  recorded_at: Date;
+};
+
+function personalActivity(row: ActivityRow): PersonalActivityRecord {
+  return {
+    activityId: row.activity_id,
+    employeeId: row.employee_id,
+    subjectKey: row.subject_key,
+    ...(row.source_message_id ? { sourceMessageId: row.source_message_id } : {}),
+    companyId: row.company_id,
+    groupId: row.group_id,
+    roleId: row.role_id,
+    ...(row.task_category ? { taskCategory: row.task_category } : {}),
+    ...(row.obstacle_kind && row.obstacle_value
+      ? { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as NonNullable<OwnActivityFacet["obstacle"]> }
+      : {}),
+    ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
+    ...(row.system ? { system: row.system } : {}),
+    activityDate: row.activity_date,
+    recordedAt: row.recorded_at.toISOString(),
   };
 }
 

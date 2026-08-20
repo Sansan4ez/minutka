@@ -131,7 +131,7 @@ Fine-tuning и model training не входят в текущую цель и н
 
 ### 2.7. Ежедневный producer и внутренний evidence pack
 
-Ежедневный runtime следует принятому [ритму](./rfc-minutka-daily-rhythm.md): `morning_planning` даёт до трёх приоритетов и один первый шаг, но не пишет планы как activities; `midday_adjustment` остаётся добровольным chat-only процессом, в котором планирование read-only, а явно сообщённые выполненные или начатые работы записываются; `evening_reflection` остаётся плановым producer, но не монополизирует запись факта. В любом применимом процессе все явно названные factual activities передаются одним вызовом `collectActivities` без продуктового лимита количества; provider-visible `maxItems` — только защитная граница batch-контракта. Утренний missed-evening catch-up допустим только по bounded history, не выдумывает факты и не дублирует уже отмеченные как записанные активности.
+Ежедневный runtime следует принятому [ритму](./rfc-minutka-daily-rhythm.md): `morning_planning` даёт до трёх приоритетов и один первый шаг, но не пишет планы как activities; `midday_adjustment` остаётся добровольным chat-only процессом, в котором планирование read-only, а явно сообщённые выполненные или начатые работы записываются; `evening_reflection` остаётся плановым producer, но не монополизирует запись факта. В любом применимом процессе все явно названные factual activities передаются минимальным числом вызовов `collectActivities` без продуктового лимита количества; provider-visible `maxItems` — только защитная граница batch-контракта. Утренний missed-evening catch-up допустим только по bounded history, не выдумывает факты и не дублирует уже отмеченные как записанные активности.
 
 Tenant/group-scoped research export объединяет:
 

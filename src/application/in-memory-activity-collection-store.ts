@@ -23,6 +23,10 @@ export function createInMemoryActivityCollectionStore(
       tenantScope.bindOwner(canonical.employeeId, canonical);
       state.activities.push(canonical);
     },
+    async getActivityById(activityId) {
+      const activity = state.activities.find((candidate) => candidate.activityId === activityId);
+      return activity ? structuredClone(activity) : undefined;
+    },
   };
 }
 

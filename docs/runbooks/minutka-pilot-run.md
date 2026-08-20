@@ -283,7 +283,7 @@ MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
 npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection --thread pilot-daily
 ```
 
-**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии без лимита количества и завершается кодом `0`. На ответ сотрудника все named factual activities передаются одним вызовом `collectActivities`; неизвестные поля отсутствуют, а не выдуманы.
+**Признак `прошло`:** запись `schedule_fires` с `process_id = evening_reflection` и перенесённым `scheduled_for`; `npm run process:run` просит назвать результат, препятствие и необязательный рабочий сигнал энергии без лимита количества и завершается кодом `0`. На ответ сотрудника все named factual activities передаются минимальным числом вызовов `collectActivities` под 50-item batch-границей; неизвестные поля отсутствуют, а не выдуманы.
 
 ## Шаг 7a. Недельная сводка
 
