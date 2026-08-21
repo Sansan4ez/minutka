@@ -91,6 +91,48 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect((await client.listParticipants(testTenantBinding)).participants.find(({ employeeId }) => employeeId === "emp_first")).toBeDefined();
   });
 
+  it("revokes an unused invite through the TCP HTTP DELETE route", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
+    const application = createApplication(runtime, "unused");
+    await application.issueInvite({ employeeId: "emp_revoke_http", inviteCode: "invite_revoke_http", ...testTenantBinding });
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map() } }); running.push(server);
+    const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+
+    const result = await runMinutkaCli(client, [
+      "admin", "revoke-invite",
+      "--employee", "emp_revoke_http",
+      "--company", "default_company",
+      "--group", "default_group",
+      "--confirm", "DELETE emp_revoke_http",
+    ]);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: [] });
+    expect(result.stdout).toEqual([JSON.stringify({ employeeId: "emp_revoke_http", deleted: true })]);
+    expect(runtime.world.participants).not.toContainEqual(expect.objectContaining({ employeeId: "emp_revoke_http" }));
+  });
+
+  it("preserves the server error message when HTTP invite revocation is refused", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
+    const application = createApplication(runtime, "unused");
+    await application.issueInvite({ employeeId: "emp_opened_http", inviteCode: "invite_opened_http", ...testTenantBinding });
+    await application.openInvite({ inviteCode: "invite_opened_http" });
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map() } }); running.push(server);
+    const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+
+    const result = await runMinutkaCli(client, [
+      "admin", "revoke-invite",
+      "--employee", "emp_opened_http",
+      "--company", "default_company",
+      "--group", "default_group",
+      "--confirm", "DELETE emp_opened_http",
+    ]);
+
+    expect(result).toMatchObject({ exitCode: 1, stdout: [] });
+    expect(result.stderr.at(-1)).toContain("employee:data:delete");
+    expect(result.stderr.join("\n")).not.toContain("Internal server error");
+    expect(runtime.world.participants).toContainEqual(expect.objectContaining({ employeeId: "emp_opened_http", status: "invite_opened" }));
+  });
+
   it("reports one employee's monthly usage with source and cache breakdown for the operator", async () => {
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
     const usageStore = createInMemoryUsageStore();

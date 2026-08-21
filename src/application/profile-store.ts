@@ -92,5 +92,6 @@ export type ProfileStore = EngagementReminderStore & {
   getConsent(employeeId: string): Promise<Consent | undefined>;
   getProfile(employeeId: string): Promise<UserProfile | undefined>;
   /** Removes a participant that is still in invite_issued status, including the invite digest. */
-  deleteInvitedParticipant(employeeId: string): Promise<{ found: boolean; deleted: boolean; status?: OnboardingStatus }>;  deleteEmployeePersonalData(employeeId: string): Promise<EmployeePersonalDataDeletionCounts>;
+  deleteInvitedParticipant(employeeId: string): Promise<{ found: boolean; deleted: boolean; status?: OnboardingStatus }>;
+  deleteEmployeePersonalData(employeeId: string): Promise<EmployeePersonalDataDeletionCounts>;
 };

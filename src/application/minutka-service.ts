@@ -37,7 +37,7 @@ import { createResponsePolicy, renderResponsePolicy } from "../domain/response-p
 import type { DefaultScheduleProvisioner, DefaultScheduleProvisionResult } from "./default-schedules.js";
 import { createOnboardingWelcome } from "./onboarding-welcome-loader.js";
 import { decodeParticipantCursor, encodeParticipantCursor, type ListParticipantsInput } from "./participant-pagination.js";
-import { ParticipantInviteExistsError } from "./participant-invite-error.js";
+import { ParticipantInviteExistsError, ParticipantInviteRevocationError } from "./participant-invite-error.js";
 import { RoleNotInCompanyError } from "./onboarding-role-error.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
 import { participantEngagement, type ParticipantEngagement } from "./participant-engagement.js";
@@ -204,7 +204,7 @@ export class MinutkaService {
     const participant = await this.stores.profileStore.getParticipant(employeeId);
     if (!participant) throw new PersistenceError("participant_not_found");
     if (participant.companyId !== companyId || participant.groupId !== groupId) throw new Error("participant belongs to a different tenant scope");
-    if (participant.status !== "invite_issued") throw new Error(`participant status is ${participant.status}; only invite_issued participants can be deleted with this command. Use employee:data:delete for participants who have progressed further.`);
+    if (participant.status !== "invite_issued") throw new ParticipantInviteRevocationError(participant.status);
     const result = await this.stores.profileStore.deleteInvitedParticipant(employeeId);
     if (!result.deleted) throw new Error("participant could not be deleted");
     const requestId = this.ids.requestId();

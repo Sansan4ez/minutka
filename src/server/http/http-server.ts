@@ -14,7 +14,7 @@ import { PersistenceError } from "../../application/persistence-error.js";
 import { AssistantContextOverflowError } from "../../application/assistant-overflow-recovery.js";
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import { InvalidParticipantCursorError } from "../../application/participant-pagination.js";
-import { ParticipantInviteExistsError } from "../../application/participant-invite-error.js";
+import { ParticipantInviteExistsError, ParticipantInviteRevocationError } from "../../application/participant-invite-error.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { assertAssistantTimeoutBudgets, productionAssistantTimeoutBudgets, type AssistantTimeoutBudgets } from "../../config/assistant-timeout-budgets.js";
 import { toScheduleView } from "../../application/schedule-view.js";
@@ -120,7 +120,7 @@ function serializeError(error: unknown): ErrorLogEntry["error"] {
   }
   return { name: "UnknownError", message: "[redacted]" };
 }
-function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError || error instanceof InvalidParticipantCursorError || error instanceof ParticipantInviteExistsError; }
+function isExpectedError(error: unknown): boolean { return error instanceof RequestError || error instanceof PersistenceError || error instanceof AssistantContextOverflowError || error instanceof AssistantMutationOutcomeUnknownError || error instanceof InvalidParticipantCursorError || error instanceof ParticipantInviteExistsError || error instanceof ParticipantInviteRevocationError; }
 
 export function createHttpServer(options: HttpServerOptions): Server {
   const timeoutBudgets = assertAssistantTimeoutBudgets(options.timeoutBudgets ?? productionAssistantTimeoutBudgets);

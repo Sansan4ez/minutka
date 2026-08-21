@@ -4,7 +4,7 @@ import { AssistantContextOverflowError } from "../../application/assistant-overf
 import { AssistantMutationOutcomeUnknownError } from "../../application/assistant-mutation-outcome.js";
 import type { ApiErrorCode } from "../../contracts/minutka-api.js";
 import { InvalidParticipantCursorError } from "../../application/participant-pagination.js";
-import { ParticipantInviteExistsError } from "../../application/participant-invite-error.js";
+import { ParticipantInviteExistsError, ParticipantInviteRevocationError } from "../../application/participant-invite-error.js";
 import { RoleNotInCompanyError } from "../../application/onboarding-role-error.js";
 
 export type HttpError = { status: number; code: ApiErrorCode; message: string };
@@ -22,7 +22,7 @@ export function mapError(error: unknown): HttpError {
   if (error instanceof AssistantContextOverflowError) return { status: 413, code: error.code, message: error.message };
   if (error instanceof AssistantMutationOutcomeUnknownError) return { status: 503, code: error.code, message: error.message };
   if (error instanceof InvalidParticipantCursorError) return { status: 400, code: "invalid_request", message: error.message };
-  if (error instanceof ParticipantInviteExistsError) return { status: 409, code: "persistence_conflict", message: error.message };
+  if (error instanceof ParticipantInviteExistsError || error instanceof ParticipantInviteRevocationError) return { status: 409, code: "persistence_conflict", message: error.message };
   if (error instanceof RoleNotInCompanyError) return { status: 400, code: "invalid_request", message: error.message };
   return { status: 500, code: "internal_error", message: "Internal server error." };
 }
