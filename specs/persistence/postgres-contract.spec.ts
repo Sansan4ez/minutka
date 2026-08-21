@@ -72,10 +72,17 @@ function audit(id: string, type: "invite_opened" | "consent_accepted", employeeI
   return { id, requestId: `req_${id}`, type, employeeId, occurredAt: now, metadata: {} };
 }
 
-async function issueProfileReadyParticipant(pool: ReturnType<typeof createPostgresPool>, employeeId: string, inviteCode: string) {
-  const companyId = "company_persistence_default";
-  const groupId = "group_persistence_default";
-  const roleId = "role_persistence_default";
+async function issueProfileReadyParticipant(
+  pool: ReturnType<typeof createPostgresPool>,
+  employeeId: string,
+  inviteCode: string,
+  scope: { companyId: string; groupId: string; roleId: string } = {
+    companyId: "company_persistence_default",
+    groupId: "group_persistence_default",
+    roleId: "role_persistence_default",
+  },
+) {
+  const { companyId, groupId, roleId } = scope;
   const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
   await profiles.issueInvite({ employeeId, inviteCode, companyId, groupId, issuedAt: now });
   await profiles.openInvite({ inviteCode, openedAt: now, explanationShownAt: now });
@@ -563,8 +570,29 @@ describe("PostgreSQL storage contracts", () => {
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {
-    await issueProfileReadyParticipant(pool, "usage_owner", "invite_usage_owner");
-    await issueProfileReadyParticipant(pool, "usage_other", "invite_usage_other");
+    const usageScope = {
+      companyId: "company_usage_group_report",
+      groupId: "group_usage_group_report",
+      roleId: "role_usage_group_report",
+    };
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Usage Group Report Co')
+       ON CONFLICT (id) DO NOTHING`,
+      [usageScope.companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Usage Group Report', daterange('2026-07-01', '2027-01-01', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [usageScope.groupId, usageScope.companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name)
+       VALUES ($1, $2, 'Usage Reporter') ON CONFLICT (id) DO NOTHING`,
+      [usageScope.roleId, usageScope.companyId],
+    );
+    await issueProfileReadyParticipant(pool, "usage_owner", "invite_usage_owner", usageScope);
+    await issueProfileReadyParticipant(pool, "usage_other", "invite_usage_other", usageScope);
     let usage = createPostgresUsageStore(pool);
     const first: UsageRecord = {
       id: "usage_pg_1", userId: "usage_owner", requestId: "request_usage_pg_1", source: "chat", month: "2026-07",
@@ -616,13 +644,13 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect(await usage.getMonthly("usage_other", "2026-07")).toMatchObject({ totalTokens: 30, estimatedCostUsdMicros: 65 });
     expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0, bySource: [] });
-    expect(await usage.getGroupMonthly({ companyId: "default_company", groupId: "default_group", month: "2026-07", softLimitUsdMicros: 900 })).toMatchObject({
-      companyId: "default_company", groupId: "default_group", month: "2026-07", participants: 2,
-      inputTokens: 350, outputTokens: 165, totalTokens: 515, cachedInputTokens: 40, cacheReportedInputTokens: 150,
-      cacheShare: 40 / 150, estimatedCostUsdMicros: 1065, participantsAboveSoftLimitCount: 1,
+    expect(await usage.getGroupMonthly({ ...usageScope, month: "2026-07", softLimitUsdMicros: 900 })).toMatchObject({
+      companyId: usageScope.companyId, groupId: usageScope.groupId, month: "2026-07", participants: 2,
+      inputTokens: 350, outputTokens: 165, totalTokens: 515, cachedInputTokens: 40, cacheReportedInputTokens: 130,
+      cacheShare: 40 / 130, estimatedCostUsdMicros: 1065, participantsAboveSoftLimitCount: 1,
       participantsAboveSoftLimit: [{ employeeId: "usage_owner", estimatedCostUsdMicros: 1000 }],
       bySource: [
-        expect.objectContaining({ source: "chat", inputTokens: 320, cachedInputTokens: 40, cacheReportedInputTokens: 120, cacheShare: 40 / 120 }),
+        expect.objectContaining({ source: "chat", inputTokens: 320, cachedInputTokens: 40, cacheReportedInputTokens: 100, cacheShare: 40 / 100 }),
         expect.objectContaining({ source: "guard", inputTokens: 30, cachedInputTokens: 0, cacheReportedInputTokens: 30, cacheShare: 0 }),
       ],
     });
