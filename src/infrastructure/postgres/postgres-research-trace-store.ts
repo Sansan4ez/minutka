@@ -49,7 +49,7 @@ export function createPostgresResearchTraceStore(pool: Pool): ResearchTraceStore
           `SELECT payload
            FROM minutka_research.traces
            WHERE company_id=$1 AND group_id=$2
-             AND ($3::text IS NULL OR subject_key=$3)
+             AND ($3::text IS NULL OR subject_key::text = $3)
              AND ($4::text IS NULL OR trace_id=$4)
              AND ($5::timestamptz IS NULL OR started_at >= $5)
              AND ($6::timestamptz IS NULL OR started_at <= $6)

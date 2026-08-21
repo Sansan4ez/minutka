@@ -718,6 +718,12 @@ describe("PostgreSQL storage contracts", () => {
     expect(own).toHaveLength(1);
     expect(own[0]).toMatchObject({ traceId: "trace_pg_a", input: { text: "Анна и проект Альфа" } });
     expect(JSON.stringify(own[0])).not.toContain("hidden");
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, subjectKey: participantA.subjectKey })).toHaveLength(1);
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, subjectKey: "not-a-subject-key" })).toEqual([]);
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, startedFrom: "2026-07-11T23:59:59.000Z" })).toHaveLength(1);
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, startedFrom: "2026-07-12T00:00:01.000Z" })).toEqual([]);
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, startedTo: now })).toHaveLength(1);
+    expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, startedTo: "2026-07-11T23:59:59.000Z" })).toEqual([]);
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantB.groupId })).toEqual([]);
     expect(await traces.list({ companyId: participantB.companyId, groupId: participantB.groupId })).toHaveLength(1);
   });
