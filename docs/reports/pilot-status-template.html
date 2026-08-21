@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Минутка — pilot status</title>
+<style>
+:root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--blue:#2563eb;--warn:#d97706;--bad:#dc2626;--ok:#16a34a}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,sans-serif}.container{max-width:1180px;margin:auto;padding:24px}header{background:#0f172a;color:#fff}h1{margin:0;font-size:30px}header p{color:#cbd5e1}.banner,.card,section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:18px 0}.banner.ok{border-left:6px solid var(--ok)}.banner.warning{border-left:6px solid var(--warn)}.banner.critical{border-left:6px solid var(--bad)}.flag{padding:10px 12px;margin:8px 0;border-radius:8px;background:#fff7ed}.flag.critical{background:#fef2f2}.numbers,.health,.participants{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.number,.health-item{padding:14px;border:1px solid var(--line);border-radius:10px}.number strong{display:block;font-size:26px}.muted{color:var(--muted)}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.scroll{overflow:auto}.bars{display:grid;gap:8px}.bar{display:grid;grid-template-columns:170px 1fr 45px;gap:10px;align-items:center}.track{height:20px;background:#e2e8f0;border-radius:6px;overflow:hidden}.fill{height:100%;background:var(--blue)}code{font-size:12px}footer{color:var(--muted);padding:28px;text-align:center}@media(max-width:600px){.container{padding:14px}.bar{grid-template-columns:110px 1fr 36px}}
+</style>
+</head>
+<body>
+<header><div class="container"><h1>Ежедневный статус пилота «Минутки»</h1><p id="subtitle"></p></div></header>
+<main class="container">
+<div id="banner" class="banner"></div>
+<div id="numbers" class="numbers"></div>
+<section><h2>Участники</h2><div class="scroll"><table><thead><tr><th>employee id</th><th>Компания / группа</th><th>Роль</th><th>Онбординг</th><th>Engagement</th><th>Last touch</th><th>Сообщ.</th><th>Активн.</th><th>Traces</th><th>Schedules</th><th>Fires</th><th>Failed</th></tr></thead><tbody id="participants"></tbody></table></div></section>
+<section><h2>Активности</h2><div class="bars" id="categories"></div><h3>Системы</h3><div class="bars" id="systems"></div><h3>Затруднения</h3><div class="bars" id="obstacles"></div></section>
+<section><h2>Динамика</h2><div class="scroll"><table id="timeline"></table></div></section>
+<section><h2>Техническое здоровье</h2><div class="health" id="health"></div></section>
+</main>
+<footer id="footer"></footer>
+<script type="application/json" id="pilot-status-data">__PILOT_STATUS_DATA__</script>
+<script>
+const DATA=JSON.parse(document.getElementById('pilot-status-data').textContent);
+const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=(n,t)=>t?Math.round(n/t*100):0;
+document.getElementById('subtitle').textContent=`Срез ${DATA.generatedAt} · день ${DATA.period.day} из ${DATA.period.totalDays}`;
+const severity=DATA.flags.some(f=>f.severity==='critical')?'critical':DATA.flags.length?'warning':'ok';
+const banner=document.getElementById('banner');banner.classList.add(severity);banner.innerHTML=DATA.flags.length?`<h2>Rule-based флаги</h2>${DATA.flags.map(f=>`<div class="flag ${esc(f.severity)}"><strong>${esc(f.label)}</strong><br>${esc(f.detail)}</div>`).join('')}`:'<h2>Пороговые флаги не сработали</h2><p class="muted">Охват, доля «прочего» и engagement находятся в пределах формализованных порогов.</p>';
+const totals={messages:DATA.participants.reduce((s,p)=>s+p.messages,0),activities:DATA.activities.length,traces:DATA.participants.reduce((s,p)=>s+p.traces,0)};
+document.getElementById('numbers').innerHTML=[['Охват',DATA.metrics.coveragePercent+'%'],['Активности',totals.activities],['Сообщения',totals.messages],['Traces',totals.traces],['System=other',DATA.metrics.systemOtherPercent+'%'],['Obstacle=other',DATA.metrics.obstacleOtherPercent+'%']].map(([l,v])=>`<div class="number"><strong>${esc(v)}</strong><span class="muted">${esc(l)}</span></div>`).join('');
+document.getElementById('participants').innerHTML=DATA.participants.map(p=>`<tr><td><code>${esc(p.id)}</code></td><td>${esc(p.companyName)} / ${esc(p.groupName)}</td><td>${esc(p.role)}</td><td>${esc(p.status)}</td><td>${esc(p.engagement)}</td><td>${esc(p.lastTouch)}</td><td>${p.messages}</td><td>${p.activities}</td><td>${p.traces}</td><td>${p.schedules}</td><td>${p.fires}</td><td>${p.failedFires}</td></tr>`).join('');
+function bars(id,key){const counts={};for(const a of DATA.activities){const v=a[key]||'unknown';counts[v]=(counts[v]||0)+1}const rows=Object.entries(counts).sort((a,b)=>b[1]-a[1]);const max=Math.max(1,...rows.map(r=>r[1]));document.getElementById(id).innerHTML=rows.map(([k,v])=>`<div class="bar"><code>${esc(k)}</code><div class="track"><div class="fill" style="width:${pct(v,max)}%"></div></div><strong>${v}</strong></div>`).join('')||'<span class="muted">Нет данных</span>'}bars('categories','task_category');bars('systems','system');bars('obstacles','obstacle_value');
+const messageCount=(id,date)=>DATA.messagesByDate.find(r=>r.employee_id===id&&r.message_date===date)?.count||0;const activityCount=(id,date)=>DATA.activities.filter(a=>a.employee_id===id&&a.activity_date===date).length;document.getElementById('timeline').innerHTML=`<thead><tr><th>employee id / показатель</th>${DATA.dates.map(d=>`<th>${esc(d)}</th>`).join('')}</tr></thead><tbody>${DATA.participants.filter(p=>p.status==='profile_completed').flatMap(p=>[['сообщ.',messageCount],['активн.',activityCount]].map(([label,fn])=>`<tr><td><code>${esc(p.id)}</code> ${label}</td>${DATA.dates.map(d=>`<td>${fn(p.id,d)||'—'}</td>`).join('')}</tr>`)).join('')}</tbody>`;
+const trace=DATA.health.traceCoverage;const health=[['/healthz',DATA.health.healthz],['Ожидающие миграции',DATA.health.pendingMigrations],['Fires succeeded',DATA.health.firesSucceeded],['Fires failed',DATA.health.firesFailed],['Trace coverage',`${trace.coveredMessages}/${trace.messages} сообщ.; ${trace.traces} traces`],['Feedback',DATA.health.feedbackCount],['Smoke',DATA.health.server.smoke],...DATA.health.server.units.map(u=>[u.name,u.status])];document.getElementById('health').innerHTML=health.map(([l,v])=>`<div class="health-item"><strong>${esc(l)}</strong><div class="muted">${esc(v)}</div></div>`).join('');
+document.getElementById('footer').innerHTML=`Внутренний артефакт оператора/методолога · commit <code>${esc(DATA.health.server.commit)}</code> · backup <code>${esc(DATA.health.server.backupId)}</code> · сгенерировано автоматически, не содержит текстов переписки`;
+</script>
+</body></html>

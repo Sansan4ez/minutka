@@ -51,6 +51,9 @@ buildNpmPackage {
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-db-migrate" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/infrastructure/postgres/migrate.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-pilot-status" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/runtime/pilot-status.ts"
 
     runHook postInstall
   '';

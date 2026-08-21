@@ -17,6 +17,7 @@
       ../../modules/backup.nix
       ../../modules/backup-pull.nix
       ../../modules/smoke.nix
+      ../../modules/pilot-status.nix
       ../../modules/observability.nix
       ../../modules/alerting.nix
     ]

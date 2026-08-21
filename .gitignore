@@ -10,6 +10,7 @@ result
 docs/generated/
 reports/*.html
 docs/reports/*.html
+!docs/reports/pilot-status-template.html
 .belief_map.sexp
 .belief_map_cache.json
 belief_map.sexp

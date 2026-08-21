@@ -26,7 +26,10 @@
 
       nixosConfigurations.minutka-1 = nixpkgs.lib.nixosSystem {
         system = site.system;
-        specialArgs = { inherit site minutkaPackage; };
+        specialArgs = {
+          inherit site minutkaPackage;
+          sourceCommit = self.rev or self.dirtyRev or "unknown";
+        };
         modules = [
           disko.nixosModules.disko
           sops-nix.nixosModules.sops
