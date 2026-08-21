@@ -40,10 +40,22 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) throw new Error("Telegram bot username must contain 5-32 letters, digits, or underscores");
       const inviteCode = randomBytes(32).toString("base64url");
       const result = await adminClient.issueInvite({ employeeId: o.employee, inviteCode, companyId: o.company, groupId: o.group });
-      if (!result.created) throw new Error("employee already has an invite; delete the unused participant before issuing a replacement");
+      if (!result.created) throw new Error("employee already has an invite; revoke it with `admin revoke-invite` before issuing a replacement");
       stdout.push(JSON.stringify({ employeeId: result.employeeId, status: result.status, created: result.created }));
       stdout.push(`https://t.me/${botUsername}?start=${inviteCode}`);
       stdout.push("Invite link shown once; the code is stored only as a digest and cannot be recovered. If lost, issue a new invite.");
+    }));
+  admin.addCommand(new Command("revoke-invite")
+    .description("Delete a participant in invite_issued status (unused invite). Requires confirmation string.")
+    .requiredOption("--employee <employeeId>")
+    .requiredOption("--company <companyId>")
+    .requiredOption("--group <groupId>")
+    .requiredOption("--confirm <confirmString>", "Confirmation string: DELETE <employeeId>")
+    .action(async (o: { employee: string; company: string; group: string; confirm: string }) => {
+      const expected = `DELETE ${o.employee}`;
+      if (o.confirm !== expected) throw new Error(`confirmation does not match; expected: ${expected}`);
+      const result = await adminClient.deleteInvitedParticipant({ employeeId: o.employee, companyId: o.company, groupId: o.group, confirm: o.confirm });
+      stdout.push(JSON.stringify(result));
     }));
   admin.addCommand(new Command("list-participants")
     .requiredOption("--company <companyId>")

@@ -1,7 +1,7 @@
 import { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, PersonalContextPatch, ServiceChatRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, DeleteInvitedParticipantRequest, PersonalContextPatch, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   RestoreContextDocumentVersionRequest, SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
@@ -58,6 +58,7 @@ export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTranspo
 export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
   constructor(private readonly application: InProcessApplication, private readonly principal: AuthenticatedPrincipal) {}
   issueInvite(input: IssueInviteRequest) { operator(this.principal); return this.application.issueInvite(input); }
+  deleteInvitedParticipant(input: DeleteInvitedParticipantRequest) { operator(this.principal); return this.application.deleteInvitedParticipant(input); }
   listParticipants(input: ListParticipantsRequest) { operator(this.principal); return this.application.listParticipants(input); }
   getMonthlyUsage(input: AdminUsageRequest) { operator(this.principal); return personal(this.application).getMonthlyUsage(input.employeeId, input.month); }
   exportCompanyReport(input: CompanyReportRequest) { operator(this.principal); return personal(this.application).exportCompanyReport(input); }

@@ -261,6 +261,17 @@ export function createInMemoryProfileStore(
     async getProfile(employeeId) {
       return world.profiles.find((profile) => profile.employeeId === employeeId);
     },
+    async deleteInvitedParticipant(employeeId) {
+      const index = world.participants.findIndex((p) => p.employeeId === employeeId);
+      if (index === -1) return { found: false, deleted: false };
+      const participant = world.participants[index]!;
+      if (participant.status !== "invite_issued") return { found: true, deleted: false, status: participant.status };
+      world.participants.splice(index, 1);
+      for (const [code, mapped] of employeeByInviteCode) {
+        if (mapped === employeeId) employeeByInviteCode.delete(code);
+      }
+      return { found: true, deleted: true };
+    },
     async deleteEmployeePersonalData(employeeId) {
       const before = Object.fromEntries(
         (["messages", "insights", "feedback", "profiles", "consents", "participants"] as const)

@@ -7,6 +7,8 @@ import type {
   CompleteOnboardingInput,
   CompleteOnboardingResult,
   ConfirmOnboardingInput,
+  DeleteInvitedParticipantInput,
+  DeleteInvitedParticipantResult,
   GetOnboardingProgressInput,
   GetPersonalContextInput,
   IssueInviteInput,
@@ -58,6 +60,7 @@ export class PersonalAssistantService {
   constructor(
     private readonly identityService: Pick<MinutkaService,
       | "issueInvite"
+      | "deleteInvitedParticipant"
       | "listParticipants"
       | "openInvite"
       | "recordPrivacyExplanationShown"
@@ -86,6 +89,7 @@ export class PersonalAssistantService {
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
+  deleteInvitedParticipant(input: DeleteInvitedParticipantInput): Promise<DeleteInvitedParticipantResult> { return this.identityService.deleteInvitedParticipant(input); }
   listParticipants(input: ListParticipantsInput): Promise<ParticipantPage> { return this.identityService.listParticipants(input); }
   getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
     if (!this.usage) throw new Error("usage reporting is not configured");

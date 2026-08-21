@@ -30,6 +30,7 @@ export type AuditEventType =
   | "trace_missing"
   | "research_corpus_exported"
   | "research_scope_purged"
+  | "invite_revoked"
   | "employee_data_deleted";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
@@ -79,6 +80,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   // Scope, counts and outcome only: subject keys, employee ids and raw payload
   // stay out of the record that survives an irreversible purge.
   research_scope_purged: ["scope", "companyId", "groupId", "outcome", "participants", "messages", "activities", "traces", "feedback", "evaluationCases", "insights", "auditEvents", "objectVersions"],
+  invite_revoked: ["companyId", "groupId"],
   employee_data_deleted: [],
 };
 

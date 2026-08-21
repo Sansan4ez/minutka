@@ -1,7 +1,7 @@
 import {
   errorEnvelopeSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
-  type CompleteOnboardingRequest, type IssueInviteRequest, type PersonalContextPatch, type ServiceChatRequest, type ListInsightsRequest,
+  type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type IssueInviteRequest, type PersonalContextPatch, type ServiceChatRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
 import type {
@@ -61,6 +61,7 @@ export class HttpEmployeeMinutkaTransport extends HttpTransportBase implements E
 
 export class HttpAdminMinutkaTransport extends HttpTransportBase implements AdminMinutkaTransport {
   issueInvite(input: IssueInviteRequest) { return this.request("POST", "/v1/admin/invites", input); }
+  deleteInvitedParticipant(input: DeleteInvitedParticipantRequest) { return this.request("DELETE", `/v1/admin/participants/${encodeURIComponent(input.employeeId)}`, { companyId: input.companyId, groupId: input.groupId, confirm: input.confirm }); }
   listParticipants(input: ListParticipantsRequest) {
     const query = new URLSearchParams({ companyId: input.companyId, groupId: input.groupId, limit: String(input.limit) });
     if (input.after) query.set("after", input.after);

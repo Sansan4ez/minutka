@@ -1,4 +1,4 @@
-import type { Consent, Participant, UserProfile } from "../domain/employee.js";
+import type { Consent, OnboardingStatus, Participant, UserProfile } from "../domain/employee.js";
 import type { ParticipantPageCursor } from "./participant-pagination.js";
 import type { ResearchSubject } from "./research-identity-projection.js";
 import type { PersonalProfileContextUpdateResult } from "./personal-profile-context.js";
@@ -91,5 +91,6 @@ export type ProfileStore = EngagementReminderStore & {
   getParticipantByInviteCode(inviteCode: string): Promise<Participant | undefined>;
   getConsent(employeeId: string): Promise<Consent | undefined>;
   getProfile(employeeId: string): Promise<UserProfile | undefined>;
-  deleteEmployeePersonalData(employeeId: string): Promise<EmployeePersonalDataDeletionCounts>;
+  /** Removes a participant that is still in invite_issued status, including the invite digest. */
+  deleteInvitedParticipant(employeeId: string): Promise<{ found: boolean; deleted: boolean; status?: OnboardingStatus }>;  deleteEmployeePersonalData(employeeId: string): Promise<EmployeePersonalDataDeletionCounts>;
 };

@@ -56,6 +56,8 @@ export type AgentRunContext = {
 export type AgentRunner = (input: ChatInput, context?: AgentRunContext) => Promise<string>;
 export type IssueInviteInput = { employeeId: string; inviteCode: string; companyId: string; groupId: string };
 export type IssueInviteResult = { employeeId: string; inviteCode: string; companyId: string; groupId: string; status: OnboardingStatus; created: boolean };
+export type DeleteInvitedParticipantInput = { employeeId: string; companyId: string; groupId: string; confirm: string };
+export type DeleteInvitedParticipantResult = { employeeId: string; deleted: true };
 export type ParticipantSummary = Pick<Participant, "employeeId" | "status" | "lastTouchOn"> & { engagement: ParticipantEngagement };
 export type ParticipantPage = { participants: ParticipantSummary[]; nextCursor?: string };
 export type OpenInviteInput = { inviteCode: string };
@@ -187,6 +189,27 @@ export class MinutkaService {
     if (!result.created && !result.inviteMatches) throw new ParticipantInviteExistsError();
     if ((result.participant.companyId && result.participant.companyId !== companyId) || (result.participant.groupId && result.participant.groupId !== groupId)) throw new Error("employee already has an invite for another tenant");
     return { employeeId, inviteCode, companyId, groupId, status: result.participant.status, created: result.created };
+  }
+
+  async deleteInvitedParticipant(input: DeleteInvitedParticipantInput): Promise<DeleteInvitedParticipantResult> {
+    const employeeId = input.employeeId.trim();
+    const companyId = input.companyId.trim();
+    const groupId = input.groupId.trim();
+    const confirm = input.confirm.trim();
+    if (!employeeId) throw new Error("employeeId is required");
+    if (!companyId) throw new Error("companyId is required");
+    if (!groupId) throw new Error("groupId is required");
+    if (confirm !== `DELETE ${employeeId}`) throw new Error("confirmation string does not match; expected DELETE <employeeId>");
+    if (!await this.stores.tenantDirectoryStore.groupBelongsToCompany({ companyId, groupId })) throw new Error("group does not belong to company");
+    const participant = await this.stores.profileStore.getParticipant(employeeId);
+    if (!participant) throw new PersistenceError("participant_not_found");
+    if (participant.companyId !== companyId || participant.groupId !== groupId) throw new Error("participant belongs to a different tenant scope");
+    if (participant.status !== "invite_issued") throw new Error(`participant status is ${participant.status}; only invite_issued participants can be deleted with this command. Use employee:data:delete for participants who have progressed further.`);
+    const result = await this.stores.profileStore.deleteInvitedParticipant(employeeId);
+    if (!result.deleted) throw new Error("participant could not be deleted");
+    const requestId = this.ids.requestId();
+    await this.audit(requestId, "invite_revoked", employeeId, undefined, undefined, this.clock.now(), { companyId, groupId });
+    return { employeeId, deleted: true };
   }
 
   async listResearchSubjects(input: { companyId: string; groupId: string }): Promise<ResearchSubject[]> {

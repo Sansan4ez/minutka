@@ -210,6 +210,8 @@ export const listInsightsRequestSchema = z.strictObject({ threadId: threadIdSche
 const onboardingStatusSchema = z.enum(["invite_issued", "invite_opened", "consent_accepted", "profile_completed"]);
 export const issueInviteRequestSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1).max(512), companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128) });
 export const issueInviteResponseSchema = z.strictObject({ employeeId: employeeIdSchema, inviteCode: z.string().min(1), companyId: z.string().min(1), groupId: z.string().min(1), status: onboardingStatusSchema, created: z.boolean() });
+export const deleteInvitedParticipantRequestSchema = z.strictObject({ employeeId: employeeIdSchema, companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), confirm: z.string().min(1) });
+export const deleteInvitedParticipantResponseSchema = z.strictObject({ employeeId: employeeIdSchema, deleted: z.literal(true) });
 export const participantSummarySchema = z.strictObject({
   employeeId: employeeIdSchema,
   status: onboardingStatusSchema,
@@ -339,6 +341,8 @@ export type ListInsightsRequest = z.infer<typeof listInsightsRequestSchema>;
 export type StructuredInsight = z.infer<typeof structuredInsightSchema>;
 export type IssueInviteRequest = z.infer<typeof issueInviteRequestSchema>;
 export type IssueInviteResponse = z.infer<typeof issueInviteResponseSchema>;
+export type DeleteInvitedParticipantRequest = z.infer<typeof deleteInvitedParticipantRequestSchema>;
+export type DeleteInvitedParticipantResponse = z.infer<typeof deleteInvitedParticipantResponseSchema>;
 export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema>;
 export type ListParticipantsRequest = z.infer<typeof listParticipantsRequestSchema>;
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;

@@ -1,13 +1,13 @@
 import {
   acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, companyReportRequestSchema, companyReportResponseSchema,
   contextDocumentVersionsRequestSchema, contextDocumentVersionsResponseSchema, restoreContextDocumentVersionRequestSchema, restoreContextDocumentVersionResponseSchema,
-  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, serviceChatRequestSchema,
+  chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, deleteInvitedParticipantRequestSchema, deleteInvitedParticipantResponseSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
   openInviteResponseSchema, redeemTelegramInviteRequestSchema, redeemTelegramInviteResponseSchema,
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
   ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, contextDocumentDecisionRequestSchema, contextDocumentDecisionResponseSchema, monthlyUsageResponseSchema, personalContextPatchSchema, personalContextUpdateResponseSchema, personalContextViewSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
-  type CompleteOnboardingRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
+  type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
@@ -33,6 +33,7 @@ export type EmployeeMinutkaTransport = {
 };
 export type AdminMinutkaTransport = {
   issueInvite(input: IssueInviteRequest): Promise<unknown>;
+  deleteInvitedParticipant(input: DeleteInvitedParticipantRequest): Promise<unknown>;
   listParticipants(input: ListParticipantsRequest): Promise<unknown>;
   getMonthlyUsage(input: AdminUsageRequest): Promise<unknown>;
   exportCompanyReport(input: CompanyReportRequest): Promise<unknown>;
@@ -98,6 +99,7 @@ export class EmployeeMinutkaClient {
 export class AdminMinutkaClient {
   constructor(private readonly transport: AdminMinutkaTransport) {}
   async issueInvite(input: unknown) { return validate(issueInviteResponseSchema, await this.transport.issueInvite(validate(issueInviteRequestSchema, input, "issueInvite request")), "issueInvite response"); }
+  async deleteInvitedParticipant(input: unknown) { return validate(deleteInvitedParticipantResponseSchema, await this.transport.deleteInvitedParticipant(validate(deleteInvitedParticipantRequestSchema, input, "deleteInvitedParticipant request")), "deleteInvitedParticipant response"); }
   async listParticipants(input: unknown) { const request = validate(listParticipantsRequestSchema, input, "listParticipants request"); return validate(listParticipantsResponseSchema, await this.transport.listParticipants(request), "listParticipants response"); }
   async getMonthlyUsage(input: unknown) { return validate(monthlyUsageResponseSchema, await this.transport.getMonthlyUsage(validate(adminUsageRequestSchema, input, "getMonthlyUsage request")), "getMonthlyUsage response"); }
   async exportCompanyReport(input: unknown) { return validate(companyReportResponseSchema, await this.transport.exportCompanyReport(validate(companyReportRequestSchema, input, "exportCompanyReport request")), "exportCompanyReport response"); }
@@ -143,6 +145,7 @@ export class ServiceMinutkaClient {
 
 export type MinutkaCliClient = EmployeeMinutkaClient | AdminMinutkaClient;
 export type IssueInviteResult = z.infer<typeof issueInviteResponseSchema>;
+export type DeleteInvitedParticipantResult = z.infer<typeof deleteInvitedParticipantResponseSchema>;
 export type ListParticipantsResult = z.infer<typeof listParticipantsResponseSchema>;
 export type MonthlyUsageResult = z.infer<typeof monthlyUsageResponseSchema>;
 export type CompanyReportResult = z.infer<typeof companyReportResponseSchema>;

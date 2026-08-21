@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, deleteInvitedParticipantRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -29,6 +29,7 @@ type AccessLogEntry = { method: string; path: string; status: number; durationMs
 type ErrorLogEntry = { method: string; path: string; requestId: string; error: { name: string; message: string; stack?: string } };
 export type HttpApplicationService = Pick<PersonalAssistantService,
   | "issueInvite"
+  | "deleteInvitedParticipant"
   | "listParticipants"
   | "getMonthlyUsage"
   | "exportCompanyReport"
@@ -142,6 +143,14 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (mutationKey && !mutationLimiter.allow(mutationKey)) throw httpError(429, "rate_limited", "Too many requests.");
 
       if (req.method === "POST" && url.pathname === "/v1/admin/invites") { template = "/v1/admin/invites"; requireKind(principal, "operator"); status = 200; return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.issueInvite(parse(issueInviteRequestSchema, await body(req)))), id); }
+      const adminDeleteParticipant = url.pathname.match(/^\/v1\/admin\/participants\/([^/]+)$/);
+      if (req.method === "DELETE" && adminDeleteParticipant) {
+        template = "/v1/admin/participants/:employeeId";
+        requireKind(principal, "operator");
+        const input = parse(deleteInvitedParticipantRequestSchema, { ...objectBody(await body(req)), employeeId: decodeURIComponent(adminDeleteParticipant[1]) });
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.deleteInvitedParticipant(input)), id);
+      }
       if (req.method === "GET" && url.pathname === "/v1/admin/participants") {
         template = "/v1/admin/participants";
         requireKind(principal, "operator");
