@@ -31,8 +31,10 @@ let
   };
 in
 {
+  # setgid: generated reports inherit group `users`, so the operator reads them
+  # over SSH without sudo while the directory stays closed to everyone else.
   systemd.tmpfiles.rules = [
-    "d ${reportsDir} 0750 minutka users -"
+    "d ${reportsDir} 2750 minutka users -"
   ];
 
   environment.systemPackages = [ generator ];

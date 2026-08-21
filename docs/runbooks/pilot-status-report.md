@@ -52,7 +52,15 @@ NixOS-модуль `nixos/phase3-assistant-stack/modules/pilot-status.nix` за�
 /var/lib/minutka-reports/pilot-status-latest.html
 ```
 
-Получить файл можно по SSH. Каталог доступен группе `users`, но не публикуется HTTP-сервисом. Сгенерированные `reports/*.html` и `docs/reports/*.html` игнорируются Git; исключение — единственный tracked template.
+Файл не публикуется HTTP-сервисом и в Telegram не отправляется: в ТГ уходят только алерты `minutka-alerting`. Каталог создаётся как `2750 minutka:users`; setgid-бит даёт сгенерированному файлу владельца `minutka`, группу `users` и режим `0640`, поэтому оператор в группе `users` читает его по SSH без `sudo`, а посторонние в каталог не попадают.
+
+Получить свежий отчёт на рабочую машину:
+
+```bash
+ssh admin@SERVER "cat /var/lib/minutka-reports/pilot-status-latest.html" > ~/pilot-status.html
+```
+
+Имя файла фиксированное: каждая генерация заменяет предыдущий срез, история не ведётся. Сгенерированные `reports/*.html` и `docs/reports/*.html` игнорируются Git; исключение — единственный tracked template.
 
 Проверка таймера:
 

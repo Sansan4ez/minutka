@@ -101,5 +101,7 @@ describe("SPEC-MINUTKA-PILOT-STATUS-001: metadata-only automated pilot report", 
     expect(nix).toContain('reportsDir = "/var/lib/minutka-reports"');
     expect(nix).toContain('reportOutput = "${reportsDir}/pilot-status-latest.html"');
     expect(nix).toContain("OnCalendar");
+    // setgid keeps generated files readable by group `users` without widening the directory.
+    expect(nix).toContain('"d ${reportsDir} 2750 minutka users -"');
   });
 });
