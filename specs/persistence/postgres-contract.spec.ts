@@ -48,6 +48,7 @@ import { ResearchCorpusExportService } from "../../src/application/research-corp
 import { PersistenceError } from "../../src/application/persistence-error.js";
 import { createPostgresResearchScopePurgeStore } from "../../src/infrastructure/postgres/postgres-research-scope-purge-store.js";
 import { ResearchScopePurgeService } from "../../src/application/research-scope-purge.js";
+import { createPostgresPilotStatusStore } from "../../src/infrastructure/postgres/postgres-pilot-status-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -754,6 +755,58 @@ describe("PostgreSQL storage contracts", () => {
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, startedTo: "2026-07-11T23:59:59.000Z" })).toEqual([]);
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantB.groupId })).toEqual([]);
     expect(await traces.list({ companyId: participantB.companyId, groupId: participantB.groupId })).toHaveLength(1);
+  });
+
+  it("loads pilot status when retained traces have no live participant", async () => {
+    const companyId = "company_pilot_status_orphan_trace";
+    const groupId = "group_pilot_status_orphan_trace";
+    const roleId = "role_pilot_status_orphan_trace";
+    const employeeId = "pilot_status_orphan_trace_owner";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Pilot Status Orphan Trace Co') ON CONFLICT (id) DO NOTHING", [companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Pilot', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupId, companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Researcher') ON CONFLICT (id) DO NOTHING", [roleId, companyId]);
+    await issueProfileReadyParticipant(pool, employeeId, "invite_pilot_status_orphan_trace", { companyId, groupId, roleId });
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    const participant = (await profiles.getParticipant(employeeId))!;
+    await createPostgresResearchTraceStore(pool).append({
+      schemaVersion: researchTraceSchemaVersion,
+      traceId: "trace_pilot_status_orphan",
+      requestId: "req_pilot_status_orphan",
+      messageId: "msg_pilot_status_orphan",
+      companyId,
+      groupId,
+      subjectKey: participant.subjectKey,
+      processIds: ["core"],
+      promptVersion: "prompt/pilot-status-v1",
+      processVersion: "process/pilot-status-v1",
+      taxonomyVersion: "taxonomy/pilot-status-v1",
+      model: "openai/test",
+      samplingRate: 1,
+      input: { text: "retained research evidence", modality: "text" },
+      attempts: [{ attempt: 1, context: "bounded", modelSteps: [], toolCalls: [], toolResults: [] }],
+      output: "ok",
+      startedAt: now,
+      completedAt: now,
+      latencyMs: 0,
+      status: "completed",
+    });
+    await migrationPool.query("ALTER TABLE minutka_research.traces DROP CONSTRAINT traces_tenant_subject_fk");
+    try {
+      await profiles.deleteEmployeePersonalData(employeeId);
+      expect((await pool.query("SELECT 1 FROM minutka_research.traces WHERE trace_id = 'trace_pilot_status_orphan'")).rowCount).toBe(1);
+
+      const snapshot = await createPostgresPilotStatusStore(pool).loadSnapshot();
+      expect(snapshot.participants.find((item) => item.employeeId === employeeId)).toBeUndefined();
+      expect(snapshot.controlTotals.traces).toBe(snapshot.participants.reduce((sum, item) => sum + item.traces, 0));
+    } finally {
+      await migrationPool.query(
+        `ALTER TABLE minutka_research.traces
+         ADD CONSTRAINT traces_tenant_subject_fk
+         FOREIGN KEY (company_id, group_id, subject_key)
+         REFERENCES minutka_private.participants(company_id, group_id, subject_key) ON DELETE CASCADE
+         NOT VALID`,
+      );
+    }
   });
 
   it("persists scoped evaluation cases and exports linked corpus without employee identifiers", async () => {

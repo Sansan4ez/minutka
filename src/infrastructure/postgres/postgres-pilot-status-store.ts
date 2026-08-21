@@ -63,7 +63,12 @@ export function createPostgresPilotStatusStore(pool: Pool): PilotStatusStore {
               (SELECT count(*) FROM minutka_private.participants)::text AS participants,
               (SELECT count(*) FROM minutka_private.messages)::text AS messages,
               (SELECT count(*) FROM minutka_private.activities)::text AS activities,
-              (SELECT count(*) FROM minutka_research.traces)::text AS traces`),
+              (SELECT count(*)
+                 FROM minutka_research.traces trace
+                 JOIN minutka_private.participants participant
+                   ON participant.company_id = trace.company_id
+                  AND participant.group_id = trace.group_id
+                  AND participant.subject_key = trace.subject_key)::text AS traces`),
           ]);
           return {
             participants: participantResult.rows.map(toParticipant),
