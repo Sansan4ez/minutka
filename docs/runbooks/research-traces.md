@@ -10,11 +10,41 @@ The persistence boundary applies the trace secret filter before SQL. Credential-
 
 ## Inspect one tenant/group
 
-Use operator database credentials and always bind both tenant keys:
+Основной операторский путь — typed CLI со строгим company/group scope. Список возвращает только метаданные: `traceId`, `subjectKey`, status, prompt/process/taxonomy versions, model и started/completed timestamps:
+
+```bash
+npm run research:corpus -- traces list \
+  --company company_id \
+  --group group_id
+```
+
+Фильтры можно сочетать. `--from` и `--to` задают inclusive границы по `startedAt` и принимают ISO-8601 date/datetime; date-only `--to` включает указанный день целиком:
+
+```bash
+npm run research:corpus -- traces list \
+  --company company_id \
+  --group group_id \
+  --subject subject_key \
+  --from 2026-08-01 \
+  --to 2026-08-31T23:59:59Z
+```
+
+Точечная инспекция отдаёт полный payload после повторной sanitation persistence boundary:
+
+```bash
+npm run research:corpus -- traces get \
+  --company company_id \
+  --group group_id \
+  --trace trace_id
+```
+
+Обе команды требуют одновременно `company_id` и `group_id`; `get` отказывает, если `trace_id` существует только в другом scope. Audit event `research_evidence_read` содержит только scope, operation, outcome и count, без subject/trace ids или payload.
+
+Scoped SQL остаётся детализацией для диагностики индексов/хранилища. Всегда bind оба tenant keys:
 
 ```sql
 SELECT trace_id, request_id, message_id, subject_key, status,
-       prompt_version, taxonomy_version, model, started_at, completed_at
+       prompt_version, process_version, taxonomy_version, model, started_at, completed_at
 FROM minutka_research.traces
 WHERE company_id = 'company_id'
   AND group_id = 'group_id'
@@ -31,11 +61,11 @@ WHERE company_id = 'company_id'
   AND trace_id = 'trace_id';
 ```
 
-Application readers use `ResearchTraceStore.list({ companyId, groupId })`; there is no unscoped list operation.
+Application readers use scoped `ResearchTraceStore.list/get`; there is no unscoped operation.
 
 ## JSON export for offline evaluation
 
-`exportResearchTracesJson(scope, traces, exportedAt)` produces a versioned JSON document with the exact company/group scope, export timestamp, trace count and sanitized trace array. The next corpus/evaluation issue may wrap this helper in operator CLI/JSONL commands; do not replace the typed scoped reader with ad-hoc unbounded SQL in product code.
+`exportResearchTracesJson(scope, traces, exportedAt)` produces a versioned JSON document with the exact company/group scope, export timestamp, trace count and sanitized trace array. Для routine inspection используйте `traces list/get` выше; полный corpus export остаётся путём к offline evaluation dataset. Не заменяйте typed scoped reader ad-hoc unbounded SQL в product code.
 
 ## Degradation and missing traces
 

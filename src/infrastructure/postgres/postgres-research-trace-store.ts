@@ -43,15 +43,19 @@ export function createPostgresResearchTraceStore(pool: Pool): ResearchTraceStore
         throw mapPostgresError(error);
       }
     },
-    async list({ companyId, groupId, limit = 1_000 }) {
+    async list({ companyId, groupId, subjectKey, traceId, startedFrom, startedTo, limit = 1_000 }) {
       try {
         const result = await pool.query<Row>(
           `SELECT payload
            FROM minutka_research.traces
            WHERE company_id=$1 AND group_id=$2
+             AND ($3::text IS NULL OR subject_key=$3)
+             AND ($4::text IS NULL OR trace_id=$4)
+             AND ($5::timestamptz IS NULL OR started_at >= $5)
+             AND ($6::timestamptz IS NULL OR started_at <= $6)
            ORDER BY started_at ASC, trace_id ASC
-           LIMIT $3`,
-          [companyId, groupId, Math.max(0, limit)],
+           LIMIT $7`,
+          [companyId, groupId, subjectKey ?? null, traceId ?? null, startedFrom ?? null, startedTo ?? null, Math.max(0, limit)],
         );
         return result.rows.map(({ payload }) => parseResearchTrace(payload)) as ResearchTraceRecord[];
       } catch (error) {

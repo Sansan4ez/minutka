@@ -46,7 +46,17 @@ Audit event `research_corpus_exported` содержит только scope, outc
 
 ## Human evaluation case
 
-Сначала выберите `traceId` в scoped export. Case создаётся только если trace существует в указанной company/group; version anchors и correlation refs копируются из trace, а не вводятся вручную:
+Основной путь к уже созданным cases — scoped list, без полного export:
+
+```bash
+npm run research:corpus -- evaluation list \
+  --company company_id \
+  --group group_id
+```
+
+Команда возвращает `caseId`, `subjectKey`, `traceId`, human labels и `createdAt` для всех cases exact scope. Чужая company/group не подмешивается; без обоих tenant keys команда не запускается. Audit event `research_evidence_read` сохраняет только scope, операцию, outcome и count — labels, notes, subject/trace ids в audit не копируются.
+
+Затем выберите `traceId` через `traces list`/`traces get` по процедуре [`research-traces.md`](./research-traces.md). Case создаётся только если trace существует в указанной company/group; version anchors и correlation refs копируются из trace, а не вводятся вручную:
 
 ```bash
 npm run research:corpus -- evaluation create \
@@ -94,7 +104,7 @@ npm run research:corpus -- evaluation get \
 
 1. Сохраните JSONL export группы и Markdown coverage summary.
 2. Проверьте `messagesMissingTrace`; сопоставьте missing rows с `trace_missing` по процедуре [`research-traces.md`](./research-traces.md).
-3. Группируйте evidence по `subjectKey`, `roleId`, message/activity/trace refs и версиям.
-4. Создайте evaluation cases для полезных, ошибочных и требующих уточнения примеров.
+3. Используйте `traces list` с фильтрами subject/date и `traces get` для точечной инспекции; группируйте evidence по `subjectKey`, `roleId`, message/activity/trace refs и версиям.
+4. Создайте evaluation cases для полезных, ошибочных и требующих уточнения примеров, затем проверьте набор через `evaluation list`.
 5. Повторите export и используйте version anchors для offline regression comparison.
 6. Клиенту передавайте только отдельный report artifact; corpus, traces, subject keys и evaluation notes наружу не публикуются.

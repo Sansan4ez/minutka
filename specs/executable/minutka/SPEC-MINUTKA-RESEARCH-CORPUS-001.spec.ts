@@ -3,6 +3,7 @@ import { ResearchCorpusExportService } from "../../../src/application/research-c
 import { createInMemoryEvaluationCaseState, createInMemoryEvaluationCaseStore } from "../../../src/application/in-memory-evaluation-case-store.js";
 import { createInMemoryResearchTraceState, createInMemoryResearchTraceStore } from "../../../src/application/in-memory-research-trace-store.js";
 import { ResearchEvaluationService } from "../../../src/application/research-evaluation.js";
+import { ResearchEvidenceReadService } from "../../../src/application/research-evidence-read.js";
 import { researchTraceSchemaVersion } from "../../../src/application/research-trace-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
@@ -100,18 +101,55 @@ describe("SPEC-MINUTKA-RESEARCH-CORPUS-001: scoped evidence export and evaluatio
     await expect(evaluations.create({ companyId: "company-a", groupId: "group-wrong", traceId: "trace-a", labels: created.labels })).rejects.toThrow("research trace not found");
   });
 
-  it("provides operator CLI commands for export and evaluation workflow", async () => {
+  it("lists evaluation cases and traces in the exact scope, filters trace metadata, and audits reads without payload", async () => {
+    const traces = createInMemoryResearchTraceStore(createInMemoryResearchTraceState());
+    await traces.append(trace());
+    await traces.append(trace({ traceId: "trace-later", requestId: "request-later", messageId: "message-later", subjectKey: "subject-later", startedAt: "2026-08-19T10:00:00.000Z", completedAt: "2026-08-19T10:01:00.000Z" }));
+    await traces.append(trace({ traceId: "trace-other", requestId: "request-other", messageId: "message-other", companyId: "company-b", groupId: "group-b", subjectKey: "subject-other" }));
+    const store = createInMemoryEvaluationCaseStore(createInMemoryEvaluationCaseState());
+    const evaluation = new ResearchEvaluationService(store, traces, { now: () => now }, () => "case-a");
+    await evaluation.create({ companyId: "company-a", groupId: "group-a", traceId: "trace-a", labels: { usefulness: "useful", accuracy: "accurate", clarification: "not_needed", extractionCorrectness: "correct", notes: "Human note" } });
+    const world = createInMemoryWorld(() => now);
+    let auditSequence = 0;
+    const reads = new ResearchEvidenceReadService(store, traces, createInMemoryAuditEventStore(world), { now: () => now }, () => `audit-read-${++auditSequence}`);
+
+    await expect(reads.listEvaluationCases({ companyId: "company-a", groupId: "group-a" })).resolves.toEqual([expect.objectContaining({ caseId: "case-a", subjectKey: "subject-a", traceId: "trace-a", labels: expect.objectContaining({ notes: "Human note" }) })]);
+    await expect(reads.listEvaluationCases({ companyId: "company-b", groupId: "group-b" })).resolves.toEqual([]);
+    const listed = await reads.listTraces({ companyId: "company-a", groupId: "group-a", subjectKey: "subject-later", from: "2026-08-19", to: "2026-08-19" });
+    expect(listed).toEqual([expect.objectContaining({ traceId: "trace-later", subjectKey: "subject-later", status: "completed", promptVersion: "prompt/v2", processVersion: "process/v3", taxonomyVersion: "taxonomy/v4", model: "openai/test" })]);
+    expect(JSON.stringify(listed)).not.toContain("Исследовательский текст");
+    await expect(reads.getTrace({ companyId: "company-b", groupId: "group-b", traceId: "trace-a" })).resolves.toBeUndefined();
+    await expect(reads.getTrace({ companyId: "company-a", groupId: "group-a", traceId: "trace-a" })).resolves.toMatchObject({ traceId: "trace-a", input: { text: "Исследовательский текст" } });
+    expect(world.auditEvents).toHaveLength(5);
+    expect(world.auditEvents[2]).toMatchObject({ type: "research_evidence_read", metadata: { companyId: "company-a", groupId: "group-a", operation: "traces_list", outcome: "succeeded", count: 1 } });
+    expect(JSON.stringify(world.auditEvents)).not.toMatch(/subject-a|trace-a|Human note|Исследовательский текст/u);
+  });
+
+  it("provides operator CLI commands for export, evaluation listing, and trace inspection", async () => {
     const writes: string[] = [];
     const traces = createInMemoryResearchTraceStore(createInMemoryResearchTraceState());
     await traces.append(trace());
     const store = createInMemoryEvaluationCaseStore(createInMemoryEvaluationCaseState());
     const evaluationService = new ResearchEvaluationService(store, traces, { now: () => now }, () => "case-cli");
     const exportService = new ResearchCorpusExportService(source(), traces, store, undefined, { now: () => now });
-    await runResearchCorpusCommand(["evaluation", "create", "--company", "company-a", "--group", "group-a", "--trace", "trace-a", "--usefulness", "useful", "--accuracy", "accurate", "--clarification", "not_needed", "--extraction", "correct"], { exportService, evaluationService, write: (text) => writes.push(text) });
-    await runResearchCorpusCommand(["evaluation", "get", "--company", "company-a", "--group", "group-a", "--case", "case-cli"], { exportService, evaluationService, write: (text) => writes.push(text) });
-    await runResearchCorpusCommand(["export", "--company", "company-a", "--group", "group-a", "--format", "jsonl"], { exportService, evaluationService, write: (text) => writes.push(text) });
+    const evidenceReadService = new ResearchEvidenceReadService(store, traces, undefined, { now: () => now });
+    const deps = { exportService, evaluationService, evidenceReadService, write: (text: string) => writes.push(text) };
+    await runResearchCorpusCommand(["evaluation", "create", "--company", "company-a", "--group", "group-a", "--trace", "trace-a", "--usefulness", "useful", "--accuracy", "accurate", "--clarification", "not_needed", "--extraction", "correct"], deps);
+    await runResearchCorpusCommand(["evaluation", "get", "--company", "company-a", "--group", "group-a", "--case", "case-cli"], deps);
+    await runResearchCorpusCommand(["evaluation", "list", "--company", "company-a", "--group", "group-a"], deps);
+    await runResearchCorpusCommand(["traces", "list", "--company", "company-a", "--group", "group-a", "--subject", "subject-a", "--from", "2026-08-18", "--to", "2026-08-18T23:59:59Z"], deps);
+    await runResearchCorpusCommand(["traces", "get", "--company", "company-a", "--group", "group-a", "--trace", "trace-a"], deps);
+    await runResearchCorpusCommand(["export", "--company", "company-a", "--group", "group-a", "--format", "jsonl"], deps);
     expect(writes[0]).toContain('"caseId": "case-cli"');
     expect(writes[1]).toContain('"traceId": "trace-a"');
-    expect(writes[2]).toContain('"recordType":"manifest"');
+    expect(writes[2]).toContain('"caseId": "case-cli"');
+    expect(writes[3]).toContain('"promptVersion": "prompt/v2"');
+    expect(writes[3]).not.toContain("Исследовательский текст");
+    expect(writes[4]).toContain("Исследовательский текст");
+    expect(writes[5]).toContain('"recordType":"manifest"');
+
+    await expect(runResearchCorpusCommand(["evaluation", "list", "--company", "company-a"], deps)).rejects.toThrow();
+    await expect(runResearchCorpusCommand(["traces", "list", "--group", "group-a"], deps)).rejects.toThrow();
+    await expect(runResearchCorpusCommand(["traces", "get", "--company", "company-b", "--group", "group-b", "--trace", "trace-a"], deps)).rejects.toThrow("research trace not found");
   });
 });

@@ -29,6 +29,7 @@ export type AuditEventType =
   | "usage_soft_limit_exceeded"
   | "trace_missing"
   | "research_corpus_exported"
+  | "research_evidence_read"
   | "research_scope_purged"
   | "invite_revoked"
   | "employee_data_deleted";
@@ -77,6 +78,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   usage_soft_limit_exceeded: ["month", "source", "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cachedInputUnknownRecords", "estimatedCostUsdMicros", "softLimitUsdMicros"],
   trace_missing: ["reason", "status"],
   research_corpus_exported: ["companyId", "groupId", "outcome", "subjects", "messages", "activities", "traces", "feedback", "evaluationCases", "messagesWithTrace", "messagesMissingTrace"],
+  research_evidence_read: ["companyId", "groupId", "operation", "outcome", "count"],
   // Scope, counts and outcome only: subject keys, employee ids and raw payload
   // stay out of the record that survives an irreversible purge.
   research_scope_purged: ["scope", "companyId", "groupId", "outcome", "participants", "messages", "activities", "traces", "feedback", "evaluationCases", "insights", "auditEvents", "objectVersions"],

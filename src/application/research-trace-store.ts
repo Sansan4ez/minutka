@@ -54,10 +54,18 @@ export type ResearchTraceScope = {
   groupId: string;
 };
 
+export type ResearchTraceListFilters = {
+  subjectKey?: string;
+  traceId?: string;
+  startedFrom?: string;
+  startedTo?: string;
+  limit?: number;
+};
+
 export type ResearchTraceStore = {
   append(trace: ResearchTraceRecord): Promise<void>;
   /** Research reads always require an exact tenant and group scope. */
-  list(input: ResearchTraceScope & { limit?: number }): Promise<ResearchTraceRecord[]>;
+  list(input: ResearchTraceScope & ResearchTraceListFilters): Promise<ResearchTraceRecord[]>;
   get(input: ResearchTraceScope & { traceId: string }): Promise<ResearchTraceRecord | undefined>;
 };
 

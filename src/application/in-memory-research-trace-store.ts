@@ -22,9 +22,15 @@ export function createInMemoryResearchTraceStore(
       tenantScope.bindTrace(trace.traceId, trace);
       state.traces.push(structuredClone(sanitizeResearchTrace(trace)));
     },
-    async list({ companyId, groupId, limit = 1_000 }) {
+    async list({ companyId, groupId, subjectKey, traceId, startedFrom, startedTo, limit = 1_000 }) {
+      const from = startedFrom ? Date.parse(startedFrom) : undefined;
+      const to = startedTo ? Date.parse(startedTo) : undefined;
       return state.traces
         .filter((trace) => trace.companyId === companyId && trace.groupId === groupId)
+        .filter((trace) => subjectKey === undefined || trace.subjectKey === subjectKey)
+        .filter((trace) => traceId === undefined || trace.traceId === traceId)
+        .filter((trace) => from === undefined || Date.parse(trace.startedAt) >= from)
+        .filter((trace) => to === undefined || Date.parse(trace.startedAt) <= to)
         .slice(-Math.max(0, limit))
         .map((trace) => structuredClone(trace));
     },
