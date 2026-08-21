@@ -1,6 +1,6 @@
 import {
   errorEnvelopeSchema,
-  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
+  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminGroupUsageRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
   type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type IssueInviteRequest, type PersonalContextPatch, type ServiceChatRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
@@ -68,6 +68,10 @@ export class HttpAdminMinutkaTransport extends HttpTransportBase implements Admi
     return this.request("GET", `/v1/admin/participants?${query}`);
   }
   getMonthlyUsage(input: AdminUsageRequest) { return this.request("GET", `/v1/admin/employees/${encodeURIComponent(input.employeeId)}/usage?month=${encodeURIComponent(input.month)}`); }
+  getGroupMonthlyUsage(input: AdminGroupUsageRequest) {
+    const query = new URLSearchParams({ companyId: input.companyId, groupId: input.groupId, month: input.month });
+    return this.request("GET", `/v1/admin/usage?${query}`);
+  }
   exportCompanyReport(input: CompanyReportRequest) {
     const query = new URLSearchParams({ groupId: input.groupId });
     return this.request("GET", `/v1/admin/companies/${encodeURIComponent(input.companyId)}/report?${query}`);

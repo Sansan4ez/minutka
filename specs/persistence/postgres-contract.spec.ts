@@ -616,6 +616,16 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect(await usage.getMonthly("usage_other", "2026-07")).toMatchObject({ totalTokens: 30, estimatedCostUsdMicros: 65 });
     expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0, bySource: [] });
+    expect(await usage.getGroupMonthly({ companyId: "default_company", groupId: "default_group", month: "2026-07", softLimitUsdMicros: 900 })).toMatchObject({
+      companyId: "default_company", groupId: "default_group", month: "2026-07", participants: 2,
+      inputTokens: 350, outputTokens: 165, totalTokens: 515, cachedInputTokens: 40, cacheReportedInputTokens: 150,
+      cacheShare: 40 / 150, estimatedCostUsdMicros: 1065, participantsAboveSoftLimitCount: 1,
+      participantsAboveSoftLimit: [{ employeeId: "usage_owner", estimatedCostUsdMicros: 1000 }],
+      bySource: [
+        expect.objectContaining({ source: "chat", inputTokens: 320, cachedInputTokens: 40, cacheReportedInputTokens: 120, cacheShare: 40 / 120 }),
+        expect.objectContaining({ source: "guard", inputTokens: 30, cachedInputTokens: 0, cacheReportedInputTokens: 30, cacheShare: 0 }),
+      ],
+    });
     const columns = await pool.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_schema='minutka_private' AND table_name='usage' ORDER BY ordinal_position",
     );

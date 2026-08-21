@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, deleteInvitedParticipantRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminGroupUsageRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, deleteInvitedParticipantRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -32,6 +32,7 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "deleteInvitedParticipant"
   | "listParticipants"
   | "getMonthlyUsage"
+  | "getGroupMonthlyUsage"
   | "exportCompanyReport"
   | "listContextDocumentVersions"
   | "restoreContextDocumentVersion"
@@ -157,6 +158,13 @@ export function createHttpServer(options: HttpServerOptions): Server {
         const input = parse(listParticipantsRequestSchema, query(url));
         status = 200;
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.listParticipants(input)), id);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/admin/usage") {
+        template = "/v1/admin/usage";
+        requireKind(principal, "operator");
+        const input = parse(adminGroupUsageRequestSchema, query(url));
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getGroupMonthlyUsage(input)), id);
       }
       const adminCompanyReport = url.pathname.match(/^\/v1\/admin\/companies\/([^/]+)\/report$/);
       if (req.method === "GET" && adminCompanyReport) {

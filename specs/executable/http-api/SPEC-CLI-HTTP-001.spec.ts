@@ -19,6 +19,7 @@ import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { listenHttpServer, type RunningHttpServer } from "../../../src/server/http/http-server.js";
+import { GroupUsageReportingService, type GroupUsageStore } from "../../../src/application/group-usage-reporting.js";
 import type { UsageStore } from "../../../src/application/usage-store.js";
 import { createSpecParticipantStore } from "../support/participant-store.js";
 
@@ -133,6 +134,43 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(invalid.stderr.at(-1)).toContain("month must use YYYY-MM");
   });
 
+  it("reports tenant-scoped monthly group usage and excludes cache-unknown rows from cache share", async () => {
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy" });
+    runtime.world.tenantDirectories.groups.push({ id: "other_group", companyId: "other_company" });
+    const usageStore = createInMemoryUsageStore(() => runtime.world.participants);
+    const application = createApplication(runtime, "unused", usageStore);
+    await application.issueInvite({ employeeId: "emp_group_a", inviteCode: "invite_group_a", ...testTenantBinding });
+    await application.issueInvite({ employeeId: "emp_group_b", inviteCode: "invite_group_b", ...testTenantBinding });
+    await application.issueInvite({ employeeId: "emp_foreign_usage", inviteCode: "invite_foreign_usage", companyId: "other_company", groupId: "other_group" });
+    await usageStore.record({ id: "group_chat_a", userId: "emp_group_a", requestId: "group_req_a", source: "chat", month: "2026-07", inputTokens: 1_200, cachedInputTokens: 800, outputTokens: 300, totalTokens: 1_500, estimatedCostUsdMicros: 12_345, occurredAt: "2026-07-10T00:00:00.000Z" });
+    await usageStore.record({ id: "group_guard_a", userId: "emp_group_a", requestId: "group_guard_req_a", source: "guard", month: "2026-07", inputTokens: 100, outputTokens: 20, totalTokens: 120, estimatedCostUsdMicros: 655, occurredAt: "2026-07-10T00:00:01.000Z" });
+    await usageStore.record({ id: "group_chat_b", userId: "emp_group_b", requestId: "group_req_b", source: "chat", month: "2026-07", inputTokens: 800, cachedInputTokens: 0, outputTokens: 100, totalTokens: 900, estimatedCostUsdMicros: 5_000, occurredAt: "2026-07-11T00:00:00.000Z" });
+    await usageStore.record({ id: "group_foreign", userId: "emp_foreign_usage", requestId: "group_req_foreign", source: "chat", month: "2026-07", inputTokens: 99_999, cachedInputTokens: 99_999, outputTokens: 999, totalTokens: 100_998, estimatedCostUsdMicros: 999_999, occurredAt: "2026-07-12T00:00:00.000Z" });
+    const server = await listenHttpServer({ application, port: 0, logger: silent, auth: { adminToken, employeeTokens: new Map() } }); running.push(server);
+    const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+
+    const result = await runMinutkaCli(client, ["admin", "usage", "--company", "default_company", "--group", "default_group", "--month", "2026-07"]);
+    expect(result).toMatchObject({ exitCode: 0, stderr: [] });
+    expect(result.stdout).toEqual([
+      "Scope: default_company/default_group",
+      "Month (UTC): 2026-07",
+      "Participants: 2; above $0.01 soft limit: 1",
+      "Tokens: input 2,100, cached input 800, output 420, total 2,520",
+      "Cache share (reported rows only): 40.00%",
+      "Estimated cost: $0.018000 USD",
+      "  chat: 2,400 tokens (800 cached input), cache share 40.00%, $0.017345 USD",
+      "  guard: 120 tokens (0 cached input), cache share n/a, $0.000655 USD",
+      "Above soft limit: emp_group_a ($0.013000)",
+    ]);
+    expect(result.stdout.join("\n")).not.toContain("emp_foreign_usage");
+    expect(result.stdout.join("\n")).not.toContain("99,999");
+
+    const missingScope = await runMinutkaCli(client, ["admin", "usage", "--company", "default_company", "--month", "2026-07"]);
+    expect(missingScope).toMatchObject({ exitCode: 1, stdout: [] });
+    expect(missingScope.stderr.at(-1)).toBe("--company and --group are required together");
+    expect((await fetch(`${server.url}/v1/admin/usage?companyId=default_company&month=2026-07`, { headers: { authorization: `Bearer ${adminToken}` } })).status).toBe(400);
+  });
+
   it("lists and restores context document versions only for operator credentials", async () => {
     let now = "2026-08-03T10:00:00.000Z";
     const runtime = createInMemoryRuntime({ agentRunner: async () => "legacy", world: createInMemoryWorld(() => now) });
@@ -242,7 +280,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
 function createApplication(
   runtime: ReturnType<typeof createInMemoryRuntime>,
   response: string,
-  usageStore?: Pick<UsageStore, "getMonthly">,
+  usageStore?: Pick<UsageStore, "getMonthly"> & Partial<GroupUsageStore>,
   contextDocuments?: ContextDocumentService,
   providedDocumentStore?: ReturnType<typeof createInMemoryDocumentStore>,
 ): PersonalAssistantService {
@@ -263,5 +301,8 @@ function createApplication(
     clock,
     limits: { maximumBytes: 1024, timeoutMs: 1_000 },
   });
-  return new PersonalAssistantService(runtime.service, assistant, artifactStore, undefined, undefined, undefined, undefined, usageStore, contextDocuments);
+  const groupUsage = usageStore?.getGroupMonthly
+    ? new GroupUsageReportingService(usageStore as GroupUsageStore, { monthlySoftLimitUsdMicros: 10_000 })
+    : undefined;
+  return new PersonalAssistantService(runtime.service, assistant, artifactStore, undefined, undefined, undefined, undefined, usageStore, contextDocuments, undefined, groupUsage);
 }

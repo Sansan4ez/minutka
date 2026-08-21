@@ -74,11 +74,28 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       stdout.push(JSON.stringify(await adminClient.exportCompanyReport({ companyId: o.company, groupId: o.group })));
     }));
   admin.addCommand(new Command("usage")
-    .requiredOption("--employee <employeeId>")
+    .option("--employee <employeeId>")
+    .option("--company <companyId>")
+    .option("--group <groupId>")
     .option("--month <YYYY-MM>", "Usage month in UTC", currentUsageMonth())
-    .action(async (o: { employee: string; month: string }) => {
-      const usage = await adminClient.getMonthlyUsage({ employeeId: o.employee, month: o.month });
+    .action(async (o: { employee?: string; company?: string; group?: string; month: string }) => {
       const format = (value: number) => value.toLocaleString("en-US");
+      if (o.company || o.group) {
+        if (!o.company || !o.group) throw new Error("--company and --group are required together");
+        if (o.employee) throw new Error("--employee cannot be combined with --company/--group");
+        const usage = await adminClient.getGroupMonthlyUsage({ companyId: o.company, groupId: o.group, month: o.month });
+        stdout.push(`Scope: ${usage.companyId}/${usage.groupId}`);
+        stdout.push(`Month (UTC): ${usage.month}`);
+        stdout.push(`Participants: ${format(usage.participants)}; above $${(usage.softLimitUsdMicros / 1_000_000).toFixed(2)} soft limit: ${format(usage.participantsAboveSoftLimitCount)}`);
+        stdout.push(`Tokens: input ${format(usage.inputTokens)}, cached input ${format(usage.cachedInputTokens)}, output ${format(usage.outputTokens)}, total ${format(usage.totalTokens)}`);
+        stdout.push(`Cache share (reported rows only): ${usage.cacheShare === null ? "n/a" : `${(usage.cacheShare * 100).toFixed(2)}%`}`);
+        stdout.push(`Estimated cost: $${(usage.estimatedCostUsdMicros / 1_000_000).toFixed(6)} USD`);
+        for (const source of usage.bySource) stdout.push(`  ${source.source}: ${format(source.totalTokens)} tokens (${format(source.cachedInputTokens)} cached input), cache share ${source.cacheShare === null ? "n/a" : `${(source.cacheShare * 100).toFixed(2)}%`}, $${(source.estimatedCostUsdMicros / 1_000_000).toFixed(6)} USD`);
+        if (usage.participantsAboveSoftLimit.length) stdout.push(`Above soft limit: ${usage.participantsAboveSoftLimit.map((participant) => `${participant.employeeId} ($${(participant.estimatedCostUsdMicros / 1_000_000).toFixed(6)})`).join(", ")}`);
+        return;
+      }
+      if (!o.employee) throw new Error("--employee or --company/--group is required");
+      const usage = await adminClient.getMonthlyUsage({ employeeId: o.employee, month: o.month });
       stdout.push(`Employee: ${usage.userId}`);
       stdout.push(`Month (UTC): ${usage.month}`);
       stdout.push(`Tokens: input ${format(usage.inputTokens)}, cached input ${format(usage.cachedInputTokens)}, output ${format(usage.outputTokens)}, total ${format(usage.totalTokens)}`);

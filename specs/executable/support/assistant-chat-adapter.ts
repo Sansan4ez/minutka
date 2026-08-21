@@ -29,8 +29,10 @@ export function createSpecHttpApplication(
 ): HttpApplicationService {
   return {
     issueInvite: (input) => service.issueInvite(input),
+    deleteInvitedParticipant: (input) => service.deleteInvitedParticipant(input),
     listParticipants: (input) => service.listParticipants(input),
     getMonthlyUsage: async () => { throw new Error("usage reporting is not configured in this spec adapter"); },
+    getGroupMonthlyUsage: async () => { throw new Error("group usage reporting is not configured in this spec adapter"); },
     exportCompanyReport: async () => { throw new Error("company reporting is not configured in this spec adapter"); },
     openInvite: (input) => service.openInvite(input),
     getProfile: (input) => service.getProfile(input),

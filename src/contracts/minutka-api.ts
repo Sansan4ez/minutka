@@ -230,6 +230,11 @@ export const listParticipantsResponseSchema = z.strictObject({
 });
 export const usageMonthSchema = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u, "month must use YYYY-MM");
 export const adminUsageRequestSchema = z.strictObject({ employeeId: employeeIdSchema, month: usageMonthSchema });
+export const adminGroupUsageRequestSchema = z.strictObject({
+  companyId: z.string().min(1).max(128),
+  groupId: z.string().min(1).max(128),
+  month: usageMonthSchema,
+});
 export const companyReportRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128),
   groupId: z.string().min(1).max(128),
@@ -270,6 +275,17 @@ export const monthlyUsageResponseSchema = usageTotalsResponseSchema.extend({
   userId: employeeIdSchema,
   month: usageMonthSchema,
   bySource: z.array(usageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
+});
+const groupUsageTotalsResponseSchema = usageTotalsResponseSchema.extend({
+  cacheReportedInputTokens: z.number().int().nonnegative(),
+  cacheShare: z.number().min(0).max(1).nullable(),
+});
+export const groupMonthlyUsageResponseSchema = groupUsageTotalsResponseSchema.extend({
+  companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), month: usageMonthSchema,
+  participants: z.number().int().nonnegative(), softLimitUsdMicros: z.number().int().nonnegative(),
+  participantsAboveSoftLimitCount: z.number().int().nonnegative(),
+  participantsAboveSoftLimit: z.array(z.strictObject({ employeeId: employeeIdSchema, estimatedCostUsdMicros: z.number().int().nonnegative() })),
+  bySource: z.array(groupUsageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
 });
 export const contextDocumentVersionsRequestSchema = z.strictObject({
   employeeId: employeeIdSchema,
@@ -347,9 +363,11 @@ export type ParticipantSummaryResponse = z.infer<typeof participantSummarySchema
 export type ListParticipantsRequest = z.infer<typeof listParticipantsRequestSchema>;
 export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSchema>;
 export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
+export type AdminGroupUsageRequest = z.infer<typeof adminGroupUsageRequestSchema>;
 export type CompanyReportRequest = z.infer<typeof companyReportRequestSchema>;
 export type CompanyReportResponse = z.infer<typeof companyReportResponseSchema>;
 export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;
+export type GroupMonthlyUsageResponse = z.infer<typeof groupMonthlyUsageResponseSchema>;
 export type ContextDocumentVersionsRequest = z.infer<typeof contextDocumentVersionsRequestSchema>;
 export type ContextDocumentVersionsResponse = z.infer<typeof contextDocumentVersionsResponseSchema>;
 export type RestoreContextDocumentVersionRequest = z.infer<typeof restoreContextDocumentVersionRequestSchema>;

@@ -41,6 +41,7 @@ import type { SaveDailyScheduleInput, ScheduleManagementService } from "./schedu
 import type { MonthlyUsage, UsageStore } from "./usage-store.js";
 import type { ContextDocumentAuditContext, ContextDocumentService } from "./context-document-service.js";
 import type { CompanyReportingService } from "./company-reporting.js";
+import type { GroupUsageReportingService } from "./group-usage-reporting.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -86,6 +87,7 @@ export class PersonalAssistantService {
     private readonly usage?: Pick<UsageStore, "getMonthly">,
     private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject" | "listVersions" | "restoreVersion">,
     private readonly companyReporting?: Pick<CompanyReportingService, "exportGroup">,
+    private readonly groupUsageReporting?: Pick<GroupUsageReportingService, "getMonthly">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -94,6 +96,10 @@ export class PersonalAssistantService {
   getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage> {
     if (!this.usage) throw new Error("usage reporting is not configured");
     return this.usage.getMonthly(userId, month);
+  }
+  getGroupMonthlyUsage(input: { companyId: string; groupId: string; month: string }) {
+    if (!this.groupUsageReporting) throw new Error("group usage reporting is not configured");
+    return this.groupUsageReporting.getMonthly(input);
   }
   exportCompanyReport(input: { companyId: string; groupId: string }) {
     if (!this.companyReporting) throw new Error("company reporting is not configured");

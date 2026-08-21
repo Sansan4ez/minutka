@@ -48,6 +48,7 @@ import { runRetentionCleanupJobs } from "./retention-cleanup.js";
 import { productionAssistantTimeoutBudgets } from "../config/assistant-timeout-budgets.js";
 import type { createTelegramShell } from "../telegram/telegram-shell.js";
 import { usageCostPolicyFromEnv } from "../config/usage.js";
+import { GroupUsageReportingService } from "../application/group-usage-reporting.js";
 import { createUsageRecorder } from "../application/usage-recorder.js";
 import { artifactRuntimeConfigFromEnv } from "../config/artifacts.js";
 import { ConversationThreadService } from "../application/conversation-thread-service.js";
@@ -275,7 +276,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
     const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting);
+    const groupUsageReporting = new GroupUsageReportingService(usageStore, usageCostPolicy);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting);
     const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({
       assistant,
       telegramSessionStore,

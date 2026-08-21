@@ -179,6 +179,18 @@ Soft limit установлен в `$30` на владельца в месяц. 
 
 Колонка `cached_input_tokens` nullable по смыслу: `NULL` — «провайдер не сообщал разбивку», `0` — «провайдер сообщил cache miss». Строкам до миграции `0039` cache hit не приписывается ни в какую сторону; месячный агрегат отдаёт `cachedInputTokens` (сумма по строкам с отчётом) отдельно от `cachedInputUnknownRecords` (число строк без отчёта), чтобы «неизвестно» не читалось как подтверждённый ноль.
 
+## Ежемесячный агрегат группы
+
+Основной путь ежемесячной проверки planning envelope — обязательный tenant-scoped admin CLI:
+
+```bash
+npm run cli -- admin usage --company <company_id> --group <group_id> --month YYYY-MM
+```
+
+Команда возвращает суммарные input/output/cached/total tokens и оценочную стоимость, тот же разрез по `source`, cache share, число и идентификаторы участников выше индивидуального soft limit. Cache share считает знаменатель только по строкам, где `cached_input_tokens IS NOT NULL`; строки без provider breakdown не считаются cache miss. Вывод metadata-only: тексты запросов и ответов не читаются и не печатаются.
+
+SQL ниже остаётся fallback для детальной калибровки после изменения prompt/context и для operational-only полей, которых нет в durable агрегате.
+
 ## После deployment
 
 1. Обновить deployment `.env`:
