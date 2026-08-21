@@ -1174,6 +1174,30 @@ describe("PostgreSQL storage contracts", () => {
     expect(results.every((result) => result.participant.employeeId === "emp_parallel_issue" && result.inviteMatches)).toBe(true);
   });
 
+  it("deletes only invite_issued participants and releases the invite digest", async () => {
+    const companyId = "company_persistence_default";
+    const groupId = "group_persistence_default";
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+
+    await expect(profiles.deleteInvitedParticipant("emp_revoke_missing"))
+      .resolves.toEqual({ found: false, deleted: false });
+
+    await profiles.issueInvite({ employeeId: "emp_revoke_unused", inviteCode: "invite_revoke_reusable", companyId, groupId, issuedAt: now });
+    await expect(profiles.deleteInvitedParticipant("emp_revoke_unused"))
+      .resolves.toEqual({ found: true, deleted: true });
+    await expect(profiles.getParticipant("emp_revoke_unused")).resolves.toBeUndefined();
+    await expect(profiles.getParticipantByInviteCode("invite_revoke_reusable")).resolves.toBeUndefined();
+    await expect(profiles.issueInvite({ employeeId: "emp_revoke_reissued", inviteCode: "invite_revoke_reusable", companyId, groupId, issuedAt: now }))
+      .resolves.toMatchObject({ created: true, participant: { employeeId: "emp_revoke_reissued", status: "invite_issued" } });
+
+    await profiles.issueInvite({ employeeId: "emp_revoke_opened", inviteCode: "invite_revoke_opened", companyId, groupId, issuedAt: now });
+    await profiles.openInvite({ inviteCode: "invite_revoke_opened", openedAt: now, explanationShownAt: now });
+    await expect(profiles.deleteInvitedParticipant("emp_revoke_opened"))
+      .resolves.toEqual({ found: true, deleted: false, status: "invite_opened" });
+    await expect(profiles.getParticipant("emp_revoke_opened"))
+      .resolves.toMatchObject({ status: "invite_opened" });
+  });
+
   it("commits consent and its audit event together and replaces an obsolete version", async () => {
     await issueProfileReadyParticipant(pool, "emp_consent", "invite_consent");
     const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);

@@ -466,6 +466,29 @@ export function createPostgresProfileStore(
         throw mapPostgresError(error);
       }
     },
+    async deleteInvitedParticipant(employeeId) {
+      try {
+        return await withTransaction(pool, async (client) => {
+          const participant = await client.query<{ status: Participant["status"] }>(
+            "SELECT status FROM minutka_private.participants WHERE employee_id = $1 FOR UPDATE",
+            [employeeId],
+          );
+          if (!participant.rows[0]) return { found: false, deleted: false };
+          if (participant.rows[0].status !== "invite_issued") {
+            return { found: true, deleted: false, status: participant.rows[0].status };
+          }
+          const deleted = await client.query(
+            "DELETE FROM minutka_private.participants WHERE employee_id = $1 AND status = 'invite_issued'",
+            [employeeId],
+          );
+          if (deleted.rowCount !== 1) throw new PersistenceError("persistence_conflict");
+          return { found: true, deleted: true };
+        });
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw mapPostgresError(error);
+      }
+    },
     async deleteEmployeePersonalData(employeeId) {
       try {
         return await withTransaction(pool, async (client) => {
