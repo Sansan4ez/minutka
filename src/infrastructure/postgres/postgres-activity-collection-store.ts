@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { ActivityCollectionStore, PersonalActivityRecord } from "../../application/activity-collection.js";
 import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/own-activity-window.js";
+import type { RecentOwnActivityReadStore } from "../../application/recent-own-activities.js";
 import { mapPostgresError, PersistenceError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
 
@@ -105,6 +106,30 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     ...(row.system ? { system: row.system } : {}),
     activityDate: row.activity_date,
     recordedAt: row.recorded_at.toISOString(),
+  };
+}
+
+/** Owner-and-tenant-scoped recent read for explicit correction lookup only. */
+export function createPostgresRecentOwnActivityReadStore(pool: Pool): RecentOwnActivityReadStore {
+  return {
+    async listRecentOwnActivities({ employeeId, companyId, groupId, recordedAfter, recordedBefore, limit }) {
+      try {
+        const result = await pool.query<ActivityRow>(
+          `SELECT activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
+                  task_category, routine_pattern, automation_candidate, energy_stress_marker,
+                  duration_bucket, system, activity_date::text AS activity_date, recorded_at
+           FROM minutka_private.activities
+           WHERE employee_id = $1 AND company_id = $2 AND group_id = $3
+             AND recorded_at >= $4::timestamptz AND recorded_at <= $5::timestamptz
+           ORDER BY recorded_at DESC, activity_id DESC
+           LIMIT $6`,
+          [employeeId, companyId, groupId, recordedAfter, recordedBefore, limit],
+        );
+        return result.rows.map(personalActivity);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
   };
 }
 

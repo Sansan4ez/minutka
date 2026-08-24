@@ -6,6 +6,7 @@ import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedul
 import { collectActivitiesToolName, createCollectActivitiesTool } from "./tools/activity-collection-tool.js";
 import { createReadWeeklyActivitiesTool, readWeeklyActivitiesToolName } from "./tools/weekly-activity-tool.js";
 import { createReadCycleActivitiesTool, readCycleActivitiesToolName } from "./tools/cycle-activity-tool.js";
+import { createReadRecentOwnActivitiesTool, readRecentOwnActivitiesToolName } from "./tools/recent-own-activities-tool.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
 
@@ -17,7 +18,7 @@ import { llmModel } from "../config/llm.js";
  */
 export const assistantRuntimeToolsets = {
   schedules: assistantScheduleToolNames,
-  activities: [collectActivitiesToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
+  activities: [collectActivitiesToolName, readRecentOwnActivitiesToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
   profile: [updatePersonalContextToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -64,6 +65,7 @@ export function createAssistantToolsets(context: AssistantAgentContext) {
     schedules: createScheduleTools(context.schedules),
     activities: {
       collectActivities: createCollectActivitiesTool(context.collectActivities),
+      readRecentOwnActivities: createReadRecentOwnActivitiesTool(context.readRecentOwnActivities),
       readWeeklyActivities: createReadWeeklyActivitiesTool(context.readWeeklyActivities),
       readCycleActivities: createReadCycleActivitiesTool(context.readCycleActivities),
     },

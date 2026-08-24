@@ -9,7 +9,7 @@ import { ResearchScopePurgeService } from "../../../src/application/research-sco
 import { ScheduleManagementService } from "../../../src/application/schedule-management-service.js";
 import { SchedulerService } from "../../../src/application/scheduler-service.js";
 import { WeeklyActivitySummaryService } from "../../../src/application/weekly-activity-summary.js";
-import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryOwnActivityReadStore } from "../../../src/application/in-memory-activity-collection-store.js";
+import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryOwnActivityReadStore, createInMemoryRecentOwnActivityReadStore } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
@@ -31,6 +31,7 @@ import { createTelegramScheduledActionRunner } from "../../../src/runtime/schedu
 import { runResearchScopePurgeCommand } from "../../../src/runtime/research-scope-purge-command.js";
 import { runScheduledProcessOnDemand } from "../../../src/runtime/run-scheduled-process.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
+import { RecentOwnActivitiesService } from "../../../src/application/recent-own-activities.js";
 
 /**
  * The employee-local timezone of the whole gate. Every activity is recorded at
@@ -79,6 +80,7 @@ function createHarness() {
     () => `activity_${++activityIndex}`,
   );
   const ownActivities = createInMemoryOwnActivityReadStore(activityState);
+  const recentActivities = new RecentOwnActivitiesService(createInMemoryRecentOwnActivityReadStore(activityState), clock);
   const weekly = new WeeklyActivitySummaryService(ownActivities, clock);
   const cycle = new CycleActivitySummaryService(ownActivities, clock);
 
@@ -156,6 +158,7 @@ function createHarness() {
       clock,
     }),
     collectActivities: (command) => activities.collectBatch(command),
+    readRecentOwnActivities: (command) => recentActivities.read(command),
     readWeeklyActivities: (command) => weekly.summarize(command),
     readCycleActivities: (command) => cycle.summarize(command),
     auditEventStore: createInMemoryAuditEventStore(world),

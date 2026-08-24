@@ -67,11 +67,12 @@ import { readEngagementReminderText } from "../application/engagement-reminder-t
 import { CollectActivityService } from "../application/activity-collection.js";
 import { WeeklyActivitySummaryService } from "../application/weekly-activity-summary.js";
 import { CycleActivitySummaryService } from "../application/cycle-activity-summary.js";
-import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
+import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../infrastructure/postgres/postgres-activity-collection-store.js";
 import { CompanyReportingService } from "../application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../infrastructure/postgres/postgres-company-report-store.js";
 import { createPostgresResearchTraceStore } from "../infrastructure/postgres/postgres-research-trace-store.js";
 import { llmModel } from "../config/llm.js";
+import { RecentOwnActivitiesService } from "../application/recent-own-activities.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -233,6 +234,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const scheduleManagement = new ScheduleManagementService(scheduleStore, stores.profileStore, systemClock, randomIdGenerator);
     const activityCollection = new CollectActivityService(createPostgresActivityCollectionStore(pool), systemClock);
     const ownActivityReadStore = createPostgresOwnActivityReadStore(pool);
+    const recentOwnActivities = new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), systemClock);
     const weeklyActivitySummary = new WeeklyActivitySummaryService(ownActivityReadStore, systemClock);
     const cycleActivitySummary = new CycleActivitySummaryService(ownActivityReadStore, systemClock);
     const researchTraceStore = createPostgresResearchTraceStore(pool);
@@ -246,6 +248,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       contextDocuments,
       scheduleManagement,
       collectActivities: (command) => activityCollection.collectBatch(command),
+      readRecentOwnActivities: (input) => recentOwnActivities.read(input),
       readWeeklyActivities: (input) => weeklyActivitySummary.summarize(input),
       readCycleActivities: (input) => cycleActivitySummary.summarize(input),
       projectLabels,

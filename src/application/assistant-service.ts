@@ -51,6 +51,7 @@ import type { CollectActivitiesInput } from "../contracts/minutka-activity.js";
 import type { CollectActivitiesResult } from "./activity-collection.js";
 import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
 import type { CycleActivitySummary } from "./cycle-activity-summary.js";
+import type { RecentOwnActivitiesResult } from "./recent-own-activities.js";
 import {
   researchTraceError,
   researchTraceSchemaVersion,
@@ -90,6 +91,8 @@ export type AssistantAgentContext = {
   schedules: OwnerScheduleCapabilities;
   /** Authenticated employee and tenant-bound structured activity batch write. */
   collectActivities(input: CollectActivitiesInput): Promise<CollectActivitiesResult>;
+  /** Employee-and-tenant-bound short-window read for an explicit correction lookup. */
+  readRecentOwnActivities(): Promise<RecentOwnActivitiesResult>;
   /** Employee-bound counted read of the employee's own last seven days. */
   readWeeklyActivities(): Promise<WeeklyActivitySummary>;
   /** Employee-bound counted read of the employee's own two-week cycle. */
@@ -159,7 +162,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -557,6 +560,18 @@ export class AssistantService {
         throw new AssistantMutationOutcomeUnknownError({ cause });
       }
     };
+    // Read-only and deliberately local: only an explicit correction signal
+    // should cause the agent to inspect this employee's recent candidates.
+    const readRecentOwnActivities = async () => {
+      if (!this.deps.readRecentOwnActivities) throw new Error("recent own activity read is not configured");
+      const participant = await this.deps.participantStore?.getParticipant(userId);
+      const companyId = participant?.companyId;
+      const groupId = participant?.groupId;
+      if (!companyId || !groupId) throw new PersistenceError("profile_not_found");
+      const result = await this.deps.readRecentOwnActivities({ employeeId: userId, companyId, groupId });
+      observedExecutionTrace.push({ kind: "tool", toolName: "readRecentOwnActivities" });
+      return result;
+    };
     // Read-only: the weekly checkpoint counts what the employee already
     // reported and never widens the window beyond their own activities.
     const readWeeklyActivities = async () => {
@@ -642,6 +657,7 @@ export class AssistantService {
       projects,
       schedules,
       collectActivities,
+      readRecentOwnActivities,
       readWeeklyActivities,
       readCycleActivities,
       updatePersonalContext,

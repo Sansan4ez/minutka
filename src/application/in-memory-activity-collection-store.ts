@@ -1,6 +1,7 @@
 import type { ActivityCollectionStore, PersonalActivityRecord } from "./activity-collection.js";
 import { createTenantSubjectScopeIndex, type TenantSubjectScopeIndex } from "./tenant-subject-scope.js";
 import type { OwnActivityReadStore } from "./own-activity-window.js";
+import type { RecentOwnActivityReadStore } from "./recent-own-activities.js";
 
 export type InMemoryActivityCollectionState = {
   activities: PersonalActivityRecord[];
@@ -26,6 +27,26 @@ export function createInMemoryActivityCollectionStore(
     async getActivityById(activityId) {
       const activity = state.activities.find((candidate) => candidate.activityId === activityId);
       return activity ? structuredClone(activity) : undefined;
+    },
+  };
+}
+
+/** Owner-and-tenant-scoped recent read for an explicit correction lookup. */
+export function createInMemoryRecentOwnActivityReadStore(
+  state: InMemoryActivityCollectionState,
+): RecentOwnActivityReadStore {
+  return {
+    async listRecentOwnActivities({ employeeId, companyId, groupId, recordedAfter, recordedBefore, limit }) {
+      return state.activities
+        .filter((activity) => activity.employeeId === employeeId
+          && activity.companyId === companyId
+          && activity.groupId === groupId
+          && activity.recordedAt >= recordedAfter
+          && activity.recordedAt <= recordedBefore)
+        .sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)
+          || right.activityId.localeCompare(left.activityId))
+        .slice(0, limit)
+        .map((activity) => structuredClone(activity));
     },
   };
 }

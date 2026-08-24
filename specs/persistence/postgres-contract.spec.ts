@@ -33,8 +33,9 @@ import { ContextDocumentService } from "../../src/application/context-document-s
 import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
-import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
+import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
+import { RecentOwnActivitiesService } from "../../src/application/recent-own-activities.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { WeeklyActivitySummaryService } from "../../src/application/weekly-activity-summary.js";
 import { CycleActivitySummaryService } from "../../src/application/cycle-activity-summary.js";
@@ -341,6 +342,21 @@ describe("PostgreSQL storage contracts", () => {
     }]);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-09", toDate: "2026-08-15" })).toEqual([]);
     expect(await ownActivities.listOwnActivities({ employeeId: "another_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([]);
+    const recentOwnActivities = new RecentOwnActivitiesService(
+      createPostgresRecentOwnActivityReadStore(pool),
+      { now: () => "2026-08-17T00:00:00.000Z" },
+    );
+    expect(await recentOwnActivities.read({ employeeId: "activity_owner", companyId, groupId })).toEqual({
+      activities: [{
+        handle: "activity_pg_one", revision: 1, taskCategory: "reporting",
+        routinePattern: "manual_reporting", automationCandidate: "report_generation",
+        energyStressMarker: "frustration", durationBucket: "1_2h", system: "spreadsheets",
+        activityDate: "2026-08-16", recordedAt: "2026-08-15T22:17:35.000Z",
+      }],
+    });
+    expect(await recentOwnActivities.read({ employeeId: "another_owner", companyId, groupId })).toEqual({ activities: [] });
+    expect(await recentOwnActivities.read({ employeeId: "activity_owner", companyId: "another_company", groupId })).toEqual({ activities: [] });
+    expect(await recentOwnActivities.read({ employeeId: "activity_owner", companyId, groupId: "another_group" })).toEqual({ activities: [] });
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool)).exportGroup({ companyId, groupId });
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);

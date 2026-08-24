@@ -52,6 +52,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
     expect(instructions).toContain("Process file: weekly_summary");
+    expect(instructions).toContain("readRecentOwnActivities");
+    expect(instructions).toContain("Repeated real work is a new factual episode");
+    expect(instructions).toContain("Several matches require one short clarification");
+    expect(instructions).toContain("no match changes nothing");
     expect(instructions).toContain("readWeeklyActivities");
     expect(instructions).toContain("too thin for a pattern");
     expect(instructions).toContain("Process file: final_report");
@@ -99,8 +103,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .join("\n");
 
     expect(registeredIds).toEqual([
-      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivities", "readWeeklyActivities",
-      "readCycleActivities", "updatePersonalContext", "markProcessUsed",
+      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivities", "readRecentOwnActivities",
+      "readWeeklyActivities", "readCycleActivities", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
@@ -139,6 +143,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("listDocuments");
     expect(assistantActiveToolNames).not.toContain("createContextNote");
     expect(assistantActiveToolNames).toContain("collectActivities");
+    expect(assistantActiveToolNames).toContain("readRecentOwnActivities");
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
     expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");

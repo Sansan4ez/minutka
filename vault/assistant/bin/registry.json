@@ -5,6 +5,7 @@
     { "id": "setDailySchedule", "manifest": "set-daily-schedule.md", "mutating": true },
     { "id": "disableSchedule", "manifest": "disable-schedule.md", "mutating": true },
     { "id": "collectActivities", "manifest": "collect-activities.md", "mutating": true },
+    { "id": "readRecentOwnActivities", "manifest": "read-recent-own-activities.md", "mutating": false },
     { "id": "readWeeklyActivities", "manifest": "read-weekly-activities.md", "mutating": false },
     { "id": "readCycleActivities", "manifest": "read-cycle-activities.md", "mutating": false },
     { "id": "updatePersonalContext", "manifest": "update-personal-context.md", "mutating": true },
