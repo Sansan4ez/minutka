@@ -43,7 +43,9 @@ export function createInMemoryOwnActivityReadStore(
         .map((activity) => ({
           employeeId: activity.employeeId,
           ...(activity.taskCategory === undefined ? {} : { taskCategory: activity.taskCategory }),
-          ...(activity.obstacle === undefined ? {} : { obstacle: activity.obstacle }),
+          ...(activity.routinePattern === undefined ? {} : { routinePattern: activity.routinePattern }),
+          ...(activity.automationCandidate === undefined ? {} : { automationCandidate: activity.automationCandidate }),
+          ...(activity.energyStressMarker === undefined ? {} : { energyStressMarker: activity.energyStressMarker }),
           ...(activity.durationBucket === undefined ? {} : { durationBucket: activity.durationBucket }),
           ...(activity.system === undefined ? {} : { system: activity.system }),
           activityDate: activity.activityDate,

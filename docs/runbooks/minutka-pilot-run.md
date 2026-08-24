@@ -252,7 +252,8 @@ MINUTKA_API_TOKEN="$EMPLOYEE_ONE_TOKEN" npm run cli -- employee chat \
   --text "Сегодня уже провёл планёрку, собрал отчёт по продажам, начал согласование с логистом, разобрал данные в таблице и перенёс заявки из почты в CRM; вечером ещё собираюсь подготовить презентацию." | tee /tmp/minutka-midday.json | tail -n 1
 
 dbq "SELECT activity_id, subject_key, source_message_id, company_id, group_id, role_id,
-            task_category, obstacle_kind, duration_bucket, system, activity_date, recorded_at
+            task_category, routine_pattern, automation_candidate, energy_stress_marker,
+            duration_bucket, system, activity_date, recorded_at
      FROM minutka_private.activities WHERE employee_id = \$1 ORDER BY recorded_at" "[\"$EMPLOYEE_ONE\"]"
 dbq "SELECT trace_id, subject_key, status, prompt_version, taxonomy_version, model,
             payload->'attempts' AS attempts
@@ -271,7 +272,7 @@ npm run process:run -- --employee "$EMPLOYEE_ONE" --process evening_reflection -
 
 **Признак `прошло`:** приглашение спрашивает, что **ещё** добавить к уже отмеченному, и не задаёт лимит количества. На ответ сотрудника с одной новой фактической activity выполняется один batch-вызов `collectActivities`; дневные activities не дублируются, если bounded history явно показывает, что они уже записаны.
 
-Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в три приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента; `mnt-pilot-readiness-w73.13` вернул модели правило «одна помеха на активность» и снял fallback-гейт «не терять ввод»; `mnt-unbounded-activity-capture-yc3.1` заменил последовательные одиночные вызовы одним provider-visible batch-вызовом `collectActivities`. Проверка пяти и более дневных activities выполняется задачей `mnt-unbounded-activity-capture-yc3.4`.
+Расхождение прогонов от 2026-08-17 (ответ сохранялся как «идея» унаследованного ассистента, обе таблицы оставались пустыми) закрыто в три приёма: `mnt-pilot-readiness-w73.10` убрал инструменты отключённых процессов, включая `captureIdea`, из активного набора агента; `mnt-pilot-readiness-w73.13` вернул модели закрытые obstacle facets и снял fallback-гейт «не терять ввод»; `mnt-unbounded-activity-capture-yc3.1` заменил последовательные одиночные вызовы одним provider-visible batch-вызовом `collectActivities`. Начиная с taxonomy v2 независимые routine, automation и energy facets могут сохраняться вместе в одной activity. Проверка пяти и более дневных activities выполняется задачей `mnt-unbounded-activity-capture-yc3.4`.
 
 ## Шаг 7. Вечернее касание
 

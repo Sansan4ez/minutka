@@ -33,8 +33,9 @@ type ActivityRow = {
   task_category: PilotStatusActivity["task_category"] | null;
   system: PilotStatusActivity["system"] | null;
   duration_bucket: PilotStatusActivity["duration_bucket"] | null;
-  obstacle_kind: PilotStatusActivity["obstacle_kind"] | null;
-  obstacle_value: string | null;
+  routine_pattern: string | null;
+  automation_candidate: string | null;
+  energy_stress_marker: string | null;
   activity_date: string;
 };
 
@@ -117,8 +118,8 @@ LEFT JOIN minutka_reference.roles role
 LEFT JOIN minutka_private.profiles profile ON profile.employee_id = participant.employee_id
 ORDER BY participant.company_id, participant.group_id, participant.created_at, participant.employee_id`;
 
-const activityQuery = `SELECT employee_id, task_category, system, duration_bucket, obstacle_kind, obstacle_value,
-  activity_date::text AS activity_date
+const activityQuery = `SELECT employee_id, task_category, system, duration_bucket,
+  routine_pattern, automation_candidate, energy_stress_marker, activity_date::text AS activity_date
 FROM minutka_private.activities
 ORDER BY activity_date, recorded_at, activity_id`;
 
@@ -155,8 +156,9 @@ function toActivity(row: ActivityRow): PilotStatusActivity {
     ...(row.task_category ? { task_category: row.task_category } : {}),
     ...(row.system ? { system: row.system } : {}),
     ...(row.duration_bucket ? { duration_bucket: row.duration_bucket } : {}),
-    ...(row.obstacle_kind ? { obstacle_kind: row.obstacle_kind } : {}),
-    ...(row.obstacle_value ? { obstacle_value: row.obstacle_value } : {}),
+    ...(row.routine_pattern ? { routine_pattern: row.routine_pattern } : {}),
+    ...(row.automation_candidate ? { automation_candidate: row.automation_candidate } : {}),
+    ...(row.energy_stress_marker ? { energy_stress_marker: row.energy_stress_marker } : {}),
     activity_date: row.activity_date,
   };
 }

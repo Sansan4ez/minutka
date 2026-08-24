@@ -240,12 +240,12 @@ export const companyReportRequestSchema = z.strictObject({
   groupId: z.string().min(1).max(128),
 });
 const companyReportConfidenceSchema = z.enum(["hypothesis", "signal", "confirmed"]);
-const companyReportObstacleSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("routine_pattern"), value: z.enum(routinePatternTypes) }),
-  z.strictObject({ kind: z.literal("automation_candidate"), value: z.enum(automationCandidateTypes) }),
-  z.strictObject({ kind: z.literal("energy_stress_marker"), value: z.enum(energyStressMarkerTypes) }),
-]);
-const companyReportProcessSchema = z.strictObject({ taskCategory: z.enum(taskCategories).optional(), obstacle: companyReportObstacleSchema.optional() });
+const companyReportProcessSchema = z.strictObject({
+  taskCategory: z.enum(taskCategories).optional(),
+  routinePattern: z.enum(routinePatternTypes).optional(),
+  automationCandidate: z.enum(automationCandidateTypes).optional(),
+  energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
+});
 const companyReportEvidenceRefSchema = z.strictObject({ kind: z.literal("activity"), id: z.string().min(1), subjectKey: z.string().min(1) });
 const internalCompanyReportSchema = z.strictObject({
   schemaVersion: z.literal("minutka-internal-report/v1"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),

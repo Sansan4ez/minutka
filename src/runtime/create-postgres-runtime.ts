@@ -259,7 +259,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       researchTraceVersions: {
         promptVersion: "minutka-assistant-prompt/v1",
         processVersion: "minutka-process-catalog/v1",
-        taxonomyVersion: "minutka-activity-taxonomy/v1",
+        taxonomyVersion: "minutka-activity-taxonomy/v2",
         model: llmModel,
       },
       participantStore: stores.profileStore,

@@ -1,5 +1,5 @@
-import type { ActivityObstacle, PersonalActivityRecord } from "./activity-collection.js";
-import type { ActivityDurationBucket, ActivitySystem, TaskCategory } from "../domain/insights.js";
+import type { PersonalActivityRecord } from "./activity-collection.js";
+import type { ActivityDurationBucket, ActivitySystem, AutomationCandidateType, EnergyStressMarkerType, RoutinePatternType, TaskCategory } from "../domain/insights.js";
 
 export const COMPANY_REPORT_CONFIDENCE_POLICY = {
   signalSubjects: 2,
@@ -10,7 +10,12 @@ export const COMPANY_REPORT_CONFIDENCE_POLICY = {
 
 export type CompanyReportConfidence = "hypothesis" | "signal" | "confirmed";
 export type CompanyReportEvidenceRef = { kind: "activity"; id: string; subjectKey: string };
-export type CompanyReportProcessKey = { taskCategory?: TaskCategory; obstacle?: ActivityObstacle };
+export type CompanyReportProcessKey = {
+  taskCategory?: TaskCategory;
+  routinePattern?: RoutinePatternType;
+  automationCandidate?: AutomationCandidateType;
+  energyStressMarker?: EnergyStressMarkerType;
+};
 
 export type CompanyReportSnapshot = {
   invitedParticipants: number;
@@ -164,7 +169,9 @@ function buildBuckets(
 ): InternalEvidenceBucket[] {
   const processGroups = groupBy(activities, (activity) => JSON.stringify({
     ...(activity.taskCategory ? { taskCategory: activity.taskCategory } : {}),
-    ...(activity.obstacle ? { obstacle: activity.obstacle } : {}),
+    ...(activity.routinePattern ? { routinePattern: activity.routinePattern } : {}),
+    ...(activity.automationCandidate ? { automationCandidate: activity.automationCandidate } : {}),
+    ...(activity.energyStressMarker ? { energyStressMarker: activity.energyStressMarker } : {}),
   }));
   return [...processGroups.entries()].map(([key, observations]) => {
     const process = JSON.parse(key) as CompanyReportProcessKey;
@@ -248,41 +255,48 @@ function toClientRecommendation(bucket: InternalEvidenceBucket): ClientReportRec
 }
 
 function isAutomationOpportunity(process: CompanyReportProcessKey): boolean {
-  return process.obstacle?.kind === "automation_candidate"
-    || (process.obstacle?.kind === "routine_pattern" && ["manual_reporting", "coordination_overhead", "meeting_overload", "context_switching"].includes(process.obstacle.value));
+  return process.automationCandidate !== undefined
+    || (process.routinePattern !== undefined && ["manual_reporting", "coordination_overhead", "meeting_overload", "context_switching"].includes(process.routinePattern));
 }
 
 function processLabel(process: CompanyReportProcessKey): string {
   const task = process.taskCategory ? taskCategoryLabel(process.taskCategory) : "Рабочий процесс";
-  if (!process.obstacle) return task;
-  return `${task}: ${obstacleLabel(process.obstacle)}`;
+  if (process.routinePattern) return `${task}: ${facetLabel(process.routinePattern)}`;
+  if (process.automationCandidate) return `${task}: ${facetLabel(process.automationCandidate)}`;
+  if (process.energyStressMarker) return `${task}: ${facetLabel(process.energyStressMarker)}`;
+  return task;
 }
 
 function taskCategoryLabel(value: TaskCategory): string {
   return ({ planning: "Планирование", reporting: "Подготовка отчётности", meetings: "Встречи", coordination: "Координация", communication: "Коммуникация", admin: "Административная работа", focus_work: "Фокусная работа", unknown: "Рабочий процесс" } as const)[value];
 }
-function obstacleLabel(obstacle: ActivityObstacle): string {
+function facetLabel(value: RoutinePatternType | AutomationCandidateType | EnergyStressMarkerType): string {
   const labels: Record<string, string> = {
     manual_reporting: "ручная отчётность", coordination_overhead: "избыточная координация", meeting_overload: "перегруз встречами", context_switching: "переключение контекста", waiting_for_input: "ожидание входных данных", unclear_priority: "неясный приоритет", report_generation: "генерация отчётов", meeting_reduction: "сокращение встреч", async_status_update: "асинхронные статусы", task_routing: "маршрутизация задач", template_or_checklist: "шаблон или чек-лист", data_entry_reduction: "сокращение ручного ввода", overload: "перегруз", fatigue: "усталость", frustration: "фрустрация", focus_loss: "потеря фокуса", blocked_progress: "блокировка прогресса", neutral: "нейтральный сигнал", other: "прочее",
   };
-  return labels[obstacle.value] ?? "рабочее препятствие";
+  return labels[value] ?? "рабочее препятствие";
 }
 function systemLabel(value: ActivitySystem): string {
   return ({ bitrix24: "Bitrix24", one_c: "1С", spreadsheets: "Электронные таблицы", email: "Почта", messengers: "Мессенджеры", crm: "CRM", task_tracker: "Таск-трекер", telephony: "Телефония", tender_platform: "Тендерная площадка", logistics_system: "Логистическая система", learning_platform: "Платформа обучения", paper_or_verbal: "Бумага или устно", other: "Другая система" } as const)[value];
 }
 function automationOption(process: CompanyReportProcessKey): string {
-  if (process.obstacle?.kind === "automation_candidate") return `Проверить вариант «${obstacleLabel(process.obstacle)}» на ограниченном участке`;
+  if (process.automationCandidate) return `Проверить вариант «${facetLabel(process.automationCandidate)}» на ограниченном участке`;
   return "Стандартизировать шаги процесса и автоматизировать повторяемую часть с ручной очередью исключений";
 }
 function expectedEffect(process: CompanyReportProcessKey): string {
-  return process.obstacle?.value === "meeting_overload" ? "Сокращение синхронных согласований" : "Сокращение повторного ручного труда и числа ошибок";
+  return process.routinePattern === "meeting_overload" ? "Сокращение синхронных согласований" : "Сокращение повторного ручного труда и числа ошибок";
 }
 function evidenceSentence(bucket: InternalEvidenceBucket): string {
   return `${bucket.contributors} contributor(s), ${bucket.observations} observation(s), ${bucket.activeDates} active date(s)`;
 }
 function bucketId(scope: InternalEvidenceBucket["scope"], process: CompanyReportProcessKey): string {
   const scopeKey = scope.kind === "overall_group" ? "overall" : `role-${scope.roleId}`;
-  const processKey = [process.taskCategory ?? "uncategorized", process.obstacle?.kind ?? "no-obstacle", process.obstacle?.value ?? "none"].join("-");
+  const processKey = [
+    process.taskCategory ?? "uncategorized",
+    process.routinePattern ?? "no-routine",
+    process.automationCandidate ?? "no-automation",
+    process.energyStressMarker ?? "no-energy",
+  ].join("-");
   return `${scopeKey}-${processKey}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 function assertExactScope(companyId: string, groupId: string, snapshot: CompanyReportSnapshot): void {

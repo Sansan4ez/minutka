@@ -66,7 +66,7 @@ describe("SPEC-MINUTKA-ACTIVITY-OMITTED-VS-OTHER-001: absence is not a taxonomy 
       expect(instructions).toContain("other");
       expect(instructions).toMatch(/omit/i);
       expect(instructions).toMatch(/meeting or call|meeting, call|meetings, calls/i);
-      expect(instructions).toMatch(/no (system|obstacle)|has no (system|obstacle)/i);
+      expect(instructions).toMatch(/no (system|obstacle|routine pattern)|has no (system|obstacle|routine pattern)/i);
     }
     for (const instructions of [morningProcess, eveningProcess, collectActivitiesToolDescription]) {
       expect(instructions).toMatch(/energyStressMarker.*no other|energy\/stress(?: (?:marker|facet))?.*no `?other`?/i);

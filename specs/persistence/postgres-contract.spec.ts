@@ -295,7 +295,14 @@ describe("PostgreSQL storage contracts", () => {
     await service.collect({
       employeeId: "activity_owner", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one",
       companyId, groupId, roleId, timezone: "Europe/Moscow",
-      activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
+      activity: {
+        taskCategory: "reporting",
+        routinePattern: "manual_reporting",
+        automationCandidate: "report_generation",
+        energyStressMarker: "frustration",
+        durationBucket: "1_2h",
+        system: "spreadsheets",
+      },
     });
     await createPostgresConversationStore(pool).appendTurn({
       messageId: "message_activity_one", employeeId: "activity_owner", subjectKey: participant.subjectKey,
@@ -304,13 +311,15 @@ describe("PostgreSQL storage contracts", () => {
 
     const canonical = await pool.query(
       `SELECT activity_id, employee_id, subject_key::text, source_message_id, company_id, group_id, role_id,
-              task_category, obstacle_kind, obstacle_value, duration_bucket, system, activity_date::text, recorded_at
+              task_category, routine_pattern, automation_candidate, energy_stress_marker,
+              duration_bucket, system, activity_date::text, recorded_at
        FROM minutka_private.activities WHERE activity_id='activity_pg_one'`,
     );
     expect(canonical.rows).toEqual([expect.objectContaining({
       activity_id: "activity_pg_one", employee_id: "activity_owner", subject_key: participant.subjectKey,
       source_message_id: "message_activity_one", company_id: companyId, group_id: groupId, role_id: roleId,
-      task_category: "reporting", obstacle_kind: "routine_pattern", obstacle_value: "manual_reporting",
+      task_category: "reporting", routine_pattern: "manual_reporting",
+      automation_candidate: "report_generation", energy_stress_marker: "frustration",
       duration_bucket: "1_2h", system: "spreadsheets", activity_date: "2026-08-16",
     })]);
     expect((await pool.query<{ user_text: string }>(
@@ -319,10 +328,15 @@ describe("PostgreSQL storage contracts", () => {
        WHERE activity.activity_id = 'activity_pg_one' AND message.subject_key = activity.subject_key`,
     )).rows).toEqual([{ user_text: "private activity text" }]);
     const corpusActivities = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
-    expect(corpusActivities).toEqual([expect.objectContaining({ activityId: "activity_pg_one", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one", activityDate: "2026-08-16" })]);
+    expect(corpusActivities).toEqual([expect.objectContaining({
+      activityId: "activity_pg_one", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one",
+      routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "frustration",
+      activityDate: "2026-08-16",
+    })]);
     const ownActivities = createPostgresOwnActivityReadStore(pool);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([{
-      employeeId: "activity_owner", taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+      employeeId: "activity_owner", taskCategory: "reporting", routinePattern: "manual_reporting",
+      automationCandidate: "report_generation", energyStressMarker: "frustration",
       durationBucket: "1_2h", system: "spreadsheets", activityDate: "2026-08-16",
     }]);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-09", toDate: "2026-08-15" })).toEqual([]);
@@ -331,6 +345,20 @@ describe("PostgreSQL storage contracts", () => {
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);
     expect((await pool.query("SELECT to_regclass('minutka_reporting.anonymized_activities') AS table_name")).rows[0]?.table_name).toBeNull();
+  });
+
+  it("exposes split facet columns and removes the legacy obstacle pair", async () => {
+    const columns = await pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema='minutka_private' AND table_name='activities'
+       ORDER BY ordinal_position`,
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(expect.arrayContaining([
+      "routine_pattern", "automation_candidate", "energy_stress_marker",
+    ]));
+    expect(columns.rows.map((row) => row.column_name)).not.toEqual(expect.arrayContaining([
+      "obstacle_kind", "obstacle_value",
+    ]));
   });
 
   it("keeps a collected activity when the turn never reaches its conversation append", async () => {
@@ -458,7 +486,7 @@ describe("PostgreSQL storage contracts", () => {
       expect(report.internal.coverage).toMatchObject({ invitedParticipants: 5, contributors: 1, observations: 5, activeDates: 1 });
       expect(report.internal.buckets).toContainEqual(expect.objectContaining({
         scope: { kind: "overall_group" },
-        process: { taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" } },
+        process: { taskCategory: "reporting", routinePattern: "manual_reporting" },
         systems: ["spreadsheets"],
         durationBuckets: ["1_2h"],
         contributors: 1,

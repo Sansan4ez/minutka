@@ -13,7 +13,8 @@ npm run db:status
 
 ## Экспорт группы
 
-JSON сохраняет единый versioned документ:
+JSON сохраняет единый versioned документ. Текущая схема `research-corpus-export/v2` выводит независимые nullable activity facets `routinePattern`, `automationCandidate` и `energyStressMarker`. Legacy rows, мигрированные из старой пары `obstacle_kind`/`obstacle_value`, заполняют только один исторически известный facet; остальные остаются omitted и не восстанавливаются inference:
+
 
 ```bash
 npm run research:corpus -- export \

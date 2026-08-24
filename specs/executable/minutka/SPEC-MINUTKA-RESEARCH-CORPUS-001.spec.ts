@@ -48,7 +48,12 @@ function source() {
       ] : [];
     },
     async listActivities({ companyId, groupId }: { companyId: string; groupId: string }) {
-      return companyId === "company-a" && groupId === "group-a" ? [{ activityId: "activity-a", subjectKey: "subject-a", companyId, groupId, roleId: "role-a", taskCategory: "reporting" as const, activityDate: "2026-08-18", recordedAt: now }] : [];
+      return companyId === "company-a" && groupId === "group-a" ? [{
+        activityId: "activity-a", subjectKey: "subject-a", companyId, groupId, roleId: "role-a",
+        taskCategory: "reporting" as const, routinePattern: "context_switching" as const,
+        automationCandidate: "data_entry_reduction" as const, energyStressMarker: "frustration" as const,
+        activityDate: "2026-08-18", recordedAt: now,
+      }] : [];
     },
     async listFeedback({ companyId, groupId }: { companyId: string; groupId: string }) {
       return companyId === "company-a" && groupId === "group-a" ? [{ feedbackId: "feedback-a", targetMessageId: "message-a", rating: "positive" as const, createdAt: now, updatedAt: now }] : [];
@@ -80,6 +85,11 @@ describe("SPEC-MINUTKA-RESEARCH-CORPUS-001: scoped evidence export and evaluatio
     expect(JSON.stringify(json.corpus)).toContain("invite_code=[REDACTED]");
     expect(JSON.stringify(json.corpus)).not.toContain("company-b");
     expect(JSON.parse(json.content).versions).toEqual({ prompts: ["prompt/v2"], processes: ["process/v3"], taxonomies: ["taxonomy/v4"], models: ["openai/test"] });
+    expect(json.corpus.schemaVersion).toBe("research-corpus-export/v2");
+    expect(json.corpus.activities).toEqual([expect.objectContaining({
+      activityId: "activity-a", routinePattern: "context_switching",
+      automationCandidate: "data_entry_reduction", energyStressMarker: "frustration",
+    })]);
     expect((await service.export({ companyId: "company-a", groupId: "group-a", format: "jsonl" })).content).toContain('"recordType":"evaluation_case"');
     expect((await service.export({ companyId: "company-a", groupId: "group-a", format: "markdown" })).content).toContain("Messages missing trace: 1");
 

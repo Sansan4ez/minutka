@@ -29,7 +29,7 @@ npm run pilot:status -- \
 ## Состав data-блока
 
 - participant: employee id, company/group labels, role label, onboarding/engagement/last touch и counts messages/activities/traces/schedules/fires;
-- activity: `task_category`, `system`, `duration_bucket`, `obstacle_kind`, `obstacle_value`, `activity_date`;
+- activity: `task_category`, `system`, `duration_bucket`, `routine_pattern`, `automation_candidate`, `energy_stress_marker`, `activity_date`;
 - messages: count по employee/date;
 - health: `/healthz`, pending migrations, fires, trace coverage, feedback count и переданные сервером unit/smoke/backup/commit значения.
 
@@ -41,7 +41,7 @@ Data-блок находится в `<script type="application/json" id="pilot-s
 
 - день 5 и позже: coverage завершённого onboarding `< 60%`;
 - день 7 и позже: `system=other > 40%`;
-- день 7 и позже: `obstacle_value=other > 40%`;
+- день 7 и позже: доля activity с `routine_pattern=other` или `automation_candidate=other > 40%` (legacy имя метрики/флага `obstacleOtherPercent` сохранено до задачи детализации pilot status);
 - в любой день: появился participant с engagement `dropped_off`.
 
 ## Production timer

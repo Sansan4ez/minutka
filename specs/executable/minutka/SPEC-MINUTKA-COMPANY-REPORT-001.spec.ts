@@ -26,7 +26,9 @@ function participant(employeeId: string, companyId: string, groupId: string, rol
 function activity(input: {
   id: string; subjectKey: string; companyId?: string; groupId?: string; roleId?: string; date?: string;
   taskCategory?: PersonalActivityRecord["taskCategory"];
-  obstacle?: PersonalActivityRecord["obstacle"];
+  routinePattern?: PersonalActivityRecord["routinePattern"];
+  automationCandidate?: PersonalActivityRecord["automationCandidate"];
+  energyStressMarker?: PersonalActivityRecord["energyStressMarker"];
   system?: PersonalActivityRecord["system"];
 }): PersonalActivityRecord {
   return {
@@ -37,7 +39,9 @@ function activity(input: {
     groupId: input.groupId ?? "group_a",
     roleId: input.roleId ?? "role_sales",
     ...(input.taskCategory ? { taskCategory: input.taskCategory } : {}),
-    ...(input.obstacle ? { obstacle: input.obstacle } : {}),
+    ...(input.routinePattern ? { routinePattern: input.routinePattern } : {}),
+    ...(input.automationCandidate ? { automationCandidate: input.automationCandidate } : {}),
+    ...(input.energyStressMarker ? { energyStressMarker: input.energyStressMarker } : {}),
     ...(input.system ? { system: input.system } : {}),
     durationBucket: "30_60m",
     activityDate: input.date ?? "2026-08-15",
@@ -52,7 +56,7 @@ function service(participants: Participant[], personalActivities: PersonalActivi
 }
 
 function automationActivity(id: string, subjectKey: string, date: string, roleId = "role_sales") {
-  return activity({ id, subjectKey, date, roleId, taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" }, system: "spreadsheets" });
+  return activity({ id, subjectKey, date, roleId, taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" });
 }
 
 describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", () => {
@@ -95,7 +99,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       participant("sales", "company_a", "group_a", "role_sales"),
     ];
     const rows = [
-      activity({ id: "t1", subjectKey: "subject_tender", roleId: "role_tender_specialist", taskCategory: "admin", obstacle: { kind: "automation_candidate", value: "data_entry_reduction" }, system: "email" }),
+      activity({ id: "t1", subjectKey: "subject_tender", roleId: "role_tender_specialist", taskCategory: "admin", automationCandidate: "data_entry_reduction", system: "email" }),
       activity({ id: "s1", subjectKey: "subject_sales", roleId: "role_sales", taskCategory: "meetings" }),
     ];
 
@@ -139,7 +143,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities: state }));
 
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("ручная отчётность");
-    state.activities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", obstacle: { kind: "automation_candidate", value: "report_generation" }, system: "spreadsheets" });
+    state.activities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", automationCandidate: "report_generation", system: "spreadsheets" });
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("генерация отчётов");
     state.activities.length = 0;
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, recommendations: [] });

@@ -72,7 +72,9 @@ function record(input: {
   employeeId: string;
   activityDate: string;
   taskCategory?: "reporting" | "meetings" | "coordination";
-  obstacle?: { kind: "routine_pattern"; value: "manual_reporting" } | { kind: "energy_stress_marker"; value: "fatigue" };
+  routinePattern?: "manual_reporting";
+  automationCandidate?: "report_generation";
+  energyStressMarker?: "fatigue";
   durationBucket?: "1_2h";
 }) {
   return {
@@ -83,7 +85,9 @@ function record(input: {
     groupId: "group_a",
     roleId: "role_a",
     ...(input.taskCategory === undefined ? {} : { taskCategory: input.taskCategory }),
-    ...(input.obstacle === undefined ? {} : { obstacle: input.obstacle }),
+    ...(input.routinePattern === undefined ? {} : { routinePattern: input.routinePattern }),
+    ...(input.automationCandidate === undefined ? {} : { automationCandidate: input.automationCandidate }),
+    ...(input.energyStressMarker === undefined ? {} : { energyStressMarker: input.energyStressMarker }),
     ...(input.durationBucket === undefined ? {} : { durationBucket: input.durationBucket }),
     activityDate: input.activityDate,
     recordedAt: friday,
@@ -95,9 +99,9 @@ describe("SPEC-MINUTKA-WEEKLY-SUMMARY-001: personal weekly checkpoint", () => {
     const { state, weekly } = harness(async () => "unused");
     state.activities.push(
       record({ employeeId: "employee_a", activityDate: "2026-08-14" }),
-      record({ employeeId: "employee_a", activityDate: "2026-08-17", taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" } }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-17", taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue" }),
       record({ employeeId: "employee_a", activityDate: "2026-08-18", taskCategory: "reporting", durationBucket: "1_2h" }),
-      record({ employeeId: "employee_a", activityDate: "2026-08-20", taskCategory: "meetings", obstacle: { kind: "energy_stress_marker", value: "fatigue" } }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-20", taskCategory: "meetings", energyStressMarker: "fatigue" }),
       record({ employeeId: "employee_b", activityDate: "2026-08-20", taskCategory: "coordination" }),
     );
 
@@ -109,8 +113,8 @@ describe("SPEC-MINUTKA-WEEKLY-SUMMARY-001: personal weekly checkpoint", () => {
       sufficientData: true,
       taskCategories: [{ value: "reporting", count: 2 }, { value: "meetings", count: 1 }],
       routinePatterns: [{ value: "manual_reporting", count: 1 }],
-      automationCandidates: [],
-      energyStressMarkers: [{ value: "fatigue", count: 1 }],
+      automationCandidates: [{ value: "report_generation", count: 1 }],
+      energyStressMarkers: [{ value: "fatigue", count: 2 }],
       durationBuckets: [{ value: "1_2h", count: 1 }],
       systems: [],
     });

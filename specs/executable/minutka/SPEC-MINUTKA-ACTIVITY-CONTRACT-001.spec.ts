@@ -80,7 +80,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ interferesWith: "работой" }] }).success).toBe(false);
   });
 
-  it("models one activity with a category and one optional obstacle", () => {
+  it("models one activity with a category and independent optional facets", () => {
     const parsed = activityCollectionItemSchema.parse({
       taskCategory: "reporting",
       routinePattern: "manual_reporting",
@@ -97,11 +97,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivitiesInputSchema.parse({ activities: [parsed] })).toEqual({ activities: [parsed] });
   });
 
-  it("carries no constraint the provider schema cannot show the model", () => {
-    // A cross-field rule survives zod but vanishes from the JSON Schema the
-    // model reads, so every call it rejects is a lost daily touch. The «at most
-    // one obstacle» rule therefore lives in the tool description, and one
-    // obstacle per stored activity is enforced by CollectActivityService.
+  it("carries no hidden cross-field constraint and accepts all explicit facets", () => {
     expect((collectActivitiesInputSchema as unknown as { _zod: { def: { checks?: unknown[] } } })._zod.def.checks ?? [])
       .toEqual([]);
     expect((activityCollectionItemSchema as unknown as { _zod: { def: { checks?: unknown[] } } })._zod.def.checks ?? [])

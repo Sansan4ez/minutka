@@ -19,7 +19,7 @@ Input is `{ activities: [...] }`. Send one item per fact. A call accepts at most
 - `durationBucket`
 - `system`
 
-`taskCategory` may be combined with one obstacle field (`routinePattern`, `automationCandidate`, or `energyStressMarker`) in the same item. Each activity has at most one obstacle; the obstacle never requires a separate item. The batch is not rejected when several obstacle fields arrive — only the first of that order is recorded — because a rejected call loses the whole batch. One array item always represents one activity; no item has a free-text field.
+In one item, combine `taskCategory` with every explicit facet: `routinePattern`, `automationCandidate`, and `energyStressMarker` may coexist. Omit unknowns; never infer emotion or split facets into rows. One item is one factual activity, no free text.
 
 ## Output
 

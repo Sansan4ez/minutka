@@ -17,8 +17,9 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
           const inserted = await client.query(
             `INSERT INTO minutka_private.activities
               (activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
-               task_category, obstacle_kind, obstacle_value, duration_bucket, system, activity_date, recorded_at)
-             SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+               task_category, routine_pattern, automation_candidate, energy_stress_marker,
+               duration_bucket, system, activity_date, recorded_at)
+             SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
              WHERE NOT EXISTS (
                SELECT 1 FROM minutka_private.messages message
                WHERE message.message_id = $4
@@ -34,8 +35,9 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
               activity.groupId,
               activity.roleId,
               activity.taskCategory ?? null,
-              activity.obstacle?.kind ?? null,
-              activity.obstacle?.value ?? null,
+              activity.routinePattern ?? null,
+              activity.automationCandidate ?? null,
+              activity.energyStressMarker ?? null,
               activity.durationBucket ?? null,
               activity.system ?? null,
               activity.activityDate,
@@ -53,8 +55,8 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
       try {
         const result = await pool.query<ActivityRow>(
           `SELECT activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
-                  task_category, obstacle_kind, obstacle_value, duration_bucket, system,
-                  activity_date::text AS activity_date, recorded_at
+                  task_category, routine_pattern, automation_candidate, energy_stress_marker,
+                  duration_bucket, system, activity_date::text AS activity_date, recorded_at
            FROM minutka_private.activities
            WHERE activity_id = $1`,
           [activityId],
@@ -77,8 +79,9 @@ type ActivityRow = {
   group_id: string;
   role_id: string;
   task_category: OwnActivityFacet["taskCategory"] | null;
-  obstacle_kind: NonNullable<OwnActivityFacet["obstacle"]>["kind"] | null;
-  obstacle_value: string | null;
+  routine_pattern: OwnActivityFacet["routinePattern"] | null;
+  automation_candidate: OwnActivityFacet["automationCandidate"] | null;
+  energy_stress_marker: OwnActivityFacet["energyStressMarker"] | null;
   duration_bucket: OwnActivityFacet["durationBucket"] | null;
   system: OwnActivityFacet["system"] | null;
   activity_date: string;
@@ -95,9 +98,9 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     groupId: row.group_id,
     roleId: row.role_id,
     ...(row.task_category ? { taskCategory: row.task_category } : {}),
-    ...(row.obstacle_kind && row.obstacle_value
-      ? { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as NonNullable<OwnActivityFacet["obstacle"]> }
-      : {}),
+    ...(row.routine_pattern ? { routinePattern: row.routine_pattern } : {}),
+    ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
+    ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
     ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
     ...(row.system ? { system: row.system } : {}),
     activityDate: row.activity_date,
@@ -108,8 +111,9 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
 type OwnActivityRow = {
   employee_id: string;
   task_category: OwnActivityFacet["taskCategory"] | null;
-  obstacle_kind: NonNullable<OwnActivityFacet["obstacle"]>["kind"] | null;
-  obstacle_value: string | null;
+  routine_pattern: OwnActivityFacet["routinePattern"] | null;
+  automation_candidate: OwnActivityFacet["automationCandidate"] | null;
+  energy_stress_marker: OwnActivityFacet["energyStressMarker"] | null;
   duration_bucket: OwnActivityFacet["durationBucket"] | null;
   system: OwnActivityFacet["system"] | null;
   activity_date: string;
@@ -121,8 +125,8 @@ export function createPostgresOwnActivityReadStore(pool: Pool): OwnActivityReadS
     async listOwnActivities({ employeeId, fromDate, toDate }) {
       try {
         const result = await pool.query<OwnActivityRow>(
-          `SELECT employee_id, task_category, obstacle_kind, obstacle_value, duration_bucket, system,
-                  activity_date::text AS activity_date
+          `SELECT employee_id, task_category, routine_pattern, automation_candidate, energy_stress_marker,
+                  duration_bucket, system, activity_date::text AS activity_date
            FROM minutka_private.activities
            WHERE employee_id = $1 AND activity_date BETWEEN $2::date AND $3::date
            ORDER BY activity_date, recorded_at, activity_id`,
@@ -131,9 +135,9 @@ export function createPostgresOwnActivityReadStore(pool: Pool): OwnActivityReadS
         return result.rows.map((row): OwnActivityFacet => ({
           employeeId: row.employee_id,
           ...(row.task_category ? { taskCategory: row.task_category } : {}),
-          ...(row.obstacle_kind && row.obstacle_value
-            ? { obstacle: { kind: row.obstacle_kind, value: row.obstacle_value } as OwnActivityFacet["obstacle"] }
-            : {}),
+          ...(row.routine_pattern ? { routinePattern: row.routine_pattern } : {}),
+          ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
+          ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
           ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
           ...(row.system ? { system: row.system } : {}),
           activityDate: row.activity_date,

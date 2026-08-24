@@ -6,7 +6,7 @@ import { sanitizeResearchText, sanitizeResearchTrace, type ResearchTraceRecord, 
 import { randomIdGenerator, systemClock, type Clock } from "./runtime-primitives.js";
 import type { FeedbackRating } from "../domain/feedback.js";
 
-export const researchCorpusExportSchemaVersion = "research-corpus-export/v1" as const;
+export const researchCorpusExportSchemaVersion = "research-corpus-export/v2" as const;
 
 export type ResearchCorpusScope = { companyId: string; groupId: string };
 

@@ -27,8 +27,9 @@ export type PilotStatusActivity = {
   task_category?: TaskCategory;
   system?: ActivitySystem;
   duration_bucket?: ActivityDurationBucket;
-  obstacle_kind?: "routine_pattern" | "automation_candidate" | "energy_stress_marker";
-  obstacle_value?: string;
+  routine_pattern?: string;
+  automation_candidate?: string;
+  energy_stress_marker?: string;
   activity_date: string;
 };
 
@@ -142,7 +143,8 @@ export class PilotStatusService {
     }));
     const coveragePercent = percent(participants.filter((participant) => participant.status === "profile_completed").length, participants.length);
     const systemOtherPercent = percent(snapshot.activities.filter((activity) => activity.system === "other").length, snapshot.activities.length);
-    const obstacleOtherPercent = percent(snapshot.activities.filter((activity) => activity.obstacle_value === "other").length, snapshot.activities.length);
+    const obstacleOtherPercent = percent(snapshot.activities.filter((activity) =>
+      activity.routine_pattern === "other" || activity.automation_candidate === "other").length, snapshot.activities.length);
     const metrics = { coveragePercent, systemOtherPercent, obstacleOtherPercent };
     const totalMessages = participants.reduce((sum, participant) => sum + participant.messages, 0);
     const totalTraces = participants.reduce((sum, participant) => sum + participant.traces, 0);

@@ -4,7 +4,6 @@ import {
   activityCollectionItemSchema,
   collectActivitiesInputSchema,
   type CollectActivitiesInput,
-  type CollectActivityInput,
 } from "../contracts/minutka-activity.js";
 import type {
   ActivityDurationBucket,
@@ -18,11 +17,6 @@ import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
-export type ActivityObstacle =
-  | { kind: "routine_pattern"; value: RoutinePatternType }
-  | { kind: "automation_candidate"; value: AutomationCandidateType }
-  | { kind: "energy_stress_marker"; value: EnergyStressMarkerType };
-
 export type PersonalActivityRecord = {
   activityId: string;
   employeeId: string;
@@ -32,7 +26,9 @@ export type PersonalActivityRecord = {
   groupId: string;
   roleId: string;
   taskCategory?: TaskCategory;
-  obstacle?: ActivityObstacle;
+  routinePattern?: RoutinePatternType;
+  automationCandidate?: AutomationCandidateType;
+  energyStressMarker?: EnergyStressMarkerType;
   durationBucket?: ActivityDurationBucket;
   system?: ActivitySystem;
   activityDate: string;
@@ -78,7 +74,6 @@ export class CollectActivityService {
 
   async collect(command: CollectActivityCommand): Promise<{ activityId: string }> {
     const input = collectActivityCommandSchema.parse(command);
-    const obstacle = activityObstacle(input.activity);
     const recordedAt = this.clock.now();
     const activityId = this.activityId();
 
@@ -91,7 +86,9 @@ export class CollectActivityService {
       groupId: input.groupId,
       roleId: input.roleId,
       ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
-      ...(obstacle === undefined ? {} : { obstacle }),
+      ...(input.activity.routinePattern === undefined ? {} : { routinePattern: input.activity.routinePattern }),
+      ...(input.activity.automationCandidate === undefined ? {} : { automationCandidate: input.activity.automationCandidate }),
+      ...(input.activity.energyStressMarker === undefined ? {} : { energyStressMarker: input.activity.energyStressMarker }),
       activityDate: calendarDateInIanaTimezone(recordedAt, input.timezone),
       recordedAt,
     };
@@ -141,22 +138,4 @@ export class CollectActivityService {
 /** Unknown commit recovery succeeds only when read-back proves the exact intended record. */
 function samePersonalActivity(left: PersonalActivityRecord, right: PersonalActivityRecord): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-/**
- * Keeps one obstacle per stored activity. The tool asks the model for at most
- * one of the three fields; when it sends more, this fixed order decides which
- * classification is recorded, so a sloppy call still stores the activity.
- */
-function activityObstacle(activity: CollectActivityInput): ActivityObstacle | undefined {
-  if (activity.routinePattern !== undefined) {
-    return { kind: "routine_pattern", value: activity.routinePattern };
-  }
-  if (activity.automationCandidate !== undefined) {
-    return { kind: "automation_candidate", value: activity.automationCandidate };
-  }
-  if (activity.energyStressMarker !== undefined) {
-    return { kind: "energy_stress_marker", value: activity.energyStressMarker };
-  }
-  return undefined;
 }

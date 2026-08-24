@@ -10,6 +10,7 @@ import { PersistenceOutcomeUnknownError } from "../../../src/application/persist
 
 const cleanupMigrationPath = "migrations/0060_remove_anonymized_activity_contour.sql";
 const evidenceLinkMigrationPath = "migrations/0061_link_activity_source_message_without_insert_order.sql";
+const splitFacetsMigrationPath = "migrations/0073_split_activity_facets.sql";
 
 describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity record", () => {
   it("writes exactly one canonical activity with subject and source-message links", async () => {
@@ -45,7 +46,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       groupId: "group_a",
       roleId: "role_a",
       taskCategory: "reporting",
-      obstacle: { kind: "routine_pattern", value: "manual_reporting" },
+      routinePattern: "manual_reporting",
       durationBucket: "1_2h",
       system: "spreadsheets",
       activityDate: "2026-08-16",
@@ -53,11 +54,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     }]);
   });
 
-  // The contract schema cannot forbid a second obstacle without losing the whole
-  // call, so a model that answers through several lenses at once still reaches
-  // the store. The seam that broke the pilot run is here: exactly one obstacle
-  // is stored, chosen by the fixed routine -> automation -> energy order.
-  it("keeps one obstacle in the fixed order when a call carries several lenses", async () => {
+  it("keeps all explicit independent facets in one canonical activity", async () => {
     const state = createInMemoryActivityCollectionState();
     let index = 0;
     const service = new CollectActivityService(
@@ -83,11 +80,11 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       await service.collect({ ...scope, activity });
     }
 
-    expect(state.activities.map((activity) => activity.obstacle)).toEqual([
-      { kind: "routine_pattern", value: "manual_reporting" },
-      { kind: "automation_candidate", value: "report_generation" },
-      { kind: "energy_stress_marker", value: "fatigue" },
-      undefined,
+    expect(state.activities).toMatchObject([
+      { routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue" },
+      { automationCandidate: "report_generation", energyStressMarker: "fatigue" },
+      { energyStressMarker: "fatigue" },
+      { taskCategory: "reporting" },
     ]);
   });
 
@@ -259,6 +256,15 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     expect(state.activities).toEqual([]);
   });
 
+  it("migrates only the known legacy facet and does not invent missing history", () => {
+    const migration = readFileSync(splitFacetsMigrationPath, "utf8");
+    expect(migration).toContain("routine_pattern = CASE WHEN obstacle_kind = 'routine_pattern' THEN obstacle_value END");
+    expect(migration).toContain("automation_candidate = CASE WHEN obstacle_kind = 'automation_candidate' THEN obstacle_value END");
+    expect(migration).toContain("energy_stress_marker = CASE WHEN obstacle_kind = 'energy_stress_marker' THEN obstacle_value END");
+    expect(migration).toContain("DROP COLUMN obstacle_kind");
+    expect(migration).toContain("DROP COLUMN obstacle_value");
+  });
+
   it("drops only the superseded reporting table and preserves canonical stores", () => {
     const migration = readFileSync(cleanupMigrationPath, "utf8");
     expect(migration).toContain("DROP TABLE minutka_reporting.anonymized_activities");
@@ -280,7 +286,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
             groupId: "group_a",
             roleId: "role_a",
             taskCategory: "reporting" as const,
-            obstacle: { kind: "routine_pattern" as const, value: "manual_reporting" as const },
+            routinePattern: "manual_reporting" as const,
             activityDate: "2026-08-16",
             recordedAt: "2026-08-15T22:17:35.000Z",
           }],

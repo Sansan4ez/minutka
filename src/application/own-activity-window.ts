@@ -7,7 +7,7 @@ import type { PersonalActivityRecord } from "./activity-collection.js";
  */
 export type OwnActivityFacet = Pick<
   PersonalActivityRecord,
-  "employeeId" | "taskCategory" | "obstacle" | "durationBucket" | "system" | "activityDate"
+  "employeeId" | "taskCategory" | "routinePattern" | "automationCandidate" | "energyStressMarker" | "durationBucket" | "system" | "activityDate"
 >;
 
 export type OwnActivityWindow = { employeeId: string; fromDate: string; toDate: string };

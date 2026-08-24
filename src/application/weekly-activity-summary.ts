@@ -68,12 +68,9 @@ export class WeeklyActivitySummaryService {
       sufficientData: activities.length >= weeklySummarySufficiency.activities
         && activeDates >= weeklySummarySufficiency.activeDates,
       taskCategories: tally(activities.map((activity) => activity.taskCategory)),
-      routinePatterns: tally(activities.flatMap((activity) =>
-        activity.obstacle?.kind === "routine_pattern" ? [activity.obstacle.value] : [])),
-      automationCandidates: tally(activities.flatMap((activity) =>
-        activity.obstacle?.kind === "automation_candidate" ? [activity.obstacle.value] : [])),
-      energyStressMarkers: tally(activities.flatMap((activity) =>
-        activity.obstacle?.kind === "energy_stress_marker" ? [activity.obstacle.value] : [])),
+      routinePatterns: tally(activities.map((activity) => activity.routinePattern)),
+      automationCandidates: tally(activities.map((activity) => activity.automationCandidate)),
+      energyStressMarkers: tally(activities.map((activity) => activity.energyStressMarker)),
       durationBuckets: tally(activities.map((activity) => activity.durationBucket)),
       systems: tally(activities.map((activity) => activity.system)),
     };

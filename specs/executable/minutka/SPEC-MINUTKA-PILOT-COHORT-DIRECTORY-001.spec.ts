@@ -21,8 +21,8 @@ const bindings = (JSON.parse(readFileSync(`${examples}/pilot-participant-binding
 
 /**
  * One representative account per role of the first cohort, written the way the
- * agent must call `collectActivities`: closed values only, one obstacle, and a
- * system the operator's generic mapping already covers.
+ * agent must call `collectActivities`: closed values only, explicit facets, and
+ * a system the operator's generic mapping already covers.
  */
 const dryRuns: Record<string, unknown> = {
   role_green_line_tender_specialist: { taskCategory: "admin", routinePattern: "manual_reporting", durationBucket: "2_4h", system: "tender_platform" },
@@ -96,7 +96,7 @@ describe("SPEC-MINUTKA-PILOT-COHORT-DIRECTORY-001: narrow roles and a covered sy
         .filter((field) => field in parsed);
 
       expect(parsed, `${roleId} loses no closed value on the way through the contract`).toEqual(sample);
-      expect(obstacles, `${roleId} sends exactly one obstacle`).toHaveLength(1);
+      expect(obstacles, `${roleId} sends at least one explicit facet`).not.toHaveLength(0);
       expect(parsed.taskCategory, `${roleId} names its process`).toBeDefined();
       expect(parsed.taskCategory).not.toBe("unknown");
       expect(parsed.system, `${roleId} works in a system the mapping already covers`).toBeDefined();

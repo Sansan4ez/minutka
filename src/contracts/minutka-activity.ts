@@ -16,12 +16,9 @@ export const collectActivitiesMaximumItems = 50;
  * Every field is optional so an incomplete activity stays incomplete rather
  * than receiving a guessed default.
  *
- * The three obstacle fields are alternative lenses on the same «what got in the
- * way» answer, and both the tool description and the process ask for at most
- * one of them. That rule is deliberately not a schema check: JSON Schema cannot
- * carry a cross-field constraint, so the provider never shows it to the model.
- * One obstacle per stored activity is guaranteed downstream by
- * `activityObstacle`.
+ * Routine pattern, automation candidate, and energy/stress marker are
+ * independent closed facets. A single factual activity may carry any explicit
+ * combination of them; omitted facets remain unknown and are never inferred.
  */
 export const activityCollectionItemSchema = z.strictObject({
   taskCategory: z.enum(taskCategories).optional(),

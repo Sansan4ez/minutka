@@ -26,8 +26,8 @@ function snapshot(): PilotStatusSnapshot {
       },
     ],
     activities: [
-      { employee_id: "emp_safe_1", task_category: "reporting", system: "other", duration_bucket: "30_60m", obstacle_kind: "routine_pattern", obstacle_value: "other", activity_date: "2026-08-20" },
-      { employee_id: "emp_safe_1", task_category: "coordination", system: "email", duration_bucket: "15_30m", obstacle_kind: "routine_pattern", obstacle_value: "other", activity_date: "2026-08-21" },
+      { employee_id: "emp_safe_1", task_category: "reporting", system: "other", duration_bucket: "30_60m", routine_pattern: "other", automation_candidate: "report_generation", energy_stress_marker: "frustration", activity_date: "2026-08-20" },
+      { employee_id: "emp_safe_1", task_category: "coordination", system: "email", duration_bucket: "15_30m", routine_pattern: "other", activity_date: "2026-08-21" },
     ],
     messagesByDate: [{ employee_id: "emp_safe_1", message_date: "2026-08-20", count: 2 }],
     feedbackCount: 1,
@@ -53,7 +53,7 @@ describe("SPEC-MINUTKA-PILOT-STATUS-001: metadata-only automated pilot report", 
     for (const forbidden of ["секретная задача", "секретная цель", "Имя", "telegram-user-secret", "telegram-chat-secret", "subject-secret", "полный текст сотрудника", "полный ответ", "typicalTasks", "aiLevel", "programGoal", "telegramUserId", "chatId", "subjectKey", "userText", "agentResponse"]) {
       expect(serialized).not.toContain(forbidden);
     }
-    expect(Object.keys(result.activities[0]!)).toEqual(["employee_id", "task_category", "system", "duration_bucket", "obstacle_kind", "obstacle_value", "activity_date"]);
+    expect(Object.keys(result.activities[0]!)).toEqual(["employee_id", "task_category", "system", "duration_bucket", "routine_pattern", "automation_candidate", "energy_stress_marker", "activity_date"]);
   });
 
   it("fails when per-participant counts drift from independent control totals", async () => {

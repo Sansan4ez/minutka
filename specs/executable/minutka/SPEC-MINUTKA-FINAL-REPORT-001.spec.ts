@@ -78,21 +78,22 @@ function record(input: {
   employeeId: string;
   activityDate: string;
   taskCategory?: "reporting" | "meetings" | "coordination";
-  obstacle?:
-    | { kind: "routine_pattern"; value: "manual_reporting" }
-    | { kind: "automation_candidate"; value: "report_generation" }
-    | { kind: "energy_stress_marker"; value: "fatigue" };
+  routinePattern?: "manual_reporting";
+  automationCandidate?: "report_generation";
+  energyStressMarker?: "fatigue";
   system?: "spreadsheets";
 }) {
   return {
-    activityId: `activity_${input.employeeId}_${input.activityDate}_${input.taskCategory ?? "none"}_${input.obstacle?.value ?? "none"}`,
+    activityId: `activity_${input.employeeId}_${input.activityDate}_${input.taskCategory ?? "none"}_${input.routinePattern ?? input.automationCandidate ?? input.energyStressMarker ?? "none"}`,
     employeeId: input.employeeId,
     subjectKey: `subject_${input.employeeId}`,
     companyId: "company_a",
     groupId: "group_a",
     roleId: "role_a",
     ...(input.taskCategory === undefined ? {} : { taskCategory: input.taskCategory }),
-    ...(input.obstacle === undefined ? {} : { obstacle: input.obstacle }),
+    ...(input.routinePattern === undefined ? {} : { routinePattern: input.routinePattern }),
+    ...(input.automationCandidate === undefined ? {} : { automationCandidate: input.automationCandidate }),
+    ...(input.energyStressMarker === undefined ? {} : { energyStressMarker: input.energyStressMarker }),
     ...(input.system === undefined ? {} : { system: input.system }),
     activityDate: input.activityDate,
     recordedAt: lastCycleDay,
@@ -102,10 +103,10 @@ function record(input: {
 /** A cycle with a repeated reporting routine, one meeting, and one energy marker. */
 function twoWeekCycle(employeeId = "employee_a") {
   return [
-    record({ employeeId, activityDate: "2026-08-15", taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" }, system: "spreadsheets" }),
-    record({ employeeId, activityDate: "2026-08-18", taskCategory: "reporting", obstacle: { kind: "automation_candidate", value: "report_generation" }, system: "spreadsheets" }),
-    record({ employeeId, activityDate: "2026-08-21", taskCategory: "reporting", obstacle: { kind: "routine_pattern", value: "manual_reporting" } }),
-    record({ employeeId, activityDate: "2026-08-25", taskCategory: "meetings", obstacle: { kind: "energy_stress_marker", value: "fatigue" } }),
+    record({ employeeId, activityDate: "2026-08-15", taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue", system: "spreadsheets" }),
+    record({ employeeId, activityDate: "2026-08-18", taskCategory: "reporting", automationCandidate: "report_generation", system: "spreadsheets" }),
+    record({ employeeId, activityDate: "2026-08-21", taskCategory: "reporting", routinePattern: "manual_reporting" }),
+    record({ employeeId, activityDate: "2026-08-25", taskCategory: "meetings", energyStressMarker: "fatigue" }),
     record({ employeeId, activityDate: "2026-08-27", taskCategory: "reporting" }),
     record({ employeeId, activityDate: "2026-08-28", taskCategory: "reporting" }),
   ];
@@ -131,8 +132,8 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
       patternMinimumCount: 2,
       taskCategories: [{ value: "reporting", count: 5 }, { value: "meetings", count: 1 }],
       routinePatterns: [{ value: "manual_reporting", count: 2 }],
-      automationCandidates: [{ value: "report_generation", count: 1 }],
-      energyStressMarkers: [{ value: "fatigue", count: 1 }],
+      automationCandidates: [{ value: "report_generation", count: 2 }],
+      energyStressMarkers: [{ value: "fatigue", count: 2 }],
       systems: [{ value: "spreadsheets", count: 2 }],
     });
     // The employee's own coordination day sits before the window; another
@@ -176,9 +177,8 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
       confirmedPatterns: {
         taskCategories: ["reporting", "meetings"],
         routinePatterns: ["manual_reporting"],
-        // Named once over two weeks: an episode, not a pattern.
-        automationCandidates: [],
-        energyStressMarkers: [],
+        automationCandidates: ["report_generation"],
+        energyStressMarkers: ["fatigue"],
         systems: ["spreadsheets"],
       },
     });

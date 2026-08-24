@@ -80,12 +80,9 @@ export class CycleActivitySummaryService {
     const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
 
     const taskCategories = tally(activities.map((activity) => activity.taskCategory));
-    const routinePatterns = tally(activities.flatMap((activity) =>
-      activity.obstacle?.kind === "routine_pattern" ? [activity.obstacle.value] : []));
-    const automationCandidates = tally(activities.flatMap((activity) =>
-      activity.obstacle?.kind === "automation_candidate" ? [activity.obstacle.value] : []));
-    const energyStressMarkers = tally(activities.flatMap((activity) =>
-      activity.obstacle?.kind === "energy_stress_marker" ? [activity.obstacle.value] : []));
+    const routinePatterns = tally(activities.map((activity) => activity.routinePattern));
+    const automationCandidates = tally(activities.map((activity) => activity.automationCandidate));
+    const energyStressMarkers = tally(activities.map((activity) => activity.energyStressMarker));
     const systems = tally(activities.map((activity) => activity.system));
 
     return {
