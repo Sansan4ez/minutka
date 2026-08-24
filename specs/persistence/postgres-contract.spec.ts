@@ -344,6 +344,17 @@ describe("PostgreSQL storage contracts", () => {
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool)).exportGroup({ companyId, groupId });
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);
+    const pilotStatus = await createPostgresPilotStatusStore(pool).loadSnapshot();
+    expect(pilotStatus.activities.find((activity) => activity.employee_id === "activity_owner")).toEqual({
+      employee_id: "activity_owner",
+      task_category: "reporting",
+      system: "spreadsheets",
+      duration_bucket: "1_2h",
+      routine_pattern: "manual_reporting",
+      automation_candidate: "report_generation",
+      energy_stress_marker: "frustration",
+      activity_date: "2026-08-16",
+    });
     expect((await pool.query("SELECT to_regclass('minutka_reporting.anonymized_activities') AS table_name")).rows[0]?.table_name).toBeNull();
   });
 

@@ -26,8 +26,8 @@ function snapshot(): PilotStatusSnapshot {
       },
     ],
     activities: [
-      { employee_id: "emp_safe_1", task_category: "reporting", system: "other", duration_bucket: "30_60m", routine_pattern: "other", automation_candidate: "report_generation", energy_stress_marker: "frustration", activity_date: "2026-08-20" },
-      { employee_id: "emp_safe_1", task_category: "coordination", system: "email", duration_bucket: "15_30m", routine_pattern: "other", activity_date: "2026-08-21" },
+      { employee_id: "emp_safe_1", task_category: "reporting", system: "other", duration_bucket: "30_60m", routine_pattern: "other", automation_candidate: "other", energy_stress_marker: "frustration", activity_date: "2026-08-20" },
+      { employee_id: "emp_safe_1", task_category: "coordination", duration_bucket: "15_30m", activity_date: "2026-08-21" },
     ],
     messagesByDate: [{ employee_id: "emp_safe_1", message_date: "2026-08-20", count: 2 }],
     feedbackCount: 1,
@@ -47,13 +47,63 @@ describe("SPEC-MINUTKA-PILOT-STATUS-001: metadata-only automated pilot report", 
     const serialized = JSON.stringify(result);
 
     expect(result.participants[0]).toMatchObject({ id: "emp_safe_1", role: "Логист", messages: 2, activities: 2, traces: 2, schedules: 3, fires: 4, failedFires: 1, engagement: "dropped_off" });
-    expect(result.metrics).toEqual({ coveragePercent: 33, systemOtherPercent: 50, obstacleOtherPercent: 100 });
-    expect(result.flags.map((flag) => flag.code)).toEqual(["coverage_below_60", "system_other_above_40", "obstacle_other_above_40", "participant_dropped_off"]);
+    expect(result.metrics).toEqual({
+      coveragePercent: 33,
+      systemOtherPercent: 50,
+      systemMissingPercent: 50,
+      routinePatternOtherPercent: 50,
+      routinePatternMissingPercent: 50,
+      automationCandidateOtherPercent: 50,
+      automationCandidateMissingPercent: 50,
+      energyStressMarkerMissingPercent: 50,
+    });
+    expect(result.flags.map((flag) => flag.code)).toEqual([
+      "coverage_below_60",
+      "system_other_above_40",
+      "routine_pattern_other_above_40",
+      "automation_candidate_other_above_40",
+      "participant_dropped_off",
+    ]);
+    expect(result.flags.map((flag) => flag.detail)).toEqual(expect.arrayContaining([
+      expect.stringContaining("system omitted — 50%"),
+      expect.stringContaining("routine pattern вне словаря — 50%; facet omitted — 50%"),
+      expect.stringContaining("automation candidate вне словаря — 50%; facet omitted — 50%"),
+    ]));
     expect(result.health).toMatchObject({ firesSucceeded: 3, firesFailed: 1, feedbackCount: 1, traceCoverage: { messages: 2, traces: 2, coveredMessages: 2 } });
     for (const forbidden of ["секретная задача", "секретная цель", "Имя", "telegram-user-secret", "telegram-chat-secret", "subject-secret", "полный текст сотрудника", "полный ответ", "typicalTasks", "aiLevel", "programGoal", "telegramUserId", "chatId", "subjectKey", "userText", "agentResponse"]) {
       expect(serialized).not.toContain(forbidden);
     }
     expect(Object.keys(result.activities[0]!)).toEqual(["employee_id", "task_category", "system", "duration_bucket", "routine_pattern", "automation_candidate", "energy_stress_marker", "activity_date"]);
+  });
+
+  it("reports missing facets diagnostically without treating omission as a warning", async () => {
+    const omitted = snapshot();
+    omitted.activities = omitted.activities.map((activity) => ({ employee_id: activity.employee_id, task_category: activity.task_category, activity_date: activity.activity_date }));
+    const result = await new PilotStatusService({ async loadSnapshot() { return omitted; } }, () => now).generate({ healthz: "ok", pendingMigrations: 0, server: { units: [] } });
+
+    expect(result.metrics).toMatchObject({
+      systemOtherPercent: 0,
+      systemMissingPercent: 100,
+      routinePatternOtherPercent: 0,
+      routinePatternMissingPercent: 100,
+      automationCandidateOtherPercent: 0,
+      automationCandidateMissingPercent: 100,
+      energyStressMarkerMissingPercent: 100,
+    });
+    expect(result.flags.map((flag) => flag.code)).toEqual(["coverage_below_60", "participant_dropped_off"]);
+  });
+
+  it("flags each taxonomy misfit independently", async () => {
+    const routineOnly = snapshot();
+    routineOnly.activities = routineOnly.activities.map((activity) => ({
+      employee_id: activity.employee_id,
+      task_category: activity.task_category,
+      routine_pattern: "other",
+      activity_date: activity.activity_date,
+    }));
+    const result = await new PilotStatusService({ async loadSnapshot() { return routineOnly; } }, () => now).generate({ healthz: "ok", pendingMigrations: 0, server: { units: [] } });
+
+    expect(result.flags.map((flag) => flag.code)).toEqual(["coverage_below_60", "routine_pattern_other_above_40", "participant_dropped_off"]);
   });
 
   it("fails when per-participant counts drift from independent control totals", async () => {
@@ -70,7 +120,10 @@ describe("SPEC-MINUTKA-PILOT-STATUS-001: metadata-only automated pilot report", 
 
     expect(html).not.toContain(pilotStatusDataMarker);
     expect(html).toContain('id="pilot-status-data"');
-    expect(html).toContain('"schemaVersion":"minutka-pilot-status/v1"');
+    expect(html).toContain('"schemaVersion":"minutka-pilot-status/v2"');
+    expect(html).toContain("Routine other");
+    expect(html).toContain("Automation missing");
+    expect(html).toContain("Energy missing");
     expect(html).toContain("сгенерировано автоматически, не содержит текстов переписки");
     expect(() => renderPilotStatusHtml("no marker", data)).toThrow("exactly one");
   });

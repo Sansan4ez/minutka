@@ -1,5 +1,12 @@
 import type { OnboardingStatus } from "../domain/employee.js";
-import type { ActivityDurationBucket, ActivitySystem, TaskCategory } from "../domain/insights.js";
+import type {
+  ActivityDurationBucket,
+  ActivitySystem,
+  AutomationCandidateType,
+  EnergyStressMarkerType,
+  RoutinePatternType,
+  TaskCategory,
+} from "../domain/insights.js";
 import { participantEngagement, type ParticipantEngagement } from "./participant-engagement.js";
 
 export type PilotStatusParticipantSnapshot = {
@@ -27,9 +34,9 @@ export type PilotStatusActivity = {
   task_category?: TaskCategory;
   system?: ActivitySystem;
   duration_bucket?: ActivityDurationBucket;
-  routine_pattern?: string;
-  automation_candidate?: string;
-  energy_stress_marker?: string;
+  routine_pattern?: RoutinePatternType;
+  automation_candidate?: AutomationCandidateType;
+  energy_stress_marker?: EnergyStressMarkerType;
   activity_date: string;
 };
 
@@ -66,14 +73,19 @@ export type PilotStatusOperationalHealth = {
 };
 
 export type PilotStatusFlag = {
-  code: "coverage_below_60" | "system_other_above_40" | "obstacle_other_above_40" | "participant_dropped_off";
+  code:
+    | "coverage_below_60"
+    | "system_other_above_40"
+    | "routine_pattern_other_above_40"
+    | "automation_candidate_other_above_40"
+    | "participant_dropped_off";
   severity: "warning" | "critical";
   label: string;
   detail: string;
 };
 
 export type PilotStatusData = {
-  schemaVersion: "minutka-pilot-status/v1";
+  schemaVersion: "minutka-pilot-status/v2";
   generatedAt: string;
   period: { from: string | null; toExclusive: string | null; day: number; totalDays: number };
   participants: Array<{
@@ -99,7 +111,12 @@ export type PilotStatusData = {
   metrics: {
     coveragePercent: number;
     systemOtherPercent: number;
-    obstacleOtherPercent: number;
+    systemMissingPercent: number;
+    routinePatternOtherPercent: number;
+    routinePatternMissingPercent: number;
+    automationCandidateOtherPercent: number;
+    automationCandidateMissingPercent: number;
+    energyStressMarkerMissingPercent: number;
   };
   flags: PilotStatusFlag[];
   health: PilotStatusOperationalHealth & {
@@ -142,17 +159,23 @@ export class PilotStatusService {
       failedFires: participant.failedFires,
     }));
     const coveragePercent = percent(participants.filter((participant) => participant.status === "profile_completed").length, participants.length);
-    const systemOtherPercent = percent(snapshot.activities.filter((activity) => activity.system === "other").length, snapshot.activities.length);
-    const obstacleOtherPercent = percent(snapshot.activities.filter((activity) =>
-      activity.routine_pattern === "other" || activity.automation_candidate === "other").length, snapshot.activities.length);
-    const metrics = { coveragePercent, systemOtherPercent, obstacleOtherPercent };
+    const metrics = {
+      coveragePercent,
+      systemOtherPercent: facetPercent(snapshot.activities, "system", (value) => value === "other"),
+      systemMissingPercent: facetPercent(snapshot.activities, "system", (value) => value === undefined),
+      routinePatternOtherPercent: facetPercent(snapshot.activities, "routine_pattern", (value) => value === "other"),
+      routinePatternMissingPercent: facetPercent(snapshot.activities, "routine_pattern", (value) => value === undefined),
+      automationCandidateOtherPercent: facetPercent(snapshot.activities, "automation_candidate", (value) => value === "other"),
+      automationCandidateMissingPercent: facetPercent(snapshot.activities, "automation_candidate", (value) => value === undefined),
+      energyStressMarkerMissingPercent: facetPercent(snapshot.activities, "energy_stress_marker", (value) => value === undefined),
+    };
     const totalMessages = participants.reduce((sum, participant) => sum + participant.messages, 0);
     const totalTraces = participants.reduce((sum, participant) => sum + participant.traces, 0);
     const firesFailed = participants.reduce((sum, participant) => sum + participant.failedFires, 0);
     const fires = participants.reduce((sum, participant) => sum + participant.fires, 0);
 
     return {
-      schemaVersion: "minutka-pilot-status/v1",
+      schemaVersion: "minutka-pilot-status/v2",
       generatedAt,
       period,
       participants,
@@ -182,10 +205,13 @@ export function pilotStatusFlags(input: {
     flags.push({ code: "coverage_below_60", severity: "critical", label: "Охват ниже 60%", detail: `День ${input.day}: профиль завершили ${input.metrics.coveragePercent}% участников.` });
   }
   if (input.day >= 7 && input.metrics.systemOtherPercent > 40) {
-    flags.push({ code: "system_other_above_40", severity: "warning", label: "Слишком много system=other", detail: `Доля «прочего» в системах — ${input.metrics.systemOtherPercent}%.` });
+    flags.push({ code: "system_other_above_40", severity: "warning", label: "Taxonomy misfit: system=other", detail: `Доля activity с системой вне словаря — ${input.metrics.systemOtherPercent}%; system omitted — ${input.metrics.systemMissingPercent}%.` });
   }
-  if (input.day >= 7 && input.metrics.obstacleOtherPercent > 40) {
-    flags.push({ code: "obstacle_other_above_40", severity: "warning", label: "Слишком много obstacle=other", detail: `Доля «прочего» в затруднениях — ${input.metrics.obstacleOtherPercent}%.` });
+  if (input.day >= 7 && input.metrics.routinePatternOtherPercent > 40) {
+    flags.push({ code: "routine_pattern_other_above_40", severity: "warning", label: "Taxonomy misfit: routine_pattern=other", detail: `Доля activity с routine pattern вне словаря — ${input.metrics.routinePatternOtherPercent}%; facet omitted — ${input.metrics.routinePatternMissingPercent}%.` });
+  }
+  if (input.day >= 7 && input.metrics.automationCandidateOtherPercent > 40) {
+    flags.push({ code: "automation_candidate_other_above_40", severity: "warning", label: "Taxonomy misfit: automation_candidate=other", detail: `Доля activity с automation candidate вне словаря — ${input.metrics.automationCandidateOtherPercent}%; facet omitted — ${input.metrics.automationCandidateMissingPercent}%.` });
   }
   const droppedOff = input.participants.filter((participant) => participant.engagement === "dropped_off").map((participant) => participant.id);
   if (droppedOff.length) {
@@ -230,6 +256,14 @@ function assertControlTotals(snapshot: PilotStatusSnapshot): void {
 
 function percent(value: number, total: number): number {
   return total === 0 ? 0 : Math.round(value / total * 100);
+}
+
+function facetPercent<K extends "system" | "routine_pattern" | "automation_candidate" | "energy_stress_marker">(
+  activities: PilotStatusActivity[],
+  facet: K,
+  matches: (value: PilotStatusActivity[K]) => boolean,
+): number {
+  return percent(activities.filter((activity) => matches(activity[facet])).length, activities.length);
 }
 
 function daysBetween(from: string, to: string): number {

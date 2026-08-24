@@ -33,9 +33,9 @@ type ActivityRow = {
   task_category: PilotStatusActivity["task_category"] | null;
   system: PilotStatusActivity["system"] | null;
   duration_bucket: PilotStatusActivity["duration_bucket"] | null;
-  routine_pattern: string | null;
-  automation_candidate: string | null;
-  energy_stress_marker: string | null;
+  routine_pattern: PilotStatusActivity["routine_pattern"] | null;
+  automation_candidate: PilotStatusActivity["automation_candidate"] | null;
+  energy_stress_marker: PilotStatusActivity["energy_stress_marker"] | null;
   activity_date: string;
 };
 
