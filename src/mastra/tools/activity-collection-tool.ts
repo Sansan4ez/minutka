@@ -9,13 +9,16 @@ import type { CollectActivitiesResult } from "../../application/activity-collect
 
 export const collectActivitiesToolName = "collectActivities" as const;
 
+export const collectActivitiesToolDescription =
+  `Record all employee activities named in the current message through authenticated tenant-bound typed calls. Put each activity in its own array item. Each call accepts at most ${collectActivitiesMaximumItems} items; above that, preserve input order across calls. Omit unknown fields and free text. For system and every obstacle facet: unnamed/unknown means omit; unambiguously covered means a concrete enum; explicitly known but not covered means other where that enum has it. energyStressMarker has no other and requires an explicit covered work-related signal. A meeting or call without a named channel has no system. Ordinary meetings, calls, work, and template preparation without named friction have no obstacle. Send at most one obstacle — routinePattern, automationCandidate, or energyStressMarker; if several arrive, only the first in that order is recorded. On failed or partial status, report savedCount and that the remainder was not recorded; do not claim completion or retry automatically.`;
+
 /** Records a batch of separate structured activities for the authenticated employee. */
 export function createCollectActivitiesTool(
   collectActivities: (input: CollectActivitiesInput) => Promise<CollectActivitiesResult>,
 ) {
   return createTool({
     id: collectActivitiesToolName,
-    description: `Record all employee activities named in the current message through authenticated tenant-bound typed calls. Put each activity in its own array item. Each call accepts at most ${collectActivitiesMaximumItems} items; if the message contains more, preserve input order and continue with the remaining items in the next call. Omit unknown fields and never send free text. For each item send at most one obstacle field — routinePattern, automationCandidate, or energyStressMarker — and omit the other two; if more than one arrives, only the first of that order is recorded. If the result status is failed or partial, tell the employee the savedCount, plainly say the remaining activities were not recorded, do not claim a complete write, and do not retry automatically.`,
+    description: collectActivitiesToolDescription,
     strict: true,
     inputSchema: collectActivitiesInputSchema,
     outputSchema: z.strictObject({
