@@ -203,51 +203,62 @@ ssh-keyscan -H 169.58.201.159 >> ~/.ssh/known_hosts
 недоступны. Для клиента корень `/` в rsync соответствует разрешённому каталогу
 `/var/backups/minutka` на production.
 
-Создать `/home/admin/.local/bin/pull-minutka-backups`:
+Клиентская часть хранится рядом со stack в
+`nixos/phase3-assistant-stack/offsite-backup/`. Она устанавливает отдельного
+локального пользователя `minutka-offsite-backup`, root-owned script и systemd
+oneshot/timer; существующий `pull-personal-assistant-backups` не меняется.
+
+Проверить fingerprint private key перед установкой:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-source_host=169.58.201.159
-source_user=minutka-backup-pull
-base=/srv/backups/minutka
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-destination="$base/snapshots/$stamp"
-previous=""
-
-mkdir -p "$destination"
-if [ -L "$base/latest" ]; then
-  previous="$(readlink -f "$base/latest")"
-fi
-
-options=(-aH --delete --delete-delay --partial)
-if [ -n "$previous" ] && [ -d "$previous" ]; then
-  options+=(--link-dest="$previous")
-fi
-
-rsync "${options[@]}" \
-  -e 'ssh -i /home/admin/.ssh/id_minutka_pull -o IdentitiesOnly=yes -o BatchMode=yes' \
-  "$source_user@$source_host:/" \
-  "$destination/"
-ln -sfn "$destination" "$base/latest"
-find "$base/snapshots" -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {} +
+ssh-keygen -lf ~/.ssh/id_minutka_pull.pub
+# SHA256:FlHH2mruMIv7zMxXexwUlgbzfEADdc3nSRvEp1KAM9k
 ```
 
-Первый pull и проверка:
+Установка идемпотентна и копирует private key из home в закрытый service path;
+сам unit не получает доступ к `/home/admin`:
 
 ```bash
-chmod 0750 /home/admin/.local/bin/pull-minutka-backups
-/home/admin/.local/bin/pull-minutka-backups
-find /srv/backups/minutka/latest -maxdepth 4 -type f | sort | tail -n 30
+cd /home/admin/minutka/nixos/phase3-assistant-stack
+sudo ./offsite-backup/install.sh
+sudo systemctl start pull-minutka-backups.service
 ```
 
-На off-site host установить oneshot/timer с ежедневным запуском после source
-backup, например в `01:30 UTC`, `Persistent=true`, `RandomizedDelaySec=10m`.
-После первого запуска зафиксировать `systemctl status`, journal и новый snapshot.
-Off-site retention использует snapshot directories с `--link-dest`, а не один
-`rsync --delete` mirror: локальное удаление source backups через 14 дней не
-удаляет независимую 90-дневную историю.
+Каждый запуск:
+
+1. берёт non-blocking lock и не допускает наложения pull'ов;
+2. выполняет до трёх bounded `rsync`-попыток через pinned Ed25519 host key;
+3. пишет в скрытый `.<timestamp>.incomplete`, не меняя опубликованные snapshots;
+4. проверяет, что newest production backup содержит непустой `minutka.dump` и
+   каталог `minio/minutka/`;
+5. только после проверки атомарно публикует timestamped snapshot и symlink
+   `latest`;
+6. удаляет завершённые snapshots старше 90 дней. `--link-dest` сохраняет
+   независимую историю через hard links; source retention в 14 дней не удаляет
+   уже опубликованные off-site snapshots.
+
+При ошибке incomplete-каталог удаляется, `latest` остаётся на предыдущей
+успешной копии, а unit завершается non-zero. Проверка первого pull:
+
+```bash
+sudo systemctl status pull-minutka-backups.service \
+  pull-minutka-backups.timer --no-pager
+sudo journalctl -u pull-minutka-backups.service --no-pager -n 100
+sudo systemd-analyze security pull-minutka-backups.service --no-pager
+latest_snapshot="$(readlink -f /srv/backups/minutka/latest)"
+latest_backup="$(find "$latest_snapshot" -mindepth 1 -maxdepth 1 -type d \
+  -name '20??????T??????Z' -printf '%f\n' | sort | tail -n 1)"
+test -n "$latest_backup"
+test -s "$latest_snapshot/$latest_backup/minutka.dump"
+test -d "$latest_snapshot/$latest_backup/minio/minutka"
+find "$latest_snapshot/$latest_backup" -maxdepth 3 -printf '%y %s %p\n' | sort
+systemctl list-timers pull-minutka-backups.timer --no-pager
+```
+
+Таймер запускается после source backup в `01:30 UTC`, имеет `Persistent=true`
+и `RandomizedDelaySec=10m`. После замены production host сначала обнови pinned
+host key и ожидаемый fingerprint в installer, затем проверь read-only rsync
+вручную; не ослабляй `StrictHostKeyChecking`.
 
 ## Полное восстановление на новом VPS
 

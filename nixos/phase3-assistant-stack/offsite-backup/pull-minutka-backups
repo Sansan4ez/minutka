@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 0077
+
+readonly source_host="169.58.201.159"
+readonly source_user="minutka-backup-pull"
+readonly base="/srv/backups/minutka"
+readonly snapshots_dir="$base/snapshots"
+readonly identity_file="/etc/minutka-offsite-backup/id_ed25519"
+readonly known_hosts_file="/etc/minutka-offsite-backup/known_hosts"
+readonly retention_days=90
+readonly max_attempts=3
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+incomplete="$snapshots_dir/.$stamp.incomplete"
+destination="$snapshots_dir/$stamp"
+latest_link="$base/latest"
+lock_file="/run/minutka-offsite-backup/pull.lock"
+published=0
+
+log() {
+  printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"
+}
+
+cleanup() {
+  if [ "$published" -eq 0 ]; then
+    rm -rf -- "$incomplete"
+  fi
+}
+trap cleanup EXIT
+trap 'log "Pull failed at line $LINENO"' ERR
+
+mkdir -p -- "$snapshots_dir"
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  log "Another Minutka backup pull is already running; exiting"
+  exit 0
+fi
+
+if [ -e "$destination" ] || [ -e "$incomplete" ]; then
+  log "Snapshot timestamp collision: $stamp"
+  exit 1
+fi
+mkdir -- "$incomplete"
+
+previous=""
+if [ -L "$latest_link" ]; then
+  previous="$(readlink -f -- "$latest_link")"
+  case "$previous" in
+    "$snapshots_dir"/*)
+      if [ ! -d "$previous" ]; then
+        log "Latest snapshot target is not a directory: $previous"
+        exit 1
+      fi
+      ;;
+    *)
+      log "Latest snapshot points outside $snapshots_dir: $previous"
+      exit 1
+      ;;
+  esac
+elif [ -e "$latest_link" ]; then
+  log "Latest path exists but is not a symlink: $latest_link"
+  exit 1
+fi
+
+ssh_command=(
+  ssh
+  -i "$identity_file"
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o HostKeyAlgorithms=ssh-ed25519
+  -o IdentitiesOnly=yes
+  -o ServerAliveCountMax=3
+  -o ServerAliveInterval=15
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=$known_hosts_file"
+)
+printf -v ssh_transport '%q ' "${ssh_command[@]}"
+ssh_transport="${ssh_transport% }"
+
+rsync_options=(
+  --archive
+  --hard-links
+  --delete
+  --delete-delay
+  --partial
+  --partial-dir=.rsync-partial
+  --timeout=300
+  --exclude=/.rsync-partial/
+  --exclude='/*.incomplete/'
+)
+if [ -n "$previous" ]; then
+  rsync_options+=(--link-dest="$previous")
+fi
+
+attempt=1
+while true; do
+  log "Pulling Minutka backups (attempt $attempt/$max_attempts)"
+  if rsync "${rsync_options[@]}" \
+    -e "$ssh_transport" \
+    "$source_user@$source_host:/" \
+    "$incomplete/"; then
+    break
+  fi
+
+  if [ "$attempt" -ge "$max_attempts" ]; then
+    log "Rsync failed after $max_attempts attempts"
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 15
+done
+
+latest_backup_name="$(
+  find "$incomplete" -mindepth 1 -maxdepth 1 -type d \
+    -regextype posix-extended \
+    -regex '.*/[0-9]{8}T[0-9]{6}Z' \
+    -printf '%f\n' \
+    | sort \
+    | tail -n 1
+)"
+if [ -z "$latest_backup_name" ]; then
+  log "Pulled snapshot contains no completed production backup"
+  exit 1
+fi
+
+latest_backup="$incomplete/$latest_backup_name"
+if [ ! -s "$latest_backup/minutka.dump" ]; then
+  log "Newest production backup has no non-empty PostgreSQL dump: $latest_backup_name"
+  exit 1
+fi
+if [ ! -d "$latest_backup/minio/minutka" ]; then
+  log "Newest production backup has no MinIO mirror: $latest_backup_name"
+  exit 1
+fi
+
+rm -rf -- "$incomplete/.rsync-partial"
+mv -- "$incomplete" "$destination"
+published=1
+
+next_link="$base/.latest.$stamp"
+ln -s "snapshots/$stamp" "$next_link"
+mv -Tf -- "$next_link" "$latest_link"
+
+find "$snapshots_dir" -mindepth 1 -maxdepth 1 -type d \
+  -regextype posix-extended \
+  -regex '.*/[0-9]{8}T[0-9]{6}Z' \
+  -mtime +"$retention_days" \
+  -exec rm -rf -- {} +
+
+log "Published off-site snapshot $destination (newest production backup: $latest_backup_name)"
