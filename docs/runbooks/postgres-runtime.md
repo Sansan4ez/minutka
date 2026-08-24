@@ -145,8 +145,9 @@ participant with the normal owner-delete procedure and issue a new invite.
 closed participation set: employee ID, onboarding status, local date of the
 last inbound touch (when present), and `active` / `lagging` / `dropped_off`.
 It does not expose profile names, timezones, chat IDs, conversation/activity
-content, insights, or Telegram identities. Two missed local calendar days mean
-`lagging`; three or more mean `dropped_off`. The default page size is 20 and the
+content, insights, or Telegram identities. Two completed local working days
+(Monday–Friday) after the last touch mean `lagging`; three or more mean
+`dropped_off`. Weekends and the current unfinished local day do not count. The default page size is 20 and the
 maximum is 100. When another page exists, the CLI prints the exact scoped
 follow-up command with an opaque `--after` cursor.
 

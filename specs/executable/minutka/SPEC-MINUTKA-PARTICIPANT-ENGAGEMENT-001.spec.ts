@@ -85,14 +85,14 @@ describe("SPEC-MINUTKA-PARTICIPANT-ENGAGEMENT-001: the participation label follo
     expect(await listEngagement()).toMatchObject({ employeeId: "employee_a", status: "profile_completed", engagement: "active" });
   });
 
-  it("degrades a silent participant to lagging and then dropped_off even while scheduled fires keep running", async () => {
+  it("degrades a silent participant after completed working days even while scheduled fires keep running", async () => {
     const { assistant, participant, listEngagement, travelTo } = await onboardedParticipant({ completedAt: "2026-08-17T09:00:00.000Z" });
     expect(participant().lastTouchOn).toBe("2026-08-17");
 
     for (const [instant, processId] of [
       ["2026-08-18T05:30:00.000Z", "morning_planning"],
       ["2026-08-18T16:00:00.000Z", "evening_reflection"],
-      ["2026-08-19T05:30:00.000Z", "morning_planning"],
+      ["2026-08-20T05:30:00.000Z", "morning_planning"],
     ] as const) {
       travelTo(instant);
       await assistant.chat({ userId: "employee_a", threadId: "daily", text: "Запланированный запуск", requiredProcessId: processId });
@@ -103,17 +103,31 @@ describe("SPEC-MINUTKA-PARTICIPANT-ENGAGEMENT-001: the participation label follo
     expect(participant().lastTouchOn).toBe("2026-08-17");
     expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "lagging" });
 
-    travelTo("2026-08-20T05:30:00.000Z");
+    travelTo("2026-08-21T05:30:00.000Z");
     await assistant.chat({ userId: "employee_a", threadId: "daily", text: "Запланированный запуск", requiredProcessId: "morning_planning" });
     expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "dropped_off" });
+  });
+
+  it("does not count the current local day or weekends as missed working days", async () => {
+    const { listEngagement, travelTo } = await onboardedParticipant({ completedAt: "2026-08-21T09:00:00.000Z" });
+
+    for (const [instant, expected] of [
+      ["2026-08-23T10:30:00.000Z", "active"], // Sunday: no completed working day after Friday.
+      ["2026-08-24T10:30:00.000Z", "active"], // Monday is still in progress.
+      ["2026-08-26T10:30:00.000Z", "lagging"], // Monday and Tuesday completed.
+      ["2026-08-27T10:30:00.000Z", "dropped_off"], // Monday through Wednesday completed.
+    ] as const) {
+      travelTo(instant);
+      expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-21", engagement: expected });
+    }
   });
 
   it("degrades the label on the profile calendar day, not on the UTC one", async () => {
     const { listEngagement, travelTo } = await onboardedParticipant({ completedAt: "2026-08-17T09:00:00.000Z" });
 
-    // 00:30 Moscow on 2026-08-20 — three missed local days, but only two UTC
-    // ones: a UTC-dated clock would still report this participant as lagging.
-    travelTo("2026-08-19T21:30:00.000Z");
+    // 00:30 Moscow on Friday 2026-08-21: Monday through Thursday are complete
+    // locally, while a UTC-dated clock would still be on Thursday.
+    travelTo("2026-08-20T21:30:00.000Z");
 
     expect(await listEngagement()).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "dropped_off" });
   });

@@ -269,7 +269,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
   });
 
   it("lists only the requested company/group and exposes only participation fields", async () => {
-    let now = "2026-01-05T12:00:00.000Z";
+    let now = "2026-01-07T12:00:00.000Z";
     let instant = 0;
     const world = createInMemoryWorld(() => instant++ === 0 ? now : new Date(Date.parse(now) + instant * 1_000).toISOString());
     world.tenantDirectories.groups.push({ id: "group_b", companyId: "company_b" });
@@ -311,7 +311,7 @@ describe("SPEC-CLI-HTTP-001: CLI runs through TCP HTTP transport", () => {
     expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("Europe/Moscow");
     expect(first.stdout.join("\n") + second.stdout.join("\n")).not.toContain("chatId");
 
-    now = "2026-01-06T12:00:00.000Z";
+    now = "2026-01-08T12:00:00.000Z";
     const dropped = await client.listParticipants({ ...testTenantBinding });
     expect(dropped.participants).toContainEqual(expect.objectContaining({ employeeId: "emp_000", engagement: "dropped_off" }));
     await expect(client.listParticipants({ ...testTenantBinding, after: "not-a-participant-cursor" })).rejects.toMatchObject({ code: "invalid_request", message: "Invalid participant cursor." } satisfies Partial<MinutkaApiError>);

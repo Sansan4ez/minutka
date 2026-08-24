@@ -4,7 +4,7 @@ import { PilotStatusService, type PilotStatusSnapshot } from "../../../src/appli
 import { pilotStatusDataMarker, renderPilotStatusHtml } from "../../../src/application/pilot-status-html.js";
 import { runPilotStatusCommand } from "../../../src/runtime/pilot-status-command.js";
 
-const now = "2026-08-25T12:00:00.000Z"; // day 7
+const now = "2026-08-27T12:00:00.000Z"; // day 9; three completed working days since Friday
 
 function snapshot(): PilotStatusSnapshot {
   return {

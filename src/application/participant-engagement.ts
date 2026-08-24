@@ -6,6 +6,8 @@ export type ParticipantEngagement = typeof participantEngagements[number];
 const millisecondsPerDay = 24 * 60 * 60 * 1_000;
 const laggingAfterMissedDays = 2;
 const droppedOffAfterMissedDays = 3;
+const monday = 1;
+const friday = 5;
 
 export function participantEngagement(input: {
   lastTouchOn?: string;
@@ -17,10 +19,21 @@ export function participantEngagement(input: {
   // degrade, and the participation status already reports that stage.
   if (!input.lastTouchOn) return "active";
   const today = calendarDateInIanaTimezone(input.now, input.timezone);
-  const missedDays = Math.max(0, dateOrdinal(today) - dateOrdinal(input.lastTouchOn));
-  if (missedDays >= droppedOffAfterMissedDays) return "dropped_off";
-  if (missedDays >= laggingAfterMissedDays) return "lagging";
+  const missedWorkingDays = completedWorkingDaysBetween(input.lastTouchOn, today);
+  if (missedWorkingDays >= droppedOffAfterMissedDays) return "dropped_off";
+  if (missedWorkingDays >= laggingAfterMissedDays) return "lagging";
   return "active";
+}
+
+function completedWorkingDaysBetween(lastTouchOn: string, today: string): number {
+  const from = dateOrdinal(lastTouchOn);
+  const to = dateOrdinal(today);
+  let workingDays = 0;
+  for (let day = from + 1; day < to; day += 1) {
+    const weekday = new Date(day * millisecondsPerDay).getUTCDay();
+    if (weekday >= monday && weekday <= friday) workingDays += 1;
+  }
+  return workingDays;
 }
 
 function dateOrdinal(date: string): number {

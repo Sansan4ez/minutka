@@ -128,7 +128,7 @@ describe("SPEC-MINUTKA-ENGAGEMENT-REMINDERS-001: automatic soft reminder for lag
     const harness = await participationHarness({ completedAt: "2026-08-17T09:00:00.000Z", employeeIds: ["employee_silent", "employee_active"] });
     await harness.employeeWrites(eveningTouch("18"), "employee_active");
 
-    expect(await harness.sweepAt(insideWindow("19"))).toMatchObject({ considered: 2, sent: 1, failed: 0 });
+    expect(await harness.sweepAt(insideWindow("20"))).toMatchObject({ considered: 2, sent: 1, failed: 0 });
     expect(harness.delivered).toEqual([{ employeeId: "employee_silent", text: readEngagementReminderText() }]);
     expect(await harness.engagement("employee_silent")).toMatchObject({ engagement: "lagging" });
     expect(await harness.engagement("employee_active")).toMatchObject({ engagement: "active" });
@@ -137,18 +137,22 @@ describe("SPEC-MINUTKA-ENGAGEMENT-REMINDERS-001: automatic soft reminder for lag
   it("never sends twice within a day and stops after the bounded number of reminders", async () => {
     const harness = await participationHarness({ completedAt: "2026-08-17T09:00:00.000Z", employeeIds: ["employee_silent"] });
 
-    // Two missed days, but still local morning: the reminder waits for the window.
-    await harness.sweepAt(beforeWindow("19"));
+    // Two completed working days, but still local morning: the reminder waits for the window.
+    await harness.sweepAt(beforeWindow("20"));
     expect(harness.delivered).toHaveLength(0);
 
-    await harness.sweepAt(insideWindow("19"));
-    await harness.sweepAt(`2026-08-19T17:00:00.000Z`);
+    await harness.sweepAt(insideWindow("20"));
+    await harness.sweepAt("2026-08-20T17:00:00.000Z");
     expect(harness.delivered).toHaveLength(1);
 
     // Each further reminder needs a new lagging streak; the total stays bounded.
-    for (const day of ["19", "21", "23", "25"]) {
-      await harness.employeeWrites(eveningTouch(day), "employee_silent");
-      await harness.sweepAt(insideWindow(String(Number(day) + 2)));
+    for (const [touchAt, sweepAt] of [
+      [eveningTouch("20"), insideWindow("25")],
+      [eveningTouch("25"), insideWindow("28")],
+      [eveningTouch("28"), "2026-09-02T10:30:00.000Z"],
+    ] as const) {
+      await harness.employeeWrites(touchAt, "employee_silent");
+      await harness.sweepAt(sweepAt);
     }
     expect(harness.delivered).toHaveLength(maximumAutomaticEngagementReminders);
   });
@@ -156,7 +160,7 @@ describe("SPEC-MINUTKA-ENGAGEMENT-REMINDERS-001: automatic soft reminder for lag
   it("keeps silent for a dropped_off participant, whose tier is the methodologist", async () => {
     const harness = await participationHarness({ completedAt: "2026-08-17T09:00:00.000Z", employeeIds: ["employee_silent"] });
 
-    expect(await harness.sweepAt(insideWindow("20"))).toMatchObject({ sent: 0 });
+    expect(await harness.sweepAt(insideWindow("21"))).toMatchObject({ sent: 0 });
     expect(harness.delivered).toHaveLength(0);
     expect(await harness.engagement("employee_silent")).toMatchObject({ engagement: "dropped_off" });
   });
@@ -165,20 +169,28 @@ describe("SPEC-MINUTKA-ENGAGEMENT-REMINDERS-001: automatic soft reminder for lag
     const harness = await participationHarness({ completedAt: "2026-08-17T09:00:00.000Z", employeeIds: ["employee_silent"] });
     const turnsBefore = harness.turns();
 
-    await harness.sweepAt(insideWindow("19"));
+    await harness.sweepAt(insideWindow("20"));
 
     expect(harness.delivered).toHaveLength(1);
     expect(harness.turns()).toBe(turnsBefore);
     expect(await harness.engagement("employee_silent")).toMatchObject({ lastTouchOn: "2026-08-17", engagement: "lagging" });
   });
 
+  it("does not send a weekend reminder after a Friday touch", async () => {
+    const harness = await participationHarness({ completedAt: "2026-08-21T09:00:00.000Z", employeeIds: ["employee_silent"] });
+
+    expect(await harness.sweepAt(insideWindow("23"))).toMatchObject({ considered: 1, sent: 0, failed: 0 });
+    expect(harness.delivered).toHaveLength(0);
+    expect(await harness.engagement("employee_silent")).toMatchObject({ lastTouchOn: "2026-08-21", engagement: "active" });
+  });
+
   it("spends no reminder on a participant without a delivery session", async () => {
     const harness = await participationHarness({ completedAt: "2026-08-17T09:00:00.000Z", employeeIds: ["employee_silent"] });
     harness.unreachable.add("employee_silent");
 
-    expect(await harness.sweepAt(insideWindow("19"))).toMatchObject({ sent: 0, failed: 0 });
+    expect(await harness.sweepAt(insideWindow("20"))).toMatchObject({ sent: 0, failed: 0 });
     harness.unreachable.delete("employee_silent");
-    await harness.sweepAt(`2026-08-19T17:00:00.000Z`);
+    await harness.sweepAt("2026-08-20T17:00:00.000Z");
     expect(harness.delivered).toHaveLength(1);
   });
 
@@ -187,14 +199,15 @@ describe("SPEC-MINUTKA-ENGAGEMENT-REMINDERS-001: automatic soft reminder for lag
       employeeId: "employee_silent", timezone, lastTouchOn: "2026-08-17", engagementRemindersSent: 0,
     };
 
-    expect(engagementReminderDecision(candidate, insideWindow("19"))).toBe("send");
-    expect(engagementReminderDecision(candidate, insideWindow("18"))).toBe("not_lagging");
-    expect(engagementReminderDecision(candidate, insideWindow("20"))).toBe("not_lagging");
-    expect(engagementReminderDecision(candidate, beforeWindow("19"))).toBe("outside_local_window");
-    expect(engagementReminderDecision({ ...candidate, lastEngagementReminderAt: "2026-08-19T09:00:00.000Z" }, insideWindow("19")))
+    expect(engagementReminderDecision(candidate, insideWindow("20"))).toBe("send");
+    expect(engagementReminderDecision(candidate, insideWindow("19"))).toBe("not_lagging");
+    expect(engagementReminderDecision(candidate, insideWindow("21"))).toBe("not_lagging");
+    expect(engagementReminderDecision(candidate, beforeWindow("20"))).toBe("outside_local_window");
+    expect(engagementReminderDecision({ ...candidate, lastEngagementReminderAt: "2026-08-20T09:00:00.000Z" }, insideWindow("20")))
       .toBe("reminded_recently");
-    expect(engagementReminderDecision({ ...candidate, engagementRemindersSent: maximumAutomaticEngagementReminders }, insideWindow("19")))
+    expect(engagementReminderDecision({ ...candidate, engagementRemindersSent: maximumAutomaticEngagementReminders }, insideWindow("20")))
       .toBe("reminder_limit_reached");
+    expect(engagementReminderDecision({ ...candidate, lastTouchOn: "2026-08-21" }, insideWindow("23"))).toBe("not_lagging");
     expect(engagementReminderLocalWindow.fromHour).toBeGreaterThanOrEqual(9);
     expect(engagementReminderLocalWindow.toHour).toBeLessThanOrEqual(22);
   });

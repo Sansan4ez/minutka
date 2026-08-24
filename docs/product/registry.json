@@ -76,8 +76,8 @@
       "scenario": 9,
       "story": "As a methodologist, I see operational engagement labels without access to message content.",
       "acceptance": [
-        "After 2 missed days status is `lagging`.",
-        "After 3 or more missed days status is `dropped_off`.",
+        "After 2 completed local working days without a touch status is `lagging`.",
+        "After 3 or more completed local working days without a touch status is `dropped_off`; weekends and the current unfinished local day do not count.",
         "Message content, emotion and productivity do not influence the label."
       ]
     },
