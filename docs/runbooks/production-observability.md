@@ -52,7 +52,7 @@ Firewall разрешает снаружи только SSH, а `node_exporter` 
 |---|---|---|
 | Ассистент лежит | `minutka_systemd_unit_active{unit="minutka.service"}` | `0` |
 | Smoke давно не проходил | `time() - minutka_smoke_last_success_timestamp_seconds` | больше 20–30 минут требует проверки |
-| Бэкап не делался больше суток | `time() - minutka_backup_last_success_timestamp_seconds` | больше `86400` секунд требует проверки |
+| Бэкап не делался больше 25 часов | `time() - minutka_backup_last_success_timestamp_seconds` | больше `90000` секунд требует проверки; запас учитывает jitter ежедневного таймера |
 | Плановые касания перестали успешно выполняться | `time() - minutka_schedule_fire_last_success_timestamp_seconds` | сравнить с ожидаемым расписанием пилота |
 | MinIO приближается к reserve | `minutka_minio_capacity_soft_threshold_exceeded` | `1` означает, что использован budget до filesystem reserve |
 | Свободное место MinIO | `minutka_minio_filesystem_free_bytes` | должно оставаться выше reserve из `site.nix` |
@@ -123,7 +123,7 @@ Systemd-таймер `minutka-alerting.timer` каждые 10 минут зап�
 | `unit_down` | `minutka_systemd_unit_active{unit="minutka.service"} == 0` | — |
 | `smoke_stale` | `time() - minutka_smoke_last_success_timestamp_seconds` | > 30 мин |
 | `smoke_never` | `minutka_smoke_last_success_timestamp_seconds == 0` | — |
-| `backup_stale` | `time() - minutka_backup_last_success_timestamp_seconds` | > 86 400 с |
+| `backup_stale` | `time() - minutka_backup_last_success_timestamp_seconds` | > 90 000 с (25 ч) |
 | `minio_capacity` | `minutka_minio_capacity_soft_threshold_exceeded == 1` | — |
 | `artifact_owner_quota` | `minutka_artifact_owner_soft_quota_exceeded_count > 0` | — |
 

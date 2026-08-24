@@ -9,7 +9,7 @@ let
 
   # Thresholds from docs/runbooks/production-observability.md.
   smokeMaxAgeSec = 1800;   # 30 minutes
-  backupMaxAgeSec = 86400; # 24 hours
+  backupMaxAgeSec = 90000; # 25 hours; allows for daily timer jitter
 
   botTokenPath = minutkaSecrets.runtimeSecretPaths.ops_telegram_bot_token;
   chatIdPath = minutkaSecrets.runtimeSecretPaths.ops_telegram_chat_id;
@@ -110,7 +110,7 @@ let
         send_alert "smoke_never" "$(printf '🟡 Minutka: smoke check has never succeeded')"
       fi
 
-      # --- 3. Backup stale (> 24h) ---
+      # --- 3. Backup stale (> 25h) ---
       backup_ts="$(metric_value minutka_backup_last_success_timestamp_seconds)"
       if [ -n "$backup_ts" ] && [ "''${backup_ts%.*}" != "0" ]; then
         backup_age=$((NOW - ''${backup_ts%.*}))
