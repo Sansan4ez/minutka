@@ -179,6 +179,19 @@ backup дают информационные строки вида `Count drift 
 
 ## Pull-based off-site copy
 
+Компоненты разделены по границе хостов:
+
+| Хост | Роль | Компоненты | Durable path |
+|---|---|---|---|
+| Production `minutka-1` (`169.58.201.159`) | Создаёт backup и предоставляет только read-only источник | `minutka-backup.service`/`.timer`, пользователь `minutka-backup-pull`, forced `rrsync -ro` | `/var/backups/minutka/` |
+| Off-site `v760294.hosted-by-vdsina.com` | Сам подключается к production и хранит независимые snapshots | `pull-minutka-backups.service`/`.timer`, пользователь `minutka-offsite-backup` | `/srv/backups/minutka/` |
+
+Phase 3 deploy на `minutka-1` устанавливает **только production-сторону**:
+локальный backup и read-only source account. Receiver из `ops/offsite-backup/`
+не является NixOS-модулем, не импортируется production-конфигурацией и
+устанавливается отдельно только на off-site host. Не запускай его installer на
+`minutka-1`.
+
 Source-host создаёт системного пользователя
 `minutka-backup-pull`, который входит в read-only группу
 `minutka`. Private key хранится только на off-site host. Production
@@ -203,9 +216,9 @@ ssh-keyscan -H 169.58.201.159 >> ~/.ssh/known_hosts
 недоступны. Для клиента корень `/` в rsync соответствует разрешённому каталогу
 `/var/backups/minutka` на production.
 
-Клиентская часть хранится рядом со stack в
-`nixos/phase3-assistant-stack/offsite-backup/`. Она устанавливает отдельного
-локального пользователя `minutka-offsite-backup`, root-owned script и systemd
+Клиентская часть хранится в отдельном top-level operational-контуре
+`ops/offsite-backup/`. Она устанавливает на off-site host отдельного локального
+пользователя `minutka-offsite-backup`, root-owned script и systemd
 oneshot/timer; существующий `pull-personal-assistant-backups` не меняется.
 
 Проверить fingerprint private key перед установкой:
@@ -216,11 +229,12 @@ ssh-keygen -lf ~/.ssh/id_minutka_pull.pub
 ```
 
 Установка идемпотентна и копирует private key из home в закрытый service path;
-сам unit не получает доступ к `/home/admin`:
+сам unit не получает доступ к `/home/admin`. Следующие команды выполняются на
+`v760294.hosted-by-vdsina.com`:
 
 ```bash
-cd /home/admin/minutka/nixos/phase3-assistant-stack
-sudo ./offsite-backup/install.sh
+cd /home/admin/minutka
+sudo ./ops/offsite-backup/install.sh
 sudo systemctl start pull-minutka-backups.service
 ```
 

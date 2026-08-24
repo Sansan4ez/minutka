@@ -41,9 +41,11 @@ unix socket; MinIO API и Console слушают только loopback.
 Подготовка и проверка bundle описаны в
 [`secrets/README.md`](secrets/README.md). Ротация secrets — в
 [`../../docs/runbooks/production-secrets.md`](../../docs/runbooks/production-secrets.md),
-backup, off-site pull и полное восстановление — в
-[`../../docs/runbooks/production-backup-restore.md`](../../docs/runbooks/production-backup-restore.md),
-smoke, SSH-туннель и operator thresholds — в
+backup, граница production/off-site и полное восстановление — в
+[`../../docs/runbooks/production-backup-restore.md`](../../docs/runbooks/production-backup-restore.md).
+Off-site receiver хранится отдельно в
+[`../../ops/offsite-backup/`](../../ops/offsite-backup/) и не входит в deploy
+этого production stack. Smoke, SSH-туннель и operator thresholds описаны в
 [`../../docs/runbooks/production-observability.md`](../../docs/runbooks/production-observability.md).
 
 ## Deploy
