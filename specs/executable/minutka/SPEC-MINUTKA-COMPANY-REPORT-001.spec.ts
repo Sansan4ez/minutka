@@ -90,7 +90,75 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       activeDates: COMPANY_REPORT_CONFIDENCE_POLICY.confirmedDates,
       confidence: "confirmed",
     });
-    expect(result.client.recommendations).toEqual([expect.objectContaining({ confidence: "confirmed", evidenceSummary: expect.objectContaining({ contributors: 3, observations: 5, activeDates: 3 }) })]);
+    expect(result.client.recommendations).toEqual([expect.objectContaining({
+      confidence: "confirmed",
+      problem: "Отчётность готовится вручную",
+      evidenceSummary: expect.objectContaining({ contributors: 3, observations: 5, activeDates: 3 }),
+    })]);
+  });
+
+  it("keeps supporting automation and human-impact facets inside one observed process", async () => {
+    const participants = [
+      participant("one", "company_a", "group_a", "role_sales"),
+      participant("two", "company_a", "group_a", "role_sales"),
+    ];
+    const rows = [
+      activity({ id: "a1", subjectKey: "subject_one", date: "2026-08-01", taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "frustration", system: "spreadsheets" }),
+      activity({ id: "a2", subjectKey: "subject_two", date: "2026-08-02", taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "template_or_checklist", energyStressMarker: "fatigue", system: "email" }),
+      activity({ id: "a3", subjectKey: "subject_one", date: "2026-08-03", taskCategory: "reporting", routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue" }),
+    ];
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    const overall = result.internal.buckets.filter((bucket) => bucket.scope.kind === "overall_group");
+
+    expect(overall).toHaveLength(1);
+    expect(overall[0]).toMatchObject({
+      bucketId: "overall-reporting-manual_reporting",
+      process: { taskCategory: "reporting", routinePattern: "manual_reporting" },
+      contributors: 2,
+      observations: 3,
+      supportingEvidence: {
+        automationHypotheses: [
+          expect.objectContaining({ value: "report_generation", observations: 2, confidence: "signal" }),
+          expect.objectContaining({ value: "template_or_checklist", observations: 1, confidence: "hypothesis" }),
+        ],
+        humanImpactSignals: [
+          expect.objectContaining({ value: "fatigue", observations: 2, confidence: "signal" }),
+          expect.objectContaining({ value: "frustration", observations: 1, confidence: "hypothesis" }),
+        ],
+      },
+    });
+    expect(result.client.recommendations).toEqual([expect.objectContaining({
+      process: "Подготовка отчётности",
+      problem: "Отчётность готовится вручную",
+      priority: "elevated",
+      automationOption: expect.stringContaining("Automation hypotheses для проверки методологом"),
+      humanImpact: expect.arrayContaining([expect.stringContaining("усталость"), expect.stringContaining("фрустрация")]),
+    })]);
+  });
+
+  it("does not promote an automation hypothesis or energy marker without observed friction to a recommendation", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const rows = [
+      activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", automationCandidate: "report_generation", energyStressMarker: "fatigue", system: "spreadsheets" }),
+    ];
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+
+    expect(result.internal.buckets.filter((bucket) => bucket.scope.kind === "overall_group")).toEqual([
+      expect.objectContaining({
+        process: { taskCategory: "reporting" },
+        supportingEvidence: {
+          automationHypotheses: [expect.objectContaining({ value: "report_generation" })],
+          humanImpactSignals: [expect.objectContaining({ value: "fatigue" })],
+        },
+      }),
+    ]);
+    expect(result.client.recommendations).toEqual([]);
+    expect(result.client.insufficientEvidence).toEqual([expect.objectContaining({
+      question: expect.stringContaining("automation hypothesis"),
+      allowedConclusion: expect.stringContaining("наблюдаемая проблема ещё не подтверждена"),
+    })]);
   });
 
   it("returns a rare-role process hypothesis without employee evaluation or raw quote", async () => {
@@ -142,9 +210,17 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     state.activities.push(automationActivity("a1", "subject_one", "2026-08-15"));
     const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities: state }));
 
-    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("ручная отчётность");
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]).toMatchObject({
+      process: "Подготовка отчётности",
+      problem: "Отчётность готовится вручную",
+    });
     state.activities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", automationCandidate: "report_generation", system: "spreadsheets" });
-    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]?.process).toContain("генерация отчётов");
+    const corrected = await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" });
+    expect(corrected.client.recommendations).toEqual([]);
+    expect(corrected.internal.buckets.find((bucket) => bucket.scope.kind === "overall_group")).toMatchObject({
+      process: { taskCategory: "reporting" },
+      supportingEvidence: { automationHypotheses: [expect.objectContaining({ value: "report_generation" })] },
+    });
     state.activities.length = 0;
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, recommendations: [] });
   });

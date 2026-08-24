@@ -243,10 +243,16 @@ const companyReportConfidenceSchema = z.enum(["hypothesis", "signal", "confirmed
 const companyReportProcessSchema = z.strictObject({
   taskCategory: z.enum(taskCategories).optional(),
   routinePattern: z.enum(routinePatternTypes).optional(),
-  automationCandidate: z.enum(automationCandidateTypes).optional(),
-  energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
 });
 const companyReportEvidenceRefSchema = z.strictObject({ kind: z.literal("activity"), id: z.string().min(1), subjectKey: z.string().min(1) });
+const supportingFacetSchema = <T extends z.ZodType>(value: T) => z.strictObject({
+  value,
+  contributors: z.number().int().nonnegative(),
+  observations: z.number().int().nonnegative(),
+  activeDates: z.number().int().nonnegative(),
+  confidence: companyReportConfidenceSchema,
+  evidenceRefs: z.array(companyReportEvidenceRefSchema),
+});
 const internalCompanyReportSchema = z.strictObject({
   schemaVersion: z.literal("minutka-internal-report/v1"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),
   coverage: z.strictObject({ invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative() }),
@@ -255,14 +261,19 @@ const internalCompanyReportSchema = z.strictObject({
     scope: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("overall_group") }), z.strictObject({ kind: z.literal("role"), roleId: z.string().min(1) })]),
     process: companyReportProcessSchema, systems: z.array(z.enum(activitySystems)), durationBuckets: z.array(z.enum(activityDurationBuckets)),
     contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(),
-    confidence: companyReportConfidenceSchema, evidenceRefs: z.array(companyReportEvidenceRefSchema),
+    confidence: companyReportConfidenceSchema,
+    supportingEvidence: z.strictObject({
+      automationHypotheses: z.array(supportingFacetSchema(z.enum(automationCandidateTypes))),
+      humanImpactSignals: z.array(supportingFacetSchema(z.enum(energyStressMarkerTypes))),
+    }),
+    evidenceRefs: z.array(companyReportEvidenceRefSchema),
   })),
 });
 const clientEvidenceSummarySchema = z.strictObject({ contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), summary: z.string(), limitations: z.array(z.string()) });
 const clientCompanyReportSchema = z.strictObject({
   schemaVersion: z.literal("minutka-client-report.v1"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
   coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), limitations: z.array(z.string()) }),
-  recommendations: z.array(z.strictObject({ recommendationId: z.string().min(1), process: z.string().min(1), scope: z.string().min(1), systems: z.array(z.string()), evidenceSummary: clientEvidenceSummarySchema, confidence: companyReportConfidenceSchema, automationOption: z.string().min(1), humanInTheLoop: z.string().min(1), expectedEffect: z.string().min(1), prerequisites: z.array(z.string()), risks: z.array(z.string()) })),
+  recommendations: z.array(z.strictObject({ recommendationId: z.string().min(1), process: z.string().min(1), scope: z.string().min(1), problem: z.string().min(1), systems: z.array(z.string()), evidenceSummary: clientEvidenceSummarySchema, confidence: companyReportConfidenceSchema, priority: z.enum(["standard", "elevated"]), automationOption: z.string().min(1), humanImpact: z.array(z.string()), humanInTheLoop: z.string().min(1), expectedEffect: z.string().min(1), prerequisites: z.array(z.string()), risks: z.array(z.string()) })),
   insufficientEvidence: z.array(z.strictObject({ scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1), allowedConclusion: z.string().min(1) })),
 });
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });

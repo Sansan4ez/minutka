@@ -13,8 +13,14 @@ export type CompanyReportEvidenceRef = { kind: "activity"; id: string; subjectKe
 export type CompanyReportProcessKey = {
   taskCategory?: TaskCategory;
   routinePattern?: RoutinePatternType;
-  automationCandidate?: AutomationCandidateType;
-  energyStressMarker?: EnergyStressMarkerType;
+};
+export type InternalSupportingFacet<T extends string> = {
+  value: T;
+  contributors: number;
+  observations: number;
+  activeDates: number;
+  confidence: CompanyReportConfidence;
+  evidenceRefs: CompanyReportEvidenceRef[];
 };
 
 export type CompanyReportSnapshot = {
@@ -37,6 +43,10 @@ export type InternalEvidenceBucket = {
   observations: number;
   activeDates: number;
   confidence: CompanyReportConfidence;
+  supportingEvidence: {
+    automationHypotheses: Array<InternalSupportingFacet<AutomationCandidateType>>;
+    humanImpactSignals: Array<InternalSupportingFacet<EnergyStressMarkerType>>;
+  };
   evidenceRefs: CompanyReportEvidenceRef[];
 };
 
@@ -59,6 +69,7 @@ export type ClientReportRecommendation = {
   recommendationId: string;
   process: string;
   scope: string;
+  problem: string;
   systems: string[];
   evidenceSummary: {
     contributors: number;
@@ -68,7 +79,9 @@ export type ClientReportRecommendation = {
     limitations: string[];
   };
   confidence: CompanyReportConfidence;
+  priority: "standard" | "elevated";
   automationOption: string;
+  humanImpact: string[];
   humanInTheLoop: string;
   expectedEffect: string;
   prerequisites: string[];
@@ -170,8 +183,6 @@ function buildBuckets(
   const processGroups = groupBy(activities, (activity) => JSON.stringify({
     ...(activity.taskCategory ? { taskCategory: activity.taskCategory } : {}),
     ...(activity.routinePattern ? { routinePattern: activity.routinePattern } : {}),
-    ...(activity.automationCandidate ? { automationCandidate: activity.automationCandidate } : {}),
-    ...(activity.energyStressMarker ? { energyStressMarker: activity.energyStressMarker } : {}),
   }));
   return [...processGroups.entries()].map(([key, observations]) => {
     const process = JSON.parse(key) as CompanyReportProcessKey;
@@ -187,11 +198,34 @@ function buildBuckets(
       observations: observations.length,
       activeDates,
       confidence: confidenceForEvidence({ contributors, observations: observations.length, activeDates }),
-      evidenceRefs: observations
-        .map((activity) => ({ kind: "activity" as const, id: activity.activityId, subjectKey: activity.subjectKey }))
-        .sort((left, right) => left.id.localeCompare(right.id)),
+      supportingEvidence: {
+        automationHypotheses: buildSupportingFacets(observations, (activity) => activity.automationCandidate),
+        humanImpactSignals: buildSupportingFacets(observations, (activity) => activity.energyStressMarker),
+      },
+      evidenceRefs: evidenceRefs(observations),
     };
   }).sort((left, right) => left.bucketId.localeCompare(right.bucketId));
+}
+
+function buildSupportingFacets<T extends string>(
+  activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>,
+  facet: (activity: Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">) => T | undefined,
+): Array<InternalSupportingFacet<T>> {
+  const withFacet = activities.filter((activity) => facet(activity) !== undefined);
+  return [...groupBy(withFacet, (activity) => facet(activity)!).entries()]
+    .map(([value, observations]) => {
+      const contributors = new Set(observations.map((activity) => activity.subjectKey)).size;
+      const activeDates = new Set(observations.map((activity) => activity.activityDate)).size;
+      return {
+        value: value as T,
+        contributors,
+        observations: observations.length,
+        activeDates,
+        confidence: confidenceForEvidence({ contributors, observations: observations.length, activeDates }),
+        evidenceRefs: evidenceRefs(observations),
+      };
+    })
+    .sort((left, right) => left.value.localeCompare(right.value));
 }
 
 function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompanyReport {
@@ -206,12 +240,16 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
   const overallBuckets = internal.buckets.filter((bucket) => bucket.scope.kind === "overall_group");
   const recommendations = overallBuckets.filter((bucket) => isAutomationOpportunity(bucket.process)).map(toClientRecommendation);
   const roleHypotheses = internal.buckets
-    .filter((bucket) => bucket.scope.kind === "role" && bucket.confidence === "hypothesis" && isAutomationOpportunity(bucket.process))
+    .filter((bucket) => bucket.scope.kind === "role" && bucket.confidence === "hypothesis" && (
+      isAutomationOpportunity(bucket.process) || bucket.supportingEvidence.automationHypotheses.length > 0
+    ))
     .map((bucket) => ({
       scope: "Редкая рабочая функция",
-      question: processLabel(bucket.process),
+      question: hypothesisQuestion(bucket),
       reason: evidenceSentence(bucket),
-      allowedConclusion: "Гипотеза о процессе для интервью; не оценка сотрудника и не подтверждённый вывод",
+      allowedConclusion: bucket.process.routinePattern
+        ? "Гипотеза о процессе для интервью; не оценка сотрудника и не подтверждённый вывод"
+        : "Гипотеза об automation option для интервью; наблюдаемая проблема ещё не подтверждена и это не оценка сотрудника",
     }));
   return {
     schemaVersion: "minutka-client-report.v1",
@@ -232,39 +270,69 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
 }
 
 function toClientRecommendation(bucket: InternalEvidenceBucket): ClientReportRecommendation {
-  const process = processLabel(bucket.process);
+  const humanImpact = bucket.supportingEvidence.humanImpactSignals.map((signal) => (
+    `${facetLabel(signal.value)} — ${signal.observations} observation(s), confidence ${signal.confidence}`
+  ));
+  const elevatedPriority = bucket.supportingEvidence.humanImpactSignals.some((signal) => signal.value !== "neutral");
   return {
     recommendationId: bucket.bucketId,
-    process,
+    process: processLabel(bucket.process),
     scope: "Вся группа",
+    problem: observedProblem(bucket.process),
     systems: bucket.systems.map(systemLabel),
     evidenceSummary: {
       contributors: bucket.contributors,
       observations: bucket.observations,
       activeDates: bucket.activeDates,
       summary: evidenceSentence(bucket),
-      limitations: bucket.confidence === "hypothesis" ? ["Требуется интервью или дополнительное наблюдение"] : [],
+      limitations: [
+        ...(bucket.confidence === "hypothesis" ? ["Требуется интервью или дополнительное наблюдение проблемы"] : []),
+        ...(bucket.supportingEvidence.automationHypotheses.length === 0 ? ["Automation option не наблюдался в canonical activities и требует композиции методологом"] : []),
+        ...(bucket.supportingEvidence.automationHypotheses.some((item) => item.confidence === "hypothesis") ? ["Automation hypothesis опирается на единичное или слабое evidence"] : []),
+      ],
     },
     confidence: bucket.confidence,
-    automationOption: automationOption(bucket.process),
+    priority: elevatedPriority ? "elevated" : "standard",
+    automationOption: automationOption(bucket),
+    humanImpact,
     humanInTheLoop: "Владелец процесса проверяет исключения и подтверждает спорные результаты",
     expectedEffect: expectedEffect(bucket.process),
     prerequisites: ["владелец процесса", "неперсональный пример текущего процесса", "baseline времени и ошибок"],
-    risks: ["неполное покрытие исключений", "автоматизация нестабильного процесса"],
+    risks: [
+      "неполное покрытие исключений",
+      "автоматизация нестабильного процесса",
+      ...(elevatedPriority ? ["human-impact signal требует проверки причин и безопасного темпа изменения процесса"] : []),
+    ],
   };
 }
 
 function isAutomationOpportunity(process: CompanyReportProcessKey): boolean {
-  return process.automationCandidate !== undefined
-    || (process.routinePattern !== undefined && ["manual_reporting", "coordination_overhead", "meeting_overload", "context_switching"].includes(process.routinePattern));
+  return process.routinePattern !== undefined
+    && ["manual_reporting", "coordination_overhead", "meeting_overload", "context_switching"].includes(process.routinePattern);
 }
 
 function processLabel(process: CompanyReportProcessKey): string {
-  const task = process.taskCategory ? taskCategoryLabel(process.taskCategory) : "Рабочий процесс";
-  if (process.routinePattern) return `${task}: ${facetLabel(process.routinePattern)}`;
-  if (process.automationCandidate) return `${task}: ${facetLabel(process.automationCandidate)}`;
-  if (process.energyStressMarker) return `${task}: ${facetLabel(process.energyStressMarker)}`;
-  return task;
+  return process.taskCategory ? taskCategoryLabel(process.taskCategory) : "Рабочий процесс";
+}
+
+function observedProblem(process: CompanyReportProcessKey): string {
+  if (!process.routinePattern) return "Наблюдаемая проблема ещё не зафиксирована";
+  const labels: Record<RoutinePatternType, string> = {
+    manual_reporting: "Отчётность готовится вручную",
+    coordination_overhead: "Повторяющаяся координация создаёт лишние шаги",
+    meeting_overload: "Рабочий процесс перегружен синхронными встречами",
+    context_switching: "Частое переключение контекста прерывает работу",
+    waiting_for_input: "Продвижение работы зависит от ожидания входных данных",
+    unclear_priority: "Неясный приоритет замедляет выбор следующего шага",
+    other: "Наблюдается рабочее трение вне текущей taxonomy",
+  };
+  return labels[process.routinePattern];
+}
+
+function hypothesisQuestion(bucket: InternalEvidenceBucket): string {
+  if (bucket.process.routinePattern) return `${processLabel(bucket.process)}: ${observedProblem(bucket.process)}`;
+  const options = bucket.supportingEvidence.automationHypotheses.map((item) => facetLabel(item.value)).join(", ");
+  return `${processLabel(bucket.process)}: проверить automation hypothesis «${options}» после подтверждения наблюдаемой проблемы`;
 }
 
 function taskCategoryLabel(value: TaskCategory): string {
@@ -279,9 +347,13 @@ function facetLabel(value: RoutinePatternType | AutomationCandidateType | Energy
 function systemLabel(value: ActivitySystem): string {
   return ({ bitrix24: "Bitrix24", one_c: "1С", spreadsheets: "Электронные таблицы", email: "Почта", messengers: "Мессенджеры", crm: "CRM", task_tracker: "Таск-трекер", telephony: "Телефония", tender_platform: "Тендерная площадка", logistics_system: "Логистическая система", learning_platform: "Платформа обучения", paper_or_verbal: "Бумага или устно", other: "Другая система" } as const)[value];
 }
-function automationOption(process: CompanyReportProcessKey): string {
-  if (process.automationCandidate) return `Проверить вариант «${facetLabel(process.automationCandidate)}» на ограниченном участке`;
-  return "Стандартизировать шаги процесса и автоматизировать повторяемую часть с ручной очередью исключений";
+function automationOption(bucket: InternalEvidenceBucket): string {
+  const hypotheses = bucket.supportingEvidence.automationHypotheses;
+  if (hypotheses.length > 0) {
+    const options = hypotheses.map((item) => `«${facetLabel(item.value)}» (${item.confidence})`).join(", ");
+    return `Automation hypotheses для проверки методологом: ${options}`;
+  }
+  return "Гипотеза методолога: стандартизировать шаги процесса и проверить автоматизацию повторяемой части с ручной очередью исключений";
 }
 function expectedEffect(process: CompanyReportProcessKey): string {
   return process.routinePattern === "meeting_overload" ? "Сокращение синхронных согласований" : "Сокращение повторного ручного труда и числа ошибок";
@@ -289,13 +361,16 @@ function expectedEffect(process: CompanyReportProcessKey): string {
 function evidenceSentence(bucket: InternalEvidenceBucket): string {
   return `${bucket.contributors} contributor(s), ${bucket.observations} observation(s), ${bucket.activeDates} active date(s)`;
 }
+function evidenceRefs(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): CompanyReportEvidenceRef[] {
+  return activities
+    .map((activity) => ({ kind: "activity" as const, id: activity.activityId, subjectKey: activity.subjectKey }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
 function bucketId(scope: InternalEvidenceBucket["scope"], process: CompanyReportProcessKey): string {
   const scopeKey = scope.kind === "overall_group" ? "overall" : `role-${scope.roleId}`;
   const processKey = [
     process.taskCategory ?? "uncategorized",
-    process.routinePattern ?? "no-routine",
-    process.automationCandidate ?? "no-automation",
-    process.energyStressMarker ?? "no-energy",
+    process.routinePattern ?? "no-observed-friction",
   ].join("-");
   return `${scopeKey}-${processKey}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 }

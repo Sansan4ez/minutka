@@ -38,10 +38,11 @@ Contributor считается по distinct `subject_key`: двадцать act
 
 1. Сверьте `internal.companyId` и `internal.groupId` с выбранной группой.
 2. Проверьте coverage: invited participants, contributors, observations и active dates.
-3. Для каждого internal bucket проверьте confidence и activity refs. В evidence pack допустимы subject keys; в client DTO — нет.
-4. Убедитесь, что client recommendation описывает процесс, систему и возможность автоматизации, а не продуктивность или качество работы человека.
-5. При слабом coverage оставьте hypothesis/`insufficientEvidence`; не повышайте confidence редакторским текстом.
-6. После correction/purge запустите команду повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities.
+3. Для каждого internal bucket проверьте process key (`taskCategory + routinePattern`) и activity refs. Automation candidates находятся отдельно в `supportingEvidence.automationHypotheses`, energy/stress markers — в `supportingEvidence.humanImpactSignals`; они не дробят процесс и не меняют confidence наблюдаемой проблемы. В evidence pack допустимы subject keys; в client DTO — нет.
+4. Убедитесь, что client recommendation отдельно называет `process`, наблюдаемую `problem`, проверяемую `automationOption` и supporting `humanImpact`. Automation candidate без observed routine/friction остаётся в `insufficientEvidence`, а не становится рекомендацией.
+5. Human-impact signal может повысить `priority` и добавить risk, но не является process key и не заменяет доказательство проблемы.
+6. При слабом coverage оставьте hypothesis/`insufficientEvidence`; не повышайте confidence редакторским текстом. Перед передачей методолог подтверждает или редактирует automation option.
+7. После correction/purge запустите команду повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities.
 
 Отдельного reporting writer/table нет: correction и purge применяются к canonical subject-aware evidence, после чего report command пересчитывает результат.
 
