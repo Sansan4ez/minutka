@@ -217,11 +217,14 @@ describe("A2.6: legacy Minutka agent removal", () => {
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
     });
 
-    expect(captured).toEqual([{ activities: [{ taskCategory: "reporting", durationBucket: "30_60m", system: "spreadsheets" }] }]);
+    expect(captured).toEqual([{ activities: [{ taskCategory: "reporting", durationBucket: "30_60m" }] }]);
     expect(generateOptions).toMatchObject({
       system: "private context",
       toolChoice: "auto",
-      activeTools: [...assistantActiveToolNames],
+      activeTools: assistantActiveToolNames.filter((toolName) =>
+        toolName !== "readRecentOwnActivities"
+        && toolName !== "correctRecentActivity"
+        && toolName !== "supersedeRecentActivity"),
       maxSteps: 4,
       abortSignal: abortController.signal,
     });
