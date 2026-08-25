@@ -193,7 +193,9 @@ describe("SPEC-HTTP-API-001: authenticated HTTP application API", () => {
     expect(await employee.submitOnboardingAnswer({ text: "Максим" })).toMatchObject({ status: "needs_choice", field: "communicationStyle" });
     expect(await employee.resetOnboardingDraft()).toMatchObject({ status: "needs_choice", field: "roleId" });
     await employee.submitOnboardingAnswer({ text: "default_role" });
-    await employee.submitOnboardingAnswer({ text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
+    await employee.submitOnboardingAnswer({ text: "Максим" });
+    await employee.submitOnboardingAnswer({ text: "informal_efficiency" });
+    await employee.submitOnboardingAnswer({ text: "Europe/Moscow" });
     expect(await employee.submitOnboardingAnswer({ text: "Исправить" })).toMatchObject({ status: "needs_correction" });
     await employee.confirmOnboarding();
     expect((await employee.getProfile()).employeeId).toBe("emp_a");

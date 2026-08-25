@@ -265,7 +265,8 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
       agentRunner: async () => "Добро пожаловать!",
       deps: {
         onboardingProfileExtractor: async () => ({
-          preferredName: "Алексей",
+          addressForm: "formal",
+          persona: "efficiency",
           ambiguousFields: [],
           usage: { inputTokens: 300, outputTokens: 20, totalTokens: 320, llmSteps: 1 },
         }),
@@ -283,13 +284,14 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
     await runtime.service.acceptConsent({ employeeId: "owner", accepted: true, source: "test" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "default_role" });
 
-    await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "Зови меня Алексей" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "Максим" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "owner", text: "Общайся по-деловому" });
 
     const records = await usageStore.listRecords();
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ userId: "owner", source: "onboarding", inputTokens: 300, outputTokens: 20 });
     // The patch reaches the draft; usage never leaks into onboarding data.
-    expect(world.onboardingDrafts[0]).toMatchObject({ preferredName: "Алексей" });
+    expect(world.onboardingDrafts[0]).toMatchObject({ preferredName: "Максим", addressForm: "formal", persona: "efficiency" });
     expect(JSON.stringify(world.onboardingDrafts)).not.toContain("usage");
   });
 

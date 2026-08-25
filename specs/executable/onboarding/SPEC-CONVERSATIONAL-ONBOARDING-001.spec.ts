@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
-import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch, normalizeTimezone } from "../../../src/application/onboarding-profile-extractor.js";
+import { normalizeFormalTimezone, normalizeOnboardingProfilePatch, parseExactOnboardingAnswer } from "../../../src/application/onboarding-profile-extractor.js";
 import { completeOnboardingRequestSchema, onboardingFieldSchema, timezoneSchema } from "../../../src/contracts/minutka-api.js";
 import { normalizeIanaTimezone, resolveTimezoneAlias } from "../../../src/shared/iana-timezone.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
@@ -14,6 +14,7 @@ import type { DocumentStore } from "../../../src/application/document-store.js";
 import { extractOnboardingProfileWithAgent } from "../../../src/mastra/onboarding-profile-extractor.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
 import { createSpecParticipantStore } from "../support/participant-store.js";
+import { createScriptedOnboardingProfileExtractor } from "../support/scripted-deps.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -23,7 +24,11 @@ const testTenantBinding = { companyId: "default_company", groupId: "default_grou
 
 async function consentedRuntime(employeeId = "emp_conversational") {
   const world = createInMemoryWorld();
-  const runtime = createInMemoryRuntime({ world, agentRunner: async () => "Добро пожаловать!" });
+  const runtime = createInMemoryRuntime({
+    world,
+    agentRunner: async () => "Добро пожаловать!",
+    deps: { onboardingProfileExtractor: createScriptedOnboardingProfileExtractor() },
+  });
   await runtime.service.issueInvite({ employeeId, inviteCode: `invite_${employeeId}`, ...testTenantBinding });
   await runtime.service.openInvite({ inviteCode: `invite_${employeeId}` });
   await runtime.service.acceptConsent({ employeeId, accepted: true, source: "test" });
@@ -31,12 +36,20 @@ async function consentedRuntime(employeeId = "emp_conversational") {
   return runtime;
 }
 
-const completeAnswer = "Максим | На ты, коротко и по делу | Europe/Moscow";
+async function completeGuidedDraft(
+  runtime: Awaited<ReturnType<typeof consentedRuntime>>,
+  employeeId: string,
+  timezone = "Europe/Moscow",
+) {
+  await runtime.service.submitOnboardingAnswer({ employeeId, text: "Максим" });
+  await runtime.service.submitOnboardingAnswer({ employeeId, text: "informal_efficiency" });
+  return runtime.service.submitOnboardingAnswer({ employeeId, text: timezone });
+}
 
 describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", () => {
-  it("collects the minimal profile in one message and writes only after confirmation", async () => {
+  it("collects the minimal profile through four guided steps and writes only after confirmation", async () => {
     const runtime = await consentedRuntime();
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: completeAnswer })).toMatchObject({
+    expect(await completeGuidedDraft(runtime, "emp_conversational")).toMatchObject({
       status: "needs_confirmation",
       summary: { preferredName: "Максим", communicationStyle: "на ты, коротко и по делу", timezone: "Europe/Moscow" },
     });
@@ -51,7 +64,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("materializes owner-scoped semantic context only after confirmation", async () => {
     const runtime = await consentedRuntime("owner_context");
-    await runtime.service.submitOnboardingAnswer({ employeeId: "owner_context", text: completeAnswer });
+    await completeGuidedDraft(runtime, "owner_context");
 
     expect(await runtime.documentStore.list("owner_context", "context/")).toEqual([]);
     await runtime.service.confirmOnboarding({ employeeId: "owner_context" });
@@ -70,7 +83,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("supplies the confirmed owner's goals and projects to chat after a service restart", async () => {
     const runtime = await consentedRuntime("owner_restart");
-    await runtime.service.submitOnboardingAnswer({ employeeId: "owner_restart", text: completeAnswer });
+    await completeGuidedDraft(runtime, "owner_restart");
     await runtime.service.confirmOnboarding({ employeeId: "owner_restart" });
 
     const ingestion = createIngestionService({
@@ -123,7 +136,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       "context/imported-knowledge-base/10_user_memory/01_Persona.md",
       "# Existing constitution",
     );
-    await runtime.service.submitOnboardingAnswer({ employeeId: "owner_imported", text: completeAnswer });
+    await completeGuidedDraft(runtime, "owner_imported");
     await runtime.service.confirmOnboarding({ employeeId: "owner_imported" });
 
     expect(await runtime.documentStore.getExact("owner_imported", "context/10_user_memory/01_личная_конституция.md")).toBeNull();
@@ -133,11 +146,11 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
   });
 
-  it("asks exactly four questions and maps every communication preset", async () => {
+  it("asks exactly four questions and maps every canonical communication-style value without extraction", async () => {
     const presets = [
-      ["На ты, по-человечески", "informal", "support"],
-      ["На вы, по-деловому", "formal", "efficiency"],
-      ["На ты, коротко и по делу", "informal", "efficiency"],
+      ["informal_support", "informal", "support"],
+      ["formal_efficiency", "formal", "efficiency"],
+      ["informal_efficiency", "informal", "efficiency"],
     ] as const;
     for (const [answer, addressForm, persona] of presets) {
       const employeeId = `emp_preset_${addressForm}_${persona}`;
@@ -172,7 +185,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     };
 
     await expect(runtime.service.getOnboardingProgress({ employeeId: "emp_legacy_draft" })).resolves.toMatchObject({ status: "needs_choice", field: "communicationStyle" });
-    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_legacy_draft", text: "На вы, по-деловому" })).resolves.toMatchObject({ status: "needs_choice", field: "timezone" });
+    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_legacy_draft", text: "formal_efficiency" })).resolves.toMatchObject({ status: "needs_choice", field: "timezone" });
   });
 
   it("resolves friendly timezone aliases and fixed offsets without reversing the sign", () => {
@@ -193,7 +206,8 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("explains an unrecognized timezone and shows the choices again", async () => {
     const runtime = await consentedRuntime("emp_bad_timezone");
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "Максим | На ты, коротко и по делу | мусор" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "Максим" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "informal_efficiency" });
 
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_bad_timezone", text: "совсем не пояс" })).resolves.toMatchObject({
       status: "needs_choice",
@@ -204,11 +218,11 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
   });
 
-  it("extracts multiple choice fields from one message through bounded signals", () => {
-    const patch = extractDeterministicOnboardingPatch({
-      text: "Меня зовут Максим. Тебя зовут Спарк. Общаемся на ты, стиль деловой.",
+  it("accepts a multilingual preferred name as a bounded literal without keyword parsing", () => {
+    const patch = parseExactOnboardingAnswer({
+      text: "  李 Алексей  ",
       currentDraft: {
-        employeeId: "emp_multi_field",
+        employeeId: "emp_literal_name",
         status: "collecting",
         pendingField: "preferredName",
         revision: 1,
@@ -217,32 +231,22 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
         expiresAt: "2026-01-31T00:00:00.000Z",
       },
     });
-
-    expect(patch).toMatchObject({
-      preferredName: "Максим",
-      assistantName: "Спарк",
-      addressForm: "informal",
-      persona: "efficiency",
-    });
-    expect(patch.responseLength).toBeUndefined();
+    expect(patch).toEqual({ preferredName: "李 Алексей", ambiguousFields: [] });
+    expect(parseExactOnboardingAnswer({
+      text: `Максим${String.fromCharCode(0)}`,
+      currentDraft: {
+        employeeId: "emp_invalid_literal_name",
+        status: "collecting",
+        pendingField: "preferredName",
+        revision: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-31T00:00:00.000Z",
+      },
+    })).toBeUndefined();
   });
 
   it("does not infer unanswered choice fields from unrelated substrings", async () => {
-    const namePatch = extractDeterministicOnboardingPatch({
-      text: "Обычно меня зовут Саша",
-      currentDraft: {
-        employeeId: "emp_substrings",
-        status: "collecting",
-        pendingField: "preferredName",
-        revision: 1,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        expiresAt: "2026-01-31T00:00:00.000Z",
-      },
-    });
-    expect(namePatch).toMatchObject({ preferredName: "Саша" });
-    expect(namePatch.responseLength).toBeUndefined();
-
     const runtime = await consentedRuntime("emp_substrings");
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "Саша" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_substrings", text: "на тыловой стороне" })).resolves.toMatchObject({
@@ -261,7 +265,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
     await runtime.service.resetOnboardingDraft({ employeeId: "emp_conversational" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "default_role" });
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: completeAnswer });
+    await completeGuidedDraft(runtime, "emp_conversational");
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Нет" })).resolves.toMatchObject({ status: "needs_correction" });
     await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_conversational", text: "Зови меня Алексей" })).resolves.toMatchObject({
       status: "needs_confirmation", summary: { preferredName: "Алексей" },
@@ -311,6 +315,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     });
 
     const runtime = await consentedRuntime("emp_untrusted_patch");
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_untrusted_patch", text: "Максим" });
     const extractedRuntime = createInMemoryRuntime({
       world: runtime.world,
       agentRunner: async () => "ok",
@@ -327,7 +332,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       },
     });
 
-    await expect(extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_untrusted_patch", text: "данные профиля" })).resolves.toMatchObject({
+    await expect(extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_untrusted_patch", text: "Общайся по-деловому" })).resolves.toMatchObject({
       status: "needs_choice",
       field: "timezone",
     });
@@ -353,7 +358,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     expect(normalizeIanaTimezone("Etc/UTC")).toBe("Etc/UTC");
     expect(normalizeIanaTimezone("europe/moscow")).toBe("Europe/Moscow");
     expect(normalizeIanaTimezone("Asia/Calcutta")).toBe("Asia/Calcutta");
-    expect(normalizeTimezone("america/argentina/buenos_aires")).toBe("America/Buenos_Aires");
+    expect(normalizeFormalTimezone("america/argentina/buenos_aires")).toBe("America/Buenos_Aires");
     expect(timezoneSchema.parse("UTC")).toBe("Etc/UTC");
     expect(timezoneSchema.parse("GMT")).toBe("Etc/GMT");
     expect(timezoneSchema.parse("europe/moscow")).toBe("Europe/Moscow");
@@ -399,7 +404,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     })).resolves.toMatchObject({ timezone: "Etc/GMT" });
 
     const runtime = await consentedRuntime("emp_single_segment_tz");
-    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_single_segment_tz", text: "Максим | На ты, коротко и по делу | UTC" })).resolves.toMatchObject({
+    await expect(completeGuidedDraft(runtime, "emp_single_segment_tz", "UTC")).resolves.toMatchObject({
       status: "needs_confirmation",
       summary: { timezone: "Etc/UTC" },
     });
@@ -412,9 +417,8 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
 
   it("saves an onboarding profile that uses an Etc timezone alias", async () => {
     const runtime = await consentedRuntime("emp_etc_tz");
-    const answer = "Максим | На ты, коротко и по делу | Etc/GMT";
 
-    await expect(runtime.service.submitOnboardingAnswer({ employeeId: "emp_etc_tz", text: answer })).resolves.toMatchObject({
+    await expect(completeGuidedDraft(runtime, "emp_etc_tz", "Etc/GMT")).resolves.toMatchObject({
       status: "needs_confirmation",
       summary: { timezone: "Etc/GMT" },
     });
@@ -429,6 +433,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     vi.useFakeTimers();
     try {
       const runtime = await consentedRuntime("emp_default_extraction_timeout");
+      await runtime.service.submitOnboardingAnswer({ employeeId: "emp_default_extraction_timeout", text: "Максим" });
       const extractedRuntime = createInMemoryRuntime({
         world: runtime.world,
         agentRunner: async () => "ok",
@@ -454,11 +459,12 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     }
   });
 
-  it("logs timeout diagnostics and falls back without exposing the onboarding answer", async () => {
+  it("logs timeout diagnostics and keeps the current guided step without exposing the onboarding answer", async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const runtime = await consentedRuntime("emp_timeout_fallback");
+      await runtime.service.submitOnboardingAnswer({ employeeId: "emp_timeout_fallback", text: "Максим" });
       const extractedRuntime = createInMemoryRuntime({
         world: runtime.world,
         agentRunner: async () => "ok",
@@ -468,21 +474,24 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
         },
       });
 
-      const answer = extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_timeout_fallback", text: completeAnswer });
+      const answer = extractedRuntime.service.submitOnboardingAnswer({ employeeId: "emp_timeout_fallback", text: "Общайся дружелюбно" });
       await vi.advanceTimersByTimeAsync(50);
-      await expect(answer).resolves.toMatchObject({ status: "needs_confirmation" });
+      await expect(answer).resolves.toMatchObject({ status: "needs_choice", field: "communicationStyle" });
+      expect(runtime.world.onboardingDrafts[0]).toMatchObject({ preferredName: "Максим", pendingField: "communicationStyle" });
       expect(warning).toHaveBeenCalledWith(expect.stringMatching(
         /^Minutka onboarding profile extraction timed out \(employeeId=emp_timeout_fallback; waitedMs=50; timeoutMs=50\)\.$/,
       ));
-      expect(warning.mock.calls.flat().join(" ")).not.toContain(completeAnswer);
+      expect(warning.mock.calls.flat().join(" ")).not.toContain("Общайся дружелюбно");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("validates IANA timezone and falls back deterministically when the extractor fails", async () => {
+  it("validates IANA timezone and keeps the draft unchanged when the extractor fails", async () => {
     const invalid = await consentedRuntime("emp_invalid_tz");
-    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим | На ты, коротко и по делу | ?" });
+    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "Максим" });
+    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "informal_efficiency" });
+    await invalid.service.submitOnboardingAnswer({ employeeId: "emp_invalid_tz", text: "?" });
     expect(invalid.world.onboardingDrafts[0].timezone).toBeUndefined();
     expect(invalid.world.onboardingDrafts[0].pendingField).toBe("timezone");
 
@@ -492,18 +501,24 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await runtime.service.openInvite({ inviteCode: "invite_fallback" });
     await runtime.service.acceptConsent({ employeeId: "emp_fallback", accepted: true, source: "test" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: "default_role" });
-    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: completeAnswer })).toMatchObject({ status: "needs_confirmation" });
+    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: "Максим" });
+    expect(await runtime.service.submitOnboardingAnswer({ employeeId: "emp_fallback", text: "Общайся дружелюбно" })).toMatchObject({ status: "needs_choice", field: "communicationStyle" });
+    expect(world.onboardingDrafts[0]).toMatchObject({ preferredName: "Максим", pendingField: "communicationStyle" });
   });
 
   it("makes repeated confirmation idempotent without duplicate documents, audit facts or agent runs", async () => {
     let agentRuns = 0;
     const world = createInMemoryWorld();
-    const runtime = createInMemoryRuntime({ world, agentRunner: async () => { agentRuns += 1; return "ok"; } });
+    const runtime = createInMemoryRuntime({
+      world,
+      agentRunner: async () => { agentRuns += 1; return "ok"; },
+      deps: { onboardingProfileExtractor: createScriptedOnboardingProfileExtractor() },
+    });
     await runtime.service.issueInvite({ employeeId: "emp_confirm", inviteCode: "invite_confirm", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_confirm" });
     await runtime.service.acceptConsent({ employeeId: "emp_confirm", accepted: true, source: "test" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: "default_role" });
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_confirm", text: completeAnswer });
+    await completeGuidedDraft(runtime as Awaited<ReturnType<typeof consentedRuntime>>, "emp_confirm");
     await Promise.all([runtime.service.confirmOnboarding({ employeeId: "emp_confirm" }), runtime.service.confirmOnboarding({ employeeId: "emp_confirm" })]);
     expect(agentRuns).toBe(0);
     expect(world.auditEvents.filter((event) => event.type === "profile_updated")).toHaveLength(1);
@@ -524,6 +539,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
       world,
       agentRunner: async () => "ok",
       deps: {
+        onboardingProfileExtractor: createScriptedOnboardingProfileExtractor(),
         onboardingContextMaterializer: {
           async materialize(input) {
             if (fail) throw new Error("document store unavailable");
@@ -536,7 +552,7 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     await runtime.service.openInvite({ inviteCode: "invite_recovery" });
     await runtime.service.acceptConsent({ employeeId: "emp_recovery", accepted: true, source: "test" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_recovery", text: "default_role" });
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_recovery", text: completeAnswer });
+    await completeGuidedDraft(runtime as Awaited<ReturnType<typeof consentedRuntime>>, "emp_recovery");
 
     await expect(runtime.service.confirmOnboarding({ employeeId: "emp_recovery" })).rejects.toThrow("document store unavailable");
     expect(world.profiles).toHaveLength(0);
@@ -593,13 +609,13 @@ describe("SPEC-CONVERSATIONAL-ONBOARDING-001: minimal personal introduction", ()
     const runtime = createInMemoryRuntime({
       world,
       agentRunner: async () => "ok",
-      deps: { onboardingProfileExtractor: async (input) => { if (input.text === "Зови меня Алексей") { extractionStarted(); await release; } return extractDeterministicOnboardingPatch(input); } },
+      deps: { onboardingProfileExtractor: async (input) => { if (input.text === "Зови меня Алексей") { extractionStarted(); await release; } return createScriptedOnboardingProfileExtractor()(input); } },
     });
     await runtime.service.issueInvite({ employeeId: "emp_race", inviteCode: "invite_race", ...testTenantBinding });
     await runtime.service.openInvite({ inviteCode: "invite_race" });
     await runtime.service.acceptConsent({ employeeId: "emp_race", accepted: true, source: "test" });
     await runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: "default_role" });
-    await runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: completeAnswer });
+    await completeGuidedDraft(runtime as Awaited<ReturnType<typeof consentedRuntime>>, "emp_race");
     const staleAnswer = runtime.service.submitOnboardingAnswer({ employeeId: "emp_race", text: "Зови меня Алексей" });
     await started;
     await runtime.service.confirmOnboarding({ employeeId: "emp_race" });

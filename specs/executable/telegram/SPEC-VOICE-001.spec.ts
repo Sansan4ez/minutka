@@ -248,11 +248,12 @@ describe("SPEC-VOICE-001: Telegram voice converges to the text chat path", () =>
     await telegram.chooseDefaultRole("onboarding_voice", "onboarding_user");
     telegram.clear();
 
-    await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "Максим | Спарк | На ты | Деловой | Коротко | Europe/Moscow" });
+    await telegram.sendVoice({ chatId: "onboarding_voice", userId: "onboarding_user", fileId: "onboarding", durationSeconds: 5, transcript: "李 Максим" });
     expect(telegram.sentMessages().map((message) => message.text)).toEqual(expect.arrayContaining([
-      "Распознано:\nМаксим | Спарк | На ты | Деловой | Коротко | Europe/Moscow",
-      expect.stringContaining("Проверьте, пожалуйста"),
+      "Распознано:\n李 Максим",
+      expect.stringContaining("Как удобнее общаться"),
     ]));
+    expect(spec.world.onboardingDrafts[0]).toMatchObject({ preferredName: "李 Максим", pendingField: "communicationStyle" });
     expect(spec.world.messages).toHaveLength(0);
   });
 

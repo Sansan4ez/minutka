@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeTimezone, type OnboardingProfileExtractor } from "../application/onboarding-profile-extractor.js";
+import { normalizeExtractedTimezone, type OnboardingProfileExtractor } from "../application/onboarding-profile-extractor.js";
 import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
 import { normalizeMastraUsage } from "./model-usage.js";
 
@@ -26,7 +26,7 @@ export const extractOnboardingProfileWithAgent: OnboardingProfileExtractor = asy
     text,
   ].join("\n"), { structuredOutput: { schema: onboardingExtractorTransportSchema }, abortSignal: signal });
   const parsed = onboardingExtractorTransportSchema.parse(result.object);
-  const timezone = parsed.timezone === null ? undefined : normalizeTimezone(parsed.timezone);
+  const timezone = parsed.timezone === null ? undefined : normalizeExtractedTimezone(parsed.timezone);
   const usage = normalizeMastraUsage(result);
   return {
     ...(usage ? { usage } : {}),

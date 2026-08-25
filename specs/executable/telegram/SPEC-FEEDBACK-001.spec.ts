@@ -43,6 +43,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     return "Я робот-помощник Минутка.";
   };
 
+  async function completeGuidedOnboarding(telegram: TelegramDriver, chatId: string): Promise<void> {
+    await telegram.sendText({ chatId, text: "Максим" });
+    await telegram.sendText({ chatId, text: "informal_efficiency" });
+    await telegram.sendText({ chatId, text: "Europe/Moscow" });
+  }
+
   it("0. Invite bootstrap parser accepts unique tenant-bound invite entries only", () => {
     expect(parseInviteSeeds("emp_1:invite_a:company_a:group_a,emp_2:invite_b:company_b:group_b")).toEqual([
       { employeeId: "emp_1", inviteCode: "invite_a", companyId: "company_a", groupId: "group_a" },
@@ -719,14 +725,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     expect(spec.world.messages).toHaveLength(0);
 
     telegram.clear();
-    await telegram.sendText({
-      chatId: "chat_1",
-      text: "На ты, коротко и по делу | Europe/Moscow",
-    });
-    expect(telegram.sentMessages()[0].text).toContain("Проверьте, пожалуйста");
+    await telegram.sendText({ chatId: "chat_1", text: "informal_efficiency" });
+    await telegram.sendText({ chatId: "chat_1", text: "Europe/Moscow" });
+    expect(telegram.sentMessages().at(-1)?.text).toContain("Проверьте, пожалуйста");
     expect(spec.world.profiles).toHaveLength(0);
 
-    const confirm = telegram.sentMessages()[0].replyMarkup?.inlineKeyboard[0][0].callbackData;
+    const confirm = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][0].callbackData;
     telegram.clear();
     await telegram.clickCallback({ chatId: "chat_1", callbackData: confirm! });
     expect(telegram.sentMessages()).toHaveLength(2);
@@ -765,9 +769,9 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     await telegram.clickCallback({ chatId: "chat_named_role", callbackData: "ob:roleId:role_acme_logistics", messageId: rolePrompt.messageId });
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_named_role", text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
-    expect(telegram.sentMessages()[0].text).toContain("- должность: Логист;");
-    expect(telegram.sentMessages()[0].text).not.toContain("role_acme_logistics");
+    await completeGuidedOnboarding(telegram, "chat_named_role");
+    expect(telegram.sentMessages().at(-1)?.text).toContain("- должность: Логист;");
+    expect(telegram.sentMessages().at(-1)?.text).not.toContain("role_acme_logistics");
     expect(spec.world.onboardingDrafts[0]).toMatchObject({ roleId: "role_acme_logistics", status: "awaiting_confirmation" });
   });
 
@@ -781,9 +785,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.chooseDefaultRole("chat_confirmation_dedupe");
     telegram.clear();
 
-    const completeAnswer = "Максим | На ты, коротко и по делу | Europe/Moscow";
-    await telegram.deliverText({ chatId: "chat_confirmation_dedupe", text: completeAnswer });
-    await telegram.deliverText({ chatId: "chat_confirmation_dedupe", text: completeAnswer });
+    await completeGuidedOnboarding(telegram, "chat_confirmation_dedupe");
+    await telegram.deliverText({ chatId: "chat_confirmation_dedupe", text: "Europe/Moscow" });
 
     const confirmations = telegram.sentMessages().filter((message) => message.text.includes("Проверьте, пожалуйста"));
     expect(confirmations).toHaveLength(1);
@@ -812,11 +815,12 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.chooseDefaultRole("chat_confirmation_retry");
     telegram.clear();
 
-    const completeAnswer = "Максим | На ты, коротко и по делу | Europe/Moscow";
+    await telegram.sendText({ chatId: "chat_confirmation_retry", text: "Максим" });
+    await telegram.sendText({ chatId: "chat_confirmation_retry", text: "informal_efficiency" });
     telegram.failNextMessageDelivery();
-    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: completeAnswer });
+    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: "Europe/Moscow" });
     telegram.clear();
-    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: completeAnswer });
+    await telegram.deliverText({ chatId: "chat_confirmation_retry", text: "Europe/Moscow" });
 
     expect(telegram.sentMessages().filter((message) => message.text.includes("Проверьте, пожалуйста"))).toHaveLength(1);
   });
@@ -830,7 +834,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.clickCallback({ chatId: "chat_stale_confirmation", callbackData: consent! });
     await telegram.chooseDefaultRole("chat_stale_confirmation");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_stale_confirmation", text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
+    await completeGuidedOnboarding(telegram, "chat_stale_confirmation");
     const confirmation = telegram.sentMessages()[0];
     const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
     await telegram.deliverCallback({ chatId: "chat_stale_confirmation", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_first" });
@@ -838,7 +842,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
 
     await telegram.deliverCallback({ chatId: "chat_stale_confirmation", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_stale" });
 
-    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_stale", text: "Профиль уже сохранён." });
+    expect(telegram.callbackAnswers()).toContainEqual({ callbackQueryId: "confirm_stale", text: "Уже обработано." });
     expect(telegram.sentMessages()).toHaveLength(0);
   });
 
@@ -901,6 +905,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       world,
       agentRunner: dummyAgentRunner,
       deps: {
+        ...createDefaultSpecDeps(),
         onboardingContextMaterializer: {
           async materialize() {
             attempts += 1;
@@ -917,8 +922,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.clickCallback({ chatId: "chat_confirm_retry", callbackData: consent! });
     await telegram.chooseDefaultRole("chat_confirm_retry");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_confirm_retry", text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
-    const confirmation = telegram.sentMessages()[0];
+    await completeGuidedOnboarding(telegram, "chat_confirm_retry");
+    const confirmation = telegram.sentMessages().find((message) => message.text.includes("Проверьте, пожалуйста"))!;
     const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
 
     const first = telegram.deliverCallback({ chatId: "chat_confirm_retry", callbackData: confirm!, messageId: confirmation.messageId, callbackQueryId: "confirm_failing" });
@@ -941,6 +946,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
       world,
       agentRunner: dummyAgentRunner,
       deps: {
+        ...createDefaultSpecDeps(),
         onboardingContextMaterializer: {
           async materialize() {
             attempts += 1;
@@ -957,8 +963,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.clickCallback({ chatId: "chat_confirm_claim_race", callbackData: consent! });
     await telegram.chooseDefaultRole("chat_confirm_claim_race");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_confirm_claim_race", text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
-    const confirmation = telegram.sentMessages()[0];
+    await completeGuidedOnboarding(telegram, "chat_confirm_claim_race");
+    const confirmation = telegram.sentMessages().find((message) => message.text.includes("Проверьте, пожалуйста"))!;
     const confirm = confirmation.replyMarkup?.inlineKeyboard[0][0].callbackData;
     telegram.clear();
 
@@ -1007,7 +1013,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.clickCallback({ chatId: "chat_correction", callbackData: consent! });
     await telegram.chooseDefaultRole("chat_correction");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_correction", text: "Максим | На ты, коротко и по делу | Europe/Moscow" });
+    await completeGuidedOnboarding(telegram, "chat_correction");
     const edit = telegram.sentMessages().at(-1)?.replyMarkup?.inlineKeyboard[0][1];
     expect(edit).toMatchObject({ text: "✏️ Исправить", callbackData: "ob:reset" });
     await telegram.clickCallback({ chatId: "chat_correction", callbackData: edit!.callbackData });
@@ -1049,7 +1055,8 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.chooseDefaultRole("chat_timezone_button");
     telegram.clear();
 
-    await telegram.sendText({ chatId: "chat_timezone_button", text: "Максим | На ты, коротко и по делу | ?" });
+    await telegram.sendText({ chatId: "chat_timezone_button", text: "Максим" });
+    await telegram.clickCallback({ chatId: "chat_timezone_button", callbackData: "ob:communicationStyle:informal_efficiency" });
     const timezonePrompt = telegram.sentMessages().at(-1)!;
     const yekaterinburg = timezonePrompt.replyMarkup?.inlineKeyboard.flat().find((button) => button.text === "Екатеринбург");
     expect(yekaterinburg).toMatchObject({ callbackData: "ob:timezone:Asia/Yekaterinburg" });
@@ -1070,13 +1077,14 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     await telegram.clickCallback({ chatId: "chat_timezone_retry", callbackData: consent! });
     await telegram.chooseDefaultRole("chat_timezone_retry");
     telegram.clear();
-    await telegram.sendText({ chatId: "chat_timezone_retry", text: "Максим | На ты, коротко и по делу | ?" });
+    await telegram.sendText({ chatId: "chat_timezone_retry", text: "Максим" });
+    await telegram.clickCallback({ chatId: "chat_timezone_retry", callbackData: "ob:communicationStyle:informal_efficiency" });
     telegram.clear();
 
     await telegram.sendText({ chatId: "chat_timezone_retry", text: "не знаю какой" });
 
     const retry = telegram.sentMessages().at(-1);
-    expect(retry?.text).toContain("Не узнал этот пояс");
+    expect(retry?.text).toContain("Выберите ваш часовой пояс");
     expect(retry?.replyMarkup?.inlineKeyboard.flat()).toContainEqual({ text: "Москва", callbackData: "ob:timezone:Europe/Moscow" });
   });
 

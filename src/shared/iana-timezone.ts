@@ -59,16 +59,24 @@ function offsetTimezone(offsetHours: number): string | undefined {
   return `Etc/GMT${offsetHours > 0 ? "-" : "+"}${Math.abs(offsetHours)}`;
 }
 
+/** Resolves exact UTC/GMT offsets to a canonical fixed-offset IANA identifier. */
+export function resolveUtcOffsetTimezone(value: string): string | undefined {
+  const candidate = value.trim();
+  if (!candidate || candidate.length > 64) return undefined;
+  const compact = candidate.replace(/\s+/gu, "");
+  const utcOffset = compact.match(/^(?:utc|gmt)?([+-])(\d{1,2})(?::?00)?$/iu);
+  if (!utcOffset) return undefined;
+  const hours = Number(utcOffset[2]) * (utcOffset[1] === "+" ? 1 : -1);
+  return offsetTimezone(hours);
+}
+
 /** Resolves common city, region, and fixed-offset input to a canonical IANA identifier. */
 export function resolveTimezoneAlias(value: string): string | undefined {
   const candidate = value.trim().replace(/[.,;!?]+$/u, "").trim();
   if (!candidate || candidate.length > 64) return undefined;
+  const offset = resolveUtcOffsetTimezone(candidate);
+  if (offset) return offset;
   const compact = candidate.replace(/\s+/gu, "");
-  const utcOffset = compact.match(/^(?:utc|gmt)?([+-])(\d{1,2})(?::?00)?$/iu);
-  if (utcOffset) {
-    const hours = Number(utcOffset[2]) * (utcOffset[1] === "+" ? 1 : -1);
-    return offsetTimezone(hours);
-  }
   const moscowOffset = compact.match(/^(?:мск|msk)([+-])(\d{1,2})$/iu);
   if (moscowOffset) {
     const hours = 3 + Number(moscowOffset[2]) * (moscowOffset[1] === "+" ? 1 : -1);

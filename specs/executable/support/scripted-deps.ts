@@ -1,6 +1,7 @@
 import type { ConversationDecisionRouter } from "../../../src/application/conversation-decision-router.js";
 import type { InsightExtractor } from "../../../src/application/insight-extractor.js";
 import type { MinutkaServiceDeps } from "../../../src/application/minutka-service.js";
+import type { OnboardingProfileExtractor } from "../../../src/application/onboarding-profile-extractor.js";
 import type { StructuredInsightDraft } from "../../../src/domain/insights.js";
 
 export function createSpecConversationDecisionRouter(): ConversationDecisionRouter {
@@ -140,12 +141,45 @@ export function createSpecInsightExtractor(): InsightExtractor {
   };
 }
 
+export function createScriptedOnboardingProfileExtractor(): OnboardingProfileExtractor {
+  return async ({ text, currentDraft }) => {
+    const pipe = text.split("|").map((part) => part.trim());
+    if (pipe.length === 3 && pipe.every(Boolean)) {
+      const style = pipe[1] === "На ты, коротко и по делу"
+        ? { addressForm: "informal" as const, persona: "efficiency" as const }
+        : pipe[1] === "На ты, по-человечески"
+          ? { addressForm: "informal" as const, persona: "support" as const }
+          : pipe[1] === "На вы, по-деловому"
+            ? { addressForm: "formal" as const, persona: "efficiency" as const }
+            : {};
+      return { preferredName: pipe[0], ...style, timezone: pipe[2], ambiguousFields: [] };
+    }
+    if (pipe.length === 6 && pipe.every(Boolean)) {
+      return {
+        preferredName: pipe[0],
+        assistantName: pipe[1],
+        addressForm: pipe[2] === "На вы" ? "formal" : "informal",
+        persona: pipe[3] === "Деловой" ? "efficiency" : "support",
+        responseLength: pipe[4] === "Коротко" ? "short" : "balanced",
+        timezone: pipe[5],
+        ambiguousFields: [],
+      };
+    }
+    if (currentDraft.status === "awaiting_confirmation") {
+      if (text === "Зови меня Алексей") return { preferredName: "Алексей", ambiguousFields: [] };
+      if (text === "Зови меня Максим") return { preferredName: "Максим", ambiguousFields: [] };
+    }
+    return { ambiguousFields: [] };
+  };
+}
+
 export function createDefaultSpecDeps(
   overrides: Partial<MinutkaServiceDeps> = {},
 ): MinutkaServiceDeps {
   return {
     conversationDecisionRouter: createSpecConversationDecisionRouter(),
     insightExtractor: createSpecInsightExtractor(),
+    onboardingProfileExtractor: createScriptedOnboardingProfileExtractor(),
     ...overrides,
   };
 }

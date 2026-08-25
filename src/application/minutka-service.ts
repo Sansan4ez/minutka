@@ -13,7 +13,7 @@ import type { TenantDirectoryStore } from "./tenant-directory-store.js";
 import type { OnboardingDraftStore } from "./onboarding-draft-store.js";
 import type { OnboardingProfileExtraction, OnboardingProfileExtractor } from "./onboarding-profile-extractor.js";
 import type { UsageRecorder } from "./usage-recorder.js";
-import { extractDeterministicOnboardingPatch, normalizeOnboardingProfilePatch } from "./onboarding-profile-extractor.js";
+import { normalizeOnboardingProfilePatch, parseExactOnboardingAnswer } from "./onboarding-profile-extractor.js";
 import type { OnboardingDraft, OnboardingProfilePatch, OnboardingProgress } from "./onboarding-types.js";
 import type { OnboardingContextMaterializer } from "./onboarding-context-materializer.js";
 import { buildBoundaryResponse, sanitizeConversationDecision, type ConversationDecisionRouter } from "./conversation-decision-router.js";
@@ -114,7 +114,7 @@ export type MinutkaServiceDeps = {
   onboardingDraftStore?: OnboardingDraftStore;
   onboardingProfileExtractor?: OnboardingProfileExtractor;
   onboardingContextMaterializer?: OnboardingContextMaterializer;
-  /** Bounds provider latency; extraction always falls back before the HTTP budget expires. */
+  /** Bounds provider latency; failure keeps the draft at the current guided step. */
   onboardingExtractionTimeoutMs?: number;
   usageRecorder?: UsageRecorder;
   conversationStore?: ConversationStore;
@@ -448,33 +448,37 @@ export class MinutkaService {
       if (isAffirmativeOnboardingAnswer(text)) return { status: "completed", result: await this.confirmOnboarding({ employeeId }) };
       if (isNegativeOnboardingAnswer(text)) return { status: "needs_correction", prompt: onboardingCorrectionPrompt };
     }
-    let extracted: OnboardingProfileExtraction;
-    const extractionTimeoutMs = this.deps.onboardingExtractionTimeoutMs ?? defaultOnboardingExtractionTimeoutMs;
-    const extractionStartedAt = Date.now();
-    try {
-      extracted = this.deps.onboardingProfileExtractor
-        ? await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, extractionTimeoutMs)
-        : extractDeterministicOnboardingPatch({ text, currentDraft: current });
-    } catch (error) {
-      if (isOnboardingExtractorTimeout(error)) {
-        console.warn(`Minutka onboarding profile extraction timed out (employeeId=${employeeId}; waitedMs=${Date.now() - extractionStartedAt}; timeoutMs=${extractionTimeoutMs}).`);
-      } else {
-        logOperationalError("onboarding profile extraction", error);
+    const exactPatch = parseExactOnboardingAnswer({ text, currentDraft: current });
+    let patch: OnboardingProfilePatch;
+    if (exactPatch) {
+      patch = exactPatch;
+    } else {
+      const extractionTimeoutMs = this.deps.onboardingExtractionTimeoutMs ?? defaultOnboardingExtractionTimeoutMs;
+      const extractionStartedAt = Date.now();
+      let extracted: OnboardingProfileExtraction;
+      try {
+        if (!this.deps.onboardingProfileExtractor) throw new Error("onboarding_profile_extractor_unavailable");
+        extracted = await extractOnboardingPatchWithTimeout(this.deps.onboardingProfileExtractor, { text, currentDraft: current }, extractionTimeoutMs);
+      } catch (error) {
+        if (isOnboardingExtractorTimeout(error)) {
+          console.warn(`Minutka onboarding profile extraction timed out (employeeId=${employeeId}; waitedMs=${Date.now() - extractionStartedAt}; timeoutMs=${extractionTimeoutMs}).`);
+        } else if (!(error instanceof Error) || error.message !== "onboarding_profile_extractor_unavailable") {
+          logOperationalError("onboarding profile extraction", error);
+        }
+        return this.onboardingProgressWithRoles(current);
       }
-      extracted = extractDeterministicOnboardingPatch({ text, currentDraft: current });
+      // Semantic extraction is billed only for free-text answers that are not
+      // already represented by the exact guided protocol.
+      if (extracted.usage) {
+        await this.deps.usageRecorder?.record({
+          userId: employeeId,
+          requestId: this.ids.requestId(),
+          source: "onboarding",
+          usage: extracted.usage,
+        });
+      }
+      patch = normalizeOnboardingProfilePatch(extracted);
     }
-    // Extraction runs on every onboarding answer, so it is a recurring spend of
-    // the owner contour and needs its own attributed usage row.
-    if (extracted.usage) {
-      await this.deps.usageRecorder?.record({
-        userId: employeeId,
-        requestId: this.ids.requestId(),
-        source: "onboarding",
-        usage: extracted.usage,
-      });
-    }
-    const fallback = extractDeterministicOnboardingPatch({ text, currentDraft: current });
-    const patch = normalizeOnboardingProfilePatch(mergePatches(extracted, fallback));
     let draft = current;
     // A second Telegram delivery may have filled a different field while the
     // extractor was running. Re-merge the same bounded patch once instead of
@@ -776,17 +780,6 @@ function isAffirmativeOnboardingAnswer(text: string): boolean { return /^(?:да
 function isNegativeOnboardingAnswer(text: string): boolean { return /^(?:нет|неверно|не верно|исправить|не всё верно)$/iu.test(text.trim()); }
 function isCompleteOnboardingDraft(draft: OnboardingDraft): draft is OnboardingDraft & Required<Pick<OnboardingDraft, "roleId" | "preferredName" | "addressForm" | "persona" | "timezone">> {
   return Boolean(draft.roleId && draft.preferredName && draft.addressForm && draft.persona && draft.timezone);
-}
-function mergePatches(primary: OnboardingProfilePatch, fallback: OnboardingProfilePatch): OnboardingProfilePatch {
-  return {
-    preferredName: primary.preferredName ?? fallback.preferredName,
-    assistantName: primary.assistantName ?? fallback.assistantName,
-    addressForm: primary.addressForm ?? fallback.addressForm,
-    persona: primary.persona ?? fallback.persona,
-    responseLength: primary.responseLength ?? fallback.responseLength,
-    timezone: primary.timezone ?? fallback.timezone,
-    ambiguousFields: [...new Set([...primary.ambiguousFields, ...fallback.ambiguousFields])],
-  };
 }
 function mergeOnboardingPatch(draft: OnboardingDraft, patch: OnboardingProfilePatch): Pick<OnboardingDraft, "roleId" | "preferredName" | "assistantName" | "addressForm" | "persona" | "responseLength" | "timezone"> {
   const next = { roleId: draft.roleId, preferredName: draft.preferredName, assistantName: draft.assistantName, addressForm: draft.addressForm, persona: draft.persona, responseLength: draft.responseLength, timezone: draft.timezone };
