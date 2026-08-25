@@ -2,8 +2,8 @@ import { Agent } from "@mastra/core/agent";
 import { describe, expect, it } from "vitest";
 import type { CollectActivitiesResult } from "../../../src/application/activity-collection.js";
 import { collectActivitiesMaximumItems } from "../../../src/contracts/minutka-activity.js";
+import { extractDurationEvidence, RequestDurationEvidence } from "../../../src/application/activity-duration-evidence.js";
 import {
-  activityDurationBuckets,
   activitySystems,
   automationCandidateTypes,
   energyStressMarkerTypes,
@@ -57,7 +57,10 @@ describe("SPEC-MINUTKA-ACTIVITY-PROVIDER-SCHEMA-001: provider request boundary",
     });
 
     await agent.generate("schema check", {
-      toolsets: { activities: { collectActivities: createCollectActivitiesTool(collectActivities as never) } },
+      toolsets: { activities: { collectActivities: createCollectActivitiesTool(
+        collectActivities as never,
+        new RequestDurationEvidence(extractDurationEvidence("Встреча заняла 35 минут, отчёт — 2 часа.")),
+      ) } },
       activeTools: ["collectActivities"],
       toolChoice: "auto",
       maxSteps: 1,
@@ -73,7 +76,9 @@ describe("SPEC-MINUTKA-ACTIVITY-PROVIDER-SCHEMA-001: provider request boundary",
     expect(properties?.routinePattern?.enum).toEqual([...routinePatternTypes]);
     expect(properties?.automationCandidate?.enum).toEqual([...automationCandidateTypes]);
     expect(properties?.energyStressMarker?.enum).toEqual([...energyStressMarkerTypes]);
-    expect(properties?.durationBucket?.enum).toEqual([...activityDurationBuckets]);
+    expect(properties?.durationBucket).toBeUndefined();
+    expect(properties?.durationRef?.enum).toEqual(["duration_1", "duration_2"]);
+    expect(properties?.durationRef?.description).toMatch(/request-local.*each ref.*once/i);
     expect(properties?.system?.enum).toEqual([...activitySystems]);
     expect(properties?.routinePattern?.description).toMatch(/explicit.*omit.*other/i);
     expect(properties?.automationCandidate?.description).toMatch(/explicit.*omit.*other/i);

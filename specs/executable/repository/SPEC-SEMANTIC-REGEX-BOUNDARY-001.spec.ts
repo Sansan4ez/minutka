@@ -9,6 +9,7 @@ const activeCompositionPaths = [
   "src/application/onboarding-profile-extractor.ts",
   "src/mastra/onboarding-profile-extractor.ts",
   "src/mastra/tools/activity-collection-tool.ts",
+  "src/application/activity-duration-evidence.ts",
   "src/application/minutka-service.ts",
 ] as const;
 
@@ -105,7 +106,7 @@ function inspectSource(input: SourceInput): string[] {
         if (node.parameters.length !== 1 || node.parameters.some((parameter) => containsIdentifier(parameter, "text"))) {
           report("`createAssistantToolsets` must accept only typed request context, never raw user text");
         }
-        let collectActivitiesIsDirect = false;
+        let collectActivitiesUsesDurationEvidence = false;
         if (!node.body) {
           report("`createAssistantToolsets` must have an implementation");
           return;
@@ -113,11 +114,12 @@ function inspectSource(input: SourceInput): string[] {
         visit(node.body, (candidate) => {
           if (!ts.isPropertyAssignment(candidate) || nodeName(candidate) !== "collectActivities") return;
           if (!ts.isCallExpression(candidate.initializer) || !ts.isIdentifier(candidate.initializer.expression)) return;
-          collectActivitiesIsDirect = candidate.initializer.expression.text === "createCollectActivitiesTool"
-            && candidate.initializer.arguments.length === 1
-            && candidate.initializer.arguments[0]?.getText(sourceFile) === "context.collectActivities";
+          collectActivitiesUsesDurationEvidence = candidate.initializer.expression.text === "createCollectActivitiesTool"
+            && candidate.initializer.arguments[0]?.getText(sourceFile) === "context.collectActivities"
+            && (candidate.initializer.arguments.length === 1
+              || (candidate.initializer.arguments.length === 2 && candidate.initializer.arguments[1]?.getText(sourceFile) === "durationEvidence"));
         });
-        if (!collectActivitiesIsDirect) report("the activity write tool must bind directly to its typed use-case without semantic argument rewriting");
+        if (!collectActivitiesUsesDurationEvidence) report("the activity write tool must bind its typed use-case only through the request-local duration evidence boundary");
       }
     });
   }
@@ -125,16 +127,26 @@ function inspectSource(input: SourceInput): string[] {
   if (input.path === "src/mastra/tools/activity-collection-tool.ts") {
     visit(sourceFile, (node) => {
       if (!ts.isFunctionDeclaration(node) || nodeName(node) !== "createCollectActivitiesTool") return;
-      let directTypedCall = false;
+      let resolvedTypedCall = false;
       if (!node.body) {
         report("`createCollectActivitiesTool` must have an implementation");
         return;
       }
       visit(node.body, (candidate) => {
         if (!ts.isCallExpression(candidate) || !ts.isIdentifier(candidate.expression) || candidate.expression.text !== "collectActivities") return;
-        directTypedCall = candidate.arguments.length === 1 && candidate.arguments[0]?.getText(sourceFile) === "input";
+        resolvedTypedCall = candidate.arguments.length === 1 && candidate.arguments[0]?.getText(sourceFile) === "prepared.input";
       });
-      if (!directTypedCall) report("the activity tool must forward its schema-validated input without raw-text deletion or rewriting");
+      if (!resolvedTypedCall) report("the activity tool must forward only schema-validated closed fields plus mechanically resolved request-local duration evidence");
+    });
+  }
+
+  if (input.path === "src/application/activity-duration-evidence.ts") {
+    const durationParserSymbols = new Set(["integerDurationPattern", "halfHourPattern", "oneAndHalfHourPattern"]);
+    visit(sourceFile, (node) => {
+      if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !durationParserSymbols.has(node.name.text)) return;
+      if (!node.initializer || !ts.isRegularExpressionLiteral(node.initializer)) {
+        report("duration measurement patterns must remain explicit formal regex literals");
+      }
     });
   }
 

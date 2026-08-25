@@ -16,10 +16,10 @@ Input is `{ activities: [...] }`. Send one item per fact. A call accepts at most
 - `routinePattern`
 - `automationCandidate`
 - `energyStressMarker`
-- `durationBucket`
+- `durationRef` — optional request-local explicit-duration reference; use once for its factual episode, never emit a bucket
 - `system`
 
-In one item, combine `taskCategory` with every explicit facet: `routinePattern`, `automationCandidate`, and `energyStressMarker` may coexist. Omit unknowns; never infer emotion or split facets into rows. One item is one factual activity, no free text.
+In one item, combine `taskCategory` with every explicit facet: `routinePattern`, `automationCandidate`, and `energyStressMarker` may coexist. Associate `durationRef` only with its measured episode; omit uncertainty. Omit unknowns; never infer emotion or split facets into rows. One item is one factual activity, no free text.
 
 ## Output
 
@@ -31,4 +31,4 @@ Level 0: this is an internal authenticated write requested by the employee's act
 
 ## Boundary
 
-Employee, company, group, and role ids are bound by application code and never accepted from model input. Omit unknown values instead of guessing. The action accepts no raw story, name, label, rationale, blocker text, arbitrary system name, timestamp, or user identifier.
+Employee, company, group, and role ids are bound by application code and never accepted from model input. Omit unknown values instead of guessing. The adapter resolves valid refs to `durationBucket`; refs/spans never persist. The action accepts no raw story, name, label, rationale, blocker text, arbitrary system name, timestamp, or user identifier.

@@ -101,7 +101,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
         expect(tool.execute).toBeTypeOf("function");
         const result = await tool.execute?.({ activities: [{
           taskCategory: "reporting",
-          durationBucket: "30_60m",
+          durationRef: "duration_1",
           system: "spreadsheets",
         }] }, {});
         expect(result).toEqual({ status: "completed", savedCount: 1 });
@@ -131,7 +131,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
       personalContext: {} as never,
       profileAndHistory: {} as never,
       records: {} as never,
-      source: { kind: "text", text: "capture" },
+      source: { kind: "text", text: "capture for 35 minutes" },
       async collectActivities(input) {
         captured.push(input);
         return { status: "completed", savedCount: input.activities.length, activityIds: ["activity_1"] };

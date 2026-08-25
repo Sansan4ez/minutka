@@ -19,6 +19,7 @@ import {
   createSupersedeRecentActivityTool,
 } from "../../../src/mastra/tools/activity-correction-tools.js";
 import type { Participant } from "../../../src/domain/employee.js";
+import { extractDurationEvidence, RequestDurationEvidence } from "../../../src/application/activity-duration-evidence.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 const scope = { employeeId: "employee_a", companyId: "company_a", groupId: "group_a" };
@@ -148,7 +149,10 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
   });
 
   it("keeps ambiguity outside mutation and exposes only opaque revisioned schemas", () => {
-    const correctTool = createCorrectRecentActivityTool(async () => ({ status: "completed", handle: "opaque", revision: 2 }));
+    const correctTool = createCorrectRecentActivityTool(
+      async () => ({ status: "completed", handle: "opaque", revision: 2 }),
+      new RequestDurationEvidence(extractDurationEvidence("Исправление: заняло 35 минут")),
+    );
     const supersedeTool = createSupersedeRecentActivityTool(async () => ({ status: "completed", handle: "opaque", revision: 2 }));
     const schemas = JSON.stringify([
       correctTool.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" }),
@@ -161,5 +165,36 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
     expect(process).toContain("A stale revision changes nothing");
     expect(correctTool.description).toContain("one candidate is unambiguous");
     expect(supersedeTool.description).toContain("Never infer duplicates");
+  });
+
+  it("sets duration only through current-message evidence and keeps replace clearing available", async () => {
+    const calls: unknown[] = [];
+    const evidence = new RequestDurationEvidence(extractDurationEvidence("Исправление: встреча заняла 35 минут"));
+    const tool = createCorrectRecentActivityTool(async (input) => {
+      calls.push(input);
+      return { status: "completed", handle: input.handle, revision: input.expectedRevision + 1 };
+    }, evidence);
+
+    await expect(tool.execute?.({
+      handle: "activity_a", expectedRevision: 1, mode: "patch",
+      correction: { durationRef: "duration_1" },
+    }, {} as never)).resolves.toEqual({ status: "completed", handle: "activity_a", revision: 2 });
+    expect(calls).toEqual([{
+      handle: "activity_a", expectedRevision: 1, mode: "patch",
+      correction: { durationBucket: "30_60m" },
+    }]);
+
+    const clearing = createCorrectRecentActivityTool(async (input) => {
+      calls.push(input);
+      return { status: "completed", handle: input.handle, revision: input.expectedRevision + 1 };
+    }, new RequestDurationEvidence([]));
+    await clearing.execute?.({
+      handle: "activity_a", expectedRevision: 2, mode: "replace", correction: { taskCategory: "meetings" },
+    }, {} as never);
+    expect(calls.at(-1)).toEqual({
+      handle: "activity_a", expectedRevision: 2, mode: "replace", correction: { taskCategory: "meetings" },
+    });
+    const schema = clearing.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" });
+    expect(JSON.stringify(schema)).not.toContain("durationBucket");
   });
 });

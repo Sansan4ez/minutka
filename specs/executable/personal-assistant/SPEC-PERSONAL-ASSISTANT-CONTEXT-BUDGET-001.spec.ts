@@ -62,9 +62,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * repins the compact provider-visible generic system mapping. mnt-wy5.7
  * repins the two explicit revisioned activity repair manifests and process rules.
  * mnt-fz2.1 pins the agent-led ordinary-repeat stop rule after removing the
- * semantic activity gate from the TypeScript runtime.
+ * semantic activity gate from the TypeScript runtime. mnt-wy5.13 repins the
+ * request-local explicit-duration reference rules.
  */
-const pinnedAgentManualCharacters = 37_767;
+const pinnedAgentManualCharacters = 37_896;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
@@ -79,7 +80,7 @@ const pinnedAgentManualCharacters = 37_767;
  * verify` while that headroom is still thousands of characters, so a growing
  * manual is a budget decision here rather than a production restart failure.
  */
-const minimumAgentManualHeadroomCharacters = 7_000;
+const minimumAgentManualHeadroomCharacters = 6_800;
 
 const projection = {
   schemaVersion: 1 as const,

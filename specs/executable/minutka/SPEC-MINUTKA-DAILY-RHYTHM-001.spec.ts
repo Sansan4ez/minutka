@@ -110,7 +110,7 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
         const tool = options.toolsets.activities.collectActivities as { execute(input: unknown, context: unknown): Promise<unknown> };
         toolCalls += 1;
         await expect(tool.execute({ activities: [
-          { taskCategory: "meetings", durationBucket: "30_60m", system: "messengers" },
+          { taskCategory: "meetings", system: "messengers" },
           { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" },
           { taskCategory: "coordination" },
           { taskCategory: "focus_work", automationCandidate: "data_entry_reduction" },

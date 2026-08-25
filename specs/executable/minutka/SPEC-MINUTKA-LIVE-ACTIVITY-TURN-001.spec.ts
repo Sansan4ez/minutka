@@ -19,14 +19,14 @@ type ScriptedStep =
   | { tool: "correctRecentActivity"; input: unknown }
   | { tool: "supersedeRecentActivity"; input: unknown };
 
-function context(overrides: Partial<AssistantAgentContext> = {}): AssistantAgentContext {
+function context(overrides: Partial<AssistantAgentContext> = {}, sourceText = ordinaryAccount): AssistantAgentContext {
   const notUsed = async () => { throw new Error("not used"); };
   return {
     systemContext: "runtime",
     personalContext: {} as never,
     profileAndHistory: {} as never,
     records: {} as never,
-    source: { kind: "text", text: ordinaryAccount },
+    source: { kind: "text", text: sourceText },
     captureIdea: notUsed as never,
     documents: {} as never,
     contextDocuments: {} as never,
@@ -65,7 +65,6 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
     const activeTools: string[][] = [];
     const input = { activities: [{
       taskCategory: "meetings" as const,
-      durationBucket: "30_60m" as const,
     }] };
 
     await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], activeTools))(
@@ -96,6 +95,95 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
     expect(input.activities[0]).not.toHaveProperty("routinePattern");
     expect(input.activities[0]).not.toHaveProperty("automationCandidate");
     expect(input.activities[0]).not.toHaveProperty("energyStressMarker");
+  });
+
+  it("preserves the observed multi-activity pilot account with exactly one supported duration", async () => {
+    const writes: unknown[] = [];
+    const input = { activities: [
+      { taskCategory: "admin" as const },
+      { taskCategory: "meetings" as const, durationRef: "duration_1" },
+      { taskCategory: "focus_work" as const },
+      { taskCategory: "focus_work" as const },
+      { taskCategory: "communication" as const },
+      { taskCategory: "focus_work" as const },
+      { taskCategory: "focus_work" as const },
+    ] };
+
+    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
+      {
+        userId: "emp_algoritm_institute_07",
+        threadId: "pilot",
+        text: "Проверила домашние работы, завершила созвон с руководителем — примерно полтора часа, затем готовила материалы, проверяла задания, звонила выпускникам и ещё работала над двумя блоками программы.",
+      },
+      context({
+        async collectActivities(received) {
+          writes.push(received);
+          return { status: "completed", savedCount: received.activities.length, activityIds: received.activities.map((_, index) => `activity_${index + 1}`) };
+        },
+      }, "Проверила домашние работы, завершила созвон с руководителем — примерно полтора часа, затем готовила материалы, проверяла задания, звонила выпускникам и ещё работала над двумя блоками программы."),
+    );
+
+    expect(writes).toEqual([{ activities: [
+      { taskCategory: "admin" },
+      { taskCategory: "meetings", durationBucket: "1_2h" },
+      { taskCategory: "focus_work" },
+      { taskCategory: "focus_work" },
+      { taskCategory: "communication" },
+      { taskCategory: "focus_work" },
+      { taskCategory: "focus_work" },
+    ] }]);
+  });
+
+  it("rejects a free-standing invented duration and allows the same-loop retry without losing facts", async () => {
+    let modelStep = 0;
+    const writes: unknown[] = [];
+    const model = {
+      specificationVersion: "v2",
+      provider: "scripted-duration-recovery",
+      modelId: "scripted-duration-recovery",
+      supportedUrls: {},
+      async doGenerate() {
+        modelStep += 1;
+        const base = { rawCall: { rawPrompt: null, rawSettings: {} }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, warnings: [] };
+        if (modelStep === 1) return {
+          ...base,
+          finishReason: "tool-calls",
+          content: [{
+            type: "tool-call", toolCallId: "invented", toolName: "collectActivities",
+            input: JSON.stringify({ activities: [
+              { taskCategory: "meetings", durationBucket: "1_2h" },
+              { taskCategory: "reporting", durationBucket: "30_60m" },
+            ] }),
+          }],
+        };
+        if (modelStep === 2) return {
+          ...base,
+          finishReason: "tool-calls",
+          content: [{
+            type: "tool-call", toolCallId: "honest", toolName: "collectActivities",
+            input: JSON.stringify({ activities: [{ taskCategory: "meetings" }, { taskCategory: "reporting" }] }),
+          }],
+        };
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал обе активности без неподтверждённого времени." }] };
+      },
+      async doStream() { throw new Error("streaming is not used"); },
+    } as never;
+    const agent = new Agent({ id: "duration-recovery", name: "duration-recovery", instructions: "Retry invalid activity calls.", model, tools: {}, editor: false });
+
+    const result = await createAssistantAgentRunner(agent)(
+      { userId: "employee", threadId: "thread", text: "Провёл встречу и подготовил отчёт." },
+      context({
+        async collectActivities(received) {
+          writes.push(received);
+          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1", "activity_2"] };
+        },
+      }, "Провёл встречу и подготовил отчёт."),
+    );
+
+    expect(result.text).toContain("обе активности");
+    expect(writes).toEqual([{ activities: [{ taskCategory: "meetings" }, { taskCategory: "reporting" }] }]);
+    expect(JSON.stringify(result.trace?.toolResults)).toContain("durationBucket");
+    expect(JSON.stringify(result.trace?.toolResults)).not.toContain("Провёл встречу");
   });
 
   it("passes generic amoCRM and 1С mappings without unsupported facets", async () => {
@@ -180,7 +268,7 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
               type: "tool-call",
               toolCallId: "corrected_activity",
               toolName: "collectActivities",
-              input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }),
+              input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] }),
             }],
           };
         }
@@ -205,7 +293,7 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
           writes.push(received);
           return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
         },
-      }),
+      }, "Провёл 35-минутную встречу с поставщиком."),
     );
 
     expect(result.text).toBe("Записал встречу.");

@@ -154,7 +154,7 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
           finishReason: "tool-calls",
           content: [{
             type: "tool-call", toolCallId: "good", toolName: "collectActivities",
-            input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }),
+            input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] }),
           }],
         };
         return { ...base, finishReason: "stop", content: [{ type: "text", text: "Встреча записана." }] };
