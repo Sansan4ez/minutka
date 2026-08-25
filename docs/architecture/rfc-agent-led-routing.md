@@ -41,6 +41,51 @@ Related:
 2. **Действие — через typed tools, чей хендлер и есть use-case.** Граница записи, аудит и изоляция по `userId` живут в хендлере инструмента, а не в пре-флайт-роутере. Инструмент сам по себе — контролируемая граница (аналог единственного `execute_python` в ecom1).
 3. **Audit / `selectedProcessIds` — восстанавливаются из фактических вызовов инструментов** (а после появления `readProcess` — также из его лога), а не задаются Application-слоем заранее и не создаются отдельным решающим артефактом. Это подход самого ecom1 («runtime BP восстанавливаются из последовательности Read/tool logs») и research §3.2.1.
 4. **Детерминированные `if` — только для реально детерминированных гейтов:** «нет профиля → онбординг», «пришёл файл → capture-путь». Это дешёвые ветки, не LLM-роутер.
+5. **Application не интерпретирует естественный язык повторно.** Если агент выбрал typed tool и сформировал валидные аргументы, application проверяет schema, scope, revision, confirmation и другие механические инварианты, но не удаляет поля, не меняет intent и не скрывает tool по regex/keyword-анализу той же пользовательской фразы.
+
+### Граница смысл → полномочие → исполнение
+
+В product chat действуют три разных центра, и каждый отвечает только за свою силу:
+
+| Центр | Ответственность | Не делает |
+|---|---|---|
+| Основной LLM-agent | Понимает multilingual естественный язык; выбирает применимый процесс, tool и аргументы; при неоднозначности задаёт вопрос. | Не определяет authenticated identity, tenant scope, confirmation validity или revision conflict. |
+| Typed tool / application use-case | Принимает bounded DTO; привязывает authenticated owner/company/group вне model input; проверяет schema, scope, confirmation, revision, idempotency и persistence outcome. | Не решает по словам пользователя, является ли запрос коррекцией, дублем, препятствием или иной бизнес-семантикой. |
+| Store / infrastructure | Атомарно сохраняет и читает только разрешённый scope; обеспечивает constraints и provenance. | Не участвует в conversational routing. |
+
+Следствие: level-0 owner-scoped tool можно держать в request-scoped catalog постоянно, если его use-case механически безопасен. Фраза «используй только при явной коррекции» принадлежит process/tool instructions и интерпретируется агентом; она не превращается в application regex-gate. Внешние, необратимые и требующие подтверждения операции по-прежнему не выдаются как свободный tool-loop — это механическая capability boundary, а не semantic classifier.
+
+### Где regex допустим, а где запрещён
+
+Regex сам по себе не является проблемой. Он подходит для **формальной грамматики**, где набор допустимых строк конечен или задан протоколом:
+
+- transport routes, callback payloads и opaque identifier format;
+- даты, время, числа, media type, digest, URL/path и IANA timezone syntax;
+- Markdown/fence parsing и control-character filtering;
+- provider error signatures для инфраструктурной recovery-классификации;
+- exact command/button values и другие заранее объявленные protocol tokens.
+
+Regex/keyword tables **не используются для смысла произвольного пользовательского текста**:
+
+- выбора процесса или tool;
+- определения, является ли сообщение коррекцией, дублем, препятствием, эмоцией, системой или automation hypothesis;
+- сокрытия/открытия tools перед основным agent turn;
+- переписывания или удаления валидных tool arguments, которые сформировал агент;
+- semantic override результата LLM guard/router/extractor;
+- production fallback, который при сбое LLM незаметно продолжает бизнес-интерпретацию только для известных языков и фраз.
+
+Практический тест границы: если новый язык, синоним или порядок слов требует дописать pattern, это почти наверняка semantic routing/extraction и должно оставаться в LLM-plane. Если меняется wire format или протокол — regex/schema остаётся уместным.
+
+### Деградация без скрытого semantic fallback
+
+Provider timeout, invalid structured output и unavailable model — инфраструктурные сбои. Допустимая деградация:
+
+- fail closed для security/authority guard;
+- сохранить уже committed business result и честно сообщить о сбое последующего шага;
+- оставить guided state machine на текущем поле и повторить один bounded вопрос;
+- принять exact button/command value, который уже несёт полный typed intent.
+
+Недопустимая деградация — заменить LLM скрытым словарём естественного языка и получить другой набор поддерживаемых смыслов в зависимости от языка. Тестовые fake-agent/fake-extractor остаются injectable и детерминированными, но production semantic fallback ими не подменяется.
 
 ### `toolChoice` — скоупится, а не глобальный `"none"`
 
@@ -61,6 +106,8 @@ Related:
 | Изоляция по `userId` | Ownership-constraint в store; проекции только для аутентифицированного владельца |
 | Тестируемость без LLM | Инжектируемый `AgentRunner` + in-memory stores; spec мокает runner и проверяет вызов инструмента + состояние store |
 | Allow-list навыков | Обеспечивается на уровне tool-хендлера (инструмент принимает только известные project/type/id), а не отдельным пре-флайт-роутером |
+| Multilingual semantic routing | Выполняет основной LLM-agent по process/tool instructions; application не содержит параллельный keyword-словарь |
+| Механическая безопасность tool call | Schema + authenticated scope + confirmation/revision/idempotency в typed use-case; не зависит от формулировки пользователя |
 
 ---
 
@@ -69,6 +116,8 @@ Related:
 - **Пре-флайт `conversationDecisionAgent` как основной механизм** и его JSON-контракт решений — пока навыков единицы.
 - **TS-слой марашлинга**: `resolveAgentManualSelection`, `sanitizeConversationDecision`, `ensureLifecycleProcesses`, дублирующиеся хардкод-каталоги id.
 - **Захардкоженную продуктовую логику в TS**: строки отказов `buildBoundaryResponse`, lifecycle-форсинг — уезжает в process-файлы/агента.
+- **Semantic regex/keyword gates и post-processing**: application не определяет по тексту intent, не фильтрует tool catalog и не переписывает аргументы агента.
+- **Semantic regex override результата LLM**: guard/router/extractor исправляется prompt/schema/evaluation, а не вторым слабым классификатором.
 - **Второй конкурирующий роутер** (`agent-manual-router*`) — удаляется вместе с первым, а не сводится к одному (F3 растворяется).
 
 Порядок удаления — миграционный (§6), не «большой взрыв».
@@ -110,6 +159,8 @@ Related:
 - **Не** вводим пре-флайт-LLM-роутер обратно, пока навыков единицы.
 - **Возвращаем** его точечно, только когда одновременно: (а) навыков много и (б) наблюдается мисс-роутинг одного агента на specs/проде — ровно триггер из `rfc-personal-assistant-architecture.md` §11 («add LLM classifier only if specs show need»).
 - **Не** трогаем границу безопасности §9: скоупинг `toolChoice` касается только внутренних обратимых записей владельца.
+- **Не** переносим security, tenant isolation, confirmation, schema validation и revision checks в prompt: они остаются механическими application/store boundaries.
+- **Не** запрещаем regex в проекте целиком: запрет относится только к semantic interpretation свободного пользовательского текста.
 
 ---
 
