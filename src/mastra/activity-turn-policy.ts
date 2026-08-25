@@ -2,7 +2,7 @@ import type { CollectActivitiesInput } from "../contracts/minutka-activity.js";
 
 const activityRepairSignals = [
   /(?:^|[^\p{L}\p{N}_])(?:исправ(?:ь|ьте|ить|ляю)|поправ(?:ь|ьте|ить)|скорректир[\p{L}\p{N}_]*|уточн(?:ю|ение|ить|яю)|ошиб[\p{L}\p{N}_]*|неверн[\p{L}\p{N}_]*|неправильн[\p{L}\p{N}_]*|точнее|вернее)(?=$|[^\p{L}\p{N}_])/iu,
-  /\b(?:дубликат[\p{L}\p{N}_]*|дубл[\p{L}\p{N}_]*|запис[\p{L}\p{N}_]*\s+дважды|это\s+(?:та|тот|то)\s+же)\b/iu,
+  /(?:^|[^\p{L}\p{N}_])(?:дубликат[\p{L}\p{N}_]*|дубл[\p{L}\p{N}_]*|запис[\p{L}\p{N}_]*\s+дважды|это\s+(?:та|тот|то)\s+же)(?=$|[^\p{L}\p{N}_])/iu,
   /\b(?:correct|correction|clarif(?:y|ication)|fix|wrong|mistake|duplicate)\b/iu,
 ];
 

@@ -76,7 +76,11 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: ordinary account stays an ordinar
     expect(activeTools).toHaveLength(assistantActiveToolNames.length - 3);
   });
 
-  it("keeps bounded correction tools available for a separate explicit correction turn", async () => {
+  it.each([
+    "Исправь предыдущую встречу: препятствием было ожидание входных данных.",
+    "Последняя запись — дубликат первой встречи с коллегами. Удали дубликат и оставь первую запись.",
+    "Последняя встреча дублируется, оставь предыдущую запись.",
+  ])("keeps bounded correction tools available for an explicit repair turn: %s", async (text) => {
     let activeTools: string[] = [];
     const agent: MastraAgentLike = {
       async generate(_text, options) {
@@ -86,7 +90,7 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: ordinary account stays an ordinar
     };
 
     await createAssistantAgentRunner(agent)(
-      { userId: "employee", threadId: "thread", text: "Исправь предыдущую встречу: препятствием было ожидание входных данных." },
+      { userId: "employee", threadId: "thread", text },
       context(),
     );
 
