@@ -64,7 +64,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * mnt-fz2.1 pins the agent-led ordinary-repeat stop rule after removing the
  * semantic activity gate from the TypeScript runtime.
  */
-const pinnedAgentManualCharacters = 37_585;
+const pinnedAgentManualCharacters = 37_767;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

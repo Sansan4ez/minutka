@@ -1,15 +1,19 @@
+import { Agent } from "@mastra/core/agent";
 import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
+import { CollectActivityService } from "../../../src/application/activity-collection.js";
 import { createInMemoryAuditEventStore } from "../../../src/application/in-memory-audit-event-store.js";
 import { createInMemoryBlobStore } from "../../../src/application/in-memory-blob-store.js";
 import { createInMemoryConversationStore } from "../../../src/application/in-memory-conversation-store.js";
 import { createInMemoryDocumentStore } from "../../../src/application/in-memory-document-store.js";
+import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
 import { createInMemoryResearchTraceState, createInMemoryResearchTraceStore } from "../../../src/application/in-memory-research-trace-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { exportResearchTracesJson } from "../../../src/application/research-trace-store.js";
+import { createAssistantAgentRunner } from "../../../src/mastra/agent-runner.js";
 
 const now = "2026-08-18T20:00:00.000Z";
 const versions = {
@@ -111,6 +115,96 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
     expect(JSON.stringify(trace)).not.toContain("invite-secret");
     expect(JSON.stringify(trace)).not.toContain("sk-secret-value");
     expect(JSON.stringify(trace)).toContain("[REDACTED]");
+  });
+
+  it("keeps conversation and full trace durable when an invalid activity call is rejected then corrected", async () => {
+    const world = createInMemoryWorld(() => now);
+    const profiles = await readyParticipant(world, "employee_a", "company_a", "group_a");
+    const traceState = createInMemoryResearchTraceState();
+    const traces = createInMemoryResearchTraceStore(traceState);
+    const activityState = createInMemoryActivityCollectionState();
+    const activities = new CollectActivityService(
+      createInMemoryActivityCollectionStore(activityState),
+      { now: () => now },
+      () => "activity_recovered",
+    );
+    let modelStep = 0;
+    const model = {
+      specificationVersion: "v2",
+      provider: "scripted-trace-recovery",
+      modelId: "scripted-trace-recovery",
+      supportedUrls: {},
+      async doGenerate() {
+        modelStep += 1;
+        const base = {
+          rawCall: { rawPrompt: null, rawSettings: {} },
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          warnings: [],
+        };
+        if (modelStep === 1) return {
+          ...base,
+          finishReason: "tool-calls",
+          content: [{
+            type: "tool-call", toolCallId: "bad", toolName: "collectActivities",
+            input: JSON.stringify({ activities: [{ taskCategory: "meetings", system: "secret_internal_system" }] }),
+          }],
+        };
+        if (modelStep === 2) return {
+          ...base,
+          finishReason: "tool-calls",
+          content: [{
+            type: "tool-call", toolCallId: "good", toolName: "collectActivities",
+            input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }),
+          }],
+        };
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Встреча записана." }] };
+      },
+      async doStream() { throw new Error("streaming is not used"); },
+    } as never;
+    const recoveryAssistant = new AssistantService(createAssistantAgentRunner(new Agent({
+      id: "trace-recovery",
+      name: "trace-recovery",
+      instructions: "Correct invalid activity tool calls within the same turn.",
+      model,
+      tools: {},
+      editor: false,
+    })), {
+      documentStore: createInMemoryDocumentStore({ now: () => now }),
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService: createIngestionService({ documentStore: createInMemoryDocumentStore({ now: () => now }), blobStore: createInMemoryBlobStore({ now: () => now }) }),
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      participantStore: profiles,
+      collectActivities: (command) => activities.collectBatch(command),
+      researchTraceStore: traces,
+      researchTraceVersions: versions,
+      clock: { now: () => now },
+      idGenerator: createDeterministicIdGenerator(),
+    });
+
+    const result = await recoveryAssistant.chat({
+      userId: "employee_a",
+      threadId: "thread_recovery",
+      text: "Провёл 35-минутную встречу с поставщиком.",
+      requiredProcessId: "evening_reflection",
+    });
+    const [trace] = await traces.list({ companyId: "company_a", groupId: "group_a" });
+
+    expect(world.messages).toEqual([expect.objectContaining({ id: result.messageId, text: "Провёл 35-минутную встречу с поставщиком." })]);
+    expect(activityState.activities).toEqual([expect.objectContaining({
+      activityId: "activity_recovered",
+      employeeId: "employee_a",
+      companyId: "company_a",
+      groupId: "group_a",
+      subjectKey: expect.any(String),
+      taskCategory: "meetings",
+      durationBucket: "30_60m",
+    })]);
+    expect(activityState.activities[0]).not.toHaveProperty("system");
+    expect(trace).toMatchObject({ messageId: result.messageId, status: "completed", companyId: "company_a", groupId: "group_a" });
+    expect(trace?.attempts[0]?.toolCalls).toHaveLength(2);
+    expect(trace?.attempts[0]?.toolResults).toHaveLength(2);
+    expect(JSON.stringify(trace?.attempts[0]?.toolResults)).toContain("validationErrors");
+    expect(JSON.stringify(trace)).toContain("secret_internal_system");
   });
 
   it("persists failed traces and keeps tenant-scoped JSON exports isolated", async () => {

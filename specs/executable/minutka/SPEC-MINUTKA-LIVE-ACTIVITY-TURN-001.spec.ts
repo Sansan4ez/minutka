@@ -1,3 +1,4 @@
+import { Agent } from "@mastra/core/agent";
 import { describe, expect, it } from "vitest";
 import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
 import {
@@ -59,15 +60,12 @@ function scriptedAgent(script: ScriptedStep[], observedActiveTools: string[][]):
 }
 
 describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics", () => {
-  it("offers every request-scoped activity capability while an ordinary turn performs only the write", async () => {
+  it("offers every request-scoped activity capability while an ordinary turn writes only evidenced fields", async () => {
     const calls: Array<{ tool: string; input?: unknown }> = [];
     const activeTools: string[][] = [];
     const input = { activities: [{
       taskCategory: "meetings" as const,
-      system: "other" as const,
-      routinePattern: "other" as const,
-      automationCandidate: "other" as const,
-      energyStressMarker: "neutral" as const,
+      durationBucket: "30_60m" as const,
     }] };
 
     await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], activeTools))(
@@ -94,6 +92,33 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
 
     expect(activeTools).toEqual([[...assistantActiveToolNames]]);
     expect(calls).toEqual([{ tool: "collectActivities", input }]);
+    expect(input.activities[0]).not.toHaveProperty("system");
+    expect(input.activities[0]).not.toHaveProperty("routinePattern");
+    expect(input.activities[0]).not.toHaveProperty("automationCandidate");
+    expect(input.activities[0]).not.toHaveProperty("energyStressMarker");
+  });
+
+  it("passes generic amoCRM and 1С mappings without unsupported facets", async () => {
+    const writes: unknown[] = [];
+    const input = { activities: [
+      { taskCategory: "communication" as const, system: "crm" as const },
+      { taskCategory: "reporting" as const, system: "one_c" as const },
+    ] };
+
+    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
+      { userId: "employee", threadId: "thread", text: "Работал с клиентами в amoCRM и сверял данные в 1С." },
+      context({
+        async collectActivities(received) {
+          writes.push(received);
+          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1", "activity_2"] };
+        },
+      }),
+    );
+
+    expect(writes).toEqual([input]);
+    expect(input.activities.every((activity) => !("routinePattern" in activity)
+      && !("automationCandidate" in activity)
+      && !("energyStressMarker" in activity))).toBe(true);
   });
 
   it("passes valid closed facets to the typed collection use-case without semantic rewriting", async () => {
@@ -117,6 +142,81 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
     );
 
     expect(writes).toEqual([input]);
+  });
+
+  it("recovers an invalid enum call in the same bounded Mastra turn without rewriting arguments", async () => {
+    let modelStep = 0;
+    const providerPrompts: unknown[] = [];
+    const model = {
+      specificationVersion: "v2",
+      provider: "scripted-activity-recovery",
+      modelId: "scripted-activity-recovery",
+      supportedUrls: {},
+      async doGenerate(options: { prompt: unknown }) {
+        providerPrompts.push(options.prompt);
+        modelStep += 1;
+        const base = {
+          rawCall: { rawPrompt: null, rawSettings: {} },
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          warnings: [],
+        };
+        if (modelStep === 1) {
+          return {
+            ...base,
+            finishReason: "tool-calls",
+            content: [{
+              type: "tool-call",
+              toolCallId: "invalid_activity",
+              toolName: "collectActivities",
+              input: JSON.stringify({ activities: [{ taskCategory: "meetings", system: "supplier_portal" }] }),
+            }],
+          };
+        }
+        if (modelStep === 2) {
+          return {
+            ...base,
+            finishReason: "tool-calls",
+            content: [{
+              type: "tool-call",
+              toolCallId: "corrected_activity",
+              toolName: "collectActivities",
+              input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }),
+            }],
+          };
+        }
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал встречу." }] };
+      },
+      async doStream() { throw new Error("streaming is not used"); },
+    } as never;
+    const writes: unknown[] = [];
+    const agent = new Agent({
+      id: "activity-recovery",
+      name: "activity-recovery",
+      instructions: "Use collectActivities and correct validation failures within the same turn.",
+      model,
+      tools: {},
+      editor: false,
+    });
+
+    const result = await createAssistantAgentRunner(agent)(
+      { userId: "employee", threadId: "thread", text: "Провёл 35-минутную встречу с поставщиком." },
+      context({
+        async collectActivities(received) {
+          writes.push(received);
+          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
+        },
+      }),
+    );
+
+    expect(result.text).toBe("Записал встречу.");
+    expect(modelStep).toBe(3);
+    expect(writes).toEqual([{ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }]);
+    const recoveryPrompt = JSON.stringify(providerPrompts[1]);
+    expect(recoveryPrompt).toContain("Tool input validation failed for collectActivities");
+    expect(recoveryPrompt).toContain("activities.0.system");
+    expect(recoveryPrompt).toContain("supplier_portal");
+    expect(result.trace?.toolResults).toHaveLength(2);
+    expect(JSON.stringify(result.trace?.toolResults[0])).toContain("validationErrors");
   });
 
   it("executes read then one correction for an explicit repair selected by the agent", async () => {
