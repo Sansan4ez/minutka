@@ -51,6 +51,8 @@ import { PersistenceError } from "../../src/application/persistence-error.js";
 import { createPostgresResearchScopePurgeStore } from "../../src/infrastructure/postgres/postgres-research-scope-purge-store.js";
 import { ResearchScopePurgeService } from "../../src/application/research-scope-purge.js";
 import { createPostgresPilotStatusStore } from "../../src/infrastructure/postgres/postgres-pilot-status-store.js";
+import { PilotStatusService } from "../../src/application/pilot-status.js";
+import { renderPilotStatusHtml } from "../../src/application/pilot-status-html.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -935,13 +937,15 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, "activity_correction_owner", "invite_activity_correction", { companyId, groupId, roleId });
     const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("activity_correction_owner"))!;
     const collection = createPostgresActivityCollectionStore(pool);
-    const row = (activityId: string, recordedAt: string): PersonalActivityRecord => ({
+    const row = (activityId: string, recordedAt: string, overrides: Partial<PersonalActivityRecord> = {}): PersonalActivityRecord => ({
       activityId, employeeId: "activity_correction_owner", subjectKey: participant.subjectKey,
       companyId, groupId, roleId, taskCategory: "reporting", routinePattern: "manual_reporting",
-      activityDate: "2026-07-12", recordedAt,
+      activityDate: "2026-07-12", recordedAt, ...overrides,
     });
     await collection.saveActivity(row("activity_correction_keep", "2026-07-12T09:00:00.000Z"));
-    await collection.saveActivity(row("activity_correction_duplicate", "2026-07-12T10:00:00.000Z"));
+    await collection.saveActivity(row("activity_correction_duplicate", "2026-07-12T10:00:00.000Z", {
+      system: "other", routinePattern: "other", automationCandidate: "other",
+    }));
     const corrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), { now: () => "2026-07-12T12:00:00.000Z" });
     const scope = { employeeId: "activity_correction_owner", companyId, groupId };
 
@@ -966,6 +970,33 @@ describe("PostgreSQL storage contracts", () => {
     expect(report.internal.coverage.observations).toBe(1);
     const weekly = await new WeeklyActivitySummaryService(createPostgresOwnActivityReadStore(pool), { now: () => "2026-07-12T12:00:00.000Z" }).summarize({ employeeId: scope.employeeId, timezone: "Etc/UTC" });
     expect(weekly.activityCount).toBe(1);
+
+    const lifecycleCounts = (await pool.query<{ active: string; retained: string }>(
+      `SELECT count(*) FILTER (WHERE status = 'active')::text AS active,
+              count(*)::text AS retained
+       FROM minutka_private.activities`,
+    )).rows[0]!;
+    const pilotSnapshot = await createPostgresPilotStatusStore(pool).loadSnapshot();
+    expect(Number(lifecycleCounts.retained)).toBeGreaterThan(Number(lifecycleCounts.active));
+    expect(pilotSnapshot.controlTotals.activities).toBe(Number(lifecycleCounts.active));
+    expect(pilotSnapshot.controlTotals.activities).toBe(pilotSnapshot.activities.length);
+    expect(pilotSnapshot.participants.find((item) => item.employeeId === scope.employeeId)?.activities).toBe(1);
+    expect(pilotSnapshot.activities.filter((item) => item.employee_id === scope.employeeId)).toEqual([{
+      employee_id: scope.employeeId,
+      task_category: "reporting",
+      routine_pattern: "waiting_for_input",
+      activity_date: "2026-07-12",
+    }]);
+
+    const pilotStatus = await new PilotStatusService(
+      { async loadSnapshot() { return pilotSnapshot; } },
+      () => "2026-07-12T12:00:00.000Z",
+    ).generate({ healthz: "ok", pendingMigrations: 0, server: { units: [] } });
+    expect(pilotStatus.schemaVersion).toBe("minutka-pilot-status/v2");
+    expect(pilotStatus.participants.find((item) => item.id === scope.employeeId)?.activities).toBe(1);
+    expect(pilotStatus.activities.filter((item) => item.employee_id === scope.employeeId)).toEqual(pilotSnapshot.activities.filter((item) => item.employee_id === scope.employeeId));
+    expect(renderPilotStatusHtml(readFileSync("docs/reports/pilot-status-template.html", "utf8"), pilotStatus))
+      .toContain('"schemaVersion":"minutka-pilot-status/v2"');
   });
 
   it("rejects cross-tenant subject tuples in canonical and research tables", async () => {

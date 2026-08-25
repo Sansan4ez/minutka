@@ -63,7 +63,7 @@ export function createPostgresPilotStatusStore(pool: Pool): PilotStatusStore {
             client.query<ControlTotalsRow>(`SELECT
               (SELECT count(*) FROM minutka_private.participants)::text AS participants,
               (SELECT count(*) FROM minutka_private.messages)::text AS messages,
-              (SELECT count(*) FROM minutka_private.activities)::text AS activities,
+              (SELECT count(*) FROM minutka_private.activities WHERE status = 'active')::text AS activities,
               (SELECT count(*)
                  FROM minutka_research.traces trace
                  JOIN minutka_private.participants participant
