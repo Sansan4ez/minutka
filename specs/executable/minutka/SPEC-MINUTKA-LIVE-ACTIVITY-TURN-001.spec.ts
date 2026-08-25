@@ -8,6 +8,16 @@ import {
 
 const ordinaryAccount = "Сегодня провёл встречу с коллегами. Система и препятствие не назывались.";
 
+type ActivityTool = {
+  execute?: (input: unknown, context: unknown) => Promise<unknown>;
+};
+
+type ScriptedStep =
+  | { tool: "collectActivities"; input: unknown }
+  | { tool: "readRecentOwnActivities" }
+  | { tool: "correctRecentActivity"; input: unknown }
+  | { tool: "supersedeRecentActivity"; input: unknown };
+
 function context(overrides: Partial<AssistantAgentContext> = {}): AssistantAgentContext {
   const notUsed = async () => { throw new Error("not used"); };
   return {
@@ -35,103 +45,168 @@ function context(overrides: Partial<AssistantAgentContext> = {}): AssistantAgent
   };
 }
 
-describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: ordinary account stays an ordinary write", () => {
-  it("omits unsupported facets and removes correction authority from the live tool sequence", async () => {
-    const writes: unknown[] = [];
-    let activeTools: string[] = [];
-    const agent: MastraAgentLike = {
-      async generate(_text, options) {
-        activeTools = options.activeTools;
-        const activities = options.toolsets.activities as Record<string, {
-          execute?: (input: unknown, context: unknown) => Promise<unknown>;
-        }>;
+function scriptedAgent(script: ScriptedStep[], observedActiveTools: string[][]): MastraAgentLike {
+  return {
+    async generate(_text, options) {
+      observedActiveTools.push([...options.activeTools]);
+      const activities = options.toolsets.activities as Record<string, ActivityTool>;
+      for (const step of script) {
+        await activities[step.tool]?.execute?.("input" in step ? step.input : {}, {});
+      }
+      return { text: "Готово." };
+    },
+  };
+}
 
-        expect(activeTools).toContain("collectActivities");
-        expect(activeTools).not.toContain("readRecentOwnActivities");
-        expect(activeTools).not.toContain("correctRecentActivity");
-        expect(activeTools).not.toContain("supersedeRecentActivity");
-        await activities.collectActivities?.execute?.({ activities: [{
-          taskCategory: "meetings",
-          system: "other",
-          routinePattern: "other",
-          automationCandidate: "other",
-          energyStressMarker: "neutral",
-        }] }, {});
+describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics", () => {
+  it("offers every request-scoped activity capability while an ordinary turn performs only the write", async () => {
+    const calls: Array<{ tool: string; input?: unknown }> = [];
+    const activeTools: string[][] = [];
+    const input = { activities: [{
+      taskCategory: "meetings" as const,
+      system: "other" as const,
+      routinePattern: "other" as const,
+      automationCandidate: "other" as const,
+      energyStressMarker: "neutral" as const,
+    }] };
 
-        return { text: "Записал встречу." };
-      },
-    };
-
-    await createAssistantAgentRunner(agent)(
+    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], activeTools))(
       { userId: "employee", threadId: "thread", text: ordinaryAccount },
       context({
-        async collectActivities(input) {
-          writes.push(input);
-          return { status: "completed", savedCount: input.activities.length, activityIds: ["activity_1"] };
+        async collectActivities(received) {
+          calls.push({ tool: "collectActivities", input: received });
+          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
+        },
+        async readRecentOwnActivities() {
+          calls.push({ tool: "readRecentOwnActivities" });
+          return { activities: [] };
+        },
+        async correctRecentActivity(received) {
+          calls.push({ tool: "correctRecentActivity", input: received });
+          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
+        },
+        async supersedeRecentActivity(received) {
+          calls.push({ tool: "supersedeRecentActivity", input: received });
+          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
         },
       }),
     );
 
-    expect(writes).toEqual([{ activities: [{ taskCategory: "meetings" }] }]);
-    expect(activeTools).toHaveLength(assistantActiveToolNames.length - 3);
+    expect(activeTools).toEqual([[...assistantActiveToolNames]]);
+    expect(calls).toEqual([{ tool: "collectActivities", input }]);
+  });
+
+  it("passes valid closed facets to the typed collection use-case without semantic rewriting", async () => {
+    const writes: unknown[] = [];
+    const input = { activities: [{
+      taskCategory: "reporting" as const,
+      system: "spreadsheets" as const,
+      routinePattern: "manual_reporting" as const,
+      automationCandidate: "report_generation" as const,
+      energyStressMarker: "frustration" as const,
+    }] };
+
+    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
+      { userId: "employee", threadId: "thread", text: "Multilingual wording is interpreted by the scripted agent." },
+      context({
+        async collectActivities(received) {
+          writes.push(received);
+          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
+        },
+      }),
+    );
+
+    expect(writes).toEqual([input]);
+  });
+
+  it("executes read then one correction for an explicit repair selected by the agent", async () => {
+    const calls: Array<{ tool: string; input?: unknown }> = [];
+    const correction = {
+      handle: "activity_recent",
+      expectedRevision: 1,
+      mode: "patch" as const,
+      correction: { routinePattern: "waiting_for_input" as const },
+    };
+
+    await createAssistantAgentRunner(scriptedAgent([
+      { tool: "readRecentOwnActivities" },
+      { tool: "correctRecentActivity", input: correction },
+    ], []))(
+      { userId: "employee", threadId: "thread", text: "That last entry needs a correction." },
+      context({
+        async readRecentOwnActivities() {
+          calls.push({ tool: "readRecentOwnActivities" });
+          return { activities: [] };
+        },
+        async correctRecentActivity(received) {
+          calls.push({ tool: "correctRecentActivity", input: received });
+          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
+        },
+      }),
+    );
+
+    expect(calls).toEqual([
+      { tool: "readRecentOwnActivities" },
+      { tool: "correctRecentActivity", input: correction },
+    ]);
+  });
+
+  it("executes read then exactly one supersession for a confirmed duplicate selected by the agent", async () => {
+    const calls: Array<{ tool: string; input?: unknown }> = [];
+    const supersession = {
+      handle: "activity_duplicate",
+      expectedRevision: 1,
+      replacementHandle: "activity_keep",
+      replacementExpectedRevision: 1,
+    };
+
+    await createAssistantAgentRunner(scriptedAgent([
+      { tool: "readRecentOwnActivities" },
+      { tool: "supersedeRecentActivity", input: supersession },
+    ], []))(
+      { userId: "employee", threadId: "thread", text: "Ese registro es un duplicado; conserva el anterior." },
+      context({
+        async readRecentOwnActivities() {
+          calls.push({ tool: "readRecentOwnActivities" });
+          return { activities: [] };
+        },
+        async supersedeRecentActivity(received) {
+          calls.push({ tool: "supersedeRecentActivity", input: received });
+          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
+        },
+      }),
+    );
+
+    expect(calls).toEqual([
+      { tool: "readRecentOwnActivities" },
+      { tool: "supersedeRecentActivity", input: supersession },
+    ]);
   });
 
   it.each([
-    "Исправь предыдущую встречу: препятствием было ожидание входных данных.",
-    "Последняя запись — дубликат первой встречи с коллегами. Удали дубликат и оставь первую запись.",
-    "Последняя встреча дублируется, оставь предыдущую запись.",
-  ])("keeps bounded correction tools available for an explicit repair turn: %s", async (text) => {
-    let activeTools: string[] = [];
-    const agent: MastraAgentLike = {
-      async generate(_text, options) {
-        activeTools = options.activeTools;
-        return { text: "Уточню запись." };
-      },
-    };
+    ["ambiguous candidates", [{ tool: "readRecentOwnActivities" } satisfies ScriptedStep]],
+    ["no matching candidate", [{ tool: "readRecentOwnActivities" } satisfies ScriptedStep]],
+  ])("leaves application state unchanged for %s", async (_case, script) => {
+    const calls: string[] = [];
 
-    await createAssistantAgentRunner(agent)(
-      { userId: "employee", threadId: "thread", text },
-      context(),
-    );
-
-    expect(activeTools).toEqual([...assistantActiveToolNames]);
-  });
-
-  it("preserves explicit covered facets instead of flattening the activity", async () => {
-    const writes: unknown[] = [];
-    const agent: MastraAgentLike = {
-      async generate(_text, options) {
-        await options.toolsets.activities.collectActivities.execute({ activities: [{
-          taskCategory: "reporting",
-          system: "spreadsheets",
-          routinePattern: "manual_reporting",
-          automationCandidate: "report_generation",
-          energyStressMarker: "frustration",
-        }] }, {});
-        return { text: "Записал." };
-      },
-    };
-
-    await createAssistantAgentRunner(agent)(
-      {
-        userId: "employee",
-        threadId: "thread",
-        text: "Готовил отчёт вручную в таблице, это раздражало; такую подготовку можно автоматизировать.",
-      },
+    await createAssistantAgentRunner(scriptedAgent(script, []))(
+      { userId: "employee", threadId: "thread", text: "Please fix the recent entry." },
       context({
-        async collectActivities(input) {
-          writes.push(input);
-          return { status: "completed", savedCount: input.activities.length, activityIds: ["activity_1"] };
+        async readRecentOwnActivities() {
+          calls.push("readRecentOwnActivities");
+          return { activities: [] };
+        },
+        async correctRecentActivity() {
+          calls.push("correctRecentActivity");
+          throw new Error("mutation must not be called");
+        },
+        async supersedeRecentActivity() {
+          calls.push("supersedeRecentActivity");
+          throw new Error("mutation must not be called");
         },
       }),
     );
 
-    expect(writes).toEqual([{ activities: [{
-      taskCategory: "reporting",
-      system: "spreadsheets",
-      routinePattern: "manual_reporting",
-      automationCandidate: "report_generation",
-      energyStressMarker: "frustration",
-    }] }]);
+    expect(calls).toEqual(["readRecentOwnActivities"]);
   });
 });

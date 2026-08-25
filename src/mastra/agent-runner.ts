@@ -15,7 +15,6 @@ import {
 } from "./tools/activity-correction-tools.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
-import { constrainActivityFacetsToSource, hasExplicitActivityRepairSignal } from "./activity-turn-policy.js";
 
 /**
  * Toolsets offered to the «Минутка» agent. Tools owned by a process disabled in
@@ -67,23 +66,16 @@ type AssistantAgentRunnerOptions = { operationalLogger?: ModelUsageWarningLogger
 export type MastraAgentLike = { generate(text: string, options: any): Promise<MastraGenerateResult> };
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
-export function createAssistantToolsets(context: AssistantAgentContext, turnText?: string) {
-  const activityContext = turnText === undefined
-    ? context
-    : {
-        ...context,
-        collectActivities: (input: Parameters<AssistantAgentContext["collectActivities"]>[0]) =>
-          context.collectActivities(constrainActivityFacetsToSource(turnText, input)),
-      };
+export function createAssistantToolsets(context: AssistantAgentContext) {
   return {
     schedules: createScheduleTools(context.schedules),
     activities: {
-      collectActivities: createCollectActivitiesTool(activityContext.collectActivities),
-      readRecentOwnActivities: createReadRecentOwnActivitiesTool(activityContext.readRecentOwnActivities),
-      correctRecentActivity: createCorrectRecentActivityTool(activityContext.correctRecentActivity),
-      supersedeRecentActivity: createSupersedeRecentActivityTool(activityContext.supersedeRecentActivity),
-      readWeeklyActivities: createReadWeeklyActivitiesTool(activityContext.readWeeklyActivities),
-      readCycleActivities: createReadCycleActivitiesTool(activityContext.readCycleActivities),
+      collectActivities: createCollectActivitiesTool(context.collectActivities),
+      readRecentOwnActivities: createReadRecentOwnActivitiesTool(context.readRecentOwnActivities),
+      correctRecentActivity: createCorrectRecentActivityTool(context.correctRecentActivity),
+      supersedeRecentActivity: createSupersedeRecentActivityTool(context.supersedeRecentActivity),
+      readWeeklyActivities: createReadWeeklyActivitiesTool(context.readWeeklyActivities),
+      readCycleActivities: createReadCycleActivitiesTool(context.readCycleActivities),
     },
     profile: { updatePersonalContext: createUpdatePersonalContextTool(context.updatePersonalContext) },
     diagnostics: { markProcessUsed: createMarkProcessUsedTool(context.markProcessUsed) },
@@ -93,21 +85,14 @@ export function createAssistantToolsets(context: AssistantAgentContext, turnText
 /** Runtime bridge for the personal assistant; only request-scoped typed tools are enabled. */
 export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMastraAgent, options: AssistantAgentRunnerOptions = {}): AssistantAgentRunner {
   return async (input, context, signal) => {
-    const activityRepairAllowed = hasExplicitActivityRepairSignal(input.text);
-    const turnActiveTools = activityRepairAllowed
-      ? [...assistantActiveToolNames]
-      : assistantActiveToolNames.filter((toolName) =>
-          toolName !== readRecentOwnActivitiesToolName
-          && toolName !== correctRecentActivityToolName
-          && toolName !== supersedeRecentActivityToolName);
     const result: MastraGenerateResult = await agent.generate(input.text, {
       system: context.systemContext,
       toolChoice: "auto",
-      toolsets: createAssistantToolsets(context, input.text),
+      toolsets: createAssistantToolsets(context),
       // `activeTools` is applied after all toolsets are resolved, so ambient
-      // agent-level tools and correction authority absent from this turn cannot
-      // be selected during the personal assistant run.
-      activeTools: turnActiveTools,
+      // agent-level tools remain unavailable while every request-scoped typed
+      // capability is visible to the agent-led semantic decision plane.
+      activeTools: [...assistantActiveToolNames],
       maxSteps: 4,
       ...(signal ? { abortSignal: signal } : {}),
     });
