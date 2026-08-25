@@ -7,6 +7,12 @@ import { collectActivitiesToolName, createCollectActivitiesTool } from "./tools/
 import { createReadWeeklyActivitiesTool, readWeeklyActivitiesToolName } from "./tools/weekly-activity-tool.js";
 import { createReadCycleActivitiesTool, readCycleActivitiesToolName } from "./tools/cycle-activity-tool.js";
 import { createReadRecentOwnActivitiesTool, readRecentOwnActivitiesToolName } from "./tools/recent-own-activities-tool.js";
+import {
+  correctRecentActivityToolName,
+  createCorrectRecentActivityTool,
+  createSupersedeRecentActivityTool,
+  supersedeRecentActivityToolName,
+} from "./tools/activity-correction-tools.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
 
@@ -18,7 +24,7 @@ import { llmModel } from "../config/llm.js";
  */
 export const assistantRuntimeToolsets = {
   schedules: assistantScheduleToolNames,
-  activities: [collectActivitiesToolName, readRecentOwnActivitiesToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
+  activities: [collectActivitiesToolName, readRecentOwnActivitiesToolName, correctRecentActivityToolName, supersedeRecentActivityToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
   profile: [updatePersonalContextToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -66,6 +72,8 @@ export function createAssistantToolsets(context: AssistantAgentContext) {
     activities: {
       collectActivities: createCollectActivitiesTool(context.collectActivities),
       readRecentOwnActivities: createReadRecentOwnActivitiesTool(context.readRecentOwnActivities),
+      correctRecentActivity: createCorrectRecentActivityTool(context.correctRecentActivity),
+      supersedeRecentActivity: createSupersedeRecentActivityTool(context.supersedeRecentActivity),
       readWeeklyActivities: createReadWeeklyActivitiesTool(context.readWeeklyActivities),
       readCycleActivities: createReadCycleActivitiesTool(context.readCycleActivities),
     },

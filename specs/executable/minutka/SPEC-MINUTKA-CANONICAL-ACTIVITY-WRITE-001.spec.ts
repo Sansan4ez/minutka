@@ -51,6 +51,20 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       system: "spreadsheets",
       activityDate: "2026-08-16",
       recordedAt: "2026-08-15T22:17:35.000Z",
+      revision: 1,
+      status: "active",
+      updatedAt: "2026-08-15T22:17:35.000Z",
+      revisions: [{
+        revision: 1,
+        operation: "created",
+        sourceMessageId: "message_a",
+        taskCategory: "reporting",
+        routinePattern: "manual_reporting",
+        durationBucket: "1_2h",
+        system: "spreadsheets",
+        status: "active",
+        changedAt: "2026-08-15T22:17:35.000Z",
+      }],
     }]);
   });
 
@@ -301,8 +315,9 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
 
   it("keeps the single PostgreSQL insert behind the outcome-aware transaction boundary", () => {
     const source = readFileSync("src/infrastructure/postgres/postgres-activity-collection-store.ts", "utf8");
-    expect(source.match(/withTransaction\(/gu)).toHaveLength(1);
+    expect(source.match(/withTransaction\(/gu)).toHaveLength(3);
     expect(source.match(/INSERT INTO minutka_private\.activities/gu)).toHaveLength(1);
+    expect(source.match(/INSERT INTO minutka_private\.activity_revisions/gu)).toHaveLength(1);
   });
 
   // The tool writes the activity inside the agent loop, long before the turn's

@@ -47,7 +47,7 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
                       task_category, routine_pattern, automation_candidate, energy_stress_marker,
                       duration_bucket, system, activity_date::text AS activity_date, recorded_at
                FROM minutka_private.activities
-               WHERE company_id=$1 AND group_id=$2
+               WHERE company_id=$1 AND group_id=$2 AND status='active'
                ORDER BY recorded_at, activity_id`,
               [companyId, groupId],
             ),

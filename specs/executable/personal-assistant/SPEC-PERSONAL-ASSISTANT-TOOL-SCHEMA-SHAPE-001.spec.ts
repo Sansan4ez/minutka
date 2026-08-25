@@ -35,6 +35,8 @@ function createStubContext(): AssistantAgentContext {
     schedules: capabilities as AssistantAgentContext["schedules"],
     collectActivities: (async ({ activities }) => ({ status: "completed", savedCount: activities.length, activityIds: [] })) as AssistantAgentContext["collectActivities"],
     readRecentOwnActivities: async () => ({ activities: [] }),
+    correctRecentActivity: (async ({ handle, expectedRevision }) => ({ status: "completed", handle, revision: expectedRevision + 1 })) as AssistantAgentContext["correctRecentActivity"],
+    supersedeRecentActivity: (async ({ handle, expectedRevision }) => ({ status: "completed", handle, revision: expectedRevision + 1 })) as AssistantAgentContext["supersedeRecentActivity"],
     updatePersonalContext: async () => ({ changedFields: [] }),
     markProcessUsed() {},
   } as unknown as AssistantAgentContext;

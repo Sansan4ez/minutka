@@ -104,7 +104,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
 
     expect(registeredIds).toEqual([
       "listSchedules", "setDailySchedule", "disableSchedule", "collectActivities", "readRecentOwnActivities",
-      "readWeeklyActivities", "readCycleActivities", "updatePersonalContext", "markProcessUsed",
+      "correctRecentActivity", "supersedeRecentActivity", "readWeeklyActivities", "readCycleActivities", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
@@ -144,6 +144,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("createContextNote");
     expect(assistantActiveToolNames).toContain("collectActivities");
     expect(assistantActiveToolNames).toContain("readRecentOwnActivities");
+    expect(assistantActiveToolNames).toContain("correctRecentActivity");
+    expect(assistantActiveToolNames).toContain("supersedeRecentActivity");
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
     expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");

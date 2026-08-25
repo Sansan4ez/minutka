@@ -63,6 +63,7 @@ export class RecentOwnActivitiesService {
       .filter((activity) => activity.employeeId === employeeId
         && activity.companyId === companyId
         && activity.groupId === groupId
+        && (activity.status ?? "active") === "active"
         && activity.recordedAt >= recordedAfter
         && activity.recordedAt <= recordedBefore)
       .sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)
@@ -81,7 +82,7 @@ export class RecentOwnActivitiesService {
 function toRecentOwnActivity(activity: PersonalActivityRecord): RecentOwnActivity {
   return {
     handle: activity.activityId,
-    revision: 1,
+    revision: activity.revision ?? 1,
     ...(activity.taskCategory === undefined ? {} : { taskCategory: activity.taskCategory }),
     ...(activity.routinePattern === undefined ? {} : { routinePattern: activity.routinePattern }),
     ...(activity.automationCandidate === undefined ? {} : { automationCandidate: activity.automationCandidate }),

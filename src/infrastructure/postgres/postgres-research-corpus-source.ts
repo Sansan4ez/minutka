@@ -3,6 +3,7 @@ import type { ResearchCorpusSource } from "../../application/research-corpus-exp
 import type { ResearchEvidenceRef, ResearchSubject } from "../../application/research-identity-projection.js";
 import type { PersonalActivityRecord } from "../../application/activity-collection.js";
 import { mapPostgresError } from "../../application/persistence-error.js";
+import type { ActivityRevisionRecord, ActivityStatus } from "../../application/activity-correction.js";
 
 type SubjectRow = { company_id: string; group_id: string; subject_key: string; role_id: string | null; message_ids: string[]; activity_ids: string[]; trace_ids: string[] };
 type MessageRow = { message_id: string; subject_key: string; user_text: string; agent_response: string; created_at: Date };
@@ -14,6 +15,8 @@ type ActivityRow = {
   energy_stress_marker: PersonalActivityRecord["energyStressMarker"] | null;
   duration_bucket: PersonalActivityRecord["durationBucket"] | null;
   system: PersonalActivityRecord["system"] | null; activity_date: string; recorded_at: Date;
+  revision: number; status: ActivityStatus; superseded_by_activity_id: string | null;
+  last_correction_message_id: string | null; updated_at: Date; revisions: ActivityRevisionRecord[];
 };
 type FeedbackRow = { feedback_id: string; target_message_id: string; rating: "positive" | "neutral" | "negative"; created_at: Date; updated_at: Date };
 
@@ -58,10 +61,25 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
     async listActivities({ companyId, groupId }) {
       try {
         const result = await pool.query<ActivityRow>(
-          `SELECT activity_id, subject_key, source_message_id, company_id, group_id, role_id, task_category,
-                  routine_pattern, automation_candidate, energy_stress_marker, duration_bucket, system,
-                  activity_date::text AS activity_date, recorded_at
-           FROM minutka_private.activities WHERE company_id=$1 AND group_id=$2 ORDER BY recorded_at, activity_id`,
+          `SELECT activity.activity_id, activity.subject_key, activity.source_message_id, activity.company_id,
+                  activity.group_id, activity.role_id, activity.task_category, activity.routine_pattern,
+                  activity.automation_candidate, activity.energy_stress_marker, activity.duration_bucket,
+                  activity.system, activity.activity_date::text AS activity_date, activity.recorded_at,
+                  activity.revision, activity.status, activity.superseded_by_activity_id,
+                  activity.last_correction_message_id, activity.updated_at,
+                  COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                    'revision', history.revision, 'operation', history.operation,
+                    'sourceMessageId', history.source_message_id, 'taskCategory', history.task_category,
+                    'routinePattern', history.routine_pattern, 'automationCandidate', history.automation_candidate,
+                    'energyStressMarker', history.energy_stress_marker, 'durationBucket', history.duration_bucket,
+                    'system', history.system, 'status', history.status,
+                    'supersededByActivityId', history.superseded_by_activity_id,
+                    'changedAt', history.changed_at)) ORDER BY history.revision)
+                    FROM minutka_private.activity_revisions history
+                    WHERE history.activity_id=activity.activity_id), '[]'::jsonb) AS revisions
+           FROM minutka_private.activities activity
+           WHERE activity.company_id=$1 AND activity.group_id=$2
+           ORDER BY activity.recorded_at, activity.activity_id`,
           [companyId, groupId],
         );
         return result.rows.map((row) => ({
@@ -74,6 +92,10 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
           ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
           ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
           ...(row.system ? { system: row.system } : {}), activityDate: row.activity_date, recordedAt: row.recorded_at.toISOString(),
+          revision: row.revision, status: row.status,
+          ...(row.superseded_by_activity_id ? { supersededByActivityId: row.superseded_by_activity_id } : {}),
+          ...(row.last_correction_message_id ? { lastCorrectionMessageId: row.last_correction_message_id } : {}),
+          updatedAt: row.updated_at.toISOString(), revisions: row.revisions,
         }));
       } catch (error) { throw mapPostgresError(error); }
     },

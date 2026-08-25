@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Return a small deterministic list of the authenticated employee's own activities from the last 72 hours so an explicit correction or clarification can select a target for the next typed correction step.
+Return a small deterministic list of the authenticated employee's active own activities from the last 72 hours so an explicit correction, clarification, or duplicate confirmation can select an exact target for the next typed mutation step.
 
 ## Mutating
 
@@ -28,4 +28,4 @@ Call only when the employee explicitly corrects or clarifies an earlier activity
 
 ## Boundary
 
-The store and application service both enforce the authenticated employee/company/group tuple, the 72-hour window, stable newest-first order, and limit five. A later correction tool may accept only the returned opaque handle/revision; no mutation exists in this action.
+The store and application service both enforce active status, the authenticated employee/company/group tuple, the 72-hour window, stable newest-first order, and limit five. `correctRecentActivity` and `supersedeRecentActivity` accept only returned opaque handles/revisions; no mutation exists in this read action.

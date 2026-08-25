@@ -33,8 +33,9 @@ import { ContextDocumentService } from "../../src/application/context-document-s
 import { createInMemoryDocumentStore } from "../../src/application/in-memory-document-store.js";
 import { createPostgresContextDocumentConfirmationStore } from "../../src/infrastructure/postgres/postgres-context-document-confirmation-store.js";
 import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/postgres/postgres-pending-action-group-store.js";
-import { createPostgresActivityCollectionStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
+import { createPostgresActivityCollectionStore, createPostgresActivityMutationStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
+import { ActivityCorrectionService } from "../../src/application/activity-correction.js";
 import { RecentOwnActivitiesService } from "../../src/application/recent-own-activities.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { WeeklyActivitySummaryService } from "../../src/application/weekly-activity-summary.js";
@@ -922,6 +923,49 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect(JSON.stringify(corpus.corpus)).not.toContain("research_export_owner");
     expect(JSON.stringify(corpus.corpus)).not.toContain("thread_research_export");
+  });
+
+  it("persists revisioned activity correction and supersession with current projections", async () => {
+    const companyId = "company_activity_correction";
+    const groupId = "group_activity_correction";
+    const roleId = "role_activity_correction";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Correction Co') ON CONFLICT (id) DO NOTHING", [companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Correction group', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupId, companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Correction role') ON CONFLICT (id) DO NOTHING", [roleId, companyId]);
+    await issueProfileReadyParticipant(pool, "activity_correction_owner", "invite_activity_correction", { companyId, groupId, roleId });
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("activity_correction_owner"))!;
+    const collection = createPostgresActivityCollectionStore(pool);
+    const row = (activityId: string, recordedAt: string): PersonalActivityRecord => ({
+      activityId, employeeId: "activity_correction_owner", subjectKey: participant.subjectKey,
+      companyId, groupId, roleId, taskCategory: "reporting", routinePattern: "manual_reporting",
+      activityDate: "2026-07-12", recordedAt,
+    });
+    await collection.saveActivity(row("activity_correction_keep", "2026-07-12T09:00:00.000Z"));
+    await collection.saveActivity(row("activity_correction_duplicate", "2026-07-12T10:00:00.000Z"));
+    const corrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), { now: () => "2026-07-12T12:00:00.000Z" });
+    const scope = { employeeId: "activity_correction_owner", companyId, groupId };
+
+    const correction = { handle: "activity_correction_keep", expectedRevision: 1, mode: "patch" as const, correction: { routinePattern: "waiting_for_input" as const } };
+    await corrections.correct({ ...scope, sourceMessageId: "message_activity_correction" }, correction);
+    await corrections.correct({ ...scope, sourceMessageId: "message_activity_correction" }, correction);
+    await expect(corrections.correct({ ...scope, sourceMessageId: "message_activity_stale" }, correction))
+      .rejects.toThrow(new PersistenceError("persistence_conflict"));
+
+    const supersession = { handle: "activity_correction_duplicate", expectedRevision: 1, replacementHandle: "activity_correction_keep", replacementExpectedRevision: 2 };
+    await corrections.supersede({ ...scope, sourceMessageId: "message_activity_duplicate" }, supersession);
+    await corrections.supersede({ ...scope, sourceMessageId: "message_activity_duplicate" }, supersession);
+
+    const recent = new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), { now: () => "2026-07-12T12:00:00.000Z" });
+    await expect(recent.read(scope)).resolves.toEqual({ activities: [expect.objectContaining({ handle: "activity_correction_keep", revision: 2, routinePattern: "waiting_for_input" })] });
+    const corpus = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
+    expect(corpus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ activityId: "activity_correction_keep", status: "active", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "created" }), expect.objectContaining({ operation: "corrected" })]) }),
+      expect.objectContaining({ activityId: "activity_correction_duplicate", status: "superseded", supersededByActivityId: "activity_correction_keep", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "superseded" })]) }),
+    ]));
+    const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool), () => now).exportGroup({ companyId, groupId });
+    expect(report.internal.coverage.observations).toBe(1);
+    const weekly = await new WeeklyActivitySummaryService(createPostgresOwnActivityReadStore(pool), { now: () => "2026-07-12T12:00:00.000Z" }).summarize({ employeeId: scope.employeeId, timezone: "Etc/UTC" });
+    expect(weekly.activityCount).toBe(1);
   });
 
   it("rejects cross-tenant subject tuples in canonical and research tables", async () => {

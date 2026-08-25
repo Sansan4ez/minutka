@@ -101,7 +101,8 @@ const participantQuery = `SELECT participant.employee_id, participant.company_id
   lower(training_group.period)::text AS period_from, upper(training_group.period)::text AS period_to_exclusive,
   role.name AS role_name, participant.status, participant.last_touch_on, profile.timezone,
   (SELECT count(*) FROM minutka_private.messages message WHERE message.employee_id = participant.employee_id)::text AS messages,
-  (SELECT count(*) FROM minutka_private.activities activity WHERE activity.employee_id = participant.employee_id)::text AS activities,
+  (SELECT count(*) FROM minutka_private.activities activity
+    WHERE activity.employee_id = participant.employee_id AND activity.status = 'active')::text AS activities,
   (SELECT count(*) FROM minutka_research.traces trace
     WHERE trace.company_id = participant.company_id AND trace.group_id = participant.group_id
       AND trace.subject_key = participant.subject_key)::text AS traces,
@@ -121,6 +122,7 @@ ORDER BY participant.company_id, participant.group_id, participant.created_at, p
 const activityQuery = `SELECT employee_id, task_category, system, duration_bucket,
   routine_pattern, automation_candidate, energy_stress_marker, activity_date::text AS activity_date
 FROM minutka_private.activities
+WHERE status = 'active'
 ORDER BY activity_date, recorded_at, activity_id`;
 
 const messageDateQuery = `SELECT message.employee_id, message.created_at::date::text AS message_date, count(*)::text AS count

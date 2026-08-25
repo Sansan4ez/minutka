@@ -52,6 +52,11 @@ import type { CollectActivitiesResult } from "./activity-collection.js";
 import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
 import type { CycleActivitySummary } from "./cycle-activity-summary.js";
 import type { RecentOwnActivitiesResult } from "./recent-own-activities.js";
+import type {
+  ActivityMutationResult,
+  CorrectRecentActivityInput,
+  SupersedeRecentActivityInput,
+} from "./activity-correction.js";
 import {
   researchTraceError,
   researchTraceSchemaVersion,
@@ -93,6 +98,10 @@ export type AssistantAgentContext = {
   collectActivities(input: CollectActivitiesInput): Promise<CollectActivitiesResult>;
   /** Employee-and-tenant-bound short-window read for an explicit correction lookup. */
   readRecentOwnActivities(): Promise<RecentOwnActivitiesResult>;
+  /** Correct one selected recent activity without inserting another factual row. */
+  correctRecentActivity(input: CorrectRecentActivityInput): Promise<ActivityMutationResult>;
+  /** Preserve a confirmed duplicate as provenance while removing it from current projections. */
+  supersedeRecentActivity(input: SupersedeRecentActivityInput): Promise<ActivityMutationResult>;
   /** Employee-bound counted read of the employee's own last seven days. */
   readWeeklyActivities(): Promise<WeeklyActivitySummary>;
   /** Employee-bound counted read of the employee's own two-week cycle. */
@@ -162,7 +171,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -572,6 +581,27 @@ export class AssistantService {
       observedExecutionTrace.push({ kind: "tool", toolName: "readRecentOwnActivities" });
       return result;
     };
+    const activityMutationScope = async () => {
+      const participant = await this.deps.participantStore?.getParticipant(userId);
+      const companyId = participant?.companyId;
+      const groupId = participant?.groupId;
+      if (!companyId || !groupId) throw new PersistenceError("profile_not_found");
+      return { employeeId: userId, companyId, groupId, sourceMessageId: messageId };
+    };
+    const correctRecentActivity = async (input: CorrectRecentActivityInput) => {
+      if (!this.deps.correctRecentActivity) throw new Error("recent activity correction is not configured");
+      const result = await this.deps.correctRecentActivity({ ...await activityMutationScope(), ...input });
+      observedExecutionTrace.push({ kind: "tool", toolName: "correctRecentActivity" });
+      if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      return result;
+    };
+    const supersedeRecentActivity = async (input: SupersedeRecentActivityInput) => {
+      if (!this.deps.supersedeRecentActivity) throw new Error("recent activity supersession is not configured");
+      const result = await this.deps.supersedeRecentActivity({ ...await activityMutationScope(), ...input });
+      observedExecutionTrace.push({ kind: "tool", toolName: "supersedeRecentActivity" });
+      if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      return result;
+    };
     // Read-only: the weekly checkpoint counts what the employee already
     // reported and never widens the window beyond their own activities.
     const readWeeklyActivities = async () => {
@@ -658,6 +688,8 @@ export class AssistantService {
       schedules,
       collectActivities,
       readRecentOwnActivities,
+      correctRecentActivity,
+      supersedeRecentActivity,
       readWeeklyActivities,
       readCycleActivities,
       updatePersonalContext,

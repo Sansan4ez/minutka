@@ -15,7 +15,9 @@ export function createInMemoryCompanyReportStore(input: {
         invitedParticipants: participants.length,
         subjects: participants.map(({ subjectKey, roleId }) => ({ subjectKey, ...(roleId ? { roleId } : {}) })),
         activities: input.activities.activities
-          .filter((activity) => activity.companyId === companyId && activity.groupId === groupId)
+          .filter((activity) => activity.companyId === companyId
+            && activity.groupId === groupId
+            && (activity.status ?? "active") === "active")
           .map(({ employeeId: _employeeId, sourceMessageId: _sourceMessageId, ...activity }) => structuredClone(activity)),
       };
     },

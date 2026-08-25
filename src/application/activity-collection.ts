@@ -16,6 +16,7 @@ import type {
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
+import type { ActivityRevisionRecord, ActivityStatus } from "./activity-correction.js";
 
 export type PersonalActivityRecord = {
   activityId: string;
@@ -33,6 +34,12 @@ export type PersonalActivityRecord = {
   system?: ActivitySystem;
   activityDate: string;
   recordedAt: string;
+  revision?: number;
+  status?: ActivityStatus;
+  supersededByActivityId?: string;
+  lastCorrectionMessageId?: string;
+  updatedAt?: string;
+  revisions?: ActivityRevisionRecord[];
 };
 
 export type ActivityCollectionStore = {
@@ -91,6 +98,22 @@ export class CollectActivityService {
       ...(input.activity.energyStressMarker === undefined ? {} : { energyStressMarker: input.activity.energyStressMarker }),
       activityDate: calendarDateInIanaTimezone(recordedAt, input.timezone),
       recordedAt,
+      revision: 1,
+      status: "active",
+      updatedAt: recordedAt,
+      revisions: [{
+        revision: 1,
+        operation: "created",
+        ...(input.sourceMessageId === undefined ? {} : { sourceMessageId: input.sourceMessageId }),
+        ...(input.activity.taskCategory === undefined ? {} : { taskCategory: input.activity.taskCategory }),
+        ...(input.activity.routinePattern === undefined ? {} : { routinePattern: input.activity.routinePattern }),
+        ...(input.activity.automationCandidate === undefined ? {} : { automationCandidate: input.activity.automationCandidate }),
+        ...(input.activity.energyStressMarker === undefined ? {} : { energyStressMarker: input.activity.energyStressMarker }),
+        ...(input.activity.durationBucket === undefined ? {} : { durationBucket: input.activity.durationBucket }),
+        ...(input.activity.system === undefined ? {} : { system: input.activity.system }),
+        status: "active",
+        changedAt: recordedAt,
+      }],
     };
     if (input.activity.durationBucket !== undefined) activity.durationBucket = input.activity.durationBucket;
     if (input.activity.system !== undefined) activity.system = input.activity.system;

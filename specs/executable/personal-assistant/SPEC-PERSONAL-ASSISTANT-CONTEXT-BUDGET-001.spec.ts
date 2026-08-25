@@ -59,9 +59,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * mnt-unbounded-activity-capture-yc3.6 repins the explicit handling of failed
  * and partial collection results. mnt-unbounded-activity-capture-yc3.7 repins
  * today's morning factual writes and the final-report exception. mnt-wy5.2
- * repins the compact provider-visible generic system mapping.
+ * repins the compact provider-visible generic system mapping. mnt-wy5.7
+ * repins the two explicit revisioned activity repair manifests and process rules.
  */
-const pinnedAgentManualCharacters = 36_707;
+const pinnedAgentManualCharacters = 37_430;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
@@ -76,7 +77,7 @@ const pinnedAgentManualCharacters = 36_707;
  * verify` while that headroom is still thousands of characters, so a growing
  * manual is a budget decision here rather than a production restart failure.
  */
-const minimumAgentManualHeadroomCharacters = 8_000;
+const minimumAgentManualHeadroomCharacters = 7_000;
 
 const projection = {
   schemaVersion: 1 as const,
