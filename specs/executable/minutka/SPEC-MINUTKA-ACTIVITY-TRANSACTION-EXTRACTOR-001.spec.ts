@@ -10,6 +10,7 @@ import {
 } from "../../../src/application/activity-transaction-extractor.js";
 import {
   activityTransactionContextBudget,
+  activityTransactionPromptVersion,
   buildActivityTransactionPrompt,
 } from "../../../src/mastra/activity-transaction-extractor.js";
 import { activityTransactionExtractorAgent } from "../../../src/mastra/agents/activity-transaction-extractor-agent.js";
@@ -142,10 +143,12 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     let calls = 0;
     const providerFailure = createActivityTransactionExtractor(async () => {
       calls += 1;
-      throw new Error("provider unavailable");
+      throw Object.assign(new Error("provider unavailable"), {
+        usage: { inputTokens: 11, outputTokens: 1, totalTokens: 12, cachedInputTokens: 4, llmSteps: 1 },
+      });
     }, buildActivityTransactionPrompt);
     await expect(providerFailure({ mode: "record", currentText: "Завершил отчёт", durationReferences: [] }))
-      .resolves.toMatchObject({ status: "failed", code: "provider_error" });
+      .resolves.toMatchObject({ status: "failed", code: "provider_error", usage: { totalTokens: 12, cachedInputTokens: 4 } });
     expect(calls).toBe(1);
 
     const malformed = createActivityTransactionExtractor(async () => {
@@ -186,6 +189,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v1");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({

@@ -6,13 +6,22 @@ export const researchTraceExportSchemaVersion = "research-trace-export/v1" as co
 
 export type ResearchTraceStatus = "completed" | "failed";
 
+export const researchTraceContours = ["request_integrity_guard", "main_agent", "activity_transaction"] as const;
+export type ResearchTraceContour = typeof researchTraceContours[number];
+
 export type ResearchTraceAttempt = {
   attempt: number;
+  contour?: ResearchTraceContour;
   context: string;
   modelSteps: unknown[];
   toolCalls: unknown[];
   toolResults: unknown[];
   model?: string;
+  promptVersion?: string;
+  decision?: unknown;
+  mutationResult?: unknown;
+  usage?: ModelTokenUsage;
+  latencyMs?: number;
   error?: ResearchTraceError;
 };
 
@@ -89,11 +98,23 @@ const traceSchema = z.strictObject({
   }),
   attempts: z.array(z.strictObject({
     attempt: z.number().int().positive(),
+    contour: z.enum(researchTraceContours).optional(),
     context: z.string(),
     modelSteps: z.array(z.unknown()),
     toolCalls: z.array(z.unknown()),
     toolResults: z.array(z.unknown()),
     model: z.string().trim().min(1).optional(),
+    promptVersion: z.string().trim().min(1).optional(),
+    decision: z.unknown().optional(),
+    mutationResult: z.unknown().optional(),
+    usage: z.strictObject({
+      inputTokens: z.number().nonnegative(),
+      outputTokens: z.number().nonnegative(),
+      totalTokens: z.number().nonnegative(),
+      llmSteps: z.number().int().positive().optional(),
+      cachedInputTokens: z.number().nonnegative().optional(),
+    }).optional(),
+    latencyMs: z.number().int().nonnegative().optional(),
     error: z.strictObject({ code: z.string().min(1), message: z.string() }).optional(),
   })).min(1),
   output: z.string().optional(),

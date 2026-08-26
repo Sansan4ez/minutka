@@ -18,6 +18,8 @@ import { activityTransactionExtractorAgent } from "./agents/activity-transaction
 import { normalizeMastraUsage } from "./model-usage.js";
 import { activitySystemModelMappingGuide } from "./tools/activity-system-mapping.js";
 
+export const activityTransactionPromptVersion = "minutka-activity-transaction/v1" as const;
+
 export const activityTransactionContextBudget = {
   currentTextCharacters: maxChatInputCharacters,
   staticRulesCharacters: 6_000,
@@ -102,6 +104,7 @@ export const buildActivityTransactionPrompt: ActivityTransactionPromptBuilder = 
 /** Production adapter: exactly one tool-free structured generation. */
 export const extractActivityTransactionWithAgent = createActivityTransactionExtractor(
   async ({ prompt, outputSchema, signal }) => {
+    const startedAt = Date.now();
     const result = await activityTransactionExtractorAgent.generate(prompt, {
       structuredOutput: { schema: outputSchema, errorStrategy: "strict" },
       toolChoice: "none",
@@ -109,7 +112,17 @@ export const extractActivityTransactionWithAgent = createActivityTransactionExtr
       ...(signal ? { abortSignal: signal } : {}),
     });
     const usage = normalizeMastraUsage(result);
-    return { object: result.object, ...(usage ? { usage } : {}) };
+    return {
+      object: result.object,
+      ...(usage ? { usage } : {}),
+      trace: {
+        promptVersion: activityTransactionPromptVersion,
+        model: result.response?.modelId ?? "unknown",
+        boundedContext: prompt,
+        modelSteps: result.steps ?? [],
+        latencyMs: Math.max(0, Date.now() - startedAt),
+      },
+    };
   },
   buildActivityTransactionPrompt,
 );

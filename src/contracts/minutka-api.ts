@@ -285,7 +285,7 @@ const usageTotalsResponseSchema = z.strictObject({
 export const monthlyUsageResponseSchema = usageTotalsResponseSchema.extend({
   userId: employeeIdSchema,
   month: usageMonthSchema,
-  bySource: z.array(usageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
+  bySource: z.array(usageTotalsResponseSchema.extend({ source: z.enum(["chat", "activity_transaction", "onboarding", "summarization", "guard"]) })).max(5),
 });
 const groupUsageTotalsResponseSchema = usageTotalsResponseSchema.extend({
   cacheReportedInputTokens: z.number().int().nonnegative(),
@@ -296,7 +296,7 @@ export const groupMonthlyUsageResponseSchema = groupUsageTotalsResponseSchema.ex
   participants: z.number().int().nonnegative(), softLimitUsdMicros: z.number().int().nonnegative(),
   participantsAboveSoftLimitCount: z.number().int().nonnegative(),
   participantsAboveSoftLimit: z.array(z.strictObject({ employeeId: employeeIdSchema, estimatedCostUsdMicros: z.number().int().nonnegative() })),
-  bySource: z.array(groupUsageTotalsResponseSchema.extend({ source: z.enum(["chat", "onboarding", "summarization", "guard"]) })).max(4),
+  bySource: z.array(groupUsageTotalsResponseSchema.extend({ source: z.enum(["chat", "activity_transaction", "onboarding", "summarization", "guard"]) })).max(5),
 });
 export const contextDocumentVersionsRequestSchema = z.strictObject({
   employeeId: employeeIdSchema,

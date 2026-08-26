@@ -5,7 +5,7 @@ import { assertUserId } from "./document-store.js";
  * calls, so a row is "one call of one turn", not "one turn"; the source is part
  * of the deduplication key and answers where the money actually went.
  */
-export const usageSources = ["chat", "onboarding", "summarization", "guard"] as const;
+export const usageSources = ["chat", "activity_transaction", "onboarding", "summarization", "guard"] as const;
 export type UsageSource = (typeof usageSources)[number];
 
 export function isUsageSource(value: string): value is UsageSource {

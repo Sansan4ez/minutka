@@ -64,6 +64,7 @@ import {
   researchTraceSchemaVersion,
   sanitizeResearchTrace,
   type ResearchTraceAttempt,
+  type ResearchTraceContour,
   type ResearchTraceStore,
 } from "./research-trace-store.js";
 
@@ -276,7 +277,7 @@ export class AssistantService {
         ...traceVersions,
         samplingRate: 1,
         input: { text, modality: inputModality },
-        attempts: [researchTraceAttempt(1, input.context, undefined, input.error)],
+        attempts: [researchTraceAttempt(1, input.context, undefined, input.error, "request_integrity_guard", input.usage)],
         ...(input.output === undefined ? {} : { output: input.output }),
         ...(input.usage === undefined ? {} : { usage: input.usage }),
         startedAt: new Date(chatStartedAt).toISOString(),
@@ -374,6 +375,8 @@ export class AssistantService {
     const releasePendingActionSlot = () => { reservedPendingActionSlots = Math.max(0, reservedPendingActionSlots - 1); };
     let captureResult: CaptureIdeaResult | undefined;
     const observedExecutionTrace: AssistantExecutionTraceEvent[] = [];
+    const activityTransactionAttempts: ResearchTraceAttempt[] = [];
+    let activityTransactionUsageOverSoftLimit = false;
     const markProcessUsed = (id: AssistantDiagnosticProcessId) => {
       if (!isAssistantDiagnosticProcessId(id)) throw new Error(`unknown assistant diagnostic process id: ${id}`);
       observedExecutionTrace.push({ kind: "process", processId: id });
@@ -560,6 +563,7 @@ export class AssistantService {
       const roleId = participant.roleId;
       const timezone = profile?.timezone;
       if (!companyId || !groupId || !subjectKey || !roleId || !timezone) throw new PersistenceError("profile_not_found");
+      const transactionStartedAt = Date.now();
       const result = await this.deps.processCurrentActivityTurn({
         employeeId: userId,
         companyId,
@@ -573,6 +577,23 @@ export class AssistantService {
         mode,
       });
       observedExecutionTrace.push({ kind: "tool", toolName: "processCurrentActivityTurn" });
+      const transactionUsage = result.extraction?.usage;
+      if (transactionUsage) {
+        const recorded = await this.usage.record({
+          userId,
+          requestId,
+          source: "activity_transaction",
+          threadId,
+          messageId,
+          usage: transactionUsage,
+        });
+        activityTransactionUsageOverSoftLimit ||= recorded.overSoftLimit;
+      }
+      activityTransactionAttempts.push(activityTransactionTraceAttempt(
+        activityTransactionAttempts.length + 1,
+        result,
+        transactionStartedAt,
+      ));
       if ((result.status === "completed" && (result.operation !== "collect" || result.savedCount > 0))
         || (result.status === "partial" && result.savedCount > 0)) {
         if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
@@ -739,11 +760,11 @@ export class AssistantService {
       response = run.text;
       executionTrace = run.executionTrace;
       usage = run.usage;
-      traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, run.trace));
+      traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, run.trace, undefined, "main_agent", run.usage));
     } catch (error) {
       const overflowReason = classifyProviderContextOverflow(error);
       if (!overflowReason) {
-        traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error));
+        traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error, "main_agent"));
         agentError = error;
       } else if (currentChatEffectState() !== "none") {
         const recovery = overflowAfterEffects(overflowReason, error);
@@ -785,15 +806,15 @@ export class AssistantService {
             records: reducedRecords,
             systemContext: reduced.text,
           }, applicationSignal));
-          if (traceAttempts.length === 0) traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error));
+          if (traceAttempts.length === 0) traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error, "main_agent"));
           response = retryRun.text;
           executionTrace = retryRun.executionTrace;
           usage = retryRun.usage;
           usageContextSourceCharacters = reduced.contextSourceCharacters;
-          traceAttempts.push(researchTraceAttempt(2, reduced.text, retryRun.trace));
+          traceAttempts.push(researchTraceAttempt(2, reduced.text, retryRun.trace, undefined, "main_agent", retryRun.usage));
         } catch (retryError) {
           const retryEffectState = currentChatEffectState();
-          traceAttempts.push(researchTraceAttempt(2, reduced.text, undefined, retryError));
+          traceAttempts.push(researchTraceAttempt(2, reduced.text, undefined, retryError, "main_agent"));
           if (!classifyProviderContextOverflow(retryError)) {
             agentError = retryError;
           } else if (retryEffectState !== "none") {
@@ -863,7 +884,10 @@ export class AssistantService {
           ...this.deps.researchTraceVersions,
           samplingRate: 1,
           input: { text, modality: inputModality },
-          attempts: traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text, undefined, agentError)],
+          attempts: [
+            ...(traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text, undefined, agentError, "main_agent")]),
+            ...activityTransactionAttempts,
+          ],
           usage,
           startedAt: new Date(chatStartedAt).toISOString(),
           completedAt,
@@ -884,7 +908,7 @@ export class AssistantService {
       messageId,
       usage,
       contextSourceCharacters: usageContextSourceCharacters,
-    }) : undefined;
+    }) : activityTransactionUsageOverSoftLimit;
     if (usageWarning) response = appendUsageSoftLimitWarning(response);
     try {
       const appendTurn = this.deps.conversationStore.appendTurn({
@@ -926,7 +950,10 @@ export class AssistantService {
         ...this.deps.researchTraceVersions,
         samplingRate: 1,
         input: { text, modality: inputModality },
-        attempts: traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text)],
+        attempts: [
+          ...(traceAttempts.length > 0 ? traceAttempts : [researchTraceAttempt(1, systemContextBudget.text, undefined, undefined, "main_agent")]),
+          ...activityTransactionAttempts,
+        ],
         output: response,
         usage,
         startedAt: new Date(chatStartedAt).toISOString(),
@@ -1131,16 +1158,62 @@ function researchTraceAttempt(
   context: string,
   trace?: AssistantAgentRunTrace,
   error?: unknown,
+  contour?: ResearchTraceContour,
+  usage?: ModelTokenUsage,
 ): ResearchTraceAttempt {
   return {
     attempt,
+    ...(contour ? { contour } : {}),
     context,
     modelSteps: trace?.modelSteps ?? [],
     toolCalls: trace?.toolCalls ?? [],
     toolResults: trace?.toolResults ?? [],
     ...(trace?.model ? { model: trace.model } : {}),
+    ...(usage ? { usage } : {}),
     ...(error === undefined ? {} : { error: researchTraceError(error) }),
   };
+}
+
+function activityTransactionTraceAttempt(
+  attempt: number,
+  result: ActivityTransactionServiceResult,
+  startedAt: number,
+): ResearchTraceAttempt {
+  const extraction = result.extraction;
+  return {
+    attempt,
+    contour: "activity_transaction",
+    context: extraction?.trace?.boundedContext
+      ?? (extraction ? JSON.stringify(extraction.context) : "activity_transaction_context_unavailable"),
+    modelSteps: extraction?.trace?.modelSteps ?? [],
+    toolCalls: [],
+    toolResults: [],
+    ...(extraction?.trace?.model ? { model: extraction.trace.model } : {}),
+    ...(extraction?.trace?.promptVersion ? { promptVersion: extraction.trace.promptVersion } : {}),
+    ...(extraction?.decision ? { decision: extraction.decision } : {}),
+    mutationResult: activityTransactionMutationResult(result),
+    ...(extraction?.usage ? { usage: extraction.usage } : {}),
+    latencyMs: extraction?.latencyMs ?? Math.max(0, Date.now() - startedAt),
+    ...(result.status === "failed" ? { error: { code: result.code, message: result.phase } } : {}),
+  };
+}
+
+function activityTransactionMutationResult(result: ActivityTransactionServiceResult): unknown {
+  switch (result.status) {
+    case "no_write":
+    case "needs_clarification":
+      return { status: result.status, reason: result.reason };
+    case "completed":
+      return result.operation === "collect"
+        ? { status: result.status, operation: result.operation, savedCount: result.savedCount, activityIds: result.activityIds }
+        : { status: result.status, operation: result.operation, handle: result.handle, revision: result.revision };
+    case "partial":
+      return { status: result.status, operation: result.operation, savedCount: result.savedCount, activityIds: result.activityIds, code: result.code };
+    case "failed":
+      return { status: result.status, phase: result.phase, code: result.code };
+    case "outcome_unknown":
+      return { status: result.status, phase: result.phase };
+  }
 }
 
 const usageSoftLimitUserWarning = "⚠️ Мягкий месячный лимит использования превышен. Работа продолжается; оператор уже уведомлён.";

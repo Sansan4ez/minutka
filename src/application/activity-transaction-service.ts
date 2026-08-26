@@ -4,8 +4,10 @@ import type { ActivityCorrectionService, ActivityMutationResult } from "./activi
 import {
   activityTransactionModes,
   type ActivityTransactionContextMeasurement,
+  type ActivityTransactionDecision,
   type ActivityTransactionExtractor,
   type ActivityTransactionFailureCode,
+  type ActivityTransactionGenerationTrace,
   type ActivityTransactionMode,
 } from "./activity-transaction-extractor.js";
 import {
@@ -43,6 +45,9 @@ export type ActivityTransactionTrustedRequest = {
 export type ActivityTransactionExtractionMetadata = {
   context: ActivityTransactionContextMeasurement;
   usage?: ModelTokenUsage;
+  trace?: ActivityTransactionGenerationTrace;
+  decision?: ActivityTransactionDecision;
+  latencyMs?: number;
 };
 
 export type ActivityTransactionServiceResult =
@@ -126,6 +131,7 @@ export class ActivityTransactionService {
       }
     }
 
+    const extractionStartedAt = Date.now();
     const extracted = await this.deps.extractor(input.mode === "record"
       ? {
         mode: "record",
@@ -146,11 +152,23 @@ export class ActivityTransactionService {
         status: "failed",
         phase: "extract",
         code: extracted.code,
-        ...(extracted.context ? { extraction: extractionMetadata(extracted.context, extracted.usage) } : {}),
+        ...(extracted.context ? { extraction: extractionMetadata(
+          extracted.context,
+          extracted.usage,
+          extracted.trace,
+          undefined,
+          extractionStartedAt,
+        ) } : {}),
       };
     }
 
-    const extraction = extractionMetadata(extracted.context, extracted.usage);
+    const extraction = extractionMetadata(
+      extracted.context,
+      extracted.usage,
+      extracted.trace,
+      extracted.decision,
+      extractionStartedAt,
+    );
     if (extracted.decision.kind === "none") {
       return { status: "no_write", reason: extracted.decision.reason, extraction };
     }
@@ -222,9 +240,18 @@ export class ActivityTransactionService {
 
 function extractionMetadata(
   context: ActivityTransactionContextMeasurement,
-  usage?: ModelTokenUsage,
+  usage: ModelTokenUsage | undefined,
+  trace: ActivityTransactionGenerationTrace | undefined,
+  decision: ActivityTransactionDecision | undefined,
+  startedAt: number,
 ): ActivityTransactionExtractionMetadata {
-  return { context, ...(usage ? { usage } : {}) };
+  return {
+    context,
+    ...(usage ? { usage } : {}),
+    ...(trace ? { trace } : {}),
+    ...(decision ? { decision } : {}),
+    latencyMs: Math.max(0, Date.now() - startedAt),
+  };
 }
 
 function collectionResult(

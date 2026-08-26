@@ -14,6 +14,7 @@ import { createIngestionService } from "../../../src/application/ingestion-servi
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { exportResearchTracesJson } from "../../../src/application/research-trace-store.js";
 import { createAssistantAgentRunner } from "../../../src/mastra/agent-runner.js";
+import { createInMemoryUsageStore } from "../../../src/application/in-memory-usage-store.js";
 
 const now = "2026-08-18T20:00:00.000Z";
 const versions = {
@@ -47,6 +48,7 @@ function service(input: {
   traces: ReturnType<typeof createInMemoryResearchTraceStore>;
   runner: ConstructorParameters<typeof AssistantService>[0];
   warnings?: unknown[];
+  usageStore?: ReturnType<typeof createInMemoryUsageStore>;
 }) {
   const clock = { now: () => now };
   const documents = createInMemoryDocumentStore(clock);
@@ -60,6 +62,15 @@ function service(input: {
     researchTraceVersions: versions,
     auditEventStore: createInMemoryAuditEventStore(input.world),
     operationalLogger: (warning) => input.warnings?.push(warning),
+    ...(input.usageStore ? {
+      usageStore: input.usageStore,
+      usageCostPolicy: {
+        monthlySoftLimitUsdMicros: 1_000_000,
+        inputUsdMicrosPerMillionTokens: 1,
+        cachedInputUsdMicrosPerMillionTokens: 1,
+        outputUsdMicrosPerMillionTokens: 1,
+      },
+    } : {}),
     clock,
     idGenerator: createDeterministicIdGenerator(),
   });
@@ -153,6 +164,7 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       },
       async doStream() { throw new Error("streaming is not used"); },
     } as never;
+    const usageStore = createInMemoryUsageStore();
     const recoveryAssistant = new AssistantService(createAssistantAgentRunner(new Agent({
       id: "trace-recovery",
       name: "trace-recovery",
@@ -181,12 +193,31 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
         return {
           ...result,
           operation: "collect" as const,
-          extraction: { context: { currentTextCharacters: command.currentText.length, staticRulesCharacters: 10, durationReferencesCharacters: 10, recentCandidatesCharacters: 0, promptCharacters: command.currentText.length + 20 } },
+          extraction: {
+            context: { currentTextCharacters: command.currentText.length, staticRulesCharacters: 10, durationReferencesCharacters: 10, recentCandidatesCharacters: 0, promptCharacters: command.currentText.length + 20 },
+            decision: { kind: "collect", activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] },
+            usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9, cachedInputTokens: 3, llmSteps: 1 },
+            trace: {
+              promptVersion: "minutka-activity-transaction/v1",
+              model: "openai/activity-transaction-test",
+              boundedContext: "bounded current employee message invite_code=secret-value",
+              modelSteps: [{ request: { authorization: "Bearer activity-secret" } }],
+              latencyMs: 12,
+            },
+            latencyMs: 14,
+          },
         };
       },
       collectActivities: (command) => activities.collectBatch(command),
       researchTraceStore: traces,
       researchTraceVersions: versions,
+      usageStore,
+      usageCostPolicy: {
+        monthlySoftLimitUsdMicros: 1_000_000,
+        inputUsdMicrosPerMillionTokens: 1,
+        cachedInputUsdMicrosPerMillionTokens: 1,
+        outputUsdMicrosPerMillionTokens: 1,
+      },
       clock: { now: () => now },
       idGenerator: createDeterministicIdGenerator(),
     });
@@ -211,10 +242,26 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
     })]);
     expect(activityState.activities[0]).not.toHaveProperty("system");
     expect(trace).toMatchObject({ messageId: result.messageId, status: "completed", companyId: "company_a", groupId: "group_a" });
+    expect(trace?.attempts[0]?.contour).toBe("main_agent");
     expect(trace?.attempts[0]?.toolCalls).toHaveLength(1);
     expect(trace?.attempts[0]?.toolResults).toHaveLength(1);
+    expect(trace?.attempts[1]).toMatchObject({
+      contour: "activity_transaction",
+      promptVersion: "minutka-activity-transaction/v1",
+      model: "openai/activity-transaction-test",
+      decision: { kind: "collect", activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] },
+      mutationResult: { status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_recovered"] },
+      usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9, cachedInputTokens: 3, llmSteps: 1 },
+      latencyMs: 14,
+    });
+    expect(trace?.attempts[1]?.context).toContain("bounded current employee message");
     expect(JSON.stringify(trace)).toContain("processCurrentActivityTurn");
-    expect(JSON.stringify(trace)).not.toContain("taskCategory");
+    expect(JSON.stringify(trace)).toContain("taskCategory");
+    expect(JSON.stringify(trace)).not.toContain("secret-value");
+    expect(JSON.stringify(trace)).not.toContain("activity-secret");
+    expect(await usageStore.listRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: trace?.requestId, source: "activity_transaction", totalTokens: 9 }),
+    ]));
   });
 
   it("persists failed traces and keeps tenant-scoped JSON exports isolated", async () => {
@@ -258,7 +305,7 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       idGenerator: createDeterministicIdGenerator(),
     });
     await expect(denied.chat({ userId: "employee_a", threadId: "thread_a", text: "Чужие данные" })).resolves.toMatchObject({ outcome: { status: "denied" } });
-    expect(state.traces[0]).toMatchObject({ status: "completed", attempts: [{ context: "request_integrity_guard" }], usage: { totalTokens: 4 } });
+    expect(state.traces[0]).toMatchObject({ status: "completed", attempts: [{ contour: "request_integrity_guard", context: "request_integrity_guard", usage: { totalTokens: 4 } }], usage: { totalTokens: 4 } });
 
     const failedState = createInMemoryResearchTraceState();
     const guardFailure = new AssistantService(async () => "unused", {

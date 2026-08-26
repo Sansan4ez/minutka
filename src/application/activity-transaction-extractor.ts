@@ -158,18 +158,28 @@ export type ActivityTransactionContextMeasurement = {
   promptCharacters: number;
 };
 
+export type ActivityTransactionGenerationTrace = {
+  promptVersion: string;
+  model: string;
+  boundedContext: string;
+  modelSteps: unknown[];
+  latencyMs: number;
+};
+
 export type ActivityTransactionExtractionResult =
   | {
     status: "completed";
     decision: ActivityTransactionDecision;
     context: ActivityTransactionContextMeasurement;
     usage?: ModelTokenUsage;
+    trace?: ActivityTransactionGenerationTrace;
   }
   | {
     status: "failed";
     code: ActivityTransactionFailureCode;
     context?: ActivityTransactionContextMeasurement;
     usage?: ModelTokenUsage;
+    trace?: ActivityTransactionGenerationTrace;
   };
 
 export type ActivityTransactionExtractor = (
@@ -179,6 +189,7 @@ export type ActivityTransactionExtractor = (
 export type ActivityTransactionGeneration = {
   object?: unknown;
   usage?: ModelTokenUsage;
+  trace?: ActivityTransactionGenerationTrace;
 };
 
 export type ActivityTransactionGenerator = (input: {
@@ -213,8 +224,14 @@ export function createActivityTransactionExtractor(
         outputSchema: createActivityTransactionTransportSchema(parsedInput.durationReferences.map(({ ref }) => ref)),
         ...(parsedInput.signal ? { signal: parsedInput.signal } : {}),
       });
-    } catch {
-      return { status: "failed", code: "provider_error", context: built.context };
+    } catch (error) {
+      const usage = providerFailureUsage(error);
+      return {
+        status: "failed",
+        code: "provider_error",
+        context: built.context,
+        ...(usage ? { usage } : {}),
+      };
     }
 
     const normalized = normalizeActivityTransactionTransport(
@@ -222,9 +239,10 @@ export function createActivityTransactionExtractor(
       parsedInput.durationReferences.map(({ ref }) => ref),
     );
     const usage = generated.usage ? { usage: generated.usage } : {};
+    const trace = generated.trace ? { trace: generated.trace } : {};
     return normalized.success && decisionFitsExtractorInput(parsedInput, normalized.decision)
-      ? { status: "completed", decision: normalized.decision, context: built.context, ...usage }
-      : { status: "failed", code: "schema_error", context: built.context, ...usage };
+      ? { status: "completed", decision: normalized.decision, context: built.context, ...usage, ...trace }
+      : { status: "failed", code: "schema_error", context: built.context, ...usage, ...trace };
   };
 }
 
@@ -311,6 +329,25 @@ function decisionFitsExtractorInput(
     return selected && replacement;
   }
   return true;
+}
+
+function providerFailureUsage(error: unknown): ModelTokenUsage | undefined {
+  const usage = (error as { usage?: unknown } | undefined)?.usage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return undefined;
+  const candidate = usage as Partial<ModelTokenUsage>;
+  if (!Number.isSafeInteger(candidate.inputTokens) || candidate.inputTokens! < 0
+    || !Number.isSafeInteger(candidate.outputTokens) || candidate.outputTokens! < 0
+    || !Number.isSafeInteger(candidate.totalTokens) || candidate.totalTokens! < 0) return undefined;
+  if (candidate.cachedInputTokens !== undefined
+    && (!Number.isSafeInteger(candidate.cachedInputTokens) || candidate.cachedInputTokens < 0 || candidate.cachedInputTokens > candidate.inputTokens!)) return undefined;
+  if (candidate.llmSteps !== undefined && (!Number.isSafeInteger(candidate.llmSteps) || candidate.llmSteps <= 0)) return undefined;
+  return {
+    inputTokens: candidate.inputTokens!,
+    outputTokens: candidate.outputTokens!,
+    totalTokens: candidate.totalTokens!,
+    ...(candidate.llmSteps === undefined ? {} : { llmSteps: candidate.llmSteps }),
+    ...(candidate.cachedInputTokens === undefined ? {} : { cachedInputTokens: candidate.cachedInputTokens }),
+  };
 }
 
 function withoutNullFacets(input: Record<string, unknown>): Record<string, unknown> {

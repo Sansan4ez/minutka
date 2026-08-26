@@ -664,8 +664,12 @@ describe("PostgreSQL storage contracts", () => {
       id: "usage_pg_2", userId: "usage_owner", requestId: "request_usage_pg_2", source: "chat", month: "2026-07",
       inputTokens: 200, outputTokens: 100, totalTokens: 300, estimatedCostUsdMicros: 650, occurredAt: "2026-07-31T23:30:00.000Z",
     });
-    // Same request, different source: the auxiliary call must survive the
-    // deduplication that previously collapsed it into the chat row.
+    // Same request, different sources: auxiliary calls must survive the
+    // deduplication that previously collapsed them into the chat row.
+    await usage.record({
+      id: "usage_pg_1_transaction", userId: "usage_owner", requestId: "request_usage_pg_1", source: "activity_transaction", month: "2026-07",
+      inputTokens: 40, outputTokens: 8, totalTokens: 48, cachedInputTokens: 10, estimatedCostUsdMicros: 35, occurredAt: "2026-07-31T23:00:00.500Z",
+    });
     await usage.record({
       id: "usage_pg_1_guard", userId: "usage_owner", requestId: "request_usage_pg_1", source: "guard", month: "2026-07",
       inputTokens: 30, outputTokens: 5, totalTokens: 35, cachedInputTokens: 0, estimatedCostUsdMicros: 25, occurredAt: "2026-07-31T23:00:01.000Z",
@@ -686,16 +690,20 @@ describe("PostgreSQL storage contracts", () => {
       occurredAt: "2026-07-31T23:10:00.000Z",
     })).toMatchObject({
       inserted: false,
-      monthly: { records: 3, inputTokens: 330, outputTokens: 155, totalTokens: 485, estimatedCostUsdMicros: 1000 },
+      monthly: { records: 4, inputTokens: 370, outputTokens: 163, totalTokens: 533, estimatedCostUsdMicros: 1035 },
     });
 
     expect(await usage.getMonthly("usage_owner", "2026-07")).toEqual({
-      userId: "usage_owner", month: "2026-07", inputTokens: 330, outputTokens: 155, totalTokens: 485,
-      estimatedCostUsdMicros: 1000, records: 3, cachedInputTokens: 40, cachedInputUnknownRecords: 1,
+      userId: "usage_owner", month: "2026-07", inputTokens: 370, outputTokens: 163, totalTokens: 533,
+      estimatedCostUsdMicros: 1035, records: 4, cachedInputTokens: 50, cachedInputUnknownRecords: 1,
       bySource: [
         {
           source: "chat", inputTokens: 300, outputTokens: 150, totalTokens: 450,
           estimatedCostUsdMicros: 975, records: 2, cachedInputTokens: 40, cachedInputUnknownRecords: 1,
+        },
+        {
+          source: "activity_transaction", inputTokens: 40, outputTokens: 8, totalTokens: 48,
+          estimatedCostUsdMicros: 35, records: 1, cachedInputTokens: 10, cachedInputUnknownRecords: 0,
         },
         {
           source: "guard", inputTokens: 30, outputTokens: 5, totalTokens: 35,
@@ -707,11 +715,12 @@ describe("PostgreSQL storage contracts", () => {
     expect(await usage.getMonthly("usage_owner", "2026-08")).toMatchObject({ totalTokens: 0, estimatedCostUsdMicros: 0, bySource: [] });
     expect(await usage.getGroupMonthly({ ...usageScope, month: "2026-07", softLimitUsdMicros: 900 })).toMatchObject({
       companyId: usageScope.companyId, groupId: usageScope.groupId, month: "2026-07", participants: 2,
-      inputTokens: 350, outputTokens: 165, totalTokens: 515, cachedInputTokens: 40, cacheReportedInputTokens: 130,
-      cacheShare: 40 / 130, estimatedCostUsdMicros: 1065, participantsAboveSoftLimitCount: 1,
-      participantsAboveSoftLimit: [{ employeeId: "usage_owner", estimatedCostUsdMicros: 1000 }],
+      inputTokens: 390, outputTokens: 173, totalTokens: 563, cachedInputTokens: 50, cacheReportedInputTokens: 170,
+      cacheShare: 50 / 170, estimatedCostUsdMicros: 1100, participantsAboveSoftLimitCount: 1,
+      participantsAboveSoftLimit: [{ employeeId: "usage_owner", estimatedCostUsdMicros: 1035 }],
       bySource: [
         expect.objectContaining({ source: "chat", inputTokens: 320, cachedInputTokens: 40, cacheReportedInputTokens: 100, cacheShare: 40 / 100 }),
+        expect.objectContaining({ source: "activity_transaction", inputTokens: 40, cachedInputTokens: 10, cacheReportedInputTokens: 40, cacheShare: 10 / 40 }),
         expect.objectContaining({ source: "guard", inputTokens: 30, cachedInputTokens: 0, cacheReportedInputTokens: 30, cacheShare: 0 }),
       ],
     });
@@ -730,13 +739,14 @@ describe("PostgreSQL storage contracts", () => {
     expect(cached.rows).toEqual([
       { usage_id: "usage_pg_1", cached_input_tokens: "40" },
       { usage_id: "usage_pg_1_guard", cached_input_tokens: "0" },
+      { usage_id: "usage_pg_1_transaction", cached_input_tokens: "10" },
       { usage_id: "usage_pg_2", cached_input_tokens: null },
     ]);
 
     await pool.end();
     pool = createPostgresPool(config);
     usage = createPostgresUsageStore(pool);
-    expect(await usage.getMonthly("usage_owner", "2026-07")).toMatchObject({ totalTokens: 485, estimatedCostUsdMicros: 1000 });
+    expect(await usage.getMonthly("usage_owner", "2026-07")).toMatchObject({ totalTokens: 533, estimatedCostUsdMicros: 1035 });
   });
 
   it("persists invite, profile, turn and stable feedback upsert after recreating the pool", async () => {
@@ -793,7 +803,19 @@ describe("PostgreSQL storage contracts", () => {
       model: "openai/test",
       samplingRate: 1 as const,
       input: { text: input.text, modality: "text" as const },
-      attempts: [{ attempt: 1, context: "ordinary context", modelSteps: [{ authorization: "Bearer hidden" }], toolCalls: [], toolResults: [] }],
+      attempts: [{
+        attempt: 1,
+        contour: "activity_transaction" as const,
+        context: "ordinary context invite_code=hidden-invite",
+        modelSteps: [{ authorization: "Bearer hidden" }],
+        toolCalls: [],
+        toolResults: [],
+        promptVersion: "minutka-activity-transaction/v1",
+        decision: { kind: "collect", activities: [{ taskCategory: "reporting" }] },
+        mutationResult: { status: "completed", operation: "collect", savedCount: 1 },
+        usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5, cachedInputTokens: 2, llmSteps: 1 },
+        latencyMs: 12,
+      }],
       output: "ordinary output",
       startedAt: now,
       completedAt: now,
@@ -806,6 +828,14 @@ describe("PostgreSQL storage contracts", () => {
     const own = await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId });
     expect(own).toHaveLength(1);
     expect(own[0]).toMatchObject({ traceId: "trace_pg_a", input: { text: "Анна и проект Альфа" } });
+    expect(own[0]?.attempts[0]).toMatchObject({
+      contour: "activity_transaction",
+      promptVersion: "minutka-activity-transaction/v1",
+      decision: { kind: "collect", activities: [{ taskCategory: "reporting" }] },
+      mutationResult: { status: "completed", operation: "collect", savedCount: 1 },
+      usage: { totalTokens: 5 },
+      latencyMs: 12,
+    });
     expect(JSON.stringify(own[0])).not.toContain("hidden");
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, subjectKey: participantA.subjectKey })).toHaveLength(1);
     expect(await traces.list({ companyId: participantA.companyId, groupId: participantA.groupId, subjectKey: "not-a-subject-key" })).toEqual([]);

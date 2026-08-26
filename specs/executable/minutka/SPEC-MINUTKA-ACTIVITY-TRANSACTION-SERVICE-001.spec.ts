@@ -104,6 +104,10 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
     const bound = service.bind(request);
     await expect(bound({ mode: "record" })).resolves.toMatchObject({
       status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_new_1"],
+      extraction: {
+        decision: { kind: "collect", activities: [{ taskCategory: "reporting", system: "spreadsheets", durationRef: "duration_1" }] },
+        latencyMs: expect.any(Number),
+      },
     });
 
     expect(recentReads()).toBe(0);

@@ -4,6 +4,8 @@
 
 Every pilot `AssistantService` agent run is sampled at 100% and written to self-hosted PostgreSQL table `minutka_research.traces`. The versioned JSONB payload contains tenant/group/subject/request/message correlation, prompt/process/taxonomy/model versions, the employee input, the exact bounded context for each attempt, model steps, tool calls and results, output or error, latency, and token usage.
 
+`attempts[].contour` distinguishes the three evaluable centers of one turn: `request_integrity_guard`, `main_agent`, and `activity_transaction`. The transaction attempt keeps its single production anchor `minutka-activity-transaction/v1`, sanitized bounded extractor prompt, structured decision, typed mutation result, provider/model steps, latency, and usage. The metadata-only usage journal stores this provider call under `source=activity_transaction`; audit events still contain only allow-listed counts/status and never copy the prompt, decision, mutation result, or subject key.
+
 Conversation messages remain canonical in `minutka_private.messages`. Trace persistence is deliberately best-effort after the conversation write: a trace outage must not roll back an employee-visible conversation turn.
 
 The persistence boundary applies the trace secret filter before SQL. Credential-shaped keys (authorization headers, API/access/refresh tokens, passwords, invite codes, database URLs and infrastructure secrets) are replaced with `[REDACTED]`. Ordinary conversation text, including names and work details, is retained as research corpus data; the post-pilot PII sanitizer is a separate roadmap item.
@@ -51,7 +53,8 @@ WHERE company_id = 'company_id'
 ORDER BY started_at, trace_id;
 ```
 
-Inspect a JSON payload only after the same scope check:
+Inspect a JSON payload only after the same scope check. For the activity-transaction efficiency gate, compare `attempts` by `contour` and read `usage`, `latencyMs`, and `context` length from the `activity_transaction` attempt; count main-agent provider steps from the `main_agent` attempt. The transaction generation must stay at one provider step and its bounded context must remain materially smaller than the main-agent context.
+
 
 ```sql
 SELECT jsonb_pretty(payload)
