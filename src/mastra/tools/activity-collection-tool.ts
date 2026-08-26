@@ -36,9 +36,9 @@ export function createCollectActivitiesTool(
       validation: z.strictObject({ code: z.enum(["unknown_duration_ref", "duration_ref_already_used"]) }).optional(),
     }),
     mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
-    execute: async (input: ProviderCollectActivitiesInput) => {
+    execute: async (input) => {
       try {
-        const prepared = durationEvidence.prepareCollection(input);
+        const prepared = durationEvidence.prepareCollection(input as ProviderCollectActivitiesInput);
         const result = await collectActivities(prepared.input);
         durationEvidence.consumeCollection(prepared.refsByActivity, result.savedCount);
         return { status: result.status, savedCount: result.savedCount };

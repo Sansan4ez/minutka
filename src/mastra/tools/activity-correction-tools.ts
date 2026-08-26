@@ -46,9 +46,9 @@ export function createCorrectRecentActivityTool(
     }),
     outputSchema: correctionToolResultSchema,
     mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-    execute: async (input: ProviderCorrectRecentActivityInput) => {
+    execute: async (input) => {
       try {
-        const prepared = durationEvidence.prepareCorrection(input);
+        const prepared = durationEvidence.prepareCorrection(input as ProviderCorrectRecentActivityInput);
         const result = await correctRecentActivity(prepared.input);
         durationEvidence.consumeCorrection(prepared.durationRef);
         return result;

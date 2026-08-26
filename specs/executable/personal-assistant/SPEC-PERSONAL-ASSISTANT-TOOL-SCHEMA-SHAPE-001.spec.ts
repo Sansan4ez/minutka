@@ -4,7 +4,18 @@ import { assistantActiveToolNames, createAssistantToolsets } from "../../../src/
 import { createUpdatePersonalContextTool } from "../../../src/mastra/tools/profile-context-tool.js";
 import { applyPersonalProfileContextPatch } from "../../../src/application/personal-profile-context.js";
 
-const allowedUnionFields = new Set<string>();
+const allowedUnionFields = new Set([
+  "collectActivities.activities[].taskCategory",
+  "collectActivities.activities[].routinePattern",
+  "collectActivities.activities[].automationCandidate",
+  "collectActivities.activities[].energyStressMarker",
+  "collectActivities.activities[].system",
+  "correctRecentActivity.correction.taskCategory",
+  "correctRecentActivity.correction.routinePattern",
+  "correctRecentActivity.correction.automationCandidate",
+  "correctRecentActivity.correction.energyStressMarker",
+  "correctRecentActivity.correction.system",
+]);
 
 function createStubContext(): AssistantAgentContext {
   const callableStub = async () => ({});

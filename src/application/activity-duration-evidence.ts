@@ -39,12 +39,31 @@ export function extractDurationEvidence(text: string): DurationEvidenceCandidate
 
 export function createProviderActivitySchemas(candidates: readonly DurationEvidenceCandidate[]) {
   const { durationBucket: _durationBucket, ...canonicalShape } = activityCollectionItemSchema.shape;
-  const providerShape = candidates.length === 0
-    ? canonicalShape
-    : { ...canonicalShape, durationRef: requestDurationRefSchema(candidates) };
+  const providerShape = Object.fromEntries(Object.entries(canonicalShape).map(([key, schema]) => [
+    key,
+    providerNullable(schema.unwrap()),
+  ])) as unknown as {
+    taskCategory: ReturnType<typeof providerNullable<typeof canonicalShape.taskCategory>>;
+    routinePattern: ReturnType<typeof providerNullable<typeof canonicalShape.routinePattern>>;
+    automationCandidate: ReturnType<typeof providerNullable<typeof canonicalShape.automationCandidate>>;
+    energyStressMarker: ReturnType<typeof providerNullable<typeof canonicalShape.energyStressMarker>>;
+    system: ReturnType<typeof providerNullable<typeof canonicalShape.system>>;
+  };
+  const shapeWithDuration = candidates.length === 0
+    ? providerShape
+    : { ...providerShape, durationRef: requestDurationRefSchema(candidates) };
+  type TransportShape = {
+    taskCategory: z.ZodOptional<typeof shapeWithDuration.taskCategory>;
+    routinePattern: z.ZodOptional<typeof shapeWithDuration.routinePattern>;
+    automationCandidate: z.ZodOptional<typeof shapeWithDuration.automationCandidate>;
+    energyStressMarker: z.ZodOptional<typeof shapeWithDuration.energyStressMarker>;
+    system: z.ZodOptional<typeof shapeWithDuration.system>;
+    durationRef?: z.ZodOptional<z.ZodType<string | undefined>>;
+  };
+  const transportShape = shapeWithDuration as unknown as TransportShape;
   return {
-    collectionItem: z.strictObject(providerShape),
-    correctionPatch: z.strictObject(providerShape),
+    collectionItem: z.strictObject(transportShape),
+    correctionPatch: z.strictObject(transportShape),
   };
 }
 
@@ -57,11 +76,15 @@ export class RequestDurationEvidence {
   }
 
   prepareCollection(input: ProviderCollectActivitiesInput): { input: CollectActivitiesInput; refsByActivity: Array<string | undefined> } {
-    const refsByActivity = input.activities.map((activity) => activity.durationRef);
+    const activities = input.activities.map(({ durationRef, ...activity }) => ({
+      activity: withoutNullValues(activity),
+      durationRef: durationRef ?? undefined,
+    }));
+    const refsByActivity = activities.map(({ durationRef }) => durationRef);
     this.assertAvailable(refsByActivity.filter((ref): ref is string => ref !== undefined));
     return {
       input: {
-        activities: input.activities.map(({ durationRef, ...activity }) => ({
+        activities: activities.map(({ activity, durationRef }) => ({
           ...activity,
           ...(durationRef === undefined ? {} : { durationBucket: this.byRef.get(durationRef)!.bucket }),
         })),
@@ -75,14 +98,15 @@ export class RequestDurationEvidence {
   }
 
   prepareCorrection(input: ProviderCorrectRecentActivityInput): { input: CorrectRecentActivityInput; durationRef?: string } {
-    const { durationRef, ...correction } = input.correction;
+    const { durationRef: providerDurationRef, ...providerCorrection } = input.correction;
+    const durationRef = providerDurationRef ?? undefined;
     const refs = durationRef === undefined ? [] : [durationRef];
     this.assertAvailable(refs);
     return {
       input: {
         ...input,
         correction: {
-          ...correction,
+          ...withoutNullValues(providerCorrection),
           ...(durationRef === undefined ? {} : { durationBucket: this.byRef.get(durationRef)!.bucket }),
         },
       },
@@ -143,5 +167,20 @@ function durationBucketForMinutes(minutes: number): ActivityDurationBucket {
 function requestDurationRefSchema(candidates: readonly DurationEvidenceCandidate[]) {
   const refs = candidates.map(({ ref }) => ref) as [string, ...string[]];
   const description = `Optional request-local explicit-duration reference. Associate only the correct factual activity. Each ref can be used once in the turn. Available refs in source order: ${candidates.map(({ ref, bucket }) => `${ref} (${bucket})`).join(", ")}.`;
-  return z.enum(refs).describe(description).optional();
+  return providerNullable(z.enum(refs).describe(description)) as z.ZodType<string | undefined>;
+}
+
+function providerNullable<T extends z.ZodType>(schema: T) {
+  return z.preprocess(
+    (value) => value === undefined ? null : value,
+    schema.nullable().transform((value) => value === null ? undefined : value),
+  );
+}
+
+function withoutNullValues<T extends Record<string, unknown>>(input: T): {
+  [Key in keyof T]?: Exclude<T[Key], null>;
+} {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null)) as {
+    [Key in keyof T]?: Exclude<T[Key], null>;
+  };
 }
