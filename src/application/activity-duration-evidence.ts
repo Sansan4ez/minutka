@@ -38,12 +38,13 @@ export function extractDurationEvidence(text: string): DurationEvidenceCandidate
 }
 
 export function createProviderActivitySchemas(candidates: readonly DurationEvidenceCandidate[]) {
-  const durationRefSchema = requestDurationRefSchema(candidates);
   const { durationBucket: _durationBucket, ...canonicalShape } = activityCollectionItemSchema.shape;
-  const baseShape = { ...canonicalShape, durationRef: durationRefSchema };
+  const providerShape = candidates.length === 0
+    ? canonicalShape
+    : { ...canonicalShape, durationRef: requestDurationRefSchema(candidates) };
   return {
-    collectionItem: z.strictObject(baseShape),
-    correctionPatch: z.strictObject(baseShape),
+    collectionItem: z.strictObject(providerShape),
+    correctionPatch: z.strictObject(providerShape),
   };
 }
 
@@ -140,10 +141,7 @@ function durationBucketForMinutes(minutes: number): ActivityDurationBucket {
 }
 
 function requestDurationRefSchema(candidates: readonly DurationEvidenceCandidate[]) {
-  const description = candidates.length === 0
-    ? "No explicit duration was recognized in the current employee message. Omit this field."
-    : `Optional request-local explicit-duration reference. Associate only the correct factual activity. Each ref can be used once in the turn. Available refs in source order: ${candidates.map(({ ref, bucket }) => `${ref} (${bucket})`).join(", ")}.`;
-  if (candidates.length === 0) return z.never().describe(description).optional();
   const refs = candidates.map(({ ref }) => ref) as [string, ...string[]];
+  const description = `Optional request-local explicit-duration reference. Associate only the correct factual activity. Each ref can be used once in the turn. Available refs in source order: ${candidates.map(({ ref, bucket }) => `${ref} (${bucket})`).join(", ")}.`;
   return z.enum(refs).describe(description).optional();
 }
