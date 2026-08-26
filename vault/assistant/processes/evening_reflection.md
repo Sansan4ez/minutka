@@ -12,19 +12,18 @@ Use for an employee's end-of-day account, blockers, meetings, work-related energ
 
 ## Process
 
-1. Call `markProcessUsed({ id: "evening_reflection" })` once.
-2. For a scheduled trigger without a fresh answer, invite one compact response covering what was actually completed or started, the main obstacle or change, and optional work-related energy. When visible bounded history confirms daytime activity writes, phrase the invitation as "what else to add to what is already noted". Do not invent how the day went.
-3. Send one `collectActivities` item per completed or in-progress fact; split in input order only above 50 items.
-4. Repeated real work is a new factual episode. Only for an explicit correction/clarification, a clear recent reference, or explicit duplicate confirmation, call `readRecentOwnActivities`, never before ordinary writes. Several matches require one short clarification; no match changes nothing. For one unambiguous candidate, call `correctRecentActivity` with its exact handle/revision and patch only supplied facets or replace the closed facet set when the employee explicitly corrects the whole classification. For an unambiguous confirmed duplicate pair, call `supersedeRecentActivity`: the duplicate handle is excluded from current summaries/report while provenance remains. A stale revision changes nothing; do not guess or retry. Plans/not-started work are not factual activities; ask or omit if completion is unclear.
-5. Send closed values only. Facets require message evidence: omit unnamed/unsupported system or obstacles; `other` requires an explicit uncovered value. Use the compact generic mapping in the tool; store only its enum, never a brand or internal name. Map an unfamiliar brand only when its generic type is unambiguous; otherwise omit rather than guess. A meeting or call without a named channel has no system. Never pass free text.
-6. Put every explicit routine, automation, and energy/stress facet in one item. Energy/stress has no other; neutral requires an explicit signal. Normal work without named friction has no routine pattern. Do not infer emotion. Correct schema rejection in-turn; persistence failures are final.
-7. Reflect observable facts without judging productivity. When morning history is visible, compare intentions and outcomes cautiously; when it is absent, do not claim to remember a plan.
-8. Suggest at most one small next step for tomorrow or the next work block. Do not use task, project, idea, document, or reminder tools.
+1. For a scheduled trigger without a fresh answer, call `markProcessUsed({ id: "evening_reflection" })` once and invite one compact response covering what was actually completed or started, the main obstacle or change, and optional work-related energy. When visible bounded history confirms daytime activity writes, phrase the invitation as "what else to add to what is already noted". Do not call the activity transaction or invent how the day went.
+2. For a fresh completed or in-progress account, call `processCurrentActivityTurn({ mode: "record" })` exactly once. Repeated real work is a new factual episode and still uses `record`.
+3. Only for an explicit correction/clarification of a recent activity, a clear recent reference, or explicit duplicate confirmation, call `processCurrentActivityTurn({ mode: "repair" })` exactly once. Never infer a duplicate or ask the model to supply handles, revisions, facets, identity, or raw text.
+4. Wait for the typed result before claiming any write. `completed` may be acknowledged with its saved count or corrected/superseded revision. `needs_clarification` requires one short question. Several matches require one short clarification. `no_write` changes nothing. A stale revision changes nothing. `partial`, `failed`, and `outcome_unknown` are reported plainly and are not retried automatically.
+5. Plans/not-started work are not factual activities; ask or omit if completion is unclear. Low-level facet extraction belongs only to the bounded transaction: omit unsupported fields; use `other` only for an explicit known value outside the closed taxonomy; a meeting or call without a named channel has no system; energy/stress has no `other`. System extraction uses the compact generic mapping, stores never a brand or internal name, and must otherwise omit rather than guess.
+6. Reflect observable facts without judging productivity. When morning history is visible, compare intentions and outcomes cautiously; when it is absent, do not claim to remember a plan.
+7. Suggest at most one small next step for tomorrow or the next work block. Do not use task, project, idea, document, or reminder tools.
 
 ## Outputs
 
 - For a scheduled message: a concise invitation to report result, obstacle, and optional energy.
-- For an employee answer: all factual activities saved in the smallest number of bounded `collectActivities` calls, or a plainly reported failure with the saved count, followed by a short non-judgmental reflection and at most one next step.
+- For an employee answer: one request-bound activity transaction result followed by a short non-judgmental reflection and at most one next step. Never announce success before the result.
 
 ## Privacy notes
 

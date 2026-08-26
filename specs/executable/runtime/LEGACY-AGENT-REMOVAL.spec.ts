@@ -82,7 +82,7 @@ describe("A2.6: legacy Minutka agent removal", () => {
     const runner = createAssistantAgentRunner({
       async generate(_text, options) {
         generateOptions = options;
-        const tool = options.toolsets?.activities?.collectActivities as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
+        const tool = options.toolsets?.activities?.processCurrentActivityTurn as { execute?: (input: unknown, context: unknown) => Promise<unknown> };
         expect(tool).toBeDefined();
         expect(options.toolsets?.inbox).toBeUndefined();
         expect(options.toolsets?.documents).toBeUndefined();
@@ -99,21 +99,17 @@ describe("A2.6: legacy Minutka agent removal", () => {
         await expect(diagnostic.execute?.({ id: "morning_planning" }, {})).resolves.toEqual({ recorded: true, id: "morning_planning" });
         await expect(diagnostic.execute?.({ id: "day_focus" }, {})).resolves.toMatchObject({ error: true });
         expect(tool.execute).toBeTypeOf("function");
-        const result = await tool.execute?.({ activities: [{
-          taskCategory: "reporting",
-          durationRef: "duration_1",
-          system: "spreadsheets",
-        }] }, {});
-        expect(result).toEqual({ status: "completed", savedCount: 1 });
+        const result = await tool.execute?.({ mode: "record" }, {});
+        expect(result).toEqual({ status: "completed", operation: "collect", savedCount: 1 });
         return {
           text: "done",
           toolCalls: [
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed" } },
-            { payload: { toolCallId: "call-2", toolName: "collectActivities" } },
+            { payload: { toolCallId: "call-2", toolName: "processCurrentActivityTurn" } },
           ],
           toolResults: [
             { payload: { toolCallId: "call-1", toolName: "markProcessUsed", isError: false } },
-            { payload: { toolCallId: "call-2", toolName: "collectActivities", isError: false } },
+            { payload: { toolCallId: "call-2", toolName: "processCurrentActivityTurn", isError: false } },
           ],
           usage: { promptTokens: 70, completionTokens: 20, totalTokens: 90, cachedInputTokens: 50 },
           totalUsage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, cachedInputTokens: 80 },
@@ -132,6 +128,13 @@ describe("A2.6: legacy Minutka agent removal", () => {
       profileAndHistory: {} as never,
       records: {} as never,
       source: { kind: "text", text: "capture for 35 minutes" },
+      async processCurrentActivityTurn(input) {
+        captured.push(input);
+        return {
+          status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_1"],
+          extraction: { context: { currentTextCharacters: 30, staticRulesCharacters: 1, durationReferencesCharacters: 1, recentCandidatesCharacters: 0, promptCharacters: 32 } },
+        };
+      },
       async collectActivities(input) {
         captured.push(input);
         return { status: "completed", savedCount: input.activities.length, activityIds: ["activity_1"] };
@@ -206,18 +209,18 @@ describe("A2.6: legacy Minutka agent removal", () => {
       text: "done",
       executionTrace: [
         { kind: "tool", toolName: "markProcessUsed" },
-        { kind: "tool", toolName: "collectActivities" },
+        { kind: "tool", toolName: "processCurrentActivityTurn" },
       ],
       trace: {
         model: expect.any(String),
         modelSteps: expect.arrayContaining([expect.objectContaining({ usage: expect.any(Object) })]),
-        toolCalls: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivities" }) })]),
-        toolResults: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "collectActivities" }) })]),
+        toolCalls: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "processCurrentActivityTurn" }) })]),
+        toolResults: expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ toolName: "processCurrentActivityTurn" }) })]),
       },
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150, llmSteps: 2, cachedInputTokens: 80 },
     });
 
-    expect(captured).toEqual([{ activities: [{ taskCategory: "reporting", durationBucket: "30_60m", system: "spreadsheets" }] }]);
+    expect(captured).toEqual([{ mode: "record" }]);
     expect(generateOptions).toMatchObject({
       system: "private context",
       toolChoice: "auto",
@@ -305,6 +308,7 @@ function runUsageOnly(runner: ReturnType<typeof createAssistantAgentRunner>) {
     profileAndHistory: {} as never,
     records: {} as never,
     source: { kind: "text", text: "usage" },
+    processCurrentActivityTurn: async () => { throw new Error("not used"); },
     collectActivities,
     readRecentOwnActivities: async () => { throw new Error("not used"); },
     correctRecentActivity: async () => { throw new Error("not used"); },

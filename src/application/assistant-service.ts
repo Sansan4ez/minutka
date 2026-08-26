@@ -49,6 +49,8 @@ import { ProjectLabelService, type AssistantProjectListResult, type ProjectLabel
 import type { AppendIdeaResult, IdeaAppendService } from "./idea-append.js";
 import type { CollectActivitiesInput } from "../contracts/minutka-activity.js";
 import type { CollectActivitiesResult } from "./activity-collection.js";
+import type { ActivityTransactionMode } from "./activity-transaction-extractor.js";
+import type { ActivityTransactionServiceResult } from "./activity-transaction-service.js";
 import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
 import type { CycleActivitySummary } from "./cycle-activity-summary.js";
 import type { RecentOwnActivitiesResult } from "./recent-own-activities.js";
@@ -94,13 +96,15 @@ export type AssistantAgentContext = {
   };
   /** Owner-bound daily schedule reads and reversible writes. */
   schedules: OwnerScheduleCapabilities;
-  /** Authenticated employee and tenant-bound structured activity batch write. */
+  /** Process the current authenticated activity account through one bounded transaction. */
+  processCurrentActivityTurn(input: { mode: ActivityTransactionMode }): Promise<ActivityTransactionServiceResult>;
+  /** Legacy application-only activity closure; not exposed in the main agent toolset. */
   collectActivities(input: CollectActivitiesInput): Promise<CollectActivitiesResult>;
-  /** Employee-and-tenant-bound short-window read for an explicit correction lookup. */
+  /** Legacy application-only recent read; not exposed in the main agent toolset. */
   readRecentOwnActivities(): Promise<RecentOwnActivitiesResult>;
-  /** Correct one selected recent activity without inserting another factual row. */
+  /** Legacy application-only correction; not exposed in the main agent toolset. */
   correctRecentActivity(input: CorrectRecentActivityInput): Promise<ActivityMutationResult>;
-  /** Preserve a confirmed duplicate as provenance while removing it from current projections. */
+  /** Legacy application-only supersession; not exposed in the main agent toolset. */
   supersedeRecentActivity(input: SupersedeRecentActivityInput): Promise<ActivityMutationResult>;
   /** Employee-bound counted read of the employee's own last seven days. */
   readWeeklyActivities(): Promise<WeeklyActivitySummary>;
@@ -171,7 +175,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; processCurrentActivityTurn?: (input: { employeeId: string; companyId: string; groupId: string; subjectKey: string; sourceMessageId: string; roleId: string; timezone: string; currentText: string; signal?: AbortSignal; mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult>; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -545,10 +549,40 @@ export class AssistantService {
     const projects = {
       list: (projectInput: { limit?: number } = {}) => this.projectLabels.list(userId, projectInput, projectLabelCache),
     };
-    // The tool commits inside the agent loop, so its `sourceMessageId` names the
-    // turn that is still running. When the turn later fails before the
-    // conversation append, the activity stays — the corpus keeps what the
-    // employee reported — and the evidence link resolves to no message.
+    // The request-bound transaction commits inside the agent loop, so its
+    // `sourceMessageId` names the turn that is still running. When the turn later
+    // fails before conversation append, the activity stays in the durable corpus.
+    const processCurrentActivityTurn = async ({ mode }: { mode: ActivityTransactionMode }) => {
+      if (!this.deps.processCurrentActivityTurn) throw new Error("activity transaction is not configured");
+      const companyId = participant.companyId;
+      const groupId = participant.groupId;
+      const subjectKey = participant.subjectKey;
+      const roleId = participant.roleId;
+      const timezone = profile?.timezone;
+      if (!companyId || !groupId || !subjectKey || !roleId || !timezone) throw new PersistenceError("profile_not_found");
+      const result = await this.deps.processCurrentActivityTurn({
+        employeeId: userId,
+        companyId,
+        groupId,
+        subjectKey,
+        sourceMessageId: messageId,
+        roleId,
+        timezone,
+        currentText: text,
+        signal: applicationSignal,
+        mode,
+      });
+      observedExecutionTrace.push({ kind: "tool", toolName: "processCurrentActivityTurn" });
+      if ((result.status === "completed" && (result.operation !== "collect" || result.savedCount > 0))
+        || (result.status === "partial" && result.savedCount > 0)) {
+        if (chatEffect.businessWrite === "none") chatEffect.businessWrite = "committed";
+      } else if (result.status === "outcome_unknown") {
+        chatEffect.businessWrite = "outcome_unknown";
+      }
+      return result;
+    };
+    // Legacy low-level closures remain application-internal for compatibility
+    // with non-agent specs and transports; they are absent from the model toolset.
     const collectActivities = async ({ activities }: CollectActivitiesInput) => {
       if (!this.deps.collectActivities) throw new Error("activity collection is not configured");
       const participant = await this.deps.participantStore?.getParticipant(userId);
@@ -686,6 +720,7 @@ export class AssistantService {
       ideas,
       projects,
       schedules,
+      processCurrentActivityTurn,
       collectActivities,
       readRecentOwnActivities,
       correctRecentActivity,
@@ -1131,11 +1166,16 @@ function sameExecutionEvidence(left: AssistantExecutionTraceEvent, right: Assist
 
 export function deriveSelectedProcessIds(executionTrace: AssistantExecutionTrace): AssistantProcessId[] {
   const selected: AssistantProcessId[] = ["core"];
+  const explicitlySelectedActivityProcess = executionTrace.some((event) => event.kind === "process"
+    && ["morning_planning", "midday_adjustment", "evening_reflection"].includes(event.processId));
   const add = (id: AssistantProcessId | undefined) => {
     if (id && !selected.includes(id)) selected.push(id);
   };
   for (const event of executionTrace) {
-    if (event.kind === "tool") add(assistantToolProcessOwners[event.toolName]);
+    if (event.kind === "tool") {
+      if (event.toolName === "processCurrentActivityTurn" && explicitlySelectedActivityProcess) continue;
+      add(assistantToolProcessOwners[event.toolName]);
+    }
     else if (isAssistantProcessId(event.processId) && (event.processId === "knowledge_lookup" || isAssistantDiagnosticProcessId(event.processId))) add(event.processId);
   }
   return selected;

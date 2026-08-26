@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AssistantService } from "../../../src/application/assistant-service.js";
 import { createAssistantAgentRunner } from "../../../src/mastra/agent-runner.js";
 import { CollectActivityService, type CollectActivitiesResult } from "../../../src/application/activity-collection.js";
+import type { ActivityTransactionServiceResult } from "../../../src/application/activity-transaction-service.js";
 import { AssistantMutationOutcomeUnknownError } from "../../../src/application/assistant-mutation-outcome.js";
 import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore } from "../../../src/application/in-memory-activity-collection-store.js";
 import { PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
@@ -21,6 +22,10 @@ import { createRuntimeProjectionBuilder } from "../../../src/application/runtime
 function harness(
   runner: ConstructorParameters<typeof AssistantService>[0],
   collectActivitiesOverride?: (command: Parameters<NonNullable<ConstructorParameters<typeof AssistantService>[1]["collectActivities"]>>[0]) => Promise<CollectActivitiesResult>,
+  processCurrentActivityTurnOverride?: (
+    command: Parameters<NonNullable<ConstructorParameters<typeof AssistantService>[1]["processCurrentActivityTurn"]>>[0],
+    activities: CollectActivityService,
+  ) => Promise<ActivityTransactionServiceResult>,
 ) {
   const clock = { now: () => "2026-08-15T07:00:00.000Z" };
   const world = createInMemoryWorld(clock.now);
@@ -56,6 +61,9 @@ function harness(
       auditEventStore: createInMemoryAuditEventStore(world),
       clock,
     }),
+    processCurrentActivityTurn: processCurrentActivityTurnOverride
+      ? (command) => processCurrentActivityTurnOverride(command, activities)
+      : undefined,
     collectActivities: collectActivitiesOverride ?? ((command) => activities.collectBatch(command)),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
@@ -107,18 +115,39 @@ describe("SPEC-MINUTKA-DAILY-RHYTHM-001: morning plan, voluntary midday update, 
     let toolCalls = 0;
     const { service, state } = harness(createAssistantAgentRunner({
       async generate(_text, options) {
-        const tool = options.toolsets.activities.collectActivities as { execute(input: unknown, context: unknown): Promise<unknown> };
+        const tool = options.toolsets.activities.processCurrentActivityTurn as { execute(input: unknown, context: unknown): Promise<unknown> };
         toolCalls += 1;
-        await expect(tool.execute({ activities: [
+        await expect(tool.execute({ mode: "record" }, {})).resolves.toEqual({ status: "completed", operation: "collect", savedCount: 5 });
+        return { text: "Записал пять фактических активностей.", toolCalls: [], toolResults: [] };
+      },
+    }), undefined, async (command, activityService) => {
+      expect(command).toMatchObject({
+        employeeId: "employee_a", companyId: "company_a", groupId: "group_a", subjectKey: "subject_employee_a",
+        roleId: "role_a", timezone: "Europe/Moscow", mode: "record",
+      });
+      const result = await activityService.collectBatch({
+        employeeId: command.employeeId,
+        companyId: command.companyId,
+        groupId: command.groupId,
+        subjectKey: command.subjectKey,
+        sourceMessageId: command.sourceMessageId,
+        roleId: command.roleId,
+        timezone: command.timezone,
+        activities: [
           { taskCategory: "meetings", system: "messengers" },
           { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" },
           { taskCategory: "coordination" },
           { taskCategory: "focus_work", automationCandidate: "data_entry_reduction" },
           { taskCategory: "communication", energyStressMarker: "focus_loss" },
-        ] }, {})).resolves.toEqual({ status: "completed", savedCount: 5 });
-        return { text: "Записал пять фактических активностей.", toolCalls: [], toolResults: [] };
-      },
-    }));
+        ],
+      });
+      if (result.status !== "completed") throw new Error("expected completed collection");
+      return {
+        ...result,
+        operation: "collect" as const,
+        extraction: { context: { currentTextCharacters: command.currentText.length, staticRulesCharacters: 1, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: command.currentText.length + 1 } },
+      };
+    });
 
     const result = await service.chat({
       userId: "employee_a", threadId: "daily",

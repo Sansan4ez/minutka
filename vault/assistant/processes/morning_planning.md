@@ -14,10 +14,10 @@ Use for the scheduled morning message or when an employee asks to choose priorit
 
 1. Call `markProcessUsed({ id: "morning_planning" })` once.
 2. For a scheduled trigger without a fresh answer, invite the employee to name up to three priorities or intentions for today and choose one concrete first step. Keep it one compact Telegram-friendly question.
-3. Never call `collectActivities` for a plan, intention, future task, or work that has not started. Planning is read-only for plans; the cross-cutting activity rule still applies.
+3. Never call `processCurrentActivityTurn` for a plan, intention, future task, or work that has not started. Planning is read-only for plans; the cross-cutting activity rule still applies.
 4. If bounded history shows that yesterday's evening reflection was missed, add at most one short catch-up question before planning: ask whether the employee wants to name activities they actually did or started yesterday. Do not infer a missed reflection from silence outside the available history.
-5. For completed or in-progress facts from yesterday's catch-up or today, send one `collectActivities` item per fact, splitting only above 50. Omit unsupported facets; no `other`/`neutral` defaults. Retry schema rejection. No plans/free text.
-6. Before any morning write, inspect bounded history. Do not write an activity already acknowledged as recorded in an earlier turn. If duplication cannot be ruled out, ask a short clarifying question or continue to today's plan without writing.
+5. For completed or in-progress facts from yesterday's catch-up or today, call `processCurrentActivityTurn({ mode: "record" })` once and wait for its typed result. No plans are sent to the transaction.
+6. Before any morning transaction, inspect bounded history. Do not process an activity already acknowledged as recorded in an earlier turn. If duplication cannot be ruled out, ask a short clarifying question or continue to today's plan without writing.
 7. After any catch-up or today's factual write, return to today's plan. Help narrow the answer to at most three priorities and one practical first step. Do not invent deadlines, projects, dependencies, or relative importance.
 8. Do not use task, project, idea, document, or reminder tools. Optional personal profile context may inform wording but missing context never blocks planning.
 

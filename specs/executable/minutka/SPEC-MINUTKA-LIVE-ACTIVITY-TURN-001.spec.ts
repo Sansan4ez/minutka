@@ -1,25 +1,28 @@
 import { Agent } from "@mastra/core/agent";
 import { describe, expect, it } from "vitest";
 import type { AssistantAgentContext } from "../../../src/application/assistant-service.js";
+import type { ActivityTransactionServiceResult } from "../../../src/application/activity-transaction-service.js";
 import {
   assistantActiveToolNames,
   createAssistantAgentRunner,
+  createAssistantToolsets,
   type MastraAgentLike,
 } from "../../../src/mastra/agent-runner.js";
 
-const ordinaryAccount = "Сегодня провёл встречу с коллегами. Система и препятствие не назывались.";
-
-type ActivityTool = {
-  execute?: (input: unknown, context: unknown) => Promise<unknown>;
+const extraction = {
+  context: {
+    currentTextCharacters: 24,
+    staticRulesCharacters: 100,
+    durationReferencesCharacters: 0,
+    recentCandidatesCharacters: 0,
+    promptCharacters: 124,
+  },
 };
 
-type ScriptedStep =
-  | { tool: "collectActivities"; input: unknown }
-  | { tool: "readRecentOwnActivities" }
-  | { tool: "correctRecentActivity"; input: unknown }
-  | { tool: "supersedeRecentActivity"; input: unknown };
-
-function context(overrides: Partial<AssistantAgentContext> = {}, sourceText = ordinaryAccount): AssistantAgentContext {
+function context(
+  processCurrentActivityTurn: AssistantAgentContext["processCurrentActivityTurn"],
+  sourceText = "Сегодня провёл встречу с коллегами.",
+): AssistantAgentContext {
   const notUsed = async () => { throw new Error("not used"); };
   return {
     systemContext: "runtime",
@@ -34,6 +37,7 @@ function context(overrides: Partial<AssistantAgentContext> = {}, sourceText = or
     ideas: {} as never,
     projects: {} as never,
     schedules: {} as never,
+    processCurrentActivityTurn,
     collectActivities: notUsed as never,
     readRecentOwnActivities: notUsed as never,
     correctRecentActivity: notUsed as never,
@@ -42,105 +46,77 @@ function context(overrides: Partial<AssistantAgentContext> = {}, sourceText = or
     readCycleActivities: notUsed as never,
     updatePersonalContext: notUsed as never,
     markProcessUsed() {},
-    ...overrides,
   };
 }
 
-function scriptedAgent(script: ScriptedStep[], observedActiveTools: string[][]): MastraAgentLike {
+function scriptedAgent(
+  mode: "record" | "repair",
+  observed: { activeTools: string[][]; results: unknown[]; calls: number },
+): MastraAgentLike {
   return {
     async generate(_text, options) {
-      observedActiveTools.push([...options.activeTools]);
-      const activities = options.toolsets.activities as Record<string, ActivityTool>;
-      for (const step of script) {
-        await activities[step.tool]?.execute?.("input" in step ? step.input : {}, {});
-      }
-      return { text: "Готово." };
+      observed.activeTools.push([...options.activeTools]);
+      const tool = options.toolsets.activities.processCurrentActivityTurn as {
+        execute(input: unknown, context: unknown): Promise<unknown>;
+      };
+      observed.calls += 1;
+      observed.results.push(await tool.execute({ mode }, {}));
+      return { text: "Финальный ответ после результата." };
     },
   };
 }
 
-describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics", () => {
-  it("offers every request-scoped activity capability while an ordinary turn writes only evidenced fields", async () => {
-    const calls: Array<{ tool: string; input?: unknown }> = [];
-    const activeTools: string[][] = [];
-    const input = { activities: [{
-      taskCategory: "meetings" as const,
-    }] };
+describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: broad agent uses one request-bound activity tool", () => {
+  it("removes low-level activity tools and exposes only the closed high-level mode", async () => {
+    const toolsets = createAssistantToolsets(context(async () => ({
+      status: "no_write", reason: "no_factual_activity", extraction,
+    })));
+    const activityTools = Object.keys(toolsets.activities);
+    const tool = toolsets.activities.processCurrentActivityTurn;
+    const schema = tool.inputSchema!["~standard"].jsonSchema.input({ target: "draft-07" }) as {
+      properties?: Record<string, unknown>;
+      additionalProperties?: boolean;
+    };
 
-    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], activeTools))(
-      { userId: "employee", threadId: "thread", text: ordinaryAccount },
-      context({
-        async collectActivities(received) {
-          calls.push({ tool: "collectActivities", input: received });
-          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
-        },
-        async readRecentOwnActivities() {
-          calls.push({ tool: "readRecentOwnActivities" });
-          return { activities: [] };
-        },
-        async correctRecentActivity(received) {
-          calls.push({ tool: "correctRecentActivity", input: received });
-          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
-        },
-        async supersedeRecentActivity(received) {
-          calls.push({ tool: "supersedeRecentActivity", input: received });
-          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
-        },
+    expect(activityTools).toEqual(["processCurrentActivityTurn", "readWeeklyActivities", "readCycleActivities"]);
+    expect(assistantActiveToolNames).not.toEqual(expect.arrayContaining([
+      "collectActivities", "readRecentOwnActivities", "correctRecentActivity", "supersedeRecentActivity",
+    ]));
+    expect(Object.keys(schema.properties ?? {})).toEqual(["mode"]);
+    expect(schema.additionalProperties).toBe(false);
+    expect(JSON.stringify(schema)).not.toMatch(/currentText|employeeId|companyId|groupId|subjectKey|facets|handle|revision/u);
+  });
+
+  it.each([
+    ["ordinary record", "record", { status: "completed", operation: "collect", savedCount: 3, activityIds: ["a", "b", "c"], extraction }],
+    ["explicit correction", "repair", { status: "completed", operation: "correct", handle: "recent", revision: 2, extraction }],
+    ["confirmed duplicate", "repair", { status: "completed", operation: "supersede", handle: "duplicate", revision: 3, extraction }],
+  ] as const)("runs %s through exactly one transaction before final text", async (_label, mode, serviceResult) => {
+    const observed = { activeTools: [] as string[][], results: [] as unknown[], calls: 0 };
+    const boundCalls: Array<{ mode: "record" | "repair" }> = [];
+    const result = await createAssistantAgentRunner(scriptedAgent(mode, observed))(
+      { userId: "employee", threadId: "thread", text: "Current authenticated turn" },
+      context(async (input) => {
+        boundCalls.push(input);
+        return serviceResult as ActivityTransactionServiceResult;
       }),
     );
 
-    expect(activeTools).toEqual([[...assistantActiveToolNames]]);
-    expect(calls).toEqual([{ tool: "collectActivities", input }]);
-    expect(input.activities[0]).not.toHaveProperty("system");
-    expect(input.activities[0]).not.toHaveProperty("routinePattern");
-    expect(input.activities[0]).not.toHaveProperty("automationCandidate");
-    expect(input.activities[0]).not.toHaveProperty("energyStressMarker");
+    expect(observed.activeTools).toEqual([[...assistantActiveToolNames]]);
+    expect(observed.calls).toBe(1);
+    expect(boundCalls).toEqual([{ mode }]);
+    expect(observed.results).toEqual([mode === "record"
+      ? { status: "completed", operation: "collect", savedCount: 3 }
+      : { status: "completed", operation: serviceResult.operation, revision: serviceResult.revision }]);
+    expect(result.text).toBe("Финальный ответ после результата.");
   });
 
-  it("preserves the observed multi-activity pilot account with exactly one supported duration", async () => {
-    const writes: unknown[] = [];
-    const input = { activities: [
-      { taskCategory: "admin" as const },
-      { taskCategory: "meetings" as const, durationRef: "duration_1" },
-      { taskCategory: "focus_work" as const },
-      { taskCategory: "focus_work" as const },
-      { taskCategory: "communication" as const },
-      { taskCategory: "focus_work" as const },
-      { taskCategory: "focus_work" as const },
-    ] };
-
-    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
-      {
-        userId: "emp_algoritm_institute_07",
-        threadId: "pilot",
-        text: "Проверила домашние работы, завершила созвон с руководителем — примерно полтора часа, затем готовила материалы, проверяла задания, звонила выпускникам и ещё работала над двумя блоками программы.",
-      },
-      context({
-        async collectActivities(received) {
-          writes.push(received);
-          return { status: "completed", savedCount: received.activities.length, activityIds: received.activities.map((_, index) => `activity_${index + 1}`) };
-        },
-      }, "Проверила домашние работы, завершила созвон с руководителем — примерно полтора часа, затем готовила материалы, проверяла задания, звонила выпускникам и ещё работала над двумя блоками программы."),
-    );
-
-    expect(writes).toEqual([{ activities: [
-      { taskCategory: "admin" },
-      { taskCategory: "meetings", durationBucket: "1_2h" },
-      { taskCategory: "focus_work" },
-      { taskCategory: "focus_work" },
-      { taskCategory: "communication" },
-      { taskCategory: "focus_work" },
-      { taskCategory: "focus_work" },
-    ] }]);
-  });
-
-  it("rejects a free-standing invented duration and allows the same-loop retry without losing facts", async () => {
+  it("requires a typed result step before a model can claim successful collection", async () => {
     let modelStep = 0;
-    const writes: unknown[] = [];
     const model = {
       specificationVersion: "v2",
-      provider: "scripted-duration-recovery",
-      modelId: "scripted-duration-recovery",
+      provider: "scripted-activity-transaction",
+      modelId: "scripted-activity-transaction",
       supportedUrls: {},
       async doGenerate() {
         modelStep += 1;
@@ -149,252 +125,36 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: the agent owns activity semantics
           ...base,
           finishReason: "tool-calls",
           content: [{
-            type: "tool-call", toolCallId: "invented", toolName: "collectActivities",
-            input: JSON.stringify({ activities: [
-              { taskCategory: "meetings", durationBucket: "1_2h" },
-              { taskCategory: "reporting", durationBucket: "30_60m" },
-            ] }),
+            type: "tool-call", toolCallId: "activity", toolName: "processCurrentActivityTurn",
+            input: JSON.stringify({ mode: "record" }),
           }],
         };
-        if (modelStep === 2) return {
-          ...base,
-          finishReason: "tool-calls",
-          content: [{
-            type: "tool-call", toolCallId: "honest", toolName: "collectActivities",
-            input: JSON.stringify({ activities: [{ taskCategory: "meetings" }, { taskCategory: "reporting" }] }),
-          }],
-        };
-        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал обе активности без неподтверждённого времени." }] };
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал две активности." }] };
       },
       async doStream() { throw new Error("streaming is not used"); },
     } as never;
-    const agent = new Agent({ id: "duration-recovery", name: "duration-recovery", instructions: "Retry invalid activity calls.", model, tools: {}, editor: false });
+    const agent = new Agent({ id: "activity-transaction", name: "activity-transaction", instructions: "Use the typed result before answering.", model, tools: {}, editor: false });
 
     const result = await createAssistantAgentRunner(agent)(
-      { userId: "employee", threadId: "thread", text: "Провёл встречу и подготовил отчёт." },
-      context({
-        async collectActivities(received) {
-          writes.push(received);
-          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1", "activity_2"] };
-        },
-      }, "Провёл встречу и подготовил отчёт."),
+      { userId: "employee", threadId: "thread", text: "Завершил отчёт и созвон." },
+      context(async () => ({ status: "completed", operation: "collect", savedCount: 2, activityIds: ["a", "b"], extraction })),
     );
 
-    expect(result.text).toContain("обе активности");
-    expect(writes).toEqual([{ activities: [{ taskCategory: "meetings" }, { taskCategory: "reporting" }] }]);
-    expect(JSON.stringify(result.trace?.toolResults)).toContain("durationBucket");
-    expect(JSON.stringify(result.trace?.toolResults)).not.toContain("Провёл встречу");
-  });
-
-  it("passes generic amoCRM and 1С mappings without unsupported facets", async () => {
-    const writes: unknown[] = [];
-    const input = { activities: [
-      { taskCategory: "communication" as const, system: "crm" as const },
-      { taskCategory: "reporting" as const, system: "one_c" as const },
-    ] };
-
-    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
-      { userId: "employee", threadId: "thread", text: "Работал с клиентами в amoCRM и сверял данные в 1С." },
-      context({
-        async collectActivities(received) {
-          writes.push(received);
-          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1", "activity_2"] };
-        },
-      }),
-    );
-
-    expect(writes).toEqual([input]);
-    expect(input.activities.every((activity) => !("routinePattern" in activity)
-      && !("automationCandidate" in activity)
-      && !("energyStressMarker" in activity))).toBe(true);
-  });
-
-  it("passes valid closed facets to the typed collection use-case without semantic rewriting", async () => {
-    const writes: unknown[] = [];
-    const input = { activities: [{
-      taskCategory: "reporting" as const,
-      system: "spreadsheets" as const,
-      routinePattern: "manual_reporting" as const,
-      automationCandidate: "report_generation" as const,
-      energyStressMarker: "frustration" as const,
-    }] };
-
-    await createAssistantAgentRunner(scriptedAgent([{ tool: "collectActivities", input }], []))(
-      { userId: "employee", threadId: "thread", text: "Multilingual wording is interpreted by the scripted agent." },
-      context({
-        async collectActivities(received) {
-          writes.push(received);
-          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
-        },
-      }),
-    );
-
-    expect(writes).toEqual([input]);
-  });
-
-  it("recovers an invalid enum call in the same bounded Mastra turn without rewriting arguments", async () => {
-    let modelStep = 0;
-    const providerPrompts: unknown[] = [];
-    const model = {
-      specificationVersion: "v2",
-      provider: "scripted-activity-recovery",
-      modelId: "scripted-activity-recovery",
-      supportedUrls: {},
-      async doGenerate(options: { prompt: unknown }) {
-        providerPrompts.push(options.prompt);
-        modelStep += 1;
-        const base = {
-          rawCall: { rawPrompt: null, rawSettings: {} },
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-          warnings: [],
-        };
-        if (modelStep === 1) {
-          return {
-            ...base,
-            finishReason: "tool-calls",
-            content: [{
-              type: "tool-call",
-              toolCallId: "invalid_activity",
-              toolName: "collectActivities",
-              input: JSON.stringify({ activities: [{ taskCategory: "meetings", system: "supplier_portal" }] }),
-            }],
-          };
-        }
-        if (modelStep === 2) {
-          return {
-            ...base,
-            finishReason: "tool-calls",
-            content: [{
-              type: "tool-call",
-              toolCallId: "corrected_activity",
-              toolName: "collectActivities",
-              input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] }),
-            }],
-          };
-        }
-        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал встречу." }] };
-      },
-      async doStream() { throw new Error("streaming is not used"); },
-    } as never;
-    const writes: unknown[] = [];
-    const agent = new Agent({
-      id: "activity-recovery",
-      name: "activity-recovery",
-      instructions: "Use collectActivities and correct validation failures within the same turn.",
-      model,
-      tools: {},
-      editor: false,
-    });
-
-    const result = await createAssistantAgentRunner(agent)(
-      { userId: "employee", threadId: "thread", text: "Провёл 35-минутную встречу с поставщиком." },
-      context({
-        async collectActivities(received) {
-          writes.push(received);
-          return { status: "completed", savedCount: received.activities.length, activityIds: ["activity_1"] };
-        },
-      }, "Провёл 35-минутную встречу с поставщиком."),
-    );
-
-    expect(result.text).toBe("Записал встречу.");
-    expect(modelStep).toBe(3);
-    expect(writes).toEqual([{ activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }] }]);
-    const recoveryPrompt = JSON.stringify(providerPrompts[1]);
-    expect(recoveryPrompt).toContain("Tool input validation failed for collectActivities");
-    expect(recoveryPrompt).toContain("activities.0.system");
-    expect(recoveryPrompt).toContain("supplier_portal");
-    expect(result.trace?.toolResults).toHaveLength(2);
-    expect(JSON.stringify(result.trace?.toolResults[0])).toContain("validationErrors");
-  });
-
-  it("executes read then one correction for an explicit repair selected by the agent", async () => {
-    const calls: Array<{ tool: string; input?: unknown }> = [];
-    const correction = {
-      handle: "activity_recent",
-      expectedRevision: 1,
-      mode: "patch" as const,
-      correction: { routinePattern: "waiting_for_input" as const },
-    };
-
-    await createAssistantAgentRunner(scriptedAgent([
-      { tool: "readRecentOwnActivities" },
-      { tool: "correctRecentActivity", input: correction },
-    ], []))(
-      { userId: "employee", threadId: "thread", text: "That last entry needs a correction." },
-      context({
-        async readRecentOwnActivities() {
-          calls.push({ tool: "readRecentOwnActivities" });
-          return { activities: [] };
-        },
-        async correctRecentActivity(received) {
-          calls.push({ tool: "correctRecentActivity", input: received });
-          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
-        },
-      }),
-    );
-
-    expect(calls).toEqual([
-      { tool: "readRecentOwnActivities" },
-      { tool: "correctRecentActivity", input: correction },
-    ]);
-  });
-
-  it("executes read then exactly one supersession for a confirmed duplicate selected by the agent", async () => {
-    const calls: Array<{ tool: string; input?: unknown }> = [];
-    const supersession = {
-      handle: "activity_duplicate",
-      expectedRevision: 1,
-      replacementHandle: "activity_keep",
-      replacementExpectedRevision: 1,
-    };
-
-    await createAssistantAgentRunner(scriptedAgent([
-      { tool: "readRecentOwnActivities" },
-      { tool: "supersedeRecentActivity", input: supersession },
-    ], []))(
-      { userId: "employee", threadId: "thread", text: "Ese registro es un duplicado; conserva el anterior." },
-      context({
-        async readRecentOwnActivities() {
-          calls.push({ tool: "readRecentOwnActivities" });
-          return { activities: [] };
-        },
-        async supersedeRecentActivity(received) {
-          calls.push({ tool: "supersedeRecentActivity", input: received });
-          return { status: "completed", handle: received.handle, revision: received.expectedRevision + 1 };
-        },
-      }),
-    );
-
-    expect(calls).toEqual([
-      { tool: "readRecentOwnActivities" },
-      { tool: "supersedeRecentActivity", input: supersession },
-    ]);
+    expect(modelStep).toBe(2);
+    expect(result.text).toBe("Записал две активности.");
+    expect(JSON.stringify(result.trace?.toolCalls)).toContain("processCurrentActivityTurn");
+    expect(JSON.stringify(result.trace?.toolResults)).toContain('"savedCount":2');
   });
 
   it.each([
-    ["ambiguous candidates", [{ tool: "readRecentOwnActivities" } satisfies ScriptedStep]],
-    ["no matching candidate", [{ tool: "readRecentOwnActivities" } satisfies ScriptedStep]],
-  ])("leaves application state unchanged for %s", async (_case, script) => {
-    const calls: string[] = [];
+    [{ status: "no_write", reason: "no_factual_activity", extraction }, { status: "no_write", reason: "no_factual_activity" }],
+    [{ status: "needs_clarification", reason: "correction_target_ambiguous", extraction }, { status: "needs_clarification", reason: "correction_target_ambiguous" }],
+    [{ status: "failed", phase: "extract", code: "provider_error", extraction }, { status: "failed", phase: "extract", code: "provider_error" }],
+    [{ status: "outcome_unknown", phase: "write", extraction }, { status: "outcome_unknown", phase: "write" }],
+  ] as const)("returns compact model-visible outcomes without extraction internals", async (serviceResult, expected) => {
+    const tool = createAssistantToolsets(context(async () => serviceResult as ActivityTransactionServiceResult))
+      .activities.processCurrentActivityTurn;
 
-    await createAssistantAgentRunner(scriptedAgent(script, []))(
-      { userId: "employee", threadId: "thread", text: "Please fix the recent entry." },
-      context({
-        async readRecentOwnActivities() {
-          calls.push("readRecentOwnActivities");
-          return { activities: [] };
-        },
-        async correctRecentActivity() {
-          calls.push("correctRecentActivity");
-          throw new Error("mutation must not be called");
-        },
-        async supersedeRecentActivity() {
-          calls.push("supersedeRecentActivity");
-          throw new Error("mutation must not be called");
-        },
-      }),
-    );
-
-    expect(calls).toEqual(["readRecentOwnActivities"]);
+    await expect(tool.execute?.({ mode: "repair" }, {} as never)).resolves.toEqual(expected);
   });
 });

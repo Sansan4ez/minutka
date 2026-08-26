@@ -35,10 +35,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("chat-only and read-only");
     expect(instructions).toContain("Except in `final_report`");
     expect(instructions).toContain("across applicable processes at any time of day");
-    expect(instructions).toContain("one `collectActivities` item per fact");
+    expect(instructions).toContain('processCurrentActivityTurn({ mode: "record" })');
     expect(instructions).toContain("from yesterday's catch-up or today");
-    expect(instructions).toContain("plans, intentions, future tasks, and not-started work are never collected");
-    expect(instructions).toContain("batches of at most 50 items");
+    expect(instructions).toContain("Plans, intentions, future tasks, and not-started work are never collected");
+    expect(instructions).toContain("wait for its typed result");
     expect(instructions).toContain("what else to add to what is already noted");
     expect(instructions).not.toMatch(/(?:up to|one to) three activities/i);
     expect(instructions).toContain("updatePersonalContext");
@@ -52,10 +52,10 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Process file: evening_reflection");
     expect(instructions).toContain('markProcessUsed({ id: "evening_reflection" })');
     expect(instructions).toContain("Process file: weekly_summary");
-    expect(instructions).toContain("readRecentOwnActivities");
+    expect(instructions).toContain('processCurrentActivityTurn({ mode: "repair" })');
     expect(instructions).toContain("Repeated real work is a new factual episode");
-    expect(instructions).toContain("Several matches require one short clarification");
-    expect(instructions).toContain("no match changes nothing");
+    expect(instructions).toContain("needs_clarification");
+    expect(instructions).toContain("no_write");
     expect(instructions).toContain("readWeeklyActivities");
     expect(instructions).toContain("too thin for a pattern");
     expect(instructions).toContain("Process file: final_report");
@@ -103,8 +103,8 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       .join("\n");
 
     expect(registeredIds).toEqual([
-      "listSchedules", "setDailySchedule", "disableSchedule", "collectActivities", "readRecentOwnActivities",
-      "correctRecentActivity", "supersedeRecentActivity", "readWeeklyActivities", "readCycleActivities", "updatePersonalContext", "markProcessUsed",
+      "listSchedules", "setDailySchedule", "disableSchedule", "processCurrentActivityTurn",
+      "readWeeklyActivities", "readCycleActivities", "updatePersonalContext", "markProcessUsed",
     ]);
     expect(registeredIds).toEqual([...assistantActiveToolNames]);
     expect(toolsetIds).toEqual([...assistantActiveToolNames]);
@@ -142,10 +142,11 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).not.toContain("listTasks");
     expect(assistantActiveToolNames).not.toContain("listDocuments");
     expect(assistantActiveToolNames).not.toContain("createContextNote");
-    expect(assistantActiveToolNames).toContain("collectActivities");
-    expect(assistantActiveToolNames).toContain("readRecentOwnActivities");
-    expect(assistantActiveToolNames).toContain("correctRecentActivity");
-    expect(assistantActiveToolNames).toContain("supersedeRecentActivity");
+    expect(assistantActiveToolNames).toContain("processCurrentActivityTurn");
+    expect(assistantActiveToolNames).not.toContain("collectActivities");
+    expect(assistantActiveToolNames).not.toContain("readRecentOwnActivities");
+    expect(assistantActiveToolNames).not.toContain("correctRecentActivity");
+    expect(assistantActiveToolNames).not.toContain("supersedeRecentActivity");
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
     expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");

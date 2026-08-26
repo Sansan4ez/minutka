@@ -4,18 +4,7 @@ import { assistantActiveToolNames, createAssistantToolsets } from "../../../src/
 import { createUpdatePersonalContextTool } from "../../../src/mastra/tools/profile-context-tool.js";
 import { applyPersonalProfileContextPatch } from "../../../src/application/personal-profile-context.js";
 
-const allowedUnionFields = new Set([
-  "collectActivities.activities[].taskCategory",
-  "collectActivities.activities[].routinePattern",
-  "collectActivities.activities[].automationCandidate",
-  "collectActivities.activities[].energyStressMarker",
-  "collectActivities.activities[].system",
-  "correctRecentActivity.correction.taskCategory",
-  "correctRecentActivity.correction.routinePattern",
-  "correctRecentActivity.correction.automationCandidate",
-  "correctRecentActivity.correction.energyStressMarker",
-  "correctRecentActivity.correction.system",
-]);
+const allowedUnionFields = new Set<string>();
 
 function createStubContext(): AssistantAgentContext {
   const callableStub = async () => ({});
@@ -44,6 +33,10 @@ function createStubContext(): AssistantAgentContext {
     ideas: capabilities as AssistantAgentContext["ideas"],
     projects: capabilities as AssistantAgentContext["projects"],
     schedules: capabilities as AssistantAgentContext["schedules"],
+    processCurrentActivityTurn: async () => ({
+      status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_1"],
+      extraction: { context: { currentTextCharacters: 1, staticRulesCharacters: 1, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: 2 } },
+    }),
     collectActivities: (async ({ activities }) => ({ status: "completed", savedCount: activities.length, activityIds: [] })) as AssistantAgentContext["collectActivities"],
     readRecentOwnActivities: async () => ({ activities: [] }),
     correctRecentActivity: (async ({ handle, expectedRevision }) => ({ status: "completed", handle, revision: expectedRevision + 1 })) as AssistantAgentContext["correctRecentActivity"],

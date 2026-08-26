@@ -74,6 +74,8 @@ import { createPostgresCompanyReportStore } from "../infrastructure/postgres/pos
 import { createPostgresResearchTraceStore } from "../infrastructure/postgres/postgres-research-trace-store.js";
 import { llmModel } from "../config/llm.js";
 import { RecentOwnActivitiesService } from "../application/recent-own-activities.js";
+import { ActivityTransactionService } from "../application/activity-transaction-service.js";
+import { extractActivityTransactionWithAgent } from "../mastra/activity-transaction-extractor.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -237,6 +239,12 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ownActivityReadStore = createPostgresOwnActivityReadStore(pool);
     const recentOwnActivities = new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), systemClock);
     const activityCorrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), systemClock);
+    const activityTransaction = new ActivityTransactionService({
+      extractor: extractActivityTransactionWithAgent,
+      collection: activityCollection,
+      recentActivities: recentOwnActivities,
+      corrections: activityCorrections,
+    });
     const weeklyActivitySummary = new WeeklyActivitySummaryService(ownActivityReadStore, systemClock);
     const cycleActivitySummary = new CycleActivitySummaryService(ownActivityReadStore, systemClock);
     const researchTraceStore = createPostgresResearchTraceStore(pool);
@@ -249,6 +257,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
+      processCurrentActivityTurn: (command) => activityTransaction.process(command),
       collectActivities: (command) => activityCollection.collectBatch(command),
       readRecentOwnActivities: (input) => recentOwnActivities.read(input),
       correctRecentActivity: ({ employeeId, companyId, groupId, sourceMessageId, ...input }) => activityCorrections.correct({ employeeId, companyId, groupId, sourceMessageId }, input),

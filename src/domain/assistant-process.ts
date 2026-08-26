@@ -67,6 +67,7 @@ export const assistantToolProcessOwners: Readonly<Record<string, AssistantProces
   proposeContextDocumentUpdate: "knowledge_lookup",
   proposeContextDocumentMove: "knowledge_lookup",
   proposeContextDocumentDelete: "knowledge_lookup",
+  processCurrentActivityTurn: "evening_reflection",
   updatePersonalContext: undefined,
 };
 

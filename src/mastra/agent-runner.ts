@@ -3,32 +3,21 @@ import type { Agent } from "@mastra/core/agent";
 import { createMarkProcessUsedTool, markProcessUsedToolName } from "./tools/process-diagnostic-tool.js";
 import { normalizeMastraUsage, type MastraTokenUsage, type MastraUsageResult, type ModelUsageWarningLogger } from "./model-usage.js";
 import { assistantScheduleToolNames, createScheduleTools } from "./tools/schedule-tools.js";
-import { collectActivitiesToolName, createCollectActivitiesTool } from "./tools/activity-collection-tool.js";
 import { createReadWeeklyActivitiesTool, readWeeklyActivitiesToolName } from "./tools/weekly-activity-tool.js";
 import { createReadCycleActivitiesTool, readCycleActivitiesToolName } from "./tools/cycle-activity-tool.js";
-import { createReadRecentOwnActivitiesTool, readRecentOwnActivitiesToolName } from "./tools/recent-own-activities-tool.js";
-import {
-  correctRecentActivityToolName,
-  createCorrectRecentActivityTool,
-  createSupersedeRecentActivityTool,
-  supersedeRecentActivityToolName,
-} from "./tools/activity-correction-tools.js";
+import { createProcessCurrentActivityTurnTool, processCurrentActivityTurnToolName } from "./tools/process-current-activity-turn-tool.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
 import { llmModel } from "../config/llm.js";
-import {
-  extractDurationEvidence,
-  RequestDurationEvidence,
-} from "../application/activity-duration-evidence.js";
 
 /**
  * Toolsets offered to the «Минутка» agent. Tools owned by a process disabled in
  * `vault/assistant/processes/disabled-registry.json` are absent by design: the
- * agent must answer a daily touch with `collectActivities`, and a tool whose
+ * agent must answer a daily touch through the bounded activity transaction, and a tool whose
  * manual is outside the prompt would only compete with it.
  */
 export const assistantRuntimeToolsets = {
   schedules: assistantScheduleToolNames,
-  activities: [collectActivitiesToolName, readRecentOwnActivitiesToolName, correctRecentActivityToolName, supersedeRecentActivityToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
+  activities: [processCurrentActivityTurnToolName, readWeeklyActivitiesToolName, readCycleActivitiesToolName],
   profile: [updatePersonalContextToolName],
   diagnostics: [markProcessUsedToolName],
 } as const;
@@ -71,14 +60,10 @@ export type MastraAgentLike = { generate(text: string, options: any): Promise<Ma
 type AssistantMastraAgent = Pick<Agent, "generate">;
 
 export function createAssistantToolsets(context: AssistantAgentContext) {
-  const durationEvidence = new RequestDurationEvidence(extractDurationEvidence(context.source.kind === "text" ? context.source.text : ""));
   return {
     schedules: createScheduleTools(context.schedules),
     activities: {
-      collectActivities: createCollectActivitiesTool(context.collectActivities, durationEvidence),
-      readRecentOwnActivities: createReadRecentOwnActivitiesTool(context.readRecentOwnActivities),
-      correctRecentActivity: createCorrectRecentActivityTool(context.correctRecentActivity, durationEvidence),
-      supersedeRecentActivity: createSupersedeRecentActivityTool(context.supersedeRecentActivity),
+      processCurrentActivityTurn: createProcessCurrentActivityTurnTool(context.processCurrentActivityTurn),
       readWeeklyActivities: createReadWeeklyActivitiesTool(context.readWeeklyActivities),
       readCycleActivities: createReadCycleActivitiesTool(context.readCycleActivities),
     },

@@ -145,16 +145,8 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
           ...base,
           finishReason: "tool-calls",
           content: [{
-            type: "tool-call", toolCallId: "bad", toolName: "collectActivities",
-            input: JSON.stringify({ activities: [{ taskCategory: "meetings", system: "secret_internal_system" }] }),
-          }],
-        };
-        if (modelStep === 2) return {
-          ...base,
-          finishReason: "tool-calls",
-          content: [{
-            type: "tool-call", toolCallId: "good", toolName: "collectActivities",
-            input: JSON.stringify({ activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] }),
+            type: "tool-call", toolCallId: "activity", toolName: "processCurrentActivityTurn",
+            input: JSON.stringify({ mode: "record" }),
           }],
         };
         return { ...base, finishReason: "stop", content: [{ type: "text", text: "Встреча записана." }] };
@@ -174,6 +166,24 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       ingestionService: createIngestionService({ documentStore: createInMemoryDocumentStore({ now: () => now }), blobStore: createInMemoryBlobStore({ now: () => now }) }),
       requestIntegrityGuard: async () => ({ status: "allowed" }),
       participantStore: profiles,
+      processCurrentActivityTurn: async (command) => {
+        const result = await activities.collectBatch({
+          employeeId: command.employeeId,
+          companyId: command.companyId,
+          groupId: command.groupId,
+          subjectKey: command.subjectKey,
+          sourceMessageId: command.sourceMessageId,
+          roleId: command.roleId,
+          timezone: command.timezone,
+          activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }],
+        });
+        if (result.status !== "completed") throw new Error("expected completed collection");
+        return {
+          ...result,
+          operation: "collect" as const,
+          extraction: { context: { currentTextCharacters: command.currentText.length, staticRulesCharacters: 10, durationReferencesCharacters: 10, recentCandidatesCharacters: 0, promptCharacters: command.currentText.length + 20 } },
+        };
+      },
       collectActivities: (command) => activities.collectBatch(command),
       researchTraceStore: traces,
       researchTraceVersions: versions,
@@ -201,10 +211,10 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
     })]);
     expect(activityState.activities[0]).not.toHaveProperty("system");
     expect(trace).toMatchObject({ messageId: result.messageId, status: "completed", companyId: "company_a", groupId: "group_a" });
-    expect(trace?.attempts[0]?.toolCalls).toHaveLength(2);
-    expect(trace?.attempts[0]?.toolResults).toHaveLength(2);
-    expect(JSON.stringify(trace?.attempts[0]?.toolResults)).toContain("validationErrors");
-    expect(JSON.stringify(trace)).toContain("secret_internal_system");
+    expect(trace?.attempts[0]?.toolCalls).toHaveLength(1);
+    expect(trace?.attempts[0]?.toolResults).toHaveLength(1);
+    expect(JSON.stringify(trace)).toContain("processCurrentActivityTurn");
+    expect(JSON.stringify(trace)).not.toContain("taskCategory");
   });
 
   it("persists failed traces and keeps tenant-scoped JSON exports isolated", async () => {

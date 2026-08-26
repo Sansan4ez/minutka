@@ -65,7 +65,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * semantic activity gate from the TypeScript runtime. mnt-wy5.13 repins the
  * request-local explicit-duration reference rules.
  */
-const pinnedAgentManualCharacters = 37_896;
+const pinnedAgentManualCharacters = 37_322;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

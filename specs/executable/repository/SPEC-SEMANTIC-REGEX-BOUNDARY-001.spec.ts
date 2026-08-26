@@ -8,7 +8,7 @@ const activeCompositionPaths = [
   "src/mastra/request-integrity-guard.ts",
   "src/application/onboarding-profile-extractor.ts",
   "src/mastra/onboarding-profile-extractor.ts",
-  "src/mastra/tools/activity-collection-tool.ts",
+  "src/mastra/tools/process-current-activity-turn-tool.ts",
   "src/application/activity-duration-evidence.ts",
   "src/application/minutka-service.ts",
 ] as const;
@@ -106,37 +106,29 @@ function inspectSource(input: SourceInput): string[] {
         if (node.parameters.length !== 1 || node.parameters.some((parameter) => containsIdentifier(parameter, "text"))) {
           report("`createAssistantToolsets` must accept only typed request context, never raw user text");
         }
-        let collectActivitiesUsesDurationEvidence = false;
+        let requestBoundActivityTransaction = false;
         if (!node.body) {
           report("`createAssistantToolsets` must have an implementation");
           return;
         }
         visit(node.body, (candidate) => {
-          if (!ts.isPropertyAssignment(candidate) || nodeName(candidate) !== "collectActivities") return;
+          if (!ts.isPropertyAssignment(candidate) || nodeName(candidate) !== "processCurrentActivityTurn") return;
           if (!ts.isCallExpression(candidate.initializer) || !ts.isIdentifier(candidate.initializer.expression)) return;
-          collectActivitiesUsesDurationEvidence = candidate.initializer.expression.text === "createCollectActivitiesTool"
-            && candidate.initializer.arguments[0]?.getText(sourceFile) === "context.collectActivities"
-            && (candidate.initializer.arguments.length === 1
-              || (candidate.initializer.arguments.length === 2 && candidate.initializer.arguments[1]?.getText(sourceFile) === "durationEvidence"));
+          requestBoundActivityTransaction = candidate.initializer.expression.text === "createProcessCurrentActivityTurnTool"
+            && candidate.initializer.arguments.length === 1
+            && candidate.initializer.arguments[0]?.getText(sourceFile) === "context.processCurrentActivityTurn";
         });
-        if (!collectActivitiesUsesDurationEvidence) report("the activity write tool must bind its typed use-case only through the request-local duration evidence boundary");
+        if (!requestBoundActivityTransaction) report("the broad agent must bind one request-scoped activity transaction tool without raw-text routing");
       }
     });
   }
 
-  if (input.path === "src/mastra/tools/activity-collection-tool.ts") {
+  if (input.path === "src/mastra/tools/process-current-activity-turn-tool.ts") {
     visit(sourceFile, (node) => {
-      if (!ts.isFunctionDeclaration(node) || nodeName(node) !== "createCollectActivitiesTool") return;
-      let resolvedTypedCall = false;
-      if (!node.body) {
-        report("`createCollectActivitiesTool` must have an implementation");
-        return;
+      if (!ts.isVariableDeclaration(node) || nodeName(node) !== "processCurrentActivityTurnInputSchema") return;
+      for (const forbidden of ["currentText", "employeeId", "companyId", "groupId", "subjectKey", "handle", "revision", "taskCategory"]) {
+        if (containsIdentifier(node, forbidden)) report(`the request-bound activity tool input must not expose \`${forbidden}\``);
       }
-      visit(node.body, (candidate) => {
-        if (!ts.isCallExpression(candidate) || !ts.isIdentifier(candidate.expression) || candidate.expression.text !== "collectActivities") return;
-        resolvedTypedCall = candidate.arguments.length === 1 && candidate.arguments[0]?.getText(sourceFile) === "prepared.input";
-      });
-      if (!resolvedTypedCall) report("the activity tool must forward only schema-validated closed fields plus mechanically resolved request-local duration evidence");
     });
   }
 
@@ -215,7 +207,7 @@ describe("SPEC-SEMANTIC-REGEX-BOUNDARY-001: agent-led semantic source guard", ()
         }
       `,
     });
-    expect(findings).toEqual([expect.stringContaining("`activeTools` must expose the static request-scoped typed catalog")]);
+    expect(findings).toEqual(expect.arrayContaining([expect.stringContaining("`activeTools` must expose the static request-scoped typed catalog")]));
   });
 
   it("rejects a raw-text classifier that overrides a structured request-integrity outcome", () => {
