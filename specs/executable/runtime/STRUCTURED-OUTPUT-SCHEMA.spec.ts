@@ -4,6 +4,7 @@ import { decisionTransportSchema } from "../../../src/mastra/conversation-decisi
 import { insightTransportSchema } from "../../../src/mastra/insight-extractor.js";
 import { onboardingExtractorTransportSchema } from "../../../src/mastra/onboarding-profile-extractor.js";
 import { requestIntegrityOutcomeSchema } from "../../../src/mastra/request-integrity-guard.js";
+import { createActivityTransactionTransportSchema } from "../../../src/application/activity-transaction-extractor.js";
 
 /**
  * Every structured-output schema is sent to the provider as `response_format`
@@ -17,6 +18,8 @@ const structuredOutputSchemas: Array<[string, z.ZodType]> = [
   ["decisionTransportSchema", decisionTransportSchema],
   ["insightTransportSchema", insightTransportSchema],
   ["requestIntegrityOutcomeSchema", requestIntegrityOutcomeSchema],
+  ["activityTransactionTransportSchema", createActivityTransactionTransportSchema(["duration_1"])],
+  ["activityTransactionTransportSchemaWithoutDuration", createActivityTransactionTransportSchema([])],
 ];
 
 function untypedPaths(schema: unknown, path: string[] = []): string[] {

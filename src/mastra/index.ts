@@ -2,6 +2,7 @@ import { Mastra } from "@mastra/core";
 import { InMemoryStore } from "@mastra/core/storage";
 import { personalAssistantAgent } from "./agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "./agents/onboarding-profile-extractor-agent.js";
+import { activityTransactionExtractorAgent } from "./agents/activity-transaction-extractor-agent.js";
 
 /**
  * Agent registry for development tooling. Conversation history is owned by
@@ -14,5 +15,6 @@ export const mastra = new Mastra({
   agents: {
     personalAssistantAgent,
     onboardingProfileExtractorAgent,
+    activityTransactionExtractorAgent,
   },
 });

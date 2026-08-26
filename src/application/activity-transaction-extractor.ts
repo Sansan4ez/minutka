@@ -1,0 +1,318 @@
+import { z } from "zod";
+import { collectActivitiesMaximumItems } from "../contracts/minutka-activity.js";
+import {
+  activityDurationBuckets,
+  activitySystems,
+  automationCandidateTypes,
+  energyStressMarkerTypes,
+  routinePatternTypes,
+  taskCategories,
+} from "../domain/insights.js";
+import type { ModelTokenUsage } from "./usage-store.js";
+
+export const activityTransactionModes = ["record", "repair"] as const;
+export type ActivityTransactionMode = typeof activityTransactionModes[number];
+
+export const activityTransactionClarificationReasons = [
+  "activity_status_ambiguous",
+  "correction_target_ambiguous",
+  "duplicate_pair_ambiguous",
+  "repair_target_not_found",
+] as const;
+export type ActivityTransactionClarificationReason = typeof activityTransactionClarificationReasons[number];
+
+export const activityTransactionFailureCodes = [
+  "context_budget_error",
+  "provider_error",
+  "schema_error",
+] as const;
+export type ActivityTransactionFailureCode = typeof activityTransactionFailureCodes[number];
+
+const boundedHandleSchema = z.string().trim().min(1).max(160);
+const boundedTimestampSchema = z.string().trim().min(1).max(64);
+const durationReferenceSchema = z.strictObject({
+  ref: z.string().trim().min(1).max(64),
+  bucket: z.enum(activityDurationBuckets),
+  sourceOrder: z.number().int().nonnegative(),
+});
+
+/** Closed extractor patch. Unknown facets are omitted, never represented by guessed defaults. */
+export const activityTransactionPatchSchema = z.strictObject({
+  taskCategory: z.enum(taskCategories).optional(),
+  routinePattern: z.enum(routinePatternTypes).optional(),
+  automationCandidate: z.enum(automationCandidateTypes).optional(),
+  energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
+  system: z.enum(activitySystems).optional(),
+  durationRef: z.string().trim().min(1).max(64).optional(),
+});
+export type ActivityTransactionPatch = z.infer<typeof activityTransactionPatchSchema>;
+
+const nonEmptyActivityTransactionPatchSchema = activityTransactionPatchSchema.refine(
+  (patch) => Object.keys(patch).length > 0,
+  "activity transaction patch must contain at least one evidenced facet",
+);
+
+export const activityTransactionRecentCandidateSchema = z.strictObject({
+  handle: boundedHandleSchema,
+  revision: z.number().int().min(1),
+  taskCategory: z.enum(taskCategories).optional(),
+  routinePattern: z.enum(routinePatternTypes).optional(),
+  automationCandidate: z.enum(automationCandidateTypes).optional(),
+  energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
+  durationBucket: z.enum(activityDurationBuckets).optional(),
+  system: z.enum(activitySystems).optional(),
+  activityDate: boundedTimestampSchema,
+  recordedAt: boundedTimestampSchema,
+});
+export type ActivityTransactionRecentCandidate = z.infer<typeof activityTransactionRecentCandidateSchema>;
+
+const activityTransactionInputBase = {
+  currentText: z.string().trim().min(1),
+  durationReferences: z.array(durationReferenceSchema).max(32),
+  signal: z.custom<AbortSignal>().optional(),
+};
+
+/** Record mode cannot carry history; repair mode can see at most five closed candidates. */
+export const activityTransactionExtractorInputSchema = z.discriminatedUnion("mode", [
+  z.strictObject({
+    mode: z.literal("record"),
+    ...activityTransactionInputBase,
+  }),
+  z.strictObject({
+    mode: z.literal("repair"),
+    ...activityTransactionInputBase,
+    recentCandidates: z.array(activityTransactionRecentCandidateSchema).max(5),
+  }),
+]);
+export type ActivityTransactionExtractorInput = z.infer<typeof activityTransactionExtractorInputSchema>;
+
+export const activityTransactionDecisionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("none"),
+    reason: z.literal("no_factual_activity"),
+  }),
+  z.strictObject({
+    kind: z.literal("needs_clarification"),
+    reason: z.enum(activityTransactionClarificationReasons),
+  }),
+  z.strictObject({
+    kind: z.literal("collect"),
+    activities: z.array(nonEmptyActivityTransactionPatchSchema).min(1).max(collectActivitiesMaximumItems),
+  }),
+  z.strictObject({
+    kind: z.literal("correct"),
+    handle: boundedHandleSchema,
+    expectedRevision: z.number().int().min(1),
+    mode: z.enum(["patch", "replace"]),
+    correction: nonEmptyActivityTransactionPatchSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("supersede"),
+    handle: boundedHandleSchema,
+    expectedRevision: z.number().int().min(1),
+    replacementHandle: boundedHandleSchema,
+    replacementExpectedRevision: z.number().int().min(1),
+  }).refine((decision) => decision.handle !== decision.replacementHandle, "supersession handles must differ"),
+]);
+export type ActivityTransactionDecision = z.infer<typeof activityTransactionDecisionSchema>;
+
+const nullablePatchBase = {
+  taskCategory: z.enum(taskCategories).nullable(),
+  routinePattern: z.enum(routinePatternTypes).nullable(),
+  automationCandidate: z.enum(automationCandidateTypes).nullable(),
+  energyStressMarker: z.enum(energyStressMarkerTypes).nullable(),
+  system: z.enum(activitySystems).nullable(),
+};
+
+/**
+ * Provider-safe flat transport. Every branch field is present and nullable;
+ * pure normalization below recovers the strict transport-neutral union and
+ * rejects impossible cross-branch field combinations.
+ */
+export function createActivityTransactionTransportSchema(durationRefs: readonly string[]) {
+  const uniqueRefs = [...new Set(durationRefs)];
+  const durationRef = uniqueRefs.length === 0
+    ? z.null()
+    : z.enum(uniqueRefs as [string, ...string[]]).nullable();
+  const patch = z.strictObject({ ...nullablePatchBase, durationRef });
+  return z.strictObject({
+    kind: z.enum(["none", "needs_clarification", "collect", "correct", "supersede"]),
+    reason: z.enum(["no_factual_activity", ...activityTransactionClarificationReasons]).nullable(),
+    activities: z.array(patch).max(collectActivitiesMaximumItems),
+    handle: boundedHandleSchema.nullable(),
+    expectedRevision: z.number().int().min(1).nullable(),
+    correctionMode: z.enum(["patch", "replace"]).nullable(),
+    correction: patch.nullable(),
+    replacementHandle: boundedHandleSchema.nullable(),
+    replacementExpectedRevision: z.number().int().min(1).nullable(),
+  });
+}
+
+export type ActivityTransactionTransport = z.infer<ReturnType<typeof createActivityTransactionTransportSchema>>;
+
+export type ActivityTransactionContextMeasurement = {
+  currentTextCharacters: number;
+  staticRulesCharacters: number;
+  durationReferencesCharacters: number;
+  recentCandidatesCharacters: number;
+  promptCharacters: number;
+};
+
+export type ActivityTransactionExtractionResult =
+  | {
+    status: "completed";
+    decision: ActivityTransactionDecision;
+    context: ActivityTransactionContextMeasurement;
+    usage?: ModelTokenUsage;
+  }
+  | {
+    status: "failed";
+    code: ActivityTransactionFailureCode;
+    context?: ActivityTransactionContextMeasurement;
+    usage?: ModelTokenUsage;
+  };
+
+export type ActivityTransactionExtractor = (
+  input: ActivityTransactionExtractorInput,
+) => Promise<ActivityTransactionExtractionResult>;
+
+export type ActivityTransactionGeneration = {
+  object?: unknown;
+  usage?: ModelTokenUsage;
+};
+
+export type ActivityTransactionGenerator = (input: {
+  prompt: string;
+  outputSchema: ReturnType<typeof createActivityTransactionTransportSchema>;
+  signal?: AbortSignal;
+}) => Promise<ActivityTransactionGeneration>;
+
+export type ActivityTransactionPromptBuilder = (input: ActivityTransactionExtractorInput) => {
+  prompt: string;
+  context: ActivityTransactionContextMeasurement;
+};
+
+/** One generation, one validation pass, and no deterministic semantic fallback. */
+export function createActivityTransactionExtractor(
+  generate: ActivityTransactionGenerator,
+  buildPrompt: ActivityTransactionPromptBuilder,
+): ActivityTransactionExtractor {
+  return async (input) => {
+    const parsedInput = activityTransactionExtractorInputSchema.parse(input);
+    let built: ReturnType<ActivityTransactionPromptBuilder>;
+    try {
+      built = buildPrompt(parsedInput);
+    } catch {
+      return { status: "failed", code: "context_budget_error" };
+    }
+
+    let generated: ActivityTransactionGeneration;
+    try {
+      generated = await generate({
+        prompt: built.prompt,
+        outputSchema: createActivityTransactionTransportSchema(parsedInput.durationReferences.map(({ ref }) => ref)),
+        ...(parsedInput.signal ? { signal: parsedInput.signal } : {}),
+      });
+    } catch {
+      return { status: "failed", code: "provider_error", context: built.context };
+    }
+
+    const normalized = normalizeActivityTransactionTransport(
+      generated.object,
+      parsedInput.durationReferences.map(({ ref }) => ref),
+    );
+    const usage = generated.usage ? { usage: generated.usage } : {};
+    return normalized.success && decisionFitsExtractorInput(parsedInput, normalized.decision)
+      ? { status: "completed", decision: normalized.decision, context: built.context, ...usage }
+      : { status: "failed", code: "schema_error", context: built.context, ...usage };
+  };
+}
+
+export function normalizeActivityTransactionTransport(
+  value: unknown,
+  durationRefs: readonly string[],
+): { success: true; decision: ActivityTransactionDecision } | { success: false } {
+  const parsed = createActivityTransactionTransportSchema(durationRefs).safeParse(value);
+  if (!parsed.success) return { success: false };
+  const input = parsed.data;
+  const emptyMutationFields = input.activities.length === 0
+    && input.handle === null
+    && input.expectedRevision === null
+    && input.correctionMode === null
+    && input.correction === null
+    && input.replacementHandle === null
+    && input.replacementExpectedRevision === null;
+
+  let candidate: unknown;
+  switch (input.kind) {
+    case "none":
+      if (!emptyMutationFields || input.reason !== "no_factual_activity") return { success: false };
+      candidate = { kind: "none", reason: input.reason };
+      break;
+    case "needs_clarification":
+      if (!emptyMutationFields || input.reason === null || input.reason === "no_factual_activity") return { success: false };
+      candidate = { kind: "needs_clarification", reason: input.reason };
+      break;
+    case "collect":
+      if (input.reason !== null || input.activities.length === 0
+        || input.handle !== null || input.expectedRevision !== null || input.correctionMode !== null
+        || input.correction !== null || input.replacementHandle !== null || input.replacementExpectedRevision !== null) return { success: false };
+      candidate = { kind: "collect", activities: input.activities.map(withoutNullFacets) };
+      break;
+    case "correct":
+      if (input.reason !== null || input.activities.length !== 0 || input.handle === null
+        || input.expectedRevision === null || input.correctionMode === null || input.correction === null
+        || input.replacementHandle !== null || input.replacementExpectedRevision !== null) return { success: false };
+      candidate = {
+        kind: "correct",
+        handle: input.handle,
+        expectedRevision: input.expectedRevision,
+        mode: input.correctionMode,
+        correction: withoutNullFacets(input.correction),
+      };
+      break;
+    case "supersede":
+      if (input.reason !== null || input.activities.length !== 0 || input.handle === null
+        || input.expectedRevision === null || input.correctionMode !== null || input.correction !== null
+        || input.replacementHandle === null || input.replacementExpectedRevision === null) return { success: false };
+      candidate = {
+        kind: "supersede",
+        handle: input.handle,
+        expectedRevision: input.expectedRevision,
+        replacementHandle: input.replacementHandle,
+        replacementExpectedRevision: input.replacementExpectedRevision,
+      };
+      break;
+  }
+  const decision = activityTransactionDecisionSchema.safeParse(candidate);
+  return decision.success ? { success: true, decision: decision.data } : { success: false };
+}
+
+function decisionFitsExtractorInput(
+  input: ActivityTransactionExtractorInput,
+  decision: ActivityTransactionDecision,
+): boolean {
+  if (input.mode === "record") {
+    return decision.kind === "none"
+      || decision.kind === "collect"
+      || (decision.kind === "needs_clarification" && decision.reason === "activity_status_ambiguous");
+  }
+  if (decision.kind === "collect") return false;
+  if (decision.kind === "needs_clarification" && decision.reason === "activity_status_ambiguous") return false;
+  if (decision.kind === "correct") {
+    return input.recentCandidates.some((candidate) =>
+      candidate.handle === decision.handle && candidate.revision === decision.expectedRevision);
+  }
+  if (decision.kind === "supersede") {
+    const selected = input.recentCandidates.some((candidate) =>
+      candidate.handle === decision.handle && candidate.revision === decision.expectedRevision);
+    const replacement = input.recentCandidates.some((candidate) =>
+      candidate.handle === decision.replacementHandle && candidate.revision === decision.replacementExpectedRevision);
+    return selected && replacement;
+  }
+  return true;
+}
+
+function withoutNullFacets(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null));
+}

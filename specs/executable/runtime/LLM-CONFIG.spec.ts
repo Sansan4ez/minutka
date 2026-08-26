@@ -7,6 +7,7 @@ import { defaultLlmModel, llmAgentConfig, llmModel, llmModelFromEnv, llmProvider
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
 import { requestIntegrityAgent } from "../../../src/mastra/agents/request-integrity-agent.js";
+import { activityTransactionExtractorAgent } from "../../../src/mastra/agents/activity-transaction-extractor-agent.js";
 
 describe("LLM runtime configuration", () => {
   it("uses the configured model and falls back when it is absent or blank", () => {
@@ -71,7 +72,9 @@ describe("LLM runtime configuration", () => {
       personalAssistantAgent,
       onboardingProfileExtractorAgent,
       requestIntegrityAgent,
+      activityTransactionExtractorAgent,
     ].map((agent) => agent.model)).toEqual([
+      llmModel,
       llmModel,
       llmModel,
       llmModel,
@@ -86,7 +89,7 @@ describe("LLM runtime configuration", () => {
       store: false,
     } });
     expect(llmAgentConfig).toEqual({ model: llmModel, defaultOptions: { providerOptions: llmProviderOptions } });
-    for (const agent of [personalAssistantAgent, onboardingProfileExtractorAgent, requestIntegrityAgent]) {
+    for (const agent of [personalAssistantAgent, onboardingProfileExtractorAgent, requestIntegrityAgent, activityTransactionExtractorAgent]) {
       expect(await agent.getDefaultOptions()).toMatchObject({ providerOptions: llmProviderOptions });
     }
   });
