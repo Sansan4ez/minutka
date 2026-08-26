@@ -36,6 +36,8 @@ import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/
 import { createPostgresActivityCollectionStore, createPostgresActivityMutationStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
 import { ActivityCorrectionService } from "../../src/application/activity-correction.js";
+import type { ActivityTransactionDecision } from "../../src/application/activity-transaction-extractor.js";
+import { ActivityTransactionService } from "../../src/application/activity-transaction-service.js";
 import { RecentOwnActivitiesService } from "../../src/application/recent-own-activities.js";
 import { CompanyReportingService } from "../../src/application/company-reporting.js";
 import { WeeklyActivitySummaryService } from "../../src/application/weekly-activity-summary.js";
@@ -925,6 +927,76 @@ describe("PostgreSQL storage contracts", () => {
     });
     expect(JSON.stringify(corpus.corpus)).not.toContain("research_export_owner");
     expect(JSON.stringify(corpus.corpus)).not.toContain("thread_research_export");
+  });
+
+  it("runs the bounded activity transaction over PostgreSQL without deduplicating repeated work", async () => {
+    const companyId = "company_activity_transaction";
+    const groupId = "group_activity_transaction";
+    const roleId = "role_activity_transaction";
+    const employeeId = "activity_transaction_owner";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Transaction Co') ON CONFLICT (id) DO NOTHING", [companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Transaction group', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupId, companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Transaction role') ON CONFLICT (id) DO NOTHING", [roleId, companyId]);
+    await issueProfileReadyParticipant(pool, employeeId, "invite_activity_transaction", { companyId, groupId, roleId });
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId))!;
+    let decision: ActivityTransactionDecision = { kind: "collect", activities: [{ taskCategory: "reporting" }] };
+    const transaction = new ActivityTransactionService({
+      extractor: async () => ({
+        status: "completed",
+        decision,
+        context: {
+          currentTextCharacters: 1,
+          staticRulesCharacters: 1,
+          durationReferencesCharacters: 0,
+          recentCandidatesCharacters: 0,
+          promptCharacters: 2,
+        },
+      }),
+      collection: new CollectActivityService(createPostgresActivityCollectionStore(pool), { now: () => "2026-07-12T12:00:00.000Z" }),
+      recentActivities: new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), { now: () => "2026-07-12T12:05:00.000Z" }),
+      corrections: new ActivityCorrectionService(createPostgresActivityMutationStore(pool), { now: () => "2026-07-12T12:05:00.000Z" }),
+    });
+    const trusted = {
+      employeeId,
+      companyId,
+      groupId,
+      subjectKey: participant.subjectKey,
+      roleId,
+      timezone: "Etc/UTC",
+      currentText: "Подготовил ещё один отчёт.",
+    };
+
+    await expect(transaction.process({ ...trusted, sourceMessageId: "message_activity_transaction_1", mode: "record" }))
+      .resolves.toMatchObject({ status: "completed", operation: "collect", savedCount: 1 });
+    await expect(transaction.process({ ...trusted, sourceMessageId: "message_activity_transaction_2", mode: "record" }))
+      .resolves.toMatchObject({ status: "completed", operation: "collect", savedCount: 1 });
+
+    const recent = await new RecentOwnActivitiesService(
+      createPostgresRecentOwnActivityReadStore(pool),
+      { now: () => "2026-07-12T12:05:00.000Z" },
+    ).read({ employeeId, companyId, groupId });
+    expect(recent.activities).toHaveLength(2);
+    decision = {
+      kind: "correct",
+      handle: recent.activities[0]!.handle,
+      expectedRevision: recent.activities[0]!.revision,
+      mode: "patch",
+      correction: { routinePattern: "waiting_for_input" },
+    };
+    await expect(transaction.process({
+      ...trusted,
+      sourceMessageId: "message_activity_transaction_correction",
+      currentText: "Нет, во втором отчёте я ждал данные.",
+      mode: "repair",
+    })).resolves.toMatchObject({ status: "completed", operation: "correct", revision: 2 });
+
+    const corpus = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
+    expect(corpus).toHaveLength(2);
+    expect(corpus.filter(({ status }) => status === "active")).toHaveLength(2);
+    expect(corpus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ routinePattern: "waiting_for_input", revision: 2 }),
+      expect.objectContaining({ taskCategory: "reporting", revision: 1 }),
+    ]));
   });
 
   it("persists revisioned activity correction and supersession with current projections", async () => {

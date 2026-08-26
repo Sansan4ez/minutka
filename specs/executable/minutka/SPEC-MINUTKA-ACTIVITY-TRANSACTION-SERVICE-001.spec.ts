@@ -1,0 +1,262 @@
+import { describe, expect, it } from "vitest";
+import { CollectActivityService, type PersonalActivityRecord } from "../../../src/application/activity-collection.js";
+import { ActivityCorrectionService } from "../../../src/application/activity-correction.js";
+import type {
+  ActivityTransactionDecision,
+  ActivityTransactionExtractor,
+  ActivityTransactionExtractorInput,
+} from "../../../src/application/activity-transaction-extractor.js";
+import { ActivityTransactionService } from "../../../src/application/activity-transaction-service.js";
+import {
+  createInMemoryActivityCollectionState,
+  createInMemoryActivityCollectionStore,
+  createInMemoryActivityMutationStore,
+  createInMemoryRecentOwnActivityReadStore,
+} from "../../../src/application/in-memory-activity-collection-store.js";
+import { PersistenceError, PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
+import { RecentOwnActivitiesService } from "../../../src/application/recent-own-activities.js";
+
+const now = "2026-08-26T12:00:00.000Z";
+const request = {
+  employeeId: "employee_a",
+  companyId: "company_a",
+  groupId: "group_a",
+  subjectKey: "00000000-0000-4000-8000-000000000001",
+  sourceMessageId: "message_current",
+  roleId: "role_a",
+  timezone: "Etc/UTC",
+  currentText: "Подготовил отчёт за 35 минут.",
+};
+const context = {
+  currentTextCharacters: 10,
+  staticRulesCharacters: 20,
+  durationReferencesCharacters: 30,
+  recentCandidatesCharacters: 0,
+  promptCharacters: 60,
+};
+
+function row(overrides: Partial<PersonalActivityRecord> = {}): PersonalActivityRecord {
+  return {
+    activityId: "activity_a",
+    employeeId: request.employeeId,
+    subjectKey: request.subjectKey,
+    sourceMessageId: "message_original",
+    companyId: request.companyId,
+    groupId: request.groupId,
+    roleId: request.roleId,
+    taskCategory: "reporting",
+    activityDate: "2026-08-26",
+    recordedAt: "2026-08-26T10:00:00.000Z",
+    revision: 1,
+    status: "active",
+    ...overrides,
+  };
+}
+
+function harness(
+  decide: ActivityTransactionDecision | ((input: ActivityTransactionExtractorInput) => ActivityTransactionDecision),
+  options: {
+    rows?: PersonalActivityRecord[];
+    collection?: Pick<CollectActivityService, "collectBatch">;
+    recentRead?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<{ activities: never[] }>;
+    corrections?: Pick<ActivityCorrectionService, "correct" | "supersede">;
+  } = {},
+) {
+  const state = createInMemoryActivityCollectionState();
+  state.activities.push(...(options.rows ?? []));
+  const extractorInputs: ActivityTransactionExtractorInput[] = [];
+  const extractor: ActivityTransactionExtractor = async (input) => {
+    extractorInputs.push(input);
+    return { status: "completed", decision: typeof decide === "function" ? decide(input) : decide, context };
+  };
+  const collection = options.collection ?? new CollectActivityService(
+    createInMemoryActivityCollectionStore(state),
+    { now: () => now },
+    (() => {
+      let id = 0;
+      return () => `activity_new_${++id}`;
+    })(),
+  );
+  const realRecent = new RecentOwnActivitiesService(createInMemoryRecentOwnActivityReadStore(state), { now: () => now });
+  let recentReads = 0;
+  const recentActivities = {
+    async read(input: { employeeId: string; companyId: string; groupId: string }) {
+      recentReads += 1;
+      if (options.recentRead) return options.recentRead(input);
+      return realRecent.read(input);
+    },
+  };
+  const corrections = options.corrections ?? new ActivityCorrectionService(
+    createInMemoryActivityMutationStore(state),
+    { now: () => now },
+  );
+  const service = new ActivityTransactionService({ extractor, collection, recentActivities, corrections });
+  return { service, state, extractorInputs, recentReads: () => recentReads };
+}
+
+describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application transaction", () => {
+  it("binds trusted scope outside extractor input and records repeated work without a recent read", async () => {
+    const { service, state, extractorInputs, recentReads } = harness({
+      kind: "collect",
+      activities: [{ taskCategory: "reporting", system: "spreadsheets", durationRef: "duration_1" }],
+    }, { rows: [row()] });
+
+    const bound = service.bind(request);
+    await expect(bound({ mode: "record" })).resolves.toMatchObject({
+      status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_new_1"],
+    });
+
+    expect(recentReads()).toBe(0);
+    expect(extractorInputs).toEqual([{
+      mode: "record",
+      currentText: request.currentText,
+      durationReferences: [{ ref: "duration_1", bucket: "30_60m", sourceOrder: 0 }],
+    }]);
+    expect(JSON.stringify(extractorInputs)).not.toMatch(/employee_a|company_a|group_a|subjectKey|message_current|role_a|Etc\/UTC/u);
+    expect(state.activities).toHaveLength(2);
+    expect(state.activities[1]).toMatchObject({
+      employeeId: request.employeeId,
+      companyId: request.companyId,
+      groupId: request.groupId,
+      subjectKey: request.subjectKey,
+      sourceMessageId: request.sourceMessageId,
+      roleId: request.roleId,
+      taskCategory: "reporting",
+      system: "spreadsheets",
+      durationBucket: "30_60m",
+    });
+    expect(JSON.stringify(state.activities[1])).not.toContain("duration_1");
+  });
+
+  it("reads at most five active own rows and performs one exact revisioned correction", async () => {
+    const rows = Array.from({ length: 7 }, (_, index) => row({
+      activityId: `activity_${index + 1}`,
+      recordedAt: new Date(Date.parse(now) - (index + 1) * 60_000).toISOString(),
+    })).concat([
+      row({ activityId: "foreign_owner", employeeId: "employee_b" }),
+      row({ activityId: "superseded", status: "superseded" }),
+    ]);
+    let correctionCalls = 0;
+    const corrections = new ActivityCorrectionService(createInMemoryActivityMutationStore({ activities: rows }), { now: () => now });
+    const { service, extractorInputs, recentReads } = harness((input) => {
+      if (input.mode !== "repair") throw new Error("expected repair input");
+      return {
+        kind: "correct",
+        handle: input.recentCandidates[0]!.handle,
+        expectedRevision: input.recentCandidates[0]!.revision,
+        mode: "patch",
+        correction: { routinePattern: "waiting_for_input" },
+      };
+    }, {
+      rows,
+      corrections: {
+        async correct(scope, input) {
+          correctionCalls += 1;
+          return corrections.correct(scope, input);
+        },
+        supersede: corrections.supersede.bind(corrections),
+      },
+    });
+
+    await expect(service.process({ ...request, currentText: "Нет, ждал данные для отчёта.", mode: "repair" }))
+      .resolves.toMatchObject({ status: "completed", operation: "correct", handle: "activity_1", revision: 2 });
+    expect(recentReads()).toBe(1);
+    expect(correctionCalls).toBe(1);
+    expect(extractorInputs[0]).toMatchObject({ mode: "repair" });
+    if (extractorInputs[0]?.mode !== "repair") throw new Error("expected repair input");
+    expect(extractorInputs[0].recentCandidates).toHaveLength(5);
+    expect(extractorInputs[0].recentCandidates.map(({ handle }) => handle)).toEqual([
+      "activity_1", "activity_2", "activity_3", "activity_4", "activity_5",
+    ]);
+  });
+
+  it("performs one exact duplicate supersession and leaves ambiguity as a no-write result", async () => {
+    const duplicateRows = [
+      row({ activityId: "activity_keep", recordedAt: "2026-08-26T09:00:00.000Z" }),
+      row({ activityId: "activity_duplicate", recordedAt: "2026-08-26T10:00:00.000Z" }),
+    ];
+    let supersedeCalls = 0;
+    const mutations = new ActivityCorrectionService(createInMemoryActivityMutationStore({ activities: duplicateRows }), { now: () => now });
+    const exact = harness({
+      kind: "supersede",
+      handle: "activity_duplicate",
+      expectedRevision: 1,
+      replacementHandle: "activity_keep",
+      replacementExpectedRevision: 1,
+    }, {
+      rows: duplicateRows,
+      corrections: {
+        correct: mutations.correct.bind(mutations),
+        async supersede(scope, input) {
+          supersedeCalls += 1;
+          return mutations.supersede(scope, input);
+        },
+      },
+    });
+    await expect(exact.service.process({ ...request, currentText: "Вторая запись дублирует первую.", mode: "repair" }))
+      .resolves.toMatchObject({ status: "completed", operation: "supersede", handle: "activity_duplicate", revision: 2 });
+    expect(supersedeCalls).toBe(1);
+
+    let writeCalls = 0;
+    const ambiguous = harness({ kind: "needs_clarification", reason: "duplicate_pair_ambiguous" }, {
+      rows: duplicateRows,
+      collection: { async collectBatch() { writeCalls += 1; throw new Error("must not write"); } },
+      corrections: {
+        async correct() { writeCalls += 1; throw new Error("must not write"); },
+        async supersede() { writeCalls += 1; throw new Error("must not write"); },
+      },
+    });
+    await expect(ambiguous.service.process({ ...request, currentText: "Одна из них дублируется.", mode: "repair" }))
+      .resolves.toMatchObject({ status: "needs_clarification", reason: "duplicate_pair_ambiguous" });
+    expect(writeCalls).toBe(0);
+  });
+
+  it("returns bounded failures, preserves partial writes, and never retries outcome-unknown mutations", async () => {
+    let unknownWrites = 0;
+    const unknown = harness({ kind: "collect", activities: [{ taskCategory: "reporting" }] }, {
+      collection: {
+        async collectBatch() {
+          unknownWrites += 1;
+          throw new PersistenceOutcomeUnknownError();
+        },
+      },
+    });
+    await expect(unknown.service.process({ ...request, mode: "record" }))
+      .resolves.toMatchObject({ status: "outcome_unknown", phase: "write" });
+    expect(unknownWrites).toBe(1);
+
+    let partialWrites = 0;
+    const partial = harness({
+      kind: "collect",
+      activities: [{ taskCategory: "reporting" }, { taskCategory: "meetings" }],
+    }, {
+      collection: {
+        async collectBatch() {
+          partialWrites += 1;
+          return {
+            status: "partial",
+            savedCount: 1,
+            activityIds: ["activity_saved"],
+            error: new PersistenceError("persistence_unavailable"),
+          };
+        },
+      },
+    });
+    await expect(partial.service.process({ ...request, mode: "record" })).resolves.toMatchObject({
+      status: "partial", operation: "collect", savedCount: 1, activityIds: ["activity_saved"], code: "persistence_unavailable",
+    });
+    expect(partialWrites).toBe(1);
+
+    const failedExtractor = new ActivityTransactionService({
+      extractor: async () => ({ status: "failed", code: "provider_error", context }),
+      collection: { async collectBatch() { throw new Error("must not write"); } },
+      recentActivities: { async read() { throw new Error("must not read"); } },
+      corrections: {
+        async correct() { throw new Error("must not write"); },
+        async supersede() { throw new Error("must not write"); },
+      },
+    });
+    await expect(failedExtractor.process({ ...request, mode: "record" }))
+      .resolves.toMatchObject({ status: "failed", phase: "extract", code: "provider_error" });
+  });
+});
