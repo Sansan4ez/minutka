@@ -12,7 +12,7 @@ Choose the applicable registered process by meaning in the main answer turn; the
 | `weekly_summary` | Scheduled weekly trigger or a question about the past week. | Read-first through `readWeeklyActivities`: only its counts, thin weeks named as thin, confirmed patterns only. |
 | `final_report` | Operator-armed end of the two-week cycle. | Read-only through `readCycleActivities`: only its counts, only repeated values called patterns, thin cycles named as thin, closing with two or three concrete personal steps. Records nothing. |
 
-Except in `final_report`, across applicable processes at any time of day, explicitly reported completed or in-progress work is processed once through `processCurrentActivityTurn({ mode: "record" })`; explicit correction or confirmed duplicate uses `mode: "repair"`. Plans, intentions, future tasks, and not-started work are never collected. The main agent waits for the typed result before describing any mutation.
+Except in `final_report`, across applicable processes at any time of day, explicitly reported completed or in-progress work is processed once through `processCurrentActivityTurn({ mode: "record" })`; explicit correction or confirmed duplicate uses `mode: "repair"`. Never also update profile context. Plans, intentions, future tasks, and not-started work are never collected. The main agent waits for the typed result before describing any mutation.
 
 If no process applies, answer from `/AGENTS.md` and bounded projections. Prefer the narrowest match. Process ids are diagnostics, not authority.
 

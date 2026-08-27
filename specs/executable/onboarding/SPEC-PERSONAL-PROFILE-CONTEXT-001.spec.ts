@@ -78,7 +78,7 @@ describe("SPEC-PERSONAL-PROFILE-CONTEXT-001: conversational personal context", (
     expect(completeOnboardingRequestSchema.parse({ roleId: "default_role", persona: "support" })).toEqual({ roleId: "default_role", persona: "support" });
   });
 
-  it("records stated context from an ordinary turn, exposes it to the owner, and bounds values", async () => {
+  it("records explicitly confirmed context, exposes it to the owner, and bounds values", async () => {
     const world = createInMemoryWorld(() => now);
     const profiles = await readyProfile(world, "employee_a", "invite_a");
     const service = assistant({
@@ -93,7 +93,7 @@ describe("SPEC-PERSONAL-PROFILE-CONTEXT-001: conversational personal context", (
       },
     });
 
-    await service.chat({ userId: "employee_a", threadId: "thread_a", text: "Обычно делаю отчёты и координирую подрядчиков; с ИИ работал немного. Хочу освободить время." });
+    await service.chat({ userId: "employee_a", threadId: "thread_a", text: "Сохрани в моём контексте: обычно делаю отчёты и координирую подрядчиков; с ИИ работал немного. Цель — освободить время." });
     const profile = await profiles.getProfile("employee_a");
     expect(profile).toMatchObject({
       typicalTasks: ["Еженедельная отчётность", "Координация подрядчиков"],
@@ -131,7 +131,7 @@ describe("SPEC-PERSONAL-PROFILE-CONTEXT-001: conversational personal context", (
     await profiles.updatePersonalContext({ employeeId: "employee_a", patch: { typicalTasks: ["Подготовка заявок", "Координация подрядчиков"] }, updatedAt: now });
 
     const appending = assistant({ world, profiles, runner: async (_input, context) => { await context.updatePersonalContext({ typicalTasks: ["Еженедельная отчётность"] }); return "ok"; } });
-    await appending.chat({ userId: "employee_a", threadId: "thread_a", text: "Ещё каждую неделю собираю отчёт" });
+    await appending.chat({ userId: "employee_a", threadId: "thread_a", text: "Да, сохрани: ещё каждую неделю собираю отчёт" });
     expect((await profiles.getProfile("employee_a"))?.typicalTasks)
       .toEqual(["Подготовка заявок", "Координация подрядчиков", "Еженедельная отчётность"]);
 
@@ -153,6 +153,10 @@ describe("SPEC-PERSONAL-PROFILE-CONTEXT-001: conversational personal context", (
       calls.push({ patch, options });
       return { changedFields: ["typicalTasks"] };
     });
+
+    const description = String(tool.description);
+    expect(description).toMatch(/explicit request or confirmation/i);
+    expect(description).toMatch(/factual activity report is not profile confirmation/i);
 
     await tool.execute?.({ typicalTasks: ["Координация подрядчиков"], typicalTasksMode: "replace" }, {} as never);
     await tool.execute?.({ typicalTasks: ["Координация подрядчиков"] }, {} as never);

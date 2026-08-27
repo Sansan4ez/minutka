@@ -22,6 +22,7 @@ const extraction = {
 function context(
   processCurrentActivityTurn: AssistantAgentContext["processCurrentActivityTurn"],
   sourceText = "Сегодня провёл встречу с коллегами.",
+  updatePersonalContext: AssistantAgentContext["updatePersonalContext"] = async () => { throw new Error("not used"); },
 ): AssistantAgentContext {
   const notUsed = async () => { throw new Error("not used"); };
   return {
@@ -44,7 +45,7 @@ function context(
     supersedeRecentActivity: notUsed as never,
     readWeeklyActivities: notUsed as never,
     readCycleActivities: notUsed as never,
-    updatePersonalContext: notUsed as never,
+    updatePersonalContext,
     markProcessUsed() {},
   };
 }
@@ -109,6 +110,56 @@ describe("SPEC-MINUTKA-LIVE-ACTIVITY-TURN-001: broad agent uses one request-boun
       ? { status: "completed", operation: "collect", savedCount: 3 }
       : { status: "completed", operation: serviceResult.operation, revision: serviceResult.revision }]);
     expect(result.text).toBe("Финальный ответ после результата.");
+  });
+
+  it("records an explicit combined-facet activity without a second profile mutation", async () => {
+    let modelStep = 0;
+    let profileUpdates = 0;
+    const transactionCalls: Array<{ mode: "record" | "repair" }> = [];
+    const model = {
+      specificationVersion: "v2",
+      provider: "scripted-combined-activity",
+      modelId: "scripted-combined-activity",
+      supportedUrls: {},
+      async doGenerate() {
+        modelStep += 1;
+        const base = { rawCall: { rawPrompt: null, rawSettings: {} }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, warnings: [] };
+        if (modelStep === 1) return {
+          ...base,
+          finishReason: "tool-calls",
+          content: [{
+            type: "tool-call", toolCallId: "activity", toolName: "processCurrentActivityTurn",
+            input: JSON.stringify({ mode: "record" }),
+          }],
+        };
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Записал активность." }] };
+      },
+      async doStream() { throw new Error("streaming is not used"); },
+    } as never;
+    const agent = new Agent({ id: "combined-activity", name: "combined-activity", instructions: "Ordinary activity uses only the activity transaction.", model, tools: {}, editor: false });
+
+    const result = await createAssistantAgentRunner(agent)(
+      {
+        userId: "employee", threadId: "thread",
+        text: "Вручную подготовил еженедельный отчёт в Excel; это повторяющаяся рутина и хороший кандидат на автоматизацию, сильно вымотался.",
+      },
+      context(
+        async (input) => {
+          transactionCalls.push(input);
+          return { status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_combined"], extraction };
+        },
+        undefined,
+        async () => {
+          profileUpdates += 1;
+          return { changedFields: ["typicalTasks"] };
+        },
+      ),
+    );
+
+    expect(transactionCalls).toEqual([{ mode: "record" }]);
+    expect(profileUpdates).toBe(0);
+    expect(result.executionTrace).toEqual([{ kind: "tool", toolName: "processCurrentActivityTurn" }]);
+    expect(JSON.stringify(result.trace?.toolCalls)).not.toContain("updatePersonalContext");
   });
 
   it("requires a typed result step before a model can claim successful collection", async () => {

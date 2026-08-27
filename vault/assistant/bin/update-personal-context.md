@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Save an explicit correction to the authenticated employee's bounded profile, or bounded working context that the employee stated in ordinary conversation.
+Save an explicit correction to the authenticated employee's bounded profile, or bounded working context that the employee explicitly asked or confirmed should be saved.
 
 ## Mutating
 
@@ -26,7 +26,8 @@ The names of profile fields that changed. Field values are not returned.
 
 ## Rules
 
-- Use only facts stated by the authenticated employee or values they explicitly ask to correct; never infer missing values or accept a target employee id.
+- Call only after an explicit request or confirmation. An activity report is not confirmation, and a turn recorded through `processCurrentActivityTurn` must not also update the profile.
+- Use only confirmed facts or explicit corrections; never infer missing values or accept a target employee id.
 - Do not turn the conversation into a questionnaire or require these fields.
 - Summarize rather than copy long free text; application limits remain authoritative.
 - Use `replace` only when the employee explicitly asked to drop, rename, or rewrite a recurring task, or when the seven-task limit leaves no room for a task they just stated. Send the whole corrected list in one call: tasks left out are dropped. Never replace to tidy up the list on your own initiative.

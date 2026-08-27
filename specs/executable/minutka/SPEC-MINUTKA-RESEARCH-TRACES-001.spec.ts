@@ -128,7 +128,7 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
     expect(JSON.stringify(trace)).toContain("[REDACTED]");
   });
 
-  it("keeps conversation and full trace durable when an invalid activity call is rejected then corrected", async () => {
+  it("keeps a combined-facet ordinary activity and trace durable without updating confirmed profile context", async () => {
     const world = createInMemoryWorld(() => now);
     const profiles = await readyParticipant(world, "employee_a", "company_a", "group_a");
     const traceState = createInMemoryResearchTraceState();
@@ -160,15 +160,15 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
             input: JSON.stringify({ mode: "record" }),
           }],
         };
-        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Встреча записана." }] };
+        return { ...base, finishReason: "stop", content: [{ type: "text", text: "Активность записана." }] };
       },
       async doStream() { throw new Error("streaming is not used"); },
     } as never;
     const usageStore = createInMemoryUsageStore();
-    const recoveryAssistant = new AssistantService(createAssistantAgentRunner(new Agent({
+    const ordinaryActivityAssistant = new AssistantService(createAssistantAgentRunner(new Agent({
       id: "trace-recovery",
       name: "trace-recovery",
-      instructions: "Correct invalid activity tool calls within the same turn.",
+      instructions: "Use only the activity transaction for an ordinary factual activity turn.",
       model,
       tools: {},
       editor: false,
@@ -187,7 +187,14 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
           sourceMessageId: command.sourceMessageId,
           roleId: command.roleId,
           timezone: command.timezone,
-          activities: [{ taskCategory: "meetings", durationBucket: "30_60m" }],
+          activities: [{
+            taskCategory: "reporting",
+            durationBucket: "30_60m",
+            system: "spreadsheets",
+            routinePattern: "manual_reporting",
+            automationCandidate: "template_or_checklist",
+            energyStressMarker: "fatigue",
+          }],
         });
         if (result.status !== "completed") throw new Error("expected completed collection");
         return {
@@ -195,7 +202,17 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
           operation: "collect" as const,
           extraction: {
             context: { currentTextCharacters: command.currentText.length, staticRulesCharacters: 10, durationReferencesCharacters: 10, recentCandidatesCharacters: 0, promptCharacters: command.currentText.length + 20 },
-            decision: { kind: "collect", activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] },
+            decision: {
+              kind: "collect",
+              activities: [{
+                taskCategory: "reporting",
+                durationRef: "duration_1",
+                system: "spreadsheets",
+                routinePattern: "manual_reporting",
+                automationCandidate: "template_or_checklist",
+                energyStressMarker: "fatigue",
+              }],
+            },
             usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9, cachedInputTokens: 3, llmSteps: 1 },
             trace: {
               promptVersion: "minutka-activity-transaction/v1",
@@ -222,34 +239,55 @@ describe("SPEC-MINUTKA-RESEARCH-TRACES-001: full tenant-scoped execution traces"
       idGenerator: createDeterministicIdGenerator(),
     });
 
-    const result = await recoveryAssistant.chat({
+    const result = await ordinaryActivityAssistant.chat({
       userId: "employee_a",
       threadId: "thread_recovery",
-      text: "Провёл 35-минутную встречу с поставщиком.",
+      text: "35 минут вручную готовил еженедельный отчёт в Excel; это повторяющаяся рутина, её стоит автоматизировать, и я сильно вымотался.",
       requiredProcessId: "evening_reflection",
     });
     const [trace] = await traces.list({ companyId: "company_a", groupId: "group_a" });
 
-    expect(world.messages).toEqual([expect.objectContaining({ id: result.messageId, text: "Провёл 35-минутную встречу с поставщиком." })]);
+    expect(world.messages).toEqual([expect.objectContaining({
+      id: result.messageId,
+      text: "35 минут вручную готовил еженедельный отчёт в Excel; это повторяющаяся рутина, её стоит автоматизировать, и я сильно вымотался.",
+    })]);
     expect(activityState.activities).toEqual([expect.objectContaining({
       activityId: "activity_recovered",
       employeeId: "employee_a",
       companyId: "company_a",
       groupId: "group_a",
       subjectKey: expect.any(String),
-      taskCategory: "meetings",
+      taskCategory: "reporting",
       durationBucket: "30_60m",
+      system: "spreadsheets",
+      routinePattern: "manual_reporting",
+      automationCandidate: "template_or_checklist",
+      energyStressMarker: "fatigue",
     })]);
-    expect(activityState.activities[0]).not.toHaveProperty("system");
+    expect((await profiles.getProfile("employee_a"))?.typicalTasks).toBeUndefined();
+    expect(world.auditEvents.filter((event) => event.type === "profile_updated")).toEqual([]);
     expect(trace).toMatchObject({ messageId: result.messageId, status: "completed", companyId: "company_a", groupId: "group_a" });
     expect(trace?.attempts[0]?.contour).toBe("main_agent");
-    expect(trace?.attempts[0]?.toolCalls).toHaveLength(1);
+    expect(trace?.attempts[0]?.toolCalls).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ toolName: "processCurrentActivityTurn" }) }),
+    ]);
     expect(trace?.attempts[0]?.toolResults).toHaveLength(1);
+    expect(JSON.stringify(trace?.attempts[0]?.toolCalls)).not.toContain("updatePersonalContext");
     expect(trace?.attempts[1]).toMatchObject({
       contour: "activity_transaction",
       promptVersion: "minutka-activity-transaction/v1",
       model: "openai/activity-transaction-test",
-      decision: { kind: "collect", activities: [{ taskCategory: "meetings", durationRef: "duration_1" }] },
+      decision: {
+        kind: "collect",
+        activities: [{
+          taskCategory: "reporting",
+          durationRef: "duration_1",
+          system: "spreadsheets",
+          routinePattern: "manual_reporting",
+          automationCandidate: "template_or_checklist",
+          energyStressMarker: "fatigue",
+        }],
+      },
       mutationResult: { status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_recovered"] },
       usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9, cachedInputTokens: 3, llmSteps: 1 },
       latencyMs: 14,

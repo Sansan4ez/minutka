@@ -12,7 +12,7 @@ export const personalProfileContextPatchSchema = z.strictObject({
   timezone: z.string().trim().min(1).max(64).optional(),
   role: z.string().trim().min(1).max(2_000).optional(),
   typicalTasks: z.array(z.string().trim().min(1).max(160)).min(1).max(7).optional(),
-  /** Only an explicit employee correction replaces the stored task list; ordinary capture appends. */
+  /** Only an explicit employee request or confirmation may update this list; explicit correction replaces it. */
   typicalTasksMode: z.enum(["append", "replace"]).optional(),
   aiLevel: aiLevelSchema.optional(),
   programGoal: z.string().trim().min(1).max(500).optional(),
@@ -24,7 +24,7 @@ export function createUpdatePersonalContextTool(
 ) {
   return createTool({
     id: updatePersonalContextToolName,
-    description: "Save the authenticated employee's own bounded profile context: preferred name, communication style, answer length, IANA timezone, role self-description, recurring tasks, closed AI experience level, or program goal. Call it both when the employee explicitly asks to correct such a field and when the employee states such a fact in ordinary conversation. Recurring tasks are added to the stored list by default; when the employee explicitly asks to drop, rename, or rewrite a recurring task, or the list is already full, send the complete corrected list with typicalTasksMode \"replace\" — the stored list is then exactly what you send, so keep every task the employee still wants. Never target another employee, ask a questionnaire, infer a value, or save an unverified observation as fact. Send only the fields the employee stated or asked to change.",
+    description: "Save the authenticated employee's bounded profile context only after an explicit request or confirmation. A factual activity report is not profile confirmation; a turn recorded through processCurrentActivityTurn must not also call this tool. Accepted fields: preferred name, communication style, answer length, IANA timezone, role self-description, recurring tasks, AI experience level, and program goal. Recurring tasks append by default. For an explicit drop, rename, or rewrite, or when the seven-task list is full, send the complete wanted list with typicalTasksMode \"replace\". Never target another employee, ask a questionnaire, infer values, or save unverified observations. Send only confirmed or explicitly corrected fields.",
     strict: true,
     inputSchema: personalProfileContextPatchSchema,
     outputSchema: z.strictObject({ recorded: z.literal(true), changedFields: z.array(z.enum(["preferredName", "persona", "responseLength", "timezone", "role", "typicalTasks", "aiLevel", "programGoal"])) }),
