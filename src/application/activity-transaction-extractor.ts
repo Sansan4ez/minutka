@@ -117,11 +117,21 @@ export const activityTransactionDecisionSchema = z.discriminatedUnion("kind", [
 export type ActivityTransactionDecision = z.infer<typeof activityTransactionDecisionSchema>;
 
 const nullablePatchBase = {
-  taskCategory: z.enum(taskCategories).nullable(),
-  routinePattern: z.enum(routinePatternTypes).nullable(),
-  automationCandidate: z.enum(automationCandidateTypes).nullable(),
-  energyStressMarker: z.enum(energyStressMarkerTypes).nullable(),
-  system: z.enum(activitySystems).nullable(),
+  taskCategory: z.enum(taskCategories)
+    .describe("Category supported by the current employee message; null only when the factual work cannot be classified.")
+    .nullable(),
+  routinePattern: z.enum(routinePatternTypes)
+    .describe("Workflow friction explicitly stated for this activity in the current employee message. null when unstated. Repetition alone is not routine evidence; other requires explicit friction outside the taxonomy.")
+    .nullable(),
+  automationCandidate: z.enum(automationCandidateTypes)
+    .describe("Automation opportunity explicitly stated for this activity in the current employee message. null when unstated. Performing repeated work or preparing a template/checklist is not by itself automation evidence; other requires an explicit outside-taxonomy opportunity.")
+    .nullable(),
+  energyStressMarker: z.enum(energyStressMarkerTypes)
+    .describe("Work-related energy or stress signal explicitly stated for this activity in the current employee message. null when unstated; neutral is never a default.")
+    .nullable(),
+  system: z.enum(activitySystems)
+    .describe("Generic system or channel explicitly named or unambiguously typed in the current employee message. null when unstated. paper_or_verbal requires explicit paper or verbal evidence; other requires an explicit known outside-taxonomy system type.")
+    .nullable(),
 };
 
 /**

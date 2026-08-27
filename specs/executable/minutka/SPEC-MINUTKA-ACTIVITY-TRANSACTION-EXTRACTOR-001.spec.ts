@@ -97,6 +97,13 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
   it("keeps provider nullability at the transport boundary and rejects unknown facets/refs", () => {
     const schema = createActivityTransactionTransportSchema(["duration_1"]);
     const jsonSchema = schema.toJSONSchema({ io: "output", unrepresentable: "throw" });
+    const facetProperties = (jsonSchema as {
+      properties?: { activities?: { items?: { properties?: Record<string, { anyOf?: Array<{ description?: string }> }> } } };
+    }).properties?.activities?.items?.properties;
+    expect(facetProperties?.system?.anyOf?.[0]?.description).toMatch(/explicit.*null when unstated.*paper or verbal evidence/i);
+    expect(facetProperties?.routinePattern?.anyOf?.[0]?.description).toMatch(/explicit.*repetition alone is not routine evidence/i);
+    expect(facetProperties?.automationCandidate?.anyOf?.[0]?.description).toMatch(/explicit.*repeated work.*not by itself automation evidence/i);
+    expect(facetProperties?.energyStressMarker?.anyOf?.[0]?.description).toMatch(/explicit.*neutral is never a default/i);
     const validate = new Ajv2020({ strict: true }).compile(jsonSchema);
     expect(validate(transport({
       kind: "collect",
@@ -181,6 +188,9 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(prompt).toContain("El segundo registro es un duplicado del primero.");
     expect(prompt).toContain("activity_2");
     expect(prompt).toContain("durationBucket references resolve application-side");
+    expect(prompt).toMatch(/exact words.*if no such words exist, return null/i);
+    expect(prompt).toMatch(/repeated real work.*do not infer paper_or_verbal.*routinePattern=other.*template_or_checklist.*neutral/i);
+    expect(prompt).toMatch(/neutral is never a default/i);
     for (const forbidden of ["profile documents", "privacy policy", "company report", "schedule catalog", "tenant identity", "thread history", "subjectKey", "employeeId", "companyId", "groupId"]) {
       expect(prompt).not.toContain(forbidden);
     }
