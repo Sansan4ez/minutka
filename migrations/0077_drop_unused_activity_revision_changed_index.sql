@@ -1,0 +1,1 @@
+DROP INDEX minutka_private.activity_revisions_changed;

@@ -88,15 +88,14 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           await assertSourceMessageOwner(client, command.sourceMessageId, command.employeeId);
           const row = await loadRecentForUpdate(client, command, command.handle);
           if (!row) throw new PersistenceError("persistence_conflict");
-          const current = personalActivity(row);
+          const current = personalActivityWithoutRevisions(row);
           const corrected = command.mode === "patch" ? { ...current } : clearFacets(current);
           applyCommandFacets(corrected, command);
           if (isCorrectionReplay(row, command, corrected)) return current;
           requireActiveRevision(row, command.expectedRevision);
           const revision = command.expectedRevision + 1;
           const result = await client.query<ActivityRow>(
-            `${activitySelectPrefix}
-             UPDATE minutka_private.activities activity SET
+            `UPDATE minutka_private.activities activity SET
                task_category=$1, routine_pattern=$2, automation_candidate=$3, energy_stress_marker=$4,
                duration_bucket=$5, system=$6, revision=$7, last_correction_message_id=$8, updated_at=$9
              WHERE activity.activity_id=$10 AND activity.employee_id=$11 AND activity.company_id=$12 AND activity.group_id=$13
@@ -111,14 +110,14 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           const updated = result.rows[0];
           if (!updated) throw new PersistenceError("persistence_conflict");
           await insertRevision(client, {
-            ...personalActivity(updated),
+            ...personalActivityWithoutRevisions(updated),
             revision,
             status: "active",
             operation: "corrected",
             sourceMessageId: command.sourceMessageId,
             changedAt: command.changedAt,
           });
-          return personalActivity(updated);
+          return personalActivityWithoutRevisions(updated);
         });
       } catch (error) {
         if (error instanceof PersistenceOutcomeUnknownError) throw error;
@@ -131,7 +130,8 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           await assertSourceMessageOwner(client, command.sourceMessageId, command.employeeId);
           const handles = [command.handle, command.replacementHandle].sort();
           const locked = await client.query<ActivityRow>(
-            `${activitySelect}
+            `SELECT ${activityColumns}
+             FROM minutka_private.activities activity
              WHERE activity.activity_id = ANY($1::text[])
                AND activity.employee_id=$2 AND activity.company_id=$3 AND activity.group_id=$4
                AND activity.recorded_at >= $5::timestamptz AND activity.recorded_at <= $6::timestamptz
@@ -142,14 +142,13 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           const target = locked.rows.find((row) => row.activity_id === command.handle);
           const replacement = locked.rows.find((row) => row.activity_id === command.replacementHandle);
           if (!target) throw new PersistenceError("persistence_conflict");
-          if (isSupersessionReplay(target, command)) return personalActivity(target);
+          if (isSupersessionReplay(target, command)) return personalActivityWithoutRevisions(target);
           if (!replacement) throw new PersistenceError("persistence_conflict");
           requireActiveRevision(target, command.expectedRevision);
           requireActiveRevision(replacement, command.replacementExpectedRevision);
           const revision = command.expectedRevision + 1;
           const result = await client.query<ActivityRow>(
-            `${activitySelectPrefix}
-             UPDATE minutka_private.activities activity SET
+            `UPDATE minutka_private.activities activity SET
                status='superseded', superseded_by_activity_id=$1, revision=$2,
                last_correction_message_id=$3, updated_at=$4
              WHERE activity.activity_id=$5 AND activity.employee_id=$6 AND activity.company_id=$7 AND activity.group_id=$8
@@ -161,7 +160,7 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           const updated = result.rows[0];
           if (!updated) throw new PersistenceError("persistence_conflict");
           await insertRevision(client, {
-            ...personalActivity(updated),
+            ...personalActivityWithoutRevisions(updated),
             revision,
             status: "superseded",
             operation: "superseded",
@@ -169,7 +168,7 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
             supersededByActivityId: command.replacementHandle,
             changedAt: command.changedAt,
           });
-          return personalActivity(updated);
+          return personalActivityWithoutRevisions(updated);
         });
       } catch (error) {
         if (error instanceof PersistenceOutcomeUnknownError) throw error;
@@ -200,7 +199,7 @@ type ActivityRow = {
   superseded_by_activity_id: string | null;
   last_correction_message_id: string | null;
   updated_at: Date;
-  revisions: ActivityRevisionRecord[] | null;
+  revisions?: ActivityRevisionRecord[] | null;
 };
 
 const activityColumns = `activity.activity_id, activity.employee_id, activity.subject_key, activity.source_message_id,
@@ -220,8 +219,7 @@ const activitySelect = `SELECT ${activityColumns}, ${revisionProjection} FROM mi
 const activityReturning = `activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
   task_category, routine_pattern, automation_candidate, energy_stress_marker, duration_bucket, system,
   activity_date::text AS activity_date, recorded_at, revision, status, superseded_by_activity_id,
-  last_correction_message_id, updated_at, NULL::jsonb AS revisions`;
-const activitySelectPrefix = "";
+  last_correction_message_id, updated_at`;
 
 function personalActivity(row: ActivityRow): PersonalActivityRecord {
   return {
@@ -247,6 +245,12 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
     ...(row.system ? { system: row.system } : {}),
   };
+}
+
+function personalActivityWithoutRevisions(row: ActivityRow): Omit<PersonalActivityRecord, "revisions"> {
+  const activity = personalActivity(row);
+  delete activity.revisions;
+  return activity;
 }
 
 /** Owner-and-tenant-scoped recent read for explicit correction lookup only. */
@@ -321,7 +325,7 @@ async function loadRecentForUpdate(
   handle: string,
 ): Promise<ActivityRow | undefined> {
   const result = await client.query<ActivityRow>(
-    `SELECT ${activityColumns}, NULL::jsonb AS revisions
+    `SELECT ${activityColumns}
      FROM minutka_private.activities activity
      WHERE activity.activity_id=$1 AND activity.employee_id=$2 AND activity.company_id=$3 AND activity.group_id=$4
        AND activity.recorded_at >= $5::timestamptz AND activity.recorded_at <= $6::timestamptz
@@ -360,7 +364,7 @@ function isCorrectionReplay(
   return row.last_correction_message_id === command.sourceMessageId
     && row.revision === command.expectedRevision + 1
     && row.status === "active"
-    && sameFacets(personalActivity(row), intended);
+    && sameFacets(personalActivityWithoutRevisions(row), intended);
 }
 
 function isSupersessionReplay(row: ActivityRow, command: ActivitySupersessionCommand): boolean {

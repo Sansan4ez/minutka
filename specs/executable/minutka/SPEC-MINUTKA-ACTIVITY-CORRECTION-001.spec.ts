@@ -20,6 +20,7 @@ import {
 } from "../../../src/mastra/tools/activity-correction-tools.js";
 import type { Participant } from "../../../src/domain/employee.js";
 import { extractDurationEvidence, RequestDurationEvidence } from "../../../src/application/activity-duration-evidence.js";
+import { expectActivityMutationResultContract } from "../support/activity-mutation-store-contract.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 const scope = { employeeId: "employee_a", companyId: "company_a", groupId: "group_a" };
@@ -70,6 +71,43 @@ function service(rows: PersonalActivityRecord[]) {
 const conflict = new PersistenceError("persistence_conflict");
 
 describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair", () => {
+  it("returns mutation records without embedded revision history from the in-memory adapter", async () => {
+    const state = createInMemoryActivityCollectionState();
+    state.activities.push(
+      activity({ activityId: "activity_correct", recordedAt: "2026-08-24T09:00:00.000Z" }),
+      activity({ activityId: "activity_keep", recordedAt: "2026-08-24T09:30:00.000Z" }),
+      activity({ activityId: "activity_duplicate", recordedAt: "2026-08-24T10:00:00.000Z" }),
+    );
+
+    await expectActivityMutationResultContract(createInMemoryActivityMutationStore(state), {
+      correction: {
+        ...scope,
+        sourceMessageId: "message_correction_contract",
+        handle: "activity_correct",
+        expectedRevision: 1,
+        mode: "patch",
+        routinePattern: "waiting_for_input",
+        recordedAfter: "2026-08-23T12:00:00.000Z",
+        recordedBefore: now,
+        changedAt: now,
+      },
+      supersession: {
+        ...scope,
+        sourceMessageId: "message_supersession_contract",
+        handle: "activity_duplicate",
+        expectedRevision: 1,
+        replacementHandle: "activity_keep",
+        replacementExpectedRevision: 1,
+        recordedAfter: "2026-08-23T12:00:00.000Z",
+        recordedBefore: now,
+        changedAt: now,
+      },
+    });
+
+    expect(state.activities.find(({ activityId }) => activityId === "activity_correct")?.revisions).toHaveLength(2);
+    expect(state.activities.find(({ activityId }) => activityId === "activity_duplicate")?.revisions).toHaveLength(2);
+  });
+
   it("patches a named obstacle on one canonical row, retains initial evidence, and replays idempotently", async () => {
     const { state, corrections } = service([activity()]);
     const command = { handle: "activity_a", expectedRevision: 1, mode: "patch" as const, correction: { routinePattern: "waiting_for_input" as const } };

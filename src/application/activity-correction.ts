@@ -67,9 +67,11 @@ export type ActivitySupersessionCommand = ActivityMutationScope & SupersedeRecen
   changedAt: string;
 };
 
+export type ActivityMutationRecord = Omit<PersonalActivityRecord, "revisions">;
+
 export type ActivityMutationStore = {
-  correctRecentActivity(command: ActivityCorrectionCommand): Promise<PersonalActivityRecord>;
-  supersedeRecentActivity(command: ActivitySupersessionCommand): Promise<PersonalActivityRecord>;
+  correctRecentActivity(command: ActivityCorrectionCommand): Promise<ActivityMutationRecord>;
+  supersedeRecentActivity(command: ActivitySupersessionCommand): Promise<ActivityMutationRecord>;
 };
 
 export type ActivityMutationResult = { status: "completed"; handle: string; revision: number };
@@ -127,7 +129,7 @@ function validInstant(value: string): string {
   return parsed.toISOString();
 }
 
-function assertMutationResult(activity: PersonalActivityRecord, scope: ActivityMutationScope, handle: string): void {
+function assertMutationResult(activity: ActivityMutationRecord, scope: ActivityMutationScope, handle: string): void {
   if (activity.activityId !== handle
     || activity.employeeId !== scope.employeeId
     || activity.companyId !== scope.companyId

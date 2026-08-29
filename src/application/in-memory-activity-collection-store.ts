@@ -94,7 +94,7 @@ export function createInMemoryActivityMutationStore(
       assertSourceMessageOwner(command.sourceMessageId, command.employeeId, options.messageOwner);
       const current = withActivityMetadata(findRecentActivity(state, command));
       const intended = correctedFacets(current, command);
-      if (isCorrectionReplay(current, command, intended)) return structuredClone(current);
+      if (isCorrectionReplay(current, command, intended)) return mutationResult(current);
       requireActiveRevision(current, command.expectedRevision);
 
       applyFacets(current, intended);
@@ -106,12 +106,12 @@ export function createInMemoryActivityMutationStore(
         revisionSnapshot(current, "corrected", command.changedAt, command.sourceMessageId),
       ];
       replaceActivity(state, current);
-      return structuredClone(current);
+      return mutationResult(current);
     },
     async supersedeRecentActivity(command) {
       assertSourceMessageOwner(command.sourceMessageId, command.employeeId, options.messageOwner);
       const target = withActivityMetadata(findRecentActivity(state, command));
-      if (isSupersessionReplay(target, command)) return structuredClone(target);
+      if (isSupersessionReplay(target, command)) return mutationResult(target);
       const replacement = withActivityMetadata(findRecentActivity(state, {
         ...command,
         handle: command.replacementHandle,
@@ -129,7 +129,7 @@ export function createInMemoryActivityMutationStore(
         revisionSnapshot(target, "superseded", command.changedAt, command.sourceMessageId),
       ];
       replaceActivity(state, target);
-      return structuredClone(target);
+      return mutationResult(target);
     },
   };
 }
@@ -257,6 +257,12 @@ function sameFacets(left: PersonalActivityRecord, right: PersonalActivityRecord)
     && left.energyStressMarker === right.energyStressMarker
     && left.durationBucket === right.durationBucket
     && left.system === right.system;
+}
+
+function mutationResult(activity: PersonalActivityRecord): Omit<PersonalActivityRecord, "revisions"> {
+  const result = structuredClone(activity);
+  delete result.revisions;
+  return result;
 }
 
 function replaceActivity(state: InMemoryActivityCollectionState, activity: PersonalActivityRecord): void {

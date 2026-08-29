@@ -26,6 +26,7 @@ import type { UsageRecord } from "../../src/application/usage-store.js";
 import { createPostgresTaskMutationConfirmationStore } from "../../src/infrastructure/postgres/postgres-task-mutation-confirmation-store.js";
 import { TaskMutationConfirmationService } from "../../src/application/task-mutation-confirmation.js";
 import { expectInvalidEmptyTaskPatchContract } from "../executable/support/task-store-contract.js";
+import { expectActivityMutationResultContract } from "../executable/support/activity-mutation-store-contract.js";
 import { IdeaDeletionService } from "../../src/application/idea-deletion.js";
 import { createPostgresIdeaDeletionConfirmationStore } from "../../src/infrastructure/postgres/postgres-idea-deletion-confirmation-store.js";
 import { createSecretBox } from "../../src/infrastructure/postgres/secret-box.js";
@@ -1082,6 +1083,68 @@ describe("PostgreSQL storage contracts", () => {
         expect.objectContaining({ revision: 2, operation: "corrected", system }),
       ]);
     }
+  });
+
+  it("returns mutation records without embedded revision history from the PostgreSQL adapter", async () => {
+    const companyId = "company_activity_mutation_contract";
+    const groupId = "group_activity_mutation_contract";
+    const roleId = "role_activity_mutation_contract";
+    const employeeId = "activity_mutation_contract_owner";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Mutation Contract Co') ON CONFLICT (id) DO NOTHING", [companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Mutation contract group', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupId, companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Mutation contract role') ON CONFLICT (id) DO NOTHING", [roleId, companyId]);
+    await issueProfileReadyParticipant(pool, employeeId, "invite_activity_mutation_contract", { companyId, groupId, roleId });
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId))!;
+    const collection = createPostgresActivityCollectionStore(pool);
+    const save = (activityId: string, recordedAt: string) => collection.saveActivity({
+      activityId,
+      employeeId,
+      subjectKey: participant.subjectKey,
+      companyId,
+      groupId,
+      roleId,
+      taskCategory: "reporting",
+      routinePattern: "manual_reporting",
+      activityDate: "2026-07-12",
+      recordedAt,
+    });
+    await save("activity_mutation_contract_correct", "2026-07-12T09:00:00.000Z");
+    await save("activity_mutation_contract_keep", "2026-07-12T09:30:00.000Z");
+    await save("activity_mutation_contract_duplicate", "2026-07-12T10:00:00.000Z");
+
+    await expectActivityMutationResultContract(createPostgresActivityMutationStore(pool), {
+      correction: {
+        employeeId,
+        companyId,
+        groupId,
+        sourceMessageId: "message_activity_mutation_contract_correct",
+        handle: "activity_mutation_contract_correct",
+        expectedRevision: 1,
+        mode: "patch",
+        routinePattern: "waiting_for_input",
+        recordedAfter: "2026-07-11T12:00:00.000Z",
+        recordedBefore: "2026-07-12T12:00:00.000Z",
+        changedAt: "2026-07-12T12:00:00.000Z",
+      },
+      supersession: {
+        employeeId,
+        companyId,
+        groupId,
+        sourceMessageId: "message_activity_mutation_contract_supersede",
+        handle: "activity_mutation_contract_duplicate",
+        expectedRevision: 1,
+        replacementHandle: "activity_mutation_contract_keep",
+        replacementExpectedRevision: 1,
+        recordedAfter: "2026-07-11T12:00:00.000Z",
+        recordedBefore: "2026-07-12T12:00:00.000Z",
+        changedAt: "2026-07-12T12:00:00.000Z",
+      },
+    });
+
+    await expect(collection.getActivityById!("activity_mutation_contract_correct"))
+      .resolves.toMatchObject({ revisions: [expect.any(Object), expect.any(Object)] });
+    await expect(collection.getActivityById!("activity_mutation_contract_duplicate"))
+      .resolves.toMatchObject({ revisions: [expect.any(Object), expect.any(Object)] });
   });
 
   it("persists revisioned activity correction and supersession with current projections", async () => {
