@@ -42,6 +42,20 @@ describe("SPEC-MINUTKA-DURATION-EVIDENCE-001: request-local explicit duration ev
   });
 
   it.each([
+    ["1 час 20 минут", "1_2h"],
+    ["2 часа 15 минут", "2_4h"],
+  ] as const)("merges compound hour-to-minute expression %s into %s", (text, bucket) => {
+    expect(buckets(text)).toEqual([{ ref: "duration_1", bucket, sourceOrder: 0 }]);
+  });
+
+  it("keeps reverse minute-to-hour order as separate refs", () => {
+    expect(buckets("20 минут и 1 час")).toEqual([
+      { ref: "duration_1", bucket: "15_30m", sourceOrder: 0 },
+      { ref: "duration_2", bucket: "30_60m", sourceOrder: 1 },
+    ]);
+  });
+
+  it.each([
     "работал долго",
     "почти весь день",
     "заняло несколько часов",

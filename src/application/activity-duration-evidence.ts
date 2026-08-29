@@ -19,18 +19,19 @@ const halfHourPattern = /(?<![\p{L}\p{N}])(?:полчаса|half[\s\u00a0\u202f-
 const oneAndHalfHourPattern = /(?<![\p{L}\p{N}])(?:полтора|полторы)\s*час(?:а|ов)?(?![\p{L}\p{N}])/giu;
 
 export function extractDurationEvidence(text: string): DurationEvidenceCandidate[] {
-  const matches: Array<{ index: number; minutes: number }> = [];
-  collectMatches(halfHourPattern, text, () => 30, matches);
-  collectMatches(oneAndHalfHourPattern, text, () => 90, matches);
+  const matches: DurationMatch[] = [];
+  collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), matches);
+  collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), matches);
   collectMatches(integerDurationPattern, text, (match) => {
     const groups = match.groups as { amount?: string; unit?: string } | undefined;
     const amount = Number((groups?.amount ?? "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return undefined;
-    return /^(?:час|ч|hour|hr)/iu.test(groups?.unit ?? "") ? amount * 60 : amount;
+    const unit = /^(?:час|ч|hour|hr)/iu.test(groups?.unit ?? "") ? "hours" : "minutes";
+    return { minutes: unit === "hours" ? amount * 60 : amount, unit };
   }, matches);
   matches.sort((left, right) => left.index - right.index);
   const uniqueMatches = matches.filter((match, index) => index === 0 || match.index !== matches[index - 1]?.index);
-  return uniqueMatches.map((match, sourceOrder) => ({
+  return mergeCompoundDurationMatches(uniqueMatches, text).map((match, sourceOrder) => ({
     ref: `duration_${sourceOrder + 1}`,
     bucket: durationBucketForMinutes(match.minutes),
     sourceOrder,
@@ -142,17 +143,45 @@ export class DurationEvidenceValidationError extends Error {
   }
 }
 
+type DurationMatch = {
+  index: number;
+  end: number;
+  minutes: number;
+  unit: "hours" | "minutes";
+};
+
 function collectMatches(
   pattern: RegExp,
   text: string,
-  minutes: (match: RegExpExecArray) => number | undefined,
-  target: Array<{ index: number; minutes: number }>,
+  value: (match: RegExpExecArray) => Pick<DurationMatch, "minutes" | "unit"> | undefined,
+  target: DurationMatch[],
 ): void {
   pattern.lastIndex = 0;
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
-    const value = minutes(match);
-    if (value !== undefined) target.push({ index: match.index, minutes: value });
+    const duration = value(match);
+    if (duration !== undefined) target.push({ index: match.index, end: match.index + match[0].length, ...duration });
   }
+}
+
+function mergeCompoundDurationMatches(matches: readonly DurationMatch[], text: string): DurationMatch[] {
+  const merged: DurationMatch[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index]!;
+    const next = matches[index + 1];
+    const separator = next === undefined ? undefined : text.slice(current.end, next.index);
+    if (
+      current.unit === "hours"
+      && next?.unit === "minutes"
+      && separator !== undefined
+      && /^[\s\u00a0\u202f]*,?[\s\u00a0\u202f]*(?:и[\s\u00a0\u202f]*)?$/iu.test(separator)
+    ) {
+      merged.push({ ...current, end: next.end, minutes: current.minutes + next.minutes });
+      index += 1;
+    } else {
+      merged.push(current);
+    }
+  }
+  return merged;
 }
 
 function durationBucketForMinutes(minutes: number): ActivityDurationBucket {
