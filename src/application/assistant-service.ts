@@ -901,14 +901,14 @@ export class AssistantService {
     // Work already committed or awaiting confirmation must not be reported as a
     // failure just because the agent stopped without a closing sentence.
     if (response === undefined) response = missingAgentResponseUserMessage;
-    const usageWarning = usage ? await this.recordUsageSafely({
+    const usageWarning = (usage ? await this.recordUsageSafely({
       userId,
       requestId,
       threadId,
       messageId,
       usage,
       contextSourceCharacters: usageContextSourceCharacters,
-    }) : activityTransactionUsageOverSoftLimit;
+    }) : false) || activityTransactionUsageOverSoftLimit;
     if (usageWarning) response = appendUsageSoftLimitWarning(response);
     try {
       const appendTurn = this.deps.conversationStore.appendTurn({

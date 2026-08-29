@@ -12,7 +12,7 @@ import { createDeterministicIdGenerator } from "../../../src/application/runtime
 import { createThreadCompactionService } from "../../../src/application/thread-compaction-service.js";
 import { createUsageRecorder } from "../../../src/application/usage-recorder.js";
 import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
-import { estimateUsageCostUsdMicros, type UsageCostPolicy } from "../../../src/application/usage-store.js";
+import { estimateUsageCostUsdMicros, type UsageCostPolicy, type UsageStore } from "../../../src/application/usage-store.js";
 import { createSpecParticipantStore } from "../support/participant-store.js";
 
 const policy: UsageCostPolicy = {
@@ -293,6 +293,59 @@ describe("SPEC-PERSONAL-ASSISTANT-USAGE-001: owner monthly usage, cost and soft 
     // The patch reaches the draft; usage never leaks into onboarding data.
     expect(world.onboardingDrafts[0]).toMatchObject({ preferredName: "Максим", addressForm: "formal", persona: "efficiency" });
     expect(JSON.stringify(world.onboardingDrafts)).not.toContain("usage");
+  });
+
+  it("keeps an activity-transaction soft-limit warning when the main chat record reports false", async () => {
+    const world = createInMemoryWorld(() => "2026-07-31T12:00:00.000Z");
+    const documents = createInMemoryDocumentStore({ now: world.now });
+    const usageStore = createInMemoryUsageStore();
+    const recordedSources: string[] = [];
+    const scriptedUsageStore: UsageStore = {
+      async record(input) {
+        recordedSources.push(input.source);
+        const result = await usageStore.record(input);
+        return input.source === "chat"
+          ? { ...result, monthly: { ...result.monthly, estimatedCostUsdMicros: 0 } }
+          : result;
+      },
+      getMonthly: (userId, month) => usageStore.getMonthly(userId, month),
+    };
+    const service = new AssistantService(async (_input, context) => {
+      await context.processCurrentActivityTurn({ mode: "record" });
+      return { text: "Активность записана.", executionTrace: [], usage: chatUsage };
+    }, {
+      documentStore: documents,
+      conversationStore: createInMemoryConversationStore(world),
+      ingestionService: createIngestionService({ documentStore: documents, blobStore: createInMemoryBlobStore({ now: world.now }) }),
+      participantStore: {
+        ...createSpecParticipantStore(),
+        async getProfile(employeeId) {
+          return {
+            employeeId, companyId: "default_company", groupId: "default_group", roleId: "default_role",
+            preferredName: "Owner", assistantName: "Minutka", addressForm: "informal", persona: "support",
+            responseLength: "short", timezone: "Etc/UTC", createdAt: world.now(), updatedAt: world.now(),
+          };
+        },
+      },
+      requestIntegrityGuard: async () => ({ status: "allowed" }),
+      processCurrentActivityTurn: async () => ({
+        status: "completed", operation: "collect", savedCount: 1, activityIds: ["activity_1"],
+        extraction: {
+          context: { currentTextCharacters: 20, staticRulesCharacters: 10, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: 30 },
+          usage: { inputTokens: 400, outputTokens: 200, totalTokens: 600, llmSteps: 1 },
+        },
+      }),
+      usageStore: scriptedUsageStore,
+      usageCostPolicy: { ...policy, monthlySoftLimitUsdMicros: 300 },
+      clock: { now: world.now },
+      idGenerator: createDeterministicIdGenerator(),
+    });
+
+    const result = await service.chat({ userId: "owner", threadId: "thread", text: "Запиши активность" });
+
+    expect(recordedSources).toEqual(["activity_transaction", "chat"]);
+    expect(result.response).toContain("Активность записана.");
+    expect(result.response).toContain("Мягкий месячный лимит использования превышен");
   });
 
   it("persists usage and evaluates the soft limit when cached tokens were sanitized by the producer", async () => {
