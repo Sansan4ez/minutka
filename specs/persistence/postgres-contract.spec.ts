@@ -50,7 +50,7 @@ import { createPostgresEvaluationCaseStore } from "../../src/infrastructure/post
 import { createPostgresResearchCorpusSource } from "../../src/infrastructure/postgres/postgres-research-corpus-source.js";
 import { ResearchEvaluationService } from "../../src/application/research-evaluation.js";
 import { ResearchCorpusExportService } from "../../src/application/research-corpus-export.js";
-import { PersistenceError } from "../../src/application/persistence-error.js";
+import { PersistenceError, PersistenceOutcomeUnknownError } from "../../src/application/persistence-error.js";
 import { createPostgresResearchScopePurgeStore } from "../../src/infrastructure/postgres/postgres-research-scope-purge-store.js";
 import { ResearchScopePurgeService } from "../../src/application/research-scope-purge.js";
 import { createPostgresPilotStatusStore } from "../../src/infrastructure/postgres/postgres-pilot-status-store.js";
@@ -292,8 +292,17 @@ describe("PostgreSQL storage contracts", () => {
     const participant = await profiles.getParticipant("activity_owner");
     if (!participant) throw new Error("participant missing");
 
+    const postgresActivityStore = createPostgresActivityCollectionStore(pool);
     const service = new CollectActivityService(
-      createPostgresActivityCollectionStore(pool),
+      {
+        async saveActivity(activity) {
+          await postgresActivityStore.saveActivity(activity);
+          throw new PersistenceOutcomeUnknownError();
+        },
+        async getActivityById(activityId) {
+          return postgresActivityStore.getActivityById!(activityId);
+        },
+      },
       { now: () => "2026-08-15T22:17:35.000Z" },
       () => "activity_pg_one",
     );
@@ -338,8 +347,11 @@ describe("PostgreSQL storage contracts", () => {
     expect(corpusActivities).toEqual([expect.objectContaining({
       activityId: "activity_pg_one", subjectKey: participant.subjectKey, sourceMessageId: "message_activity_one",
       routinePattern: "manual_reporting", automationCandidate: "report_generation", energyStressMarker: "frustration",
-      activityDate: "2026-08-16",
+      activityDate: "2026-08-16", recordedAt: "2026-08-15T22:17:35.000Z",
+      revisions: [expect.objectContaining({ changedAt: "2026-08-15T22:17:35.000Z" })],
     })]);
+    const collected = await createPostgresActivityCollectionStore(pool).getActivityById!("activity_pg_one");
+    expect(collected?.revisions?.[0]?.changedAt).toBe(collected?.recordedAt);
     const ownActivities = createPostgresOwnActivityReadStore(pool);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([{
       employeeId: "activity_owner", taskCategory: "reporting", routinePattern: "manual_reporting",
@@ -1108,8 +1120,8 @@ describe("PostgreSQL storage contracts", () => {
     await expect(recent.read(scope)).resolves.toEqual({ activities: [expect.objectContaining({ handle: "activity_correction_keep", revision: 2, routinePattern: "waiting_for_input" })] });
     const corpus = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
     expect(corpus).toEqual(expect.arrayContaining([
-      expect.objectContaining({ activityId: "activity_correction_keep", status: "active", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "created" }), expect.objectContaining({ operation: "corrected" })]) }),
-      expect.objectContaining({ activityId: "activity_correction_duplicate", status: "superseded", supersededByActivityId: "activity_correction_keep", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "superseded" })]) }),
+      expect.objectContaining({ activityId: "activity_correction_keep", status: "active", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "created" }), expect.objectContaining({ operation: "corrected", changedAt: expect.stringMatching(/\.\d{3}Z$/u) })]) }),
+      expect.objectContaining({ activityId: "activity_correction_duplicate", status: "superseded", supersededByActivityId: "activity_correction_keep", revision: 2, revisions: expect.arrayContaining([expect.objectContaining({ operation: "superseded", changedAt: expect.stringMatching(/\.\d{3}Z$/u) })]) }),
     ]));
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool), () => now).exportGroup({ companyId, groupId });
     expect(report.internal.coverage.observations).toBe(1);

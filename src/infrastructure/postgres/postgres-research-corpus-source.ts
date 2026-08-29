@@ -4,6 +4,7 @@ import type { ResearchEvidenceRef, ResearchSubject } from "../../application/res
 import type { PersonalActivityRecord } from "../../application/activity-collection.js";
 import { mapPostgresError } from "../../application/persistence-error.js";
 import type { ActivityRevisionRecord, ActivityStatus } from "../../application/activity-correction.js";
+import { canonicalActivityRevisionChangedAtSql } from "./postgres-activity-revision-projection.js";
 
 type SubjectRow = { company_id: string; group_id: string; subject_key: string; role_id: string | null; message_ids: string[]; activity_ids: string[]; trace_ids: string[] };
 type MessageRow = { message_id: string; subject_key: string; user_text: string; agent_response: string; created_at: Date };
@@ -67,16 +68,16 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
                   activity.system, activity.activity_date::text AS activity_date, activity.recorded_at,
                   activity.revision, activity.status, activity.superseded_by_activity_id,
                   activity.last_correction_message_id, activity.updated_at,
-                  COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                  COALESCE((SELECT json_agg(json_strip_nulls(json_build_object(
                     'revision', history.revision, 'operation', history.operation,
                     'sourceMessageId', history.source_message_id, 'taskCategory', history.task_category,
                     'routinePattern', history.routine_pattern, 'automationCandidate', history.automation_candidate,
                     'energyStressMarker', history.energy_stress_marker, 'durationBucket', history.duration_bucket,
                     'system', history.system, 'status', history.status,
                     'supersededByActivityId', history.superseded_by_activity_id,
-                    'changedAt', history.changed_at)) ORDER BY history.revision)
+                    'changedAt', ${canonicalActivityRevisionChangedAtSql})) ORDER BY history.revision)
                     FROM minutka_private.activity_revisions history
-                    WHERE history.activity_id=activity.activity_id), '[]'::jsonb) AS revisions
+                    WHERE history.activity_id=activity.activity_id), '[]'::json) AS revisions
            FROM minutka_private.activities activity
            WHERE activity.company_id=$1 AND activity.group_id=$2
            ORDER BY activity.recorded_at, activity.activity_id`,

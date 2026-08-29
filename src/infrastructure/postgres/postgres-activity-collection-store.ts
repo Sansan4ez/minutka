@@ -12,6 +12,7 @@ import type { OwnActivityFacet, OwnActivityReadStore } from "../../application/o
 import type { RecentOwnActivityReadStore } from "../../application/recent-own-activities.js";
 import { mapPostgresError, PersistenceError, PersistenceOutcomeUnknownError } from "../../application/persistence-error.js";
 import { withTransaction } from "./postgres-pool.js";
+import { canonicalActivityRevisionChangedAtSql } from "./postgres-activity-revision-projection.js";
 
 export function createPostgresActivityCollectionStore(pool: Pool): ActivityCollectionStore {
   return {
@@ -207,13 +208,14 @@ const activityColumns = `activity.activity_id, activity.employee_id, activity.su
   activity.automation_candidate, activity.energy_stress_marker, activity.duration_bucket, activity.system,
   activity.activity_date::text AS activity_date, activity.recorded_at, activity.revision, activity.status,
   activity.superseded_by_activity_id, activity.last_correction_message_id, activity.updated_at`;
-const revisionProjection = `COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+const revisionProjection = `COALESCE((SELECT json_agg(json_strip_nulls(json_build_object(
   'revision', history.revision, 'operation', history.operation, 'sourceMessageId', history.source_message_id,
   'taskCategory', history.task_category, 'routinePattern', history.routine_pattern,
   'automationCandidate', history.automation_candidate, 'energyStressMarker', history.energy_stress_marker,
   'durationBucket', history.duration_bucket, 'system', history.system, 'status', history.status,
-  'supersededByActivityId', history.superseded_by_activity_id, 'changedAt', history.changed_at)) ORDER BY history.revision)
-  FROM minutka_private.activity_revisions history WHERE history.activity_id=activity.activity_id), '[]'::jsonb) AS revisions`;
+  'supersededByActivityId', history.superseded_by_activity_id,
+  'changedAt', ${canonicalActivityRevisionChangedAtSql})) ORDER BY history.revision)
+  FROM minutka_private.activity_revisions history WHERE history.activity_id=activity.activity_id), '[]'::json) AS revisions`;
 const activitySelect = `SELECT ${activityColumns}, ${revisionProjection} FROM minutka_private.activities activity`;
 const activityReturning = `activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
   task_category, routine_pattern, automation_candidate, energy_stress_marker, duration_bucket, system,
@@ -234,8 +236,6 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     ...(row.routine_pattern ? { routinePattern: row.routine_pattern } : {}),
     ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
     ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
-    ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
-    ...(row.system ? { system: row.system } : {}),
     activityDate: row.activity_date,
     recordedAt: row.recorded_at.toISOString(),
     revision: row.revision,
@@ -244,6 +244,8 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     ...(row.last_correction_message_id ? { lastCorrectionMessageId: row.last_correction_message_id } : {}),
     updatedAt: row.updated_at.toISOString(),
     ...(row.revisions ? { revisions: row.revisions } : {}),
+    ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
+    ...(row.system ? { system: row.system } : {}),
   };
 }
 
