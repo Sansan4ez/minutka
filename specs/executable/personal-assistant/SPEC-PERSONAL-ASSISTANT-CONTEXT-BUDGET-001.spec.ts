@@ -63,9 +63,10 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * repins the two explicit revisioned activity repair manifests and process rules.
  * mnt-fz2.1 pins the agent-led ordinary-repeat stop rule after removing the
  * semantic activity gate from the TypeScript runtime. mnt-wy5.13 repins the
- * request-local explicit-duration reference rules.
+ * request-local explicit-duration reference rules. mnt-wy5.18 repins the
+ * repaired profile-confirmation sentence boundary.
  */
-const pinnedAgentManualCharacters = 37_322;
+const pinnedAgentManualCharacters = 37_319;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

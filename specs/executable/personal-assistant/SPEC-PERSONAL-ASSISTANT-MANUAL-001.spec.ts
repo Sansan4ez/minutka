@@ -45,6 +45,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(instructions).toContain("Never also call `updatePersonalContext`");
     expect(instructions).toContain("Change profile only on explicit request or confirmation");
     expect(instructions).toContain("activity is not confirmation");
+    expect(instructions).toContain("Save confirmed profile facts only.");
     expect(instructions).toContain("Do not ask a questionnaire");
     expect(instructions).toContain("Process file: personal_context_review");
     expect(instructions).toContain("observations stay separate");
