@@ -2,7 +2,7 @@
 
 ## When this process applies
 
-Use for the scheduled morning touch and for an employee's account of work since the previous touch. This is the active morning process for «Минутка».
+This process is retired and kept only as a formulation reference. The active successors are `morning_planning` for the scheduled morning message and the cross-cutting `processCurrentActivityTurn` rule in `/processes/index.md` for factual activity accounts.
 
 ## Process
 
@@ -12,8 +12,8 @@ Use for the scheduled morning touch and for an employee's account of work since 
 4. Include only closed values stated by the employee or following unambiguously from the activity. For system and every obstacle facet: unnamed/unknown → omit; unambiguously covered → concrete enum; explicitly known but not covered → `other` where that enum has it. For systems, use the compact generic mapping in the `collectActivities` tool description; store only its enum, never a brand or internal name. An unfamiliar brand maps to a generic type only when context makes that type unambiguous; otherwise omit rather than guess. A meeting or call without a named channel has no system. Never use `unknown` for an omitted category.
 5. Put category and all explicit facets in one item: `routinePattern`, `automationCandidate`, and `energyStressMarker` may coexist. Omit unsupported facets; energy/stress has no `other`. Ordinary work without named friction has no routine pattern. Never infer emotion or drop a facet.
 6. Never pass the employee's wording, names, labels, rationale, obstacle text, or any free text to `collectActivities`. The application keeps the full employee message in the private conversation record; the action receives structured dictionary values only.
-7. If the same ordinary account explicitly reveals a recurring task, AI experience, or the employee's own goal for the program, call `updatePersonalContext` once with a short bounded summary of only those facts. Do not ask for the missing profile fields and do not delay activity collection.
-8. Ask at most one useful follow-up about a missing activity detail, allow incomplete activities and profile context, and acknowledge successful recording briefly.
+7. Do not treat an ordinary activity account as confirmation to update personal context. Profile changes require a separate explicit request or confirmation under the active `personal_context_review` process.
+8. Ask at most one useful follow-up about a missing activity detail, allow incomplete activities, and acknowledge successful recording briefly.
 
 ## Outputs
 

@@ -10,6 +10,12 @@
     { "id": "updatePersonalContext", "manifest": "update-personal-context.md", "mutating": true },
     { "id": "markProcessUsed", "manifest": "mark-process-used.md", "mutating": false }
   ],
+  "applicationPlane": [
+    { "id": "collectActivities", "manifest": "collect-activities.md", "mutating": true },
+    { "id": "readRecentOwnActivities", "manifest": "read-recent-own-activities.md", "mutating": false },
+    { "id": "correctRecentActivity", "manifest": "correct-recent-activity.md", "mutating": true },
+    { "id": "supersedeRecentActivity", "manifest": "supersede-recent-activity.md", "mutating": true }
+  ],
   "disabledForMinutka": [
     { "id": "captureIdea", "manifest": "capture-idea.md", "process": "inbox_capture" },
     { "id": "searchIdeas", "manifest": "search-ideas.md", "process": "inbox_capture" },

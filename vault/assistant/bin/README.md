@@ -2,7 +2,7 @@
 
 This README is developer documentation, not prompt input or a capability source. The machine-readable catalog is `/bin/registry.json`; the actual capability set is the request-scoped typed tools wired by the application.
 
-`/bin` describes typed application actions, not arbitrary shell commands. A tool or process id never grants additional authority by itself. The `personalAssistant` registry is the complete model-visible pilot catalog and must exactly match Mastra `toolsets` and `activeTools`.
+`/bin` describes typed application actions, not arbitrary shell commands. A tool or process id never grants additional authority by itself. The registry classifies every live manifest into three explicit categories: `personalAssistant` is the complete model-visible pilot catalog and must exactly match Mastra `toolsets` and `activeTools`; `applicationPlane` documents application-bound operations unavailable to the main agent directly; `disabledForMinutka` preserves inherited operations outside the product boundary.
 
 ## Active «Минутка» tools
 
@@ -20,6 +20,15 @@ This README is developer documentation, not prompt input or a capability source.
 Schedule changes are level 0 reversible internal writes. Employee-facing replies use product language—morning, evening, or weekly message—and never advertise arbitrary reminders or runtime ids.
 
 Deterministic transport/application actions required for onboarding, consent, reporting, feedback, and personal-data deletion are not agent tools. They continue through authenticated typed use-cases outside the model tool loop. A chat URL follows the capture path as ordinary text: no registered assistant tool fetches, downloads, snapshots, extracts metadata from, or promotes the URL.
+
+## Application-plane manifests
+
+These manifests document typed operations used behind the request-bound `processCurrentActivityTurn` transaction. Their identity, evidence, duration references, candidate handles, and revisions are bound or selected by application/extractor code. They are listed under `applicationPlane`, are not included in `activeTools` or a Mastra toolset, and cannot be called directly by the main agent:
+
+- `/bin/collect-activities.md` — canonical structured activity writes;
+- `/bin/read-recent-own-activities.md` — bounded candidate lookup for repair;
+- `/bin/correct-recent-activity.md` — revisioned closed-facet correction;
+- `/bin/supersede-recent-activity.md` — revisioned explicit duplicate/replacement repair.
 
 ## Manifests outside the «Минутка» product boundary
 

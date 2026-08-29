@@ -134,6 +134,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     };
     const binRegistry = JSON.parse(readFileSync("vault/assistant/bin/registry.json", "utf8")) as {
       personalAssistant: Array<{ id: string }>;
+      applicationPlane: Array<{ id: string; manifest: string }>;
       disabledForMinutka: Array<{ id: string; manifest: string; process: string }>;
     };
     const disabledToolNames = Object.entries(assistantToolProcessOwners)
@@ -154,6 +155,13 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     expect(assistantActiveToolNames).toContain("readWeeklyActivities");
     expect(assistantActiveToolNames).toContain("readCycleActivities");
     expect(assistantActiveToolNames).toContain("updatePersonalContext");
+    expect(binRegistry.applicationPlane.map(({ id }) => id)).toEqual([
+      "collectActivities", "readRecentOwnActivities", "correctRecentActivity", "supersedeRecentActivity",
+    ]);
+    expect(binRegistry.applicationPlane.some(({ id }) => assistantActiveToolNames.includes(id as never))).toBe(false);
+    for (const { manifest } of binRegistry.applicationPlane) {
+      expect(readFileSync(`vault/assistant/bin/${manifest}`, "utf8")).toContain("## Purpose");
+    }
     expect(binRegistry.disabledForMinutka.map(({ id }) => id).sort()).toEqual([...disabledToolNames].sort());
     expect(binRegistry.personalAssistant.some(({ id }) => disabledToolNames.includes(id))).toBe(false);
     for (const { manifest, process } of binRegistry.disabledForMinutka) {
