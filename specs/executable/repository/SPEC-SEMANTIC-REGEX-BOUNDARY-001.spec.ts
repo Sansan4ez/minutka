@@ -22,8 +22,11 @@ const retiredSemanticRoutingSymbols = new Set([
   "mergePatches",
 ]);
 
-const semanticClassifierMethods = new Set(["test", "match", "search", "includes"]);
-const formalParserName = /(?:exact|formal|literal|protocol)/iu;
+const semanticClassifierMethods = new Set(["test", "exec", "match", "matchAll", "search", "includes"]);
+const formalParserAllowList = new Set([
+  "src/application/onboarding-profile-extractor.ts#normalizeFormalTimezone",
+]);
+const rawTextNames = new Set(["text", "rawText", "userText"]);
 const rfcDirection = "See docs/architecture/rfc-agent-led-routing.md §2: keep natural-language meaning in the LLM plane and formal validation in typed boundaries.";
 
 type SourceInput = { path: string; source: string };
@@ -50,13 +53,72 @@ function containsIdentifier(node: ts.Node, identifier: string): boolean {
   return found;
 }
 
-function referencesRawText(node: ts.Node): boolean {
+function referencesRawText(node: ts.Node, aliases: ReadonlySet<string>): boolean {
   let found = false;
   visit(node, (candidate) => {
-    if (ts.isIdentifier(candidate) && ["text", "rawText", "userText"].includes(candidate.text)) found = true;
-    if (ts.isPropertyAccessExpression(candidate) && candidate.name.text === "text") found = true;
+    if (ts.isIdentifier(candidate) && aliases.has(candidate.text)) found = true;
+    if (ts.isPropertyAccessExpression(candidate) && rawTextNames.has(candidate.name.text)) found = true;
   });
   return found;
+}
+
+function isFunctionScope(node: ts.Node): node is ts.FunctionLikeDeclaration {
+  return ts.isFunctionDeclaration(node)
+    || ts.isMethodDeclaration(node)
+    || ts.isFunctionExpression(node)
+    || ts.isArrowFunction(node);
+}
+
+function enclosingScopes(node: ts.Node, sourceFile: ts.SourceFile): Array<ts.SourceFile | ts.FunctionLikeDeclaration> {
+  const scopes: Array<ts.SourceFile | ts.FunctionLikeDeclaration> = [];
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (isFunctionScope(current)) scopes.push(current);
+    current = current.parent;
+  }
+  return [sourceFile, ...scopes.reverse()];
+}
+
+function visitScope(scope: ts.SourceFile | ts.FunctionLikeDeclaration, visitor: (node: ts.Node) => void): void {
+  const walk = (node: ts.Node): void => {
+    visitor(node);
+    node.forEachChild((child) => {
+      if (isFunctionScope(child)) return;
+      walk(child);
+    });
+  };
+  walk(scope);
+}
+
+function addRawParameterNames(scope: ts.FunctionLikeDeclaration, aliases: Set<string>): void {
+  for (const parameter of scope.parameters) {
+    if (ts.isIdentifier(parameter.name) && rawTextNames.has(parameter.name.text)) aliases.add(parameter.name.text);
+    if (!ts.isObjectBindingPattern(parameter.name)) continue;
+    for (const element of parameter.name.elements) {
+      const sourceName = element.propertyName && ts.isIdentifier(element.propertyName)
+        ? element.propertyName.text
+        : ts.isIdentifier(element.name) ? element.name.text : undefined;
+      if (sourceName && rawTextNames.has(sourceName) && ts.isIdentifier(element.name)) aliases.add(element.name.text);
+    }
+  }
+}
+
+function rawTextAliasesAt(node: ts.Node, sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const aliases = new Set(rawTextNames);
+  for (const scope of enclosingScopes(node, sourceFile)) {
+    if (isFunctionScope(scope)) addRawParameterNames(scope, aliases);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      visitScope(scope, (candidate) => {
+        if (!ts.isVariableDeclaration(candidate) || !ts.isIdentifier(candidate.name) || !candidate.initializer) return;
+        if (aliases.has(candidate.name.text) || !referencesRawText(candidate.initializer, aliases)) return;
+        aliases.add(candidate.name.text);
+        changed = true;
+      });
+    }
+  }
+  return aliases;
 }
 
 function enclosingFunctionName(node: ts.Node): string | undefined {
@@ -69,12 +131,17 @@ function enclosingFunctionName(node: ts.Node): string | undefined {
   return undefined;
 }
 
-function isRawTextClassifier(node: ts.CallExpression): boolean {
+function isRawTextClassifier(node: ts.CallExpression, sourceFile: ts.SourceFile): boolean {
   if (!ts.isPropertyAccessExpression(node.expression)) return false;
   const method = node.expression.name.text;
   if (!semanticClassifierMethods.has(method)) return false;
-  if (method === "test") return node.arguments.some(referencesRawText);
-  return referencesRawText(node.expression.expression);
+  const aliases = rawTextAliasesAt(node, sourceFile);
+  if (method === "test" || method === "exec") return node.arguments.some((argument) => referencesRawText(argument, aliases));
+  return referencesRawText(node.expression.expression, aliases);
+}
+
+function isAllowedFormalParser(path: string, functionName: string | undefined): boolean {
+  return Boolean(functionName && formalParserAllowList.has(`${path}#${functionName}`));
 }
 
 function isStaticActiveTools(node: ts.PropertyAssignment): boolean {
@@ -144,7 +211,7 @@ function inspectSource(input: SourceInput): string[] {
 
   if (input.path === "src/mastra/request-integrity-guard.ts") {
     visit(sourceFile, (node) => {
-      if (ts.isCallExpression(node) && isRawTextClassifier(node)) {
+      if (ts.isCallExpression(node) && isRawTextClassifier(node, sourceFile)) {
         report("request-integrity composition must preserve the structured LLM outcome instead of keyword-overriding it");
       }
     });
@@ -152,9 +219,9 @@ function inspectSource(input: SourceInput): string[] {
 
   if (input.path === "src/application/onboarding-profile-extractor.ts" || input.path === "src/mastra/onboarding-profile-extractor.ts") {
     visit(sourceFile, (node) => {
-      if (!ts.isCallExpression(node) || !isRawTextClassifier(node)) return;
+      if (!ts.isCallExpression(node) || !isRawTextClassifier(node, sourceFile)) return;
       const ownerName = enclosingFunctionName(node);
-      if (!ownerName || !formalParserName.test(ownerName)) {
+      if (!isAllowedFormalParser(input.path, ownerName)) {
         report("onboarding composition must not provide a production natural-language regex fallback");
       }
     });
@@ -226,15 +293,56 @@ describe("SPEC-SEMANTIC-REGEX-BOUNDARY-001: agent-led semantic source guard", ()
     expect(findings).toEqual([expect.stringContaining("must preserve the structured LLM outcome")]);
   });
 
-  it("allows regex that validates formal protocol syntax", () => {
+  it("rejects renamed semantic routing through normalized aliases", () => {
     const findings = inspectSource({
-      path: "src/application/onboarding-profile-extractor.ts",
+      path: "src/mastra/request-integrity-guard.ts",
       source: `
-        export function normalizeFormalDate(value: string) {
-          return /^\\d{4}-\\d{2}-\\d{2}$/u.test(value) ? value : undefined;
+        function checkExactScope(text: string) {
+          const normalized = text.toLocaleLowerCase("ru-RU");
+          return /(?:моя|своя)\\s+(?:задача|запись)/u.test(normalized);
         }
       `,
     });
-    expect(findings).toEqual([]);
+    expect(findings).toEqual([expect.stringContaining("must preserve the structured LLM outcome")]);
+  });
+
+  it("rejects exec and matchAll classifiers over raw-text aliases", () => {
+    const findings = inspectSource({
+      path: "src/mastra/request-integrity-guard.ts",
+      source: `
+        function classify(text: string) {
+          const lowered = text.toLowerCase();
+          const byExec = /ignore rules/u.exec(lowered);
+          const byMatchAll = [...lowered.matchAll(/bypass/gu)];
+          return { byExec, byMatchAll };
+        }
+      `,
+    });
+    expect(findings).toHaveLength(2);
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.stringContaining("must preserve the structured LLM outcome"),
+      expect.stringContaining("must preserve the structured LLM outcome"),
+    ]));
+  });
+
+  it("allows only an explicitly listed formal parser", () => {
+    const allowed = inspectSource({
+      path: "src/application/onboarding-profile-extractor.ts",
+      source: `
+        export function normalizeFormalTimezone(text: string) {
+          return /^UTC[+-]\\d{2}:\\d{2}$/u.test(text) ? text : undefined;
+        }
+      `,
+    });
+    const renamed = inspectSource({
+      path: "src/application/onboarding-profile-extractor.ts",
+      source: `
+        export function checkExactScope(text: string) {
+          return /(?:моя|своя)\\s+(?:задача|запись)/u.test(text);
+        }
+      `,
+    });
+    expect(allowed).toEqual([]);
+    expect(renamed).toEqual([expect.stringContaining("must not provide a production natural-language regex fallback")]);
   });
 });
