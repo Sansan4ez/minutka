@@ -1105,6 +1105,18 @@ describe("PostgreSQL storage contracts", () => {
     }));
     const corrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), { now: () => "2026-07-12T12:00:00.000Z" });
     const scope = { employeeId: "activity_correction_owner", companyId, groupId };
+    await issueProfileReadyParticipant(pool, "activity_correction_other", "invite_activity_correction_other", { companyId, groupId, roleId });
+    const otherParticipant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("activity_correction_other"))!;
+    await createPostgresConversationStore(pool).appendTurn({
+      messageId: "message_activity_correction_foreign", employeeId: "activity_correction_other", subjectKey: otherParticipant.subjectKey,
+      threadId: "thread_activity_correction_foreign", userText: "foreign correction", agentResponse: "reply", timestamp: "2026-07-12T11:00:00.000Z",
+    });
+    await expect(corrections.correct({ ...scope, sourceMessageId: "message_activity_correction_foreign" }, {
+      handle: "activity_correction_keep", expectedRevision: 1, mode: "patch", correction: { system: "spreadsheets" },
+    })).rejects.toThrow(new PersistenceError("persistence_conflict"));
+    await expect(corrections.supersede({ ...scope, sourceMessageId: "message_activity_correction_foreign" }, {
+      handle: "activity_correction_duplicate", expectedRevision: 1, replacementHandle: "activity_correction_keep", replacementExpectedRevision: 1,
+    })).rejects.toThrow(new PersistenceError("persistence_conflict"));
 
     const correction = { handle: "activity_correction_keep", expectedRevision: 1, mode: "patch" as const, correction: { routinePattern: "waiting_for_input" as const } };
     await corrections.correct({ ...scope, sourceMessageId: "message_activity_correction" }, correction);

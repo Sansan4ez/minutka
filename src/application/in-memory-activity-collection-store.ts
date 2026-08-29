@@ -87,9 +87,11 @@ export function createInMemoryOwnActivityReadStore(
 /** Owner-and-tenant-bound local repair over the canonical in-memory rows. */
 export function createInMemoryActivityMutationStore(
   state: InMemoryActivityCollectionState,
+  options: { messageOwner?: (messageId: string) => string | undefined } = {},
 ): ActivityMutationStore {
   return {
     async correctRecentActivity(command) {
+      assertSourceMessageOwner(command.sourceMessageId, command.employeeId, options.messageOwner);
       const current = withActivityMetadata(findRecentActivity(state, command));
       const intended = correctedFacets(current, command);
       if (isCorrectionReplay(current, command, intended)) return structuredClone(current);
@@ -107,6 +109,7 @@ export function createInMemoryActivityMutationStore(
       return structuredClone(current);
     },
     async supersedeRecentActivity(command) {
+      assertSourceMessageOwner(command.sourceMessageId, command.employeeId, options.messageOwner);
       const target = withActivityMetadata(findRecentActivity(state, command));
       if (isSupersessionReplay(target, command)) return structuredClone(target);
       const replacement = withActivityMetadata(findRecentActivity(state, {
@@ -129,6 +132,15 @@ export function createInMemoryActivityMutationStore(
       return structuredClone(target);
     },
   };
+}
+
+function assertSourceMessageOwner(
+  sourceMessageId: string,
+  employeeId: string,
+  messageOwner?: (messageId: string) => string | undefined,
+): void {
+  const owner = messageOwner?.(sourceMessageId);
+  if (owner !== undefined && owner !== employeeId) throw new PersistenceError("persistence_conflict");
 }
 
 function findRecentActivity(

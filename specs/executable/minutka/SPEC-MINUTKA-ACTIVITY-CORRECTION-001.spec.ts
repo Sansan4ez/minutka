@@ -118,6 +118,28 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
     })).rejects.toThrow(conflict);
   });
 
+  it("rejects correction and supersession when the source message belongs to another employee", async () => {
+    const state = createInMemoryActivityCollectionState();
+    state.activities.push(
+      activity({ activityId: "activity_keep", recordedAt: "2026-08-24T09:00:00.000Z" }),
+      activity({ activityId: "activity_duplicate", recordedAt: "2026-08-24T10:00:00.000Z" }),
+    );
+    const corrections = new ActivityCorrectionService(createInMemoryActivityMutationStore(state, {
+      messageOwner: (messageId) => messageId === "message_foreign" ? "employee_b" : undefined,
+    }), { now: () => now });
+
+    await expect(corrections.correct({ ...scope, sourceMessageId: "message_foreign" }, {
+      handle: "activity_keep", expectedRevision: 1, mode: "patch", correction: { system: "spreadsheets" },
+    })).rejects.toThrow(conflict);
+    await expect(corrections.supersede({ ...scope, sourceMessageId: "message_foreign" }, {
+      handle: "activity_duplicate", expectedRevision: 1, replacementHandle: "activity_keep", replacementExpectedRevision: 1,
+    })).rejects.toThrow(conflict);
+    expect(state.activities).toEqual([
+      activity({ activityId: "activity_keep", recordedAt: "2026-08-24T09:00:00.000Z" }),
+      activity({ activityId: "activity_duplicate", recordedAt: "2026-08-24T10:00:00.000Z" }),
+    ]);
+  });
+
   it("supersedes a confirmed duplicate idempotently while current reads and reports exclude it", async () => {
     const { state, corrections } = service([
       activity({ activityId: "activity_keep", recordedAt: "2026-08-24T09:00:00.000Z" }),
