@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DurationEvidenceValidationError,
   extractDurationEvidence,
+  MAX_DURATION_REFERENCES,
   RequestDurationEvidence,
 } from "../../../src/application/activity-duration-evidence.js";
 
@@ -39,6 +40,14 @@ describe("SPEC-MINUTKA-DURATION-EVIDENCE-001: request-local explicit duration ev
       { ref: "duration_2", bucket: "30_60m", sourceOrder: 1 },
       { ref: "duration_3", bucket: "1_2h", sourceOrder: 2 },
     ]);
+  });
+
+  it("caps request-local references at the shared extractor limit", () => {
+    const text = Array.from({ length: MAX_DURATION_REFERENCES + 1 }, (_, index) => `Задача ${index + 1}: 5 мин.`).join(" ");
+    const evidence = extractDurationEvidence(text);
+
+    expect(evidence).toHaveLength(MAX_DURATION_REFERENCES);
+    expect(evidence.at(-1)).toEqual({ ref: "duration_32", bucket: "lt_15m", sourceOrder: 31 });
   });
 
   it.each([

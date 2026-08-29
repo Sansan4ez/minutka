@@ -8,6 +8,7 @@ import {
   routinePatternTypes,
   taskCategories,
 } from "../domain/insights.js";
+import { MAX_DURATION_REFERENCES } from "./activity-duration-evidence.js";
 import type { ModelTokenUsage } from "./usage-store.js";
 
 export const activityTransactionModes = ["record", "repair"] as const;
@@ -68,7 +69,7 @@ export type ActivityTransactionRecentCandidate = z.infer<typeof activityTransact
 
 const activityTransactionInputBase = {
   currentText: z.string().trim().min(1),
-  durationReferences: z.array(durationReferenceSchema).max(32),
+  durationReferences: z.array(durationReferenceSchema).max(MAX_DURATION_REFERENCES),
   signal: z.custom<AbortSignal>().optional(),
 };
 

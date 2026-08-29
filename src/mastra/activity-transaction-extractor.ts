@@ -1,4 +1,5 @@
 import { countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
+import { MAX_DURATION_REFERENCES } from "../application/activity-duration-evidence.js";
 import { renderUntrustedCurrentText } from "../application/untrusted-conversation-context.js";
 import {
   createActivityTransactionExtractor,
@@ -62,7 +63,7 @@ assertWithinBudget(
 export const buildActivityTransactionPrompt: ActivityTransactionPromptBuilder = (input) => {
   const currentTextCharacters = countUnicodeCodePoints(input.currentText);
   assertWithinBudget("activity transaction current text", currentTextCharacters, activityTransactionContextBudget.currentTextCharacters);
-  if (input.durationReferences.length > 32) throw new Error("too many duration references");
+  if (input.durationReferences.length > MAX_DURATION_REFERENCES) throw new Error("too many duration references");
 
   const durationReferences = JSON.stringify(input.durationReferences);
   const durationReferencesCharacters = countUnicodeCodePoints(durationReferences);

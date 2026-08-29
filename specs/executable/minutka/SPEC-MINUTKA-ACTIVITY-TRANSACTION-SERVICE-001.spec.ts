@@ -6,6 +6,7 @@ import type {
   ActivityTransactionExtractor,
   ActivityTransactionExtractorInput,
 } from "../../../src/application/activity-transaction-extractor.js";
+import { MAX_DURATION_REFERENCES } from "../../../src/application/activity-duration-evidence.js";
 import { ActivityTransactionService } from "../../../src/application/activity-transaction-service.js";
 import {
   createInMemoryActivityCollectionState,
@@ -95,6 +96,23 @@ function harness(
 }
 
 describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application transaction", () => {
+  it("caps duration references before extraction without throwing", async () => {
+    const currentText = Array.from({ length: MAX_DURATION_REFERENCES + 1 }, (_, index) => `Задача ${index + 1}: 5 мин.`).join(" ");
+    const { service, extractorInputs } = harness({ kind: "none", reason: "no_factual_activity" });
+
+    await expect(service.process({ ...request, currentText, mode: "record" })).resolves.toMatchObject({
+      status: "no_write",
+      reason: "no_factual_activity",
+    });
+    expect(extractorInputs).toHaveLength(1);
+    expect(extractorInputs[0]?.durationReferences).toHaveLength(MAX_DURATION_REFERENCES);
+    expect(extractorInputs[0]?.durationReferences.at(-1)).toEqual({
+      ref: "duration_32",
+      bucket: "lt_15m",
+      sourceOrder: 31,
+    });
+  });
+
   it("binds trusted scope outside extractor input and records repeated work without a recent read", async () => {
     const { service, state, extractorInputs, recentReads } = harness({
       kind: "collect",

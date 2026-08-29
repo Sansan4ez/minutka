@@ -3,6 +3,8 @@ import { activityCollectionItemSchema, type CollectActivitiesInput, type Collect
 import type { ActivityDurationBucket } from "../domain/insights.js";
 import type { CorrectRecentActivityInput } from "./activity-correction.js";
 
+export const MAX_DURATION_REFERENCES = 32;
+
 export type DurationEvidenceCandidate = {
   ref: string;
   bucket: ActivityDurationBucket;
@@ -31,11 +33,13 @@ export function extractDurationEvidence(text: string): DurationEvidenceCandidate
   }, matches);
   matches.sort((left, right) => left.index - right.index);
   const uniqueMatches = matches.filter((match, index) => index === 0 || match.index !== matches[index - 1]?.index);
-  return mergeCompoundDurationMatches(uniqueMatches, text).map((match, sourceOrder) => ({
-    ref: `duration_${sourceOrder + 1}`,
-    bucket: durationBucketForMinutes(match.minutes),
-    sourceOrder,
-  }));
+  return mergeCompoundDurationMatches(uniqueMatches, text)
+    .slice(0, MAX_DURATION_REFERENCES)
+    .map((match, sourceOrder) => ({
+      ref: `duration_${sourceOrder + 1}`,
+      bucket: durationBucketForMinutes(match.minutes),
+      sourceOrder,
+    }));
 }
 
 export function createProviderActivitySchemas(candidates: readonly DurationEvidenceCandidate[]) {
