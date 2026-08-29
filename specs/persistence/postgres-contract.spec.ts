@@ -36,6 +36,7 @@ import { createPostgresPendingActionGroupStore } from "../../src/infrastructure/
 import { createPostgresActivityCollectionStore, createPostgresActivityMutationStore, createPostgresOwnActivityReadStore, createPostgresRecentOwnActivityReadStore } from "../../src/infrastructure/postgres/postgres-activity-collection-store.js";
 import { CollectActivityService, type PersonalActivityRecord } from "../../src/application/activity-collection.js";
 import { ActivityCorrectionService } from "../../src/application/activity-correction.js";
+import { activitySystems } from "../../src/domain/insights.js";
 import type { ActivityTransactionDecision } from "../../src/application/activity-transaction-extractor.js";
 import { ActivityTransactionService } from "../../src/application/activity-transaction-service.js";
 import { RecentOwnActivitiesService } from "../../src/application/recent-own-activities.js";
@@ -1027,6 +1028,48 @@ describe("PostgreSQL storage contracts", () => {
       expect.objectContaining({ routinePattern: "waiting_for_input", revision: 2 }),
       expect.objectContaining({ taskCategory: "reporting", revision: 1 }),
     ]));
+  });
+
+  it("round-trips every canonical activity system through collection and correction revisions", async () => {
+    const companyId = "company_activity_system_dictionary";
+    const groupId = "group_activity_system_dictionary";
+    const roleId = "role_activity_system_dictionary";
+    const employeeId = "activity_system_dictionary_owner";
+    await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'System Dictionary Co') ON CONFLICT (id) DO NOTHING", [companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'System Dictionary group', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING", [groupId, companyId]);
+    await migrationPool.query("INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'System Dictionary role') ON CONFLICT (id) DO NOTHING", [roleId, companyId]);
+    await issueProfileReadyParticipant(pool, employeeId, "invite_activity_system_dictionary", { companyId, groupId, roleId });
+    const participant = (await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId))!;
+    const collectionStore = createPostgresActivityCollectionStore(pool);
+    const mutationStore = createPostgresActivityMutationStore(pool);
+    const scope = { employeeId, companyId, groupId };
+
+    for (const [index, system] of activitySystems.entries()) {
+      const activityId = `activity_system_dictionary_${index}`;
+      const sourceMessageId = `message_activity_system_dictionary_collect_${index}`;
+      const recordedAt = `2026-07-12T10:${String(index).padStart(2, "0")}:00.000Z`;
+      const collected = new CollectActivityService(collectionStore, { now: () => recordedAt }, () => activityId);
+      await collected.collect({
+        ...scope,
+        subjectKey: participant.subjectKey,
+        sourceMessageId,
+        roleId,
+        timezone: "Etc/UTC",
+        activity: { taskCategory: "reporting", system },
+      });
+
+      await new ActivityCorrectionService(mutationStore, { now: () => "2026-07-12T12:00:00.000Z" }).correct(
+        { ...scope, sourceMessageId: `message_activity_system_dictionary_correct_${index}` },
+        { handle: activityId, expectedRevision: 1, mode: "patch", correction: { system } },
+      );
+
+      const persisted = await collectionStore.getActivityById!(activityId);
+      expect(persisted).toMatchObject({ activityId, system, revision: 2 });
+      expect(persisted?.revisions).toEqual([
+        expect.objectContaining({ revision: 1, operation: "created", system }),
+        expect.objectContaining({ revision: 2, operation: "corrected", system }),
+      ]);
+    }
   });
 
   it("persists revisioned activity correction and supersession with current projections", async () => {
