@@ -27,7 +27,11 @@ CREATE TABLE minutka_private.activity_revisions (
   automation_candidate text CHECK (automation_candidate IN ('report_generation', 'meeting_reduction', 'async_status_update', 'task_routing', 'template_or_checklist', 'data_entry_reduction', 'other')),
   energy_stress_marker text CHECK (energy_stress_marker IN ('overload', 'fatigue', 'frustration', 'focus_loss', 'blocked_progress', 'neutral')),
   duration_bucket text CHECK (duration_bucket IN ('lt_15m', '15_30m', '30_60m', '1_2h', '2_4h', 'gt_4h')),
-  system text CHECK (system IN ('bitrix24', 'one_c', 'spreadsheets', 'email', 'messengers', 'crm', 'task_tracker', 'paper_or_verbal', 'documents', 'video_conferencing', 'erp', 'other')),
+  system text CHECK (system IN (
+    'bitrix24', 'one_c', 'spreadsheets', 'email', 'messengers', 'crm', 'task_tracker',
+    'telephony', 'tender_platform', 'logistics_system', 'learning_platform',
+    'paper_or_verbal', 'other'
+  )),
   status text NOT NULL CHECK (status IN ('active', 'superseded')),
   superseded_by_activity_id text,
   changed_at timestamptz NOT NULL,
