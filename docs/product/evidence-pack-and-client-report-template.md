@@ -4,6 +4,8 @@
 
 **accepted template (2026-08-18), canonical DTO реализован.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет, дополняет и публикует клиентский артефакт.
 
+> **Примечание (2026-09-04).** [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) (`proposed`) предлагает client DTO v2 без `expectedEffect`, `prerequisites`, `risks` и 30/60/90 и `preflightFindings` в шаге 5 flow §6. До принятия RFC и реализации действующий контракт — этот документ; §3, §5 и §6 обновляются в одной серии с переводом RFC в `accepted`.
+
 Шаблоны конкретизируют [RFC исследовательского корпуса и клиентской карты автоматизации §2.7–2.9](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack):
 
 - evidence pack — внутренний group-scoped артефакт исследовательской команды;
