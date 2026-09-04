@@ -61,7 +61,7 @@ Misfit по [планке качества](./rfc-pilot-quality-bar.md): baselin
 | `Activity` | Фактическая единица работы, названная сотрудником (без изменений) |
 | `routineLabel` | Короткое название работы словами сотрудника, поле activity |
 | `Routine` | Группа activities с одним `routineKey` внутри группы после alias-ов. Уровень — объект работы + класс действия («отправка КП», «обзвон CRM»), а не экземпляр задачи. Derived read model отчёта, не хранится |
-| `QuickWin` | Строка закрытого каталога быстрых улучшений, сопоставленная рутине детерминированно по facets |
+| `QuickWin` | Строка закрытого каталога быстрых улучшений; назначается рутине на alias-шаге (модель предлагает, методолог проверяет), отчёт применяет назначение детерминированно |
 | `Deep-dive candidate` | Рутина, для которой быстрой победы нет или evidence слабый; передаётся во второй этап как вопрос |
 
 Термин `business process` в первом этапе не используется. `AssistantProcess` (`evening_reflection` и др.) остаётся runtime-понятием агента.
@@ -113,7 +113,7 @@ Activities без `routineLabel` остаются в существующих bu
 
 **Синонимы.** Нормализация не склеит «сверка остатков», «сверял остатки в 1С» и «остатки сверить с таблицей»: на группе из девяти человек с разной манерой речи это раздробит рутины и обесценит топ по часам. Склейку делает LLM, но не внутри пути отчёта, а отдельным подготовительным шагом с проверяемым результатом:
 
-1. Typed operator-команда `routine-aliases suggest --company <id> --group <id>` берёт список различных `routineKey` группы (без subject keys, сообщений и PII по правилу extractor), просит модель склеить ключи до уровня рутины — один объект работы и один класс действия («подготовка кп», «отправка кп», «направление кп» → одна рутина; «обзвон клиентов», «прозвон crm», «обзвон воронки» → одна рутина), а не только лексические варианты — назвать каждую группу одним каноническим именем и пишет файл `routine-aliases.<company>.<group>.json` вида `{ "сверял остатки в 1с": "сверка остатков 1с с таблицей" }` с пометкой `suggestedBy: <model@version>`.
+1. Typed operator-команда `routine-aliases suggest --company <id> --group <id>` берёт список различных `routineKey` группы (без subject keys, сообщений и PII по правилу extractor), просит модель склеить ключи до уровня рутины — один объект работы и один класс действия («подготовка кп», «отправка кп», «направление кп» → одна рутина; «обзвон клиентов», «прозвон crm», «обзвон воронки» → одна рутина), а не только лексические варианты — назвать каждую группу одним каноническим именем; для каждой канонической рутины модель дополнительно выбирает строку закрытого каталога §2.7 либо `deep_dive`, видя только название рутины, категории, системы и число наблюдений. Команда пишет файл `routine-aliases.<company>.<group>.json` с двумя секциями — `aliases` (`{ "сверял остатки в 1с": "сверка остатков 1с с таблицей" }`) и `quickWins` (`{ "сверка остатков 1с с таблицей": "data_import_export" }`) — и пометкой `suggestedBy: <model@version>`.
 2. Методолог проверяет и правит файл: это проверка, а не составление. Файл лежит в операторском контуре, версионируется вместе с отчётом и не пишется в БД.
 3. Команда отчёта принимает файл флагом `--aliases` и применяет его до группировки детерминированно: одни и те же activities и один и тот же файл дают один и тот же отчёт на каждом recompute.
 
@@ -142,20 +142,18 @@ Activities без `routineLabel` остаются в существующих bu
 - `energySignals` — число activities с `energyStressMarker ∈ {frustration, fatigue, overload, focus_loss, blocked_progress}`;
 - `automationHypotheses` — распределение `automationCandidate` (как сейчас в `supportingEvidence`).
 
+Все три facet-а — факты со слов сотрудника, и на живом корпусе они редки: в 158 activities, записанных текущим bounded extractor-ом, `routinePattern` и `energyStressMarker` заполнены по 2 раза, `automationCandidate` — ни разу (§9). Раздел «что мешает» показывает их, когда они есть, но отчёт не обещает, что они есть.
+
 Ранжирование в отчёте — две отдельные шкалы, без составного score: «куда уходит время» сортирует по `estimatedHours`, «что мешает» — по `frictionSignals + energySignals`. Сотрудник не оценивается: сигнал агрегирован по рутине и показывается только при `contributors ≥ 2` либо как `hypothesis` без привязки к должности, если contributor один (действующее правило rare-role).
 
 ### 2.7. Каталог быстрых побед
 
-Вместо `AutomationCaseCatalog` (17 полей, semantic matching, четыре исхода) вводится закрытая таблица `quickWinCatalog` в коде (`src/application/quick-wins.ts`), ~10 строк, детерминированное сопоставление по facets рутины. Строка каталога:
+Вместо `AutomationCaseCatalog` (17 полей, semantic matching, четыре исхода) вводится закрытая таблица `quickWinCatalog` в коде (`src/application/quick-wins.ts`), ~10 строк. Строка каталога:
 
 ```ts
 type QuickWin = {
   id: string;                     // "report_template", "status_bot", ...
-  matches: {                      // рутина подходит, если совпал хотя бы один automationCandidate
-    automationCandidates?: AutomationCandidateType[];   // ИЛИ routinePattern И ключевое слово routineKey
-    routinePatterns?: RoutinePatternType[];
-    routineKeywords?: string[];   // подстроки нормализованного routineKey: «отчёт», «кп», «обзвон»
-  };
+  typicalFor: string;             // подсказка для alias-шага и методолога: какие рутины обычно подходят
   title: string;                  // «Шаблон отчёта с формулами и AI-черновиком текста»
   whatChanges: string;            // одно предложение: что перестаёт делаться вручную
   effort: "hours" | "days" | "weeks";
@@ -167,7 +165,7 @@ type QuickWin = {
 
 Стартовый состав — девять строк (решение оператора, §8); уточняется первым циклом, не RFC:
 
-| id | триггер | суть |
+| id | типично для | суть |
 | --- | --- | --- |
 | `report_template` | `report_generation`, `manual_reporting` | шаблон + формулы/сводная; AI-черновик текста по данным |
 | `data_import_export` | `data_entry_reduction` + `spreadsheets`/`crm`/`one_c` | импорт/экспорт вместо ручного переноса; форма ввода |
@@ -179,9 +177,14 @@ type QuickWin = {
 | `mail_extraction` | `data_entry_reduction` + `email` | AI-ассистент извлечения реквизитов из писем с проверкой |
 | `priority_rule` | `unclear_priority` | явное правило приоритета на неделю |
 
-**Правило сопоставления** (misfit спайка 3, §9): `routinePattern` сам по себе quick win не даёт — он широк и на живом корпусе присоединял «шаблон отчёта» к рутинам без отчёта. Строка совпадает, если (a) совпал `automationCandidate`, либо (b) совпал `routinePattern` **и** хотя бы одно `routineKeywords` строки входит в `routineKey` рутины. У Green-line `automationCandidate` не заполнен ни у одной из 386 activities (большинство записано до taxonomy v2 и контура `activity_transaction`), поэтому эпик реализации проверяет, что extractor заполняет facet на текущем prompt, а каталог работает и по ветке (b).
+**Назначение quick win — на alias-шаге, а не по facets** (misfit спайка 3, §9). Facets `automationCandidate`, `routinePattern` и `energyStressMarker` — факты со слов сотрудника, и bounded extractor по правилу записывает их только при явном высказывании. Сотрудник вечером говорит, что делал, а не что можно автоматизировать: в 158 activities Green-line, записанных текущим extractor-ом, `automationCandidate` не заполнен ни разу, `routinePattern` — дважды. Сопоставление каталога по facets поэтому либо молчит, либо, как на старых записях с домысленным `routinePattern`, присоединяет «шаблон отчёта» к рутинам без отчёта. Каталог сопоставляется с рутиной, а не с activity:
 
-Если ни одна строка не совпала, либо `automationCandidate = other`, либо рутина в топе по часам без сигналов — рутина помечается `deepDive: true` и уходит в раздел «Для углублённого обследования». Каталог не является evidence компании и не меняет confidence.
+1. `routine-aliases suggest` (§2.4) для каждой канонической рутины выбирает `id` каталога либо `deep_dive`, видя название рутины, категории, системы и число наблюдений; `typicalFor` строк каталога входит в его задание.
+2. Методолог проверяет назначения построчно вместе с alias-ами; файл версионируется с отчётом.
+3. Команда отчёта применяет секцию `quickWins` файла детерминированно. Рутина без назначения, с назначением `deep_dive` или в топе по часам без назначения получает `deepDive: true` и уходит в раздел «Для углублённого обследования». Без файла quick wins в отчёте нет — только deep-dive.
+4. Явные факты, когда они есть, усиливают, а не заменяют: `automationCandidate` рутины показывается методологу рядом с предложением модели, `frictionSignals`/`energySignals` поднимают рутину в разделе «что мешает».
+
+Каталог не является evidence компании и не меняет confidence.
 
 ### 2.8. Отчёт компании: «Карта рутин и быстрых улучшений»
 
@@ -218,7 +221,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 
 - называют рутины словами сотрудника и частотой: «за две недели шесть раз — сверка остатков 1С с таблицей»; ≈часы сотруднику не показываются (решение оператора, §8: риск самооценки), личный `routines[]` не несёт `estimatedHours`;
 - паттерном по-прежнему считается только повторившееся ≥2 раз (правило `cyclePatternMinimumCount` распространяется на рутины);
-- в `final_report` два-три шага упрощения берутся из `quickWin.firstStep` подходящих рутин, где `whoCanDo = employee`;
+- `final_report` не назначает quick wins: назначение живёт в операторском файле, недоступном runtime, а facets для сопоставления в личных данных отсутствуют (§2.7). Личный отчёт называет топ-рутины и спрашивает, какую из них сотрудник хотел бы упростить; ответ — обычное сообщение, попадает в corpus и в internal DTO как сигнал для методолога;
 - `weekly_summary` предлагает подтвердить или поправить топ-3 рутины словами; исправление идёт существующим `repair`-путём activity, отдельного хранилища подтверждений нет.
 
 ### 2.10. Диалог не меняется
@@ -242,7 +245,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 | Closed facets activity, `ActivityTransactionExtractor`, corrections/revisions | Оставляем; добавляем два optional поля |
 | `CompanyReportingService`, confidence policy, internal/client DTO boundary | Оставляем; DTO v2 с `routines` и `timeBudget` |
 | Buckets `taskCategory + routinePattern` | Оставляем как бюджет времени по категории и fallback для activities без label; перестают называться «процессом» |
-| `supportingEvidence.automationHypotheses / humanImpactSignals` | Оставляем; становятся входом quick-win matching и сигналов рутины |
+| `supportingEvidence.automationHypotheses / humanImpactSignals` | Оставляем как supporting сигналы рутины и раздела «что мешает»; триггером каталога не являются |
 | Личные `readWeeklyActivities` / `readCycleActivities` | Оставляем; добавляем `routines` |
 | Research corpus, traces, evaluation export | Оставляем без изменений |
 | Boundary preflight (шаг 5 flow §6 шаблона) | Оставляем ручное решение; содержательные проверки переезжают в `preflightFindings[]` команды отчёта |
@@ -262,7 +265,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 - [Бриф](../product/agent-minutka-brief.md) §2, §7: то же сужение; критерий успеха §13 «минимум 3 конкретных приоритета» → «минимум 3 названные рутины с быстрой победой или честный coverage result».
 - [Шаблон evidence pack и клиентской карты](../product/evidence-pack-and-client-report-template.md): §3 DTO v2 и Markdown-шаблон по §2.8; §5 примеры пересобираются на рутинах; §6 preflight — пункт про `routine.name`.
 - [Runbook выгрузки отчёта](../runbooks/company-report-export.md): `routine-aliases suggest`, флаг `--aliases`, чтение `preflightFindings`, проверка рутин; [end-of-cycle](../runbooks/end-of-cycle.md): личный отчёт называет рутины.
-- Код: `src/contracts/minutka-activity.ts`, `src/application/activity-collection.ts` + correction/revisions, extractor prompt/transport schema, миграция `activities`, `company-reporting.ts` (v2 DTO, routines, time budget, preflight lint), `routine-aliases.ts` (LLM-предложение alias-файла, typed CLI), `quick-wins.ts`, `weekly-/cycle-activity-summary.ts`, манифесты `evening_reflection`/`weekly_summary`/`final_report` и общее activity rule в `vault/assistant/AGENTS.md`, research export (label в activities), executable/persistence specs.
+- Код: `src/contracts/minutka-activity.ts`, `src/application/activity-collection.ts` + correction/revisions, extractor prompt/transport schema, миграция `activities`, `company-reporting.ts` (v2 DTO, routines, time budget, preflight lint), `routine-aliases.ts` (LLM-предложение alias-файла и назначений quick win, typed CLI), `quick-wins.ts`, `weekly-/cycle-activity-summary.ts`, манифесты `evening_reflection`/`weekly_summary`/`final_report` и общее activity rule в `vault/assistant/AGENTS.md`, research export (label в activities), executable/persistence specs.
 - Исполняемый план — эпик в `br` после решения оператора и результатов спайков (§9); RFC задачи реализации не создаёт.
 
 ## 5. Trade-offs
@@ -280,7 +283,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 - free-text поле в activity: риск персональных данных в label закрывается правилом extractor и preflight lint с ручным подтверждением, а не схемой;
 - синонимы склеиваются через alias-файл: модель предлагает, методолог проверяет; без файла отчёт показывает синонимы отдельными рутинами;
 - ≈часы — грубая оценка по bucket-ам, не замер;
-- quick win из таблицы по facets будет иногда неточен; методолог правит на review, как сейчас правит `automationOption`.
+- quick win назначает модель по названию и контексту рутины; методолог проверяет назначения так же, как alias-ы; без проверенного файла отчёт показывает только deep-dive.
 
 **Отвергнуто:**
 
@@ -297,7 +300,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 - **Alias-файл не той группы или с циклом.** Команда отчёта прекращается целиком с явной ошибкой; отчёт без alias-ов остаётся доступен.
 - **Провайдер недоступен для `routine-aliases suggest`.** Команда завершается ошибкой без файла; ранее проверенный файл и отчёт без alias-ов остаются доступны.
 - **Ложное срабатывание preflight lint.** Находка помечается методологом как проверенная в операторском контуре; отчёт не блокируется, текст не меняется.
-- **Quick win не совпал.** Рутина уходит в «Для углублённого обследования»; confidence и evidence не меняются.
+- **Назначения quick win нет** (нет файла, строка отсутствует или `deep_dive`). Рутина уходит в «Для углублённого обследования»; confidence и evidence не меняются.
 - **Correction/purge.** Report path перечитывает canonical activities на каждом запуске (как сейчас); derived state отсутствует, инвалидировать нечего.
 - **Мало данных.** Действующие пороги `sufficientData` и `insufficient` coverage; рутины не называются паттерном при `< 2` повторов.
 
@@ -352,5 +355,5 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 
 - **Спайк 1.** `routineLabel` извлечён у 74,6 % activities; PII 0 из 223 различных labels (проверка worker-агентом и regex-lint §2.8; человеческая проверка повторяется на первом цикле). `recurrence` не назван ни разу, длительность — в 8,7 % сообщений → фраза §2.10 обязательна. Assumption §2.3 подтверждён.
 - **Спайк 2.** Falsifier сработал: без alias-ов топ-10 покрывает 18 % labeled activities, с лексическими alias-ами модели — 24 %; склейка до семейств «объект + действие» (эвристика при сведении) — ≈72 %, рутин с ≥3 contributors и ≥5 observations 8 вместо 2. Misfit §2.2/§2.4 исправлен: уровень рутины и задание alias-шага. Reuse labels в extractor покрытие не улучшил и остаётся в §7.
-- **Спайк 3.** Три вопроса §2.1 получают ответ, четвёртый — нет: `automationCandidate` пуст у всех 386 activities, matching по одному `routinePattern` даёт ложные quick wins. Misfit §2.7 исправлен правилом (b). Client DTO прошёл §3.1, regex-preflight 0 findings → findings только информируют (§8).
+- **Спайк 3.** Три вопроса §2.1 получают ответ, четвёртый — нет: `automationCandidate` пуст у всех 386 activities, включая 158, записанных текущим bounded extractor-ом (он записывает facet только при явном высказывании, а сотрудники его не делают), matching по одному `routinePattern` даёт ложные quick wins. Misfit §2.7 исправлен: quick win назначается рутине на alias-шаге с проверкой методолога, facets остаются supporting сигналами. Client DTO прошёл §3.1, regex-preflight 0 findings → findings только информируют (§8).
 - Роль методолога в спайках исполнял worker-агент; человеческая проверка labels и alias-файла — часть первого цикла, не спайков.
