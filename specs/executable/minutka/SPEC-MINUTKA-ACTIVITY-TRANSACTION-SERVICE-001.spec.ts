@@ -91,7 +91,7 @@ function harness(
     createInMemoryActivityMutationStore(state),
     { now: () => now },
   );
-  const service = new ActivityTransactionService({ extractor, collection, recentActivities, corrections });
+  const service = new ActivityTransactionService({ extractor, collection, recentActivities, corrections, clock: { now: () => now } });
   return { service, state, extractorInputs, recentReads: () => recentReads };
 }
 
@@ -148,6 +148,75 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
       durationBucket: "30_60m",
     });
     expect(JSON.stringify(state.activities[1])).not.toContain("duration_1");
+  });
+
+  it.each([
+    ["30 минут", "15_30m"],
+    ["3 часа", "2_4h"],
+    ["уже минут 30", "15_30m"],
+  ] as const)("repairs the latest same-day activity for duration-only reply %s instead of collecting", async (currentText, durationBucket) => {
+    const rows = [
+      row({ activityId: "activity_latest", recordedAt: "2026-08-26T11:00:00.000Z" }),
+      row({ activityId: "activity_earlier", recordedAt: "2026-08-26T09:00:00.000Z" }),
+      row({ activityId: "activity_yesterday", activityDate: "2026-08-25", recordedAt: "2026-08-25T11:30:00.000Z" }),
+    ];
+    let collectionCalls = 0;
+    const realCollection = new CollectActivityService(createInMemoryActivityCollectionStore({ activities: rows }), { now: () => now });
+    const { service, state, extractorInputs, recentReads } = harness((input) => {
+      if (input.mode !== "repair") throw new Error("duration-only reply must use repair");
+      return {
+        kind: "correct",
+        handle: input.recentCandidates[0]!.handle,
+        expectedRevision: input.recentCandidates[0]!.revision,
+        mode: "patch",
+        correction: { durationRef: "duration_1" },
+      };
+    }, {
+      rows,
+      collection: {
+        async collectBatch(input) {
+          collectionCalls += 1;
+          return realCollection.collectBatch(input);
+        },
+      },
+    });
+
+    await expect(service.process({ ...request, currentText, mode: "record" }))
+      .resolves.toMatchObject({ status: "completed", operation: "correct", handle: "activity_latest", revision: 2 });
+    expect(collectionCalls).toBe(0);
+    expect(recentReads()).toBe(1);
+    expect(extractorInputs).toEqual([{
+      mode: "repair",
+      currentText,
+      durationReferences: [{ ref: "duration_1", bucket: durationBucket, sourceOrder: 0 }],
+      recentCandidates: [
+        expect.objectContaining({ handle: "activity_latest", activityDate: "2026-08-26" }),
+        expect.objectContaining({ handle: "activity_earlier", activityDate: "2026-08-26" }),
+      ],
+    }]);
+    expect(state.activities).toHaveLength(3);
+    expect(state.activities.find(({ activityId }) => activityId === "activity_latest")).toMatchObject({
+      durationBucket,
+      revision: 2,
+      lastCorrectionMessageId: request.sourceMessageId,
+    });
+  });
+
+  it("returns clarification without collecting when duration-only reply has no same-day activity", async () => {
+    let collectionCalls = 0;
+    const { service, extractorInputs } = harness((input) => {
+      if (input.mode !== "repair") throw new Error("duration-only reply must use repair");
+      expect(input.recentCandidates).toEqual([]);
+      return { kind: "needs_clarification", reason: "repair_target_not_found" };
+    }, {
+      rows: [row({ activityDate: "2026-08-25", recordedAt: "2026-08-25T11:30:00.000Z" })],
+      collection: { async collectBatch() { collectionCalls += 1; throw new Error("must not collect"); } },
+    });
+
+    await expect(service.process({ ...request, currentText: "30 минут", mode: "record" }))
+      .resolves.toMatchObject({ status: "needs_clarification", reason: "repair_target_not_found" });
+    expect(extractorInputs[0]).toMatchObject({ mode: "repair", recentCandidates: [] });
+    expect(collectionCalls).toBe(0);
   });
 
   it("reads at most five active own rows and performs one exact revisioned correction", async () => {

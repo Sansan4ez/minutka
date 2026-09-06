@@ -191,6 +191,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(prompt).toMatch(/exact words.*if no such words exist, return null/i);
     expect(prompt).toMatch(/repeated real work.*do not infer paper_or_verbal.*routinePattern=other.*template_or_checklist.*neutral/i);
     expect(prompt).toMatch(/neutral is never a default/i);
+    expect(prompt).toMatch(/names only a duration and no work object.*clarification.*latest supplied activity.*never a new activity/i);
     for (const forbidden of ["profile documents", "privacy policy", "company report", "schedule catalog", "tenant identity", "thread history", "subjectKey", "employeeId", "companyId", "groupId"]) {
       expect(prompt).not.toContain(forbidden);
     }
@@ -199,7 +200,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
-    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v1");
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v2");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({

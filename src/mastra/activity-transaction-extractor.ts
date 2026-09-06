@@ -19,7 +19,7 @@ import { activityTransactionExtractorAgent } from "./agents/activity-transaction
 import { normalizeMastraUsage } from "./model-usage.js";
 import { activitySystemModelMappingGuide } from "./tools/activity-system-mapping.js";
 
-export const activityTransactionPromptVersion = "minutka-activity-transaction/v1" as const;
+export const activityTransactionPromptVersion = "minutka-activity-transaction/v2" as const;
 
 export const activityTransactionContextBudget = {
   currentTextCharacters: maxChatInputCharacters,
@@ -39,6 +39,7 @@ const activityTransactionStaticRules = [
   "system requires an explicitly named system/channel or an unambiguous generic type; paper_or_verbal requires explicit paper or verbal evidence. routinePattern requires explicitly described workflow friction; other requires explicit friction outside the taxonomy. automationCandidate requires an explicit automation opportunity, not merely repeated work or preparing/using a template or checklist. energyStressMarker requires an explicit work-related signal; neutral is never a default.",
   "One factual episode is one collect item in source order. Repeated real work is a new collect item, not a duplicate.",
   "Repair is read-first: select only exact supplied handle/revision values. Several plausible correction targets use correction_target_ambiguous; several plausible duplicate pairs use duplicate_pair_ambiguous; no matching candidate uses repair_target_not_found.",
+  "A message that names only a duration and no work object is a clarification of the latest supplied activity from that day, never a new activity. In repair mode, use correct with that latest candidate and the matching durationRef; if no candidate is supplied, use repair_target_not_found, and if the duration cannot be matched unambiguously, use correction_target_ambiguous.",
   "Use correct only for an explicit correction/clarification of one candidate. patch changes evidenced facets; replace is only for an explicit whole-classification replacement.",
   "Use supersede only after explicit duplicate/replacement confirmation and one exact supplied pair. handle is the duplicate; replacementHandle is the active record to keep.",
   "Use each durationRef at most once and only for its explicit episode. Never emit durationBucket.",

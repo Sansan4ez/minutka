@@ -13,11 +13,14 @@ import {
 import {
   DurationEvidenceValidationError,
   extractDurationEvidence,
+  isDurationOnlyActivityReply,
   RequestDurationEvidence,
 } from "./activity-duration-evidence.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import type { RecentOwnActivitiesService } from "./recent-own-activities.js";
+import { systemClock, type Clock } from "./runtime-primitives.js";
 import type { ModelTokenUsage } from "./usage-store.js";
+import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 
 export const activityTransactionServiceFailureCodes = [
   "context_budget_error",
@@ -96,6 +99,7 @@ type ActivityTransactionDependencies = {
   collection: Pick<CollectActivityService, "collectBatch">;
   recentActivities: Pick<RecentOwnActivitiesService, "read">;
   corrections: Pick<ActivityCorrectionService, "correct" | "supersede">;
+  clock?: Clock;
 };
 
 /**
@@ -105,7 +109,11 @@ type ActivityTransactionDependencies = {
  * bounded projection of recent own activities.
  */
 export class ActivityTransactionService {
-  constructor(private readonly deps: ActivityTransactionDependencies) {}
+  private readonly clock: Clock;
+
+  constructor(private readonly deps: ActivityTransactionDependencies) {
+    this.clock = deps.clock ?? systemClock;
+  }
 
   bind(request: ActivityTransactionTrustedRequest): (input: { mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult> {
     return ({ mode }) => this.process({ ...request, mode });
@@ -116,23 +124,28 @@ export class ActivityTransactionService {
     if (!parsed.success) return { status: "failed", phase: "validation", code: "validation_error" };
     const input = parsed.data;
     const durationEvidence = new RequestDurationEvidence(extractDurationEvidence(input.currentText));
+    const durationOnlyReply = isDurationOnlyActivityReply(input.currentText);
+    const effectiveMode: ActivityTransactionMode = durationOnlyReply ? "repair" : input.mode;
 
     let recentCandidates: Awaited<ReturnType<RecentOwnActivitiesService["read"]>>["activities"] | undefined;
-    if (input.mode === "repair") {
+    if (effectiveMode === "repair") {
       try {
         const recent = await this.deps.recentActivities.read({
           employeeId: input.employeeId,
           companyId: input.companyId,
           groupId: input.groupId,
         });
-        recentCandidates = recent.activities.slice(0, 5);
+        const candidates = recent.activities.slice(0, 5);
+        recentCandidates = durationOnlyReply
+          ? candidates.filter(({ activityDate }) => activityDate === calendarDateInIanaTimezone(this.clock.now(), input.timezone))
+          : candidates;
       } catch (error) {
         return { status: "failed", phase: "read", code: boundedFailureCode(error) };
       }
     }
 
     const extractionStartedAt = Date.now();
-    const extracted = await this.deps.extractor(input.mode === "record"
+    const extracted = await this.deps.extractor(effectiveMode === "record"
       ? {
         mode: "record",
         currentText: input.currentText,

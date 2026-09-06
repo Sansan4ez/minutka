@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DurationEvidenceValidationError,
   extractDurationEvidence,
+  isDurationOnlyActivityReply,
   MAX_DURATION_REFERENCES,
   RequestDurationEvidence,
 } from "../../../src/application/activity-duration-evidence.js";
@@ -29,9 +30,30 @@ describe("SPEC-MINUTKA-DURATION-EVIDENCE-001: request-local explicit duration ev
     ["около полторы часа", "1_2h"],
     ["35 minutes", "30_60m"],
     ["2 hours", "1_2h"],
+    ["минут 30", "15_30m"],
+    ["часа 3", "2_4h"],
     ["half an hour", "15_30m"],
   ] as const)("normalizes %s to %s", (text, bucket) => {
     expect(buckets(text)).toEqual([{ ref: "duration_1", bucket, sourceOrder: 0 }]);
+  });
+
+  it.each([
+    "30 минут",
+    "3 часа",
+    "уже минут 30",
+    "заняло около 2 часов",
+    "about 35 minutes",
+  ])("recognizes a duration-only clarification: %s", (text) => {
+    expect(isDurationOnlyActivityReply(text)).toBe(true);
+  });
+
+  it.each([
+    "Готовил отчёт 30 минут",
+    "Встреча заняла 3 часа",
+    "30 минут согласовывал документы",
+    "Сделал 35 задач за 2 часа",
+  ])("does not classify work-bearing text as duration-only: %s", (text) => {
+    expect(isDurationOnlyActivityReply(text)).toBe(false);
   });
 
   it("keeps repeated expressions as separate ordered refs across Unicode whitespace", () => {

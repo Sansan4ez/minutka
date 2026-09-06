@@ -17,29 +17,59 @@ export type ProviderActivityCorrection = Omit<CorrectRecentActivityInput["correc
 export type ProviderCorrectRecentActivityInput = Omit<CorrectRecentActivityInput, "correction"> & { correction: ProviderActivityCorrection };
 
 const integerDurationPattern = /(?<![\p{L}\p{N}])(?<amount>\d+(?:[.,]\d+)?)[\s\u00a0\u202f-]*(?<unit>минут(?:а|ы|ную|ный|ное)?|мин|час(?:а|ов|овой|овая|овое)?|ч|minutes?|mins?|hours?|hrs?)(?![\p{L}\p{N}])/giu;
+const reversedIntegerDurationPattern = /(?<![\p{L}\p{N}])(?<unit>минут(?:а|ы)?|мин|час(?:а|ов)?|ч|minutes?|mins?|hours?|hrs?)[\s\u00a0\u202f-]*(?<amount>\d+(?:[.,]\d+)?)(?![\p{L}\p{N}])/giu;
 const halfHourPattern = /(?<![\p{L}\p{N}])(?:полчаса|half[\s\u00a0\u202f-]*an?[\s\u00a0\u202f-]*hour)(?![\p{L}\p{N}])/giu;
 const oneAndHalfHourPattern = /(?<![\p{L}\p{N}])(?:полтора|полторы)\s*час(?:а|ов)?(?![\p{L}\p{N}])/giu;
+const durationOnlyResiduePattern = /^(?:(?:уже|всего|примерно|приблизительно|около|где[\s-]*то|почти|заняло|занимало|получилось|это|ещ[её]|about|around|approximately|roughly|already|just|took|and|и)\s*)*$/iu;
 
 export function extractDurationEvidence(text: string): DurationEvidenceCandidate[] {
-  const matches: DurationMatch[] = [];
-  collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), matches);
-  collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), matches);
-  collectMatches(integerDurationPattern, text, (match) => {
-    const groups = match.groups as { amount?: string; unit?: string } | undefined;
-    const amount = Number((groups?.amount ?? "").replace(",", "."));
-    if (!Number.isFinite(amount) || amount <= 0) return undefined;
-    const unit = /^(?:час|ч|hour|hr)/iu.test(groups?.unit ?? "") ? "hours" : "minutes";
-    return { minutes: unit === "hours" ? amount * 60 : amount, unit };
-  }, matches);
-  matches.sort((left, right) => left.index - right.index);
-  const uniqueMatches = matches.filter((match, index) => index === 0 || match.index !== matches[index - 1]?.index);
-  return mergeCompoundDurationMatches(uniqueMatches, text)
+  return recognizedDurationMatches(text)
     .slice(0, MAX_DURATION_REFERENCES)
     .map((match, sourceOrder) => ({
       ref: `duration_${sourceOrder + 1}`,
       bucket: durationBucketForMinutes(match.minutes),
       sourceOrder,
     }));
+}
+
+/** A bounded guard for replies that add duration but name no work object. */
+export function isDurationOnlyActivityReply(text: string): boolean {
+  const matches = recognizedDurationMatches(text);
+  if (matches.length === 0) return false;
+  let residue = "";
+  let cursor = 0;
+  for (const match of matches) {
+    residue += `${text.slice(cursor, match.index)} `;
+    cursor = match.end;
+  }
+  residue += text.slice(cursor);
+  const normalized = residue
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return durationOnlyResiduePattern.test(normalized);
+}
+
+function recognizedDurationMatches(text: string): DurationMatch[] {
+  const matches: DurationMatch[] = [];
+  collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), matches);
+  collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), matches);
+  collectMatches(integerDurationPattern, text, numericDuration, matches);
+  collectMatches(reversedIntegerDurationPattern, text, numericDuration, matches);
+  matches.sort((left, right) => left.index - right.index || right.end - left.end);
+  const nonOverlapping: DurationMatch[] = [];
+  for (const match of matches) {
+    if (nonOverlapping.length === 0 || match.index >= nonOverlapping.at(-1)!.end) nonOverlapping.push(match);
+  }
+  return mergeCompoundDurationMatches(nonOverlapping, text);
+}
+
+function numericDuration(match: RegExpExecArray): Pick<DurationMatch, "minutes" | "unit"> | undefined {
+  const groups = match.groups as { amount?: string; unit?: string } | undefined;
+  const amount = Number((groups?.amount ?? "").replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const unit = /^(?:час|ч|hour|hr)/iu.test(groups?.unit ?? "") ? "hours" : "minutes";
+  return { minutes: unit === "hours" ? amount * 60 : amount, unit };
 }
 
 export function createProviderActivitySchemas(candidates: readonly DurationEvidenceCandidate[]) {

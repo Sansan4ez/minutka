@@ -7,7 +7,7 @@ export const processCurrentActivityTurnToolName = "processCurrentActivityTurn" a
 
 const processCurrentActivityTurnInputSchema = z.strictObject({
   mode: z.enum(activityTransactionModes).describe(
-    "record for explicitly completed or in-progress work; repair only for an explicit correction, clarification, or confirmed duplicate",
+    "record for explicitly completed or in-progress work; repair for an explicit correction, a duration-only clarification of the latest activity, or a confirmed duplicate",
   ),
 });
 
@@ -31,7 +31,7 @@ export function createProcessCurrentActivityTurnTool(
 ) {
   return createTool({
     id: processCurrentActivityTurnToolName,
-    description: "Process factual work from the current authenticated employee turn. Use mode=record for completed or in-progress work, including repeated real work. Use mode=repair only for an explicit correction/clarification of a recent activity or an explicitly confirmed duplicate. Do not call for plans, intentions, future work, weekly/cycle reads, or a scheduled invitation without a fresh employee account. The application binds the current text and all authority; wait for this typed result before saying anything was recorded, corrected, or removed from summaries.",
+    description: "Process factual work from the current authenticated employee turn. Use mode=record for completed or in-progress work, including repeated real work. Use mode=repair for an explicit correction/clarification, including a duration-only answer about the latest activity from the same day, or an explicitly confirmed duplicate. A duration-only answer never creates a new activity. Do not call for plans, intentions, future work, weekly/cycle reads, or a scheduled invitation without a fresh employee account. The application binds the current text and all authority; wait for this typed result before saying anything was recorded, corrected, or removed from summaries.",
     strict: true,
     inputSchema: processCurrentActivityTurnInputSchema,
     mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
