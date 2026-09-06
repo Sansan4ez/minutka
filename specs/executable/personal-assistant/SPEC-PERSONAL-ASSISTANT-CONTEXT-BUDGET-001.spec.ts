@@ -66,7 +66,7 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * request-local explicit-duration reference rules. mnt-wy5.18 repins the
  * repaired profile-confirmation sentence boundary.
  */
-const pinnedAgentManualCharacters = 37_319;
+const pinnedAgentManualCharacters = 37_311;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
