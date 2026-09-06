@@ -2,9 +2,9 @@
 
 ## Статус
 
-**accepted template (2026-08-18), canonical DTO реализован.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет, дополняет и публикует клиентский артефакт.
+**accepted template v2 (2026-09-07); принят 2026-08-18 как v1.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. Клиентский контракт v2 — «Карта рутин и быстрых улучшений» по [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) §2.8: рутины из проверенного справочника, бюджет времени, quick wins из закрытого каталога, deep-dive вопросы; без `expectedEffect`, `prerequisites`, `risks` и 30/60/90. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет и публикует клиентский артефакт.
 
-> **Примечание (2026-09-04).** [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) (`proposed`) предлагает client DTO v2 без `expectedEffect`, `prerequisites`, `risks` и 30/60/90 и `preflightFindings` в шаге 5 flow §6. До принятия RFC и реализации действующий контракт — этот документ; §3, §5 и §6 обновляются в одной серии с переводом RFC в `accepted`.
+> **Статус реализации.** Runtime сейчас отдаёт `minutka-client-report.v1` (структура в git-истории этого файла до 2026-09-07); DTO v2, справочник рутин и `preflightFindings` реализуются эпиком RFC инвентаря рутин. Единственный активный контракт — v2 этого документа.
 
 Шаблоны конкретизируют [RFC исследовательского корпуса и клиентской карты автоматизации §2.7–2.9](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack):
 
@@ -17,7 +17,7 @@
 | Артефакт | Кто использует | Что содержит | Можно передавать компании |
 |---|---|---|---|
 | Internal evidence pack | исследователь/методолог «Алгоритма» | subject-linked messages, activities, traces, feedback, human labels, версии и coverage | нет |
-| Client report / карта автоматизации | компания-клиент после ручной проверки | process-level summaries, confidence, варианты автоматизации, риски и 30/60/90 | да |
+| Client report / карта рутин и быстрых улучшений | компания-клиент после ручной проверки | рутины из проверенного справочника, бюджет времени, confidence, quick wins из закрытого каталога, deep-dive вопросы | да |
 
 Client report не является «обрезанным evidence pack». Он собирается отдельным DTO и проходит отдельную проверку границы. В него не входят внутренние ключи участника, raw messages, trace payload, identity mapping, исследовательские заметки и персональные оценки.
 
@@ -175,105 +175,106 @@ Client report не является «обрезанным evidence pack». Он
 
 Markdown summary помогает методологу читать пакет, но JSON/JSONL остаётся машинным входом для evaluation и canonical reporting.
 
-## 3. Client report / карта автоматизации
+## 3. Client report / карта рутин и быстрых улучшений
 
 ### 3.1. JSON DTO
 
-Client DTO использует внешние labels и агрегированные evidence summaries. В нём нет поля, через которое можно получить внутреннюю запись участника или raw evidence.
+Client DTO использует внешние labels и агрегированные evidence summaries. В нём нет поля, через которое можно получить внутреннюю запись участника, raw label или raw evidence. Структура v2 по [RFC инвентаря рутин §2.8](../architecture/rfc-routine-inventory-and-quick-wins.md): семь разделов, quick win из закрытого каталога, deep-dive как мост ко второму этапу.
 
 ```json
 {
-  "schemaVersion": "minutka-client-report.v1",
-  "title": "Карта возможностей автоматизации",
+  "schemaVersion": "minutka-client-report.v2",
+  "title": "Карта рутин и быстрых улучшений",
   "companyLabel": "Компания ACME",
   "groupLabel": "Пилотная группа, сентябрь 2026",
-  "period": {
-    "start": "2026-09-01",
-    "end": "2026-09-14"
-  },
+  "period": { "start": "2026-09-01", "end": "2026-09-14" },
   "coverage": {
     "assessment": "usable_with_limits",
-    "invitedParticipants": 7,
-    "contributors": 6,
-    "activeDates": 10,
-    "observations": 48,
-    "coveredFunctions": ["логистика", "продажи", "тендеры", "управление"],
-    "limitations": ["Телемаркетинг представлен одним участником; вывод по функции требует интервью"]
+    "invitedParticipants": 9,
+    "contributors": 8,
+    "activeDates": 15,
+    "observations": 386,
+    "unsizedObservations": 157,
+    "unattributedObservations": 40,
+    "coveredRoles": ["продажи", "логистика"],
+    "limitations": ["Тендеры и бухгалтерия представлены одним участником; их рутины показаны без роли"]
   },
-  "recommendations": [
+  "timeBudget": [
+    { "taskCategory": "focus_work", "estimatedHours": 47.3, "share": 0.25, "contributors": 7 },
+    { "taskCategory": "admin", "estimatedHours": 42.9, "share": 0.23, "contributors": 8 }
+  ],
+  "topRoutines": [
     {
-      "recommendationId": "rec-01",
-      "process": "Перенос статусов заказов в сводную таблицу",
-      "scope": "Вся группа; процессы логистики и продаж",
-      "problem": "Статусы повторно переносятся между рабочими системами и таблицами",
-      "systems": ["CRM", "электронные таблицы"],
-      "evidenceSummary": {
-        "contributors": 4,
-        "observations": 8,
-        "activeDates": 4,
-        "summary": "Повторный ввод встречается в нескольких функциях и сохраняется в течение цикла",
-        "limitations": []
-      },
+      "name": "обработка заявок в CRM",
+      "scope": "продажи",
+      "evidenceSummary": { "contributors": 3, "observations": 21, "activeDates": 9, "estimatedHours": 18.5, "unsizedObservations": 6 },
+      "systems": ["crm"],
+      "statedRecurrence": { "daily": 2 },
       "confidence": "confirmed",
-      "automationOption": "Синхронизировать статусы по API и оставить ручную проверку исключений",
-      "humanInTheLoop": "Владелец процесса проверяет спорные статусы и подтверждает исправления",
-      "expectedEffect": "Сокращение повторного ввода и расхождений в статусах",
-      "prerequisites": ["владелец процесса", "доступность CRM API", "единый справочник статусов"],
-      "risks": ["несовпадение статусов систем", "ошибочная обработка исключений"],
-      "nextSteps": {
-        "day30": {
-          "objective": "Подтвердить процесс и baseline",
-          "actions": ["описать переходы статусов", "замерить объём повторного ввода"],
-          "owner": "владелец процесса",
-          "exitCriteria": ["согласована схема статусов", "выбран пилотный участок"]
-        },
-        "day60": {
-          "objective": "Проверить решение на ограниченном участке",
-          "actions": ["собрать прототип интеграции", "вести журнал исключений"],
-          "owner": "IT и владелец процесса",
-          "exitCriteria": ["прототип работает на тестовых данных", "исключения разобраны"]
-        },
-        "day90": {
-          "objective": "Принять решение о внедрении",
-          "actions": ["сравнить baseline и пилот", "утвердить регламент human-in-the-loop"],
-          "owner": "спонсор и владелец процесса",
-          "exitCriteria": ["эффект подтверждён или гипотеза закрыта", "есть решение о rollout"]
-        }
+      "quickWin": {
+        "id": "api_integration",
+        "title": "Заявки попадают в CRM без ручного переноса",
+        "whatChanges": "Форма или коннектор создаёт карточку заявки; менеджер проверяет и дополняет, а не перепечатывает",
+        "effort": "days",
+        "whoCanDo": "internal_it",
+        "humanInTheLoop": "Менеджер подтверждает карточку и разбирает исключения",
+        "firstStep": "Собрать список полей, которые переносятся вручную из заявки в CRM"
       }
+    },
+    {
+      "name": "обзвон клиентской воронки",
+      "scope": "продажи",
+      "evidenceSummary": { "contributors": 3, "observations": 14, "activeDates": 8, "estimatedHours": 12.0, "unsizedObservations": 3 },
+      "systems": ["crm", "telephony"],
+      "statedRecurrence": {},
+      "confidence": "confirmed",
+      "deepDive": true,
+      "question": "Какие звонки можно заменить письменным касанием, а какие требуют разговора"
     }
   ],
-  "insufficientEvidence": [
+  "frictionRoutines": [
     {
-      "scope": "Телемаркетинг",
-      "question": "Автоматизация первичной классификации звонков",
-      "reason": "Наблюдение получено от одного contributor и не повторилось в нескольких датах",
-      "allowedConclusion": "Гипотеза для отдельного интервью, не подтверждённый вывод"
+      "name": "уточнение условий закупок",
+      "scope": "группа",
+      "signals": { "waiting_for_input": 4 },
+      "evidenceSummary": { "contributors": 2, "observations": 5, "activeDates": 4 },
+      "confidence": "signal",
+      "quickWin": { "id": "waiting_sla", "title": "Напоминание по сроку ответа", "whatChanges": "Запрос с датой ожидания и автоматическая эскалация", "effort": "hours", "whoCanDo": "employee", "humanInTheLoop": "Сотрудник решает, когда эскалировать", "firstStep": "Договориться о сроке ответа на уточнение" }
     }
+  ],
+  "firstSteps": [
+    { "routine": "уточнение условий закупок", "firstStep": "Договориться о сроке ответа на уточнение", "effort": "hours", "whoCanDo": "employee" },
+    { "routine": "обработка заявок в CRM", "firstStep": "Собрать список полей, которые переносятся вручную из заявки в CRM", "effort": "days", "whoCanDo": "internal_it" }
+  ],
+  "deepDive": [
+    { "name": "обзвон клиентской воронки", "scope": "продажи", "question": "Какие звонки можно заменить письменным касанием, а какие требуют разговора", "reason": "Сложная задача: решение зависит от шагов процесса, которых первый этап не видит" }
+  ],
+  "cannotConclude": [
+    "Точные часы: 41 % наблюдений без длительности, часы — порядок величины по самоотчётам",
+    "Эффект и prerequisites быстрых улучшений: требуют обследования процесса (второй этап)"
   ]
 }
 ```
 
-Разрешённые поля рекомендации:
+Разрешённые поля рутины:
 
 | Поле | Правило |
 |---|---|
-| `process` | описывает процесс или рутину, не человека |
-| `scope` | вся группа, функция, отдел или точная должность, когда это полезно и не является персональной оценкой |
-| `problem` | наблюдаемая потеря времени, качества или скорости |
-| `systems` | бизнес-системы и каналы процесса |
-| `evidenceSummary` | только агрегированное число contributors, observations, dates, краткое обобщение и ограничения |
-| `confidence` | `hypothesis`, `signal` или `confirmed` |
-| `automationOption` | полная или частичная автоматизация / AI-assistance |
-| `humanInTheLoop` | решение, проверка или исключения, остающиеся у человека |
-| `expectedEffect` | проверяемая гипотеза эффекта без выдуманной точности |
-| `prerequisites` | владелец, данные, API, регламент, baseline |
-| `risks` | ошибки, adoption, безопасность и изменение процесса |
-| `nextSteps` | структурированный план 30/60/90 |
+| `name` | каноническое имя записи справочника рутин, проверенное методологом; raw label сотрудника — никогда |
+| `scope` | группа либо роль, у которой два и более contributors; рутина роли с одним человеком показывается без роли |
+| `evidenceSummary` | только агрегаты: contributors, observations, activeDates, ≈часы, unsizedObservations |
+| `systems`, `statedRecurrence` | закрытые facets и заявленная частота как сказано, без сверки с наблюдениями |
+| `confidence` | `hypothesis`, `signal` или `confirmed` по §4 |
+| `quickWin` | строка закрытого каталога RFC §2.7 из записи справочника: `title`, `whatChanges`, `effort`, `whoCanDo`, `humanInTheLoop`, `firstStep` |
+| `deepDive`, `question` | рутина без quick win уходит во второй этап как вопрос, не как рекомендация |
 
 Запрещённые поля и содержимое:
 
 - внутренний ключ участника и списки contributors;
 - employee/user/participant IDs и identity mapping;
+- raw `routineLabel`, `variants`, `routineKey`, evidence refs — только internal DTO;
+- роль с одним contributor как scope рутины;
+- ≈часы по отдельному сотруднику;
 - raw message, transcript, цитата, source message ID;
 - trace ID, trace payload, prompt/context/tool-call payload;
 - research notes и human-label notes;
@@ -283,63 +284,47 @@ Client DTO использует внешние labels и агрегирован�
 ### 3.2. Markdown template
 
 ```markdown
-# Карта возможностей автоматизации: <company>
+# Карта рутин и быстрых улучшений: <company>
 
-## Период и scope
-- Группа / функции:
+## 1. Период и coverage
+- Группа / роли:
 - Период наблюдения:
-- Дата ручной проверки:
-
-## Coverage и ограничения
 - Приглашено / contributors:
 - Активные даты / observations:
-- Покрытые функции и процессы:
+- Наблюдений без длительности / без объекта работы:
 - Пробелы и ограничения:
-- Что нельзя заключить из этих данных:
 
-## Приоритеты
-1. <process — confidence — ожидаемый эффект>
-2. ...
+## 2. Куда уходит время
+| Категория | ≈часов за цикл | Доля | Contributors |
 
-## Рекомендации
-### <process>
-- **Scope:**
-- **Problem:**
-- **Systems:**
-- **Evidence summary:** contributors / observations / dates / summary / limitations
-- **Confidence:** hypothesis | signal | confirmed
-- **Automation option:**
-- **Human in the loop:**
-- **Expected effect:**
-- **Prerequisites:**
-- **Risks:**
+## 3. Топ рутин по времени (до 10)
+### <name> — <scope> — <confidence>
+- **Evidence:** contributors / observations / dates / ≈часов (без длительности: N)
+- **Системы, частота со слов сотрудников:**
+- **Быстрое улучшение:** <title> — <whatChanges>
+- **Усилие / кто может:** hours | days | weeks — employee | internal_it | with_algoritm
+- **Остаётся за человеком:**
+- **Первый шаг:**
+_или_
+- **Для углублённого обследования:** <question>
 
-#### 30 дней
-- Objective:
-- Actions:
-- Owner:
-- Exit criteria:
+## 4. Что мешает и раздражает (до 5)
+### <name> — <сигналы>
+- **Evidence:** …
+- **Быстрое улучшение / первый шаг:** …
 
-#### 60 дней
-- Objective:
-- Actions:
-- Owner:
-- Exit criteria:
+## 5. С чего начать на следующей неделе
+1. <routine> — <firstStep> — <effort> — <whoCanDo>
+2. …
 
-#### 90 дней
-- Objective:
-- Actions:
-- Owner:
-- Exit criteria:
+## 6. Для углублённого обследования
+- <name> — <scope>: <question> (<reason>)
 
-## Недостаточно evidence
-- Scope / вопрос:
-- Чего не хватает:
-- Допустимый вывод:
-- Как проверить:
+## 7. Чего нельзя заключить из этих данных
+- …
 ```
 
-30/60/90 — не три обещания результата. Каждая фаза содержит цель, действия, ответственного и проверяемые exit criteria: первые 30 дней подтверждают процесс и baseline, 60 дней проверяют ограниченный прототип, 90 дней сравнивают эффект и принимают решение о rollout или закрытии гипотезы.
+Часы подписываются как «≈ часов за цикл по самоотчётам группы» и не превращаются в ROI или «экономию N часов в год». Prerequisites, риски, ожидаемый эффект и план 30/60/90 в первом этапе не обещаются: они требуют знания процесса и относятся к платному обследованию, мост к которому — раздел 6.
 
 ## 4. Confidence и coverage
 
@@ -377,30 +362,30 @@ Coverage показывается до рекомендаций и описыв�
 
 ### 5.1. Whole-group confirmed
 
-- **Process:** ручной перенос статусов в сводную таблицу.
-- **Scope:** вся группа, несколько функций.
-- **Evidence summary:** 4 contributors, 8 observations, 4 active dates; CRM и таблицы повторяются в разных рабочих контекстах.
+- **Рутина:** обработка заявок в CRM.
+- **Scope:** продажи (три contributors).
+- **Evidence summary:** 3 contributors, 21 observation, 9 active dates, ≈18 часов, 6 наблюдений без длительности.
 - **Confidence:** `confirmed`.
-- **Automation option:** API-синхронизация статусов с ручной очередью исключений.
-- **Почему допустимо:** выполнены стартовые условия по subjects, observations и dates; вывод описывает общий процесс, а не участников.
+- **Быстрое улучшение:** `api_integration` — заявки попадают в CRM без ручного переноса; первый шаг — список полей, которые переносятся вручную.
+- **Почему допустимо:** выполнены условия по subjects, observations и dates; имя рутины взято из проверенного справочника; вывод описывает работу, а не людей.
 
 ### 5.2. Cross-role signal
 
-- **Process:** повторная подготовка одинаковых данных для передачи между продажами и логистикой.
-- **Scope:** две функции.
-- **Evidence summary:** 2 contributors из разных ролей, 3 observations, 2 active dates; граница процесса подтверждена не полностью.
+- **Рутина:** отправка расчётов заказчику.
+- **Scope:** группа (продажи и логистика, по одному contributor в каждой роли — роль не показывается).
+- **Evidence summary:** 2 contributors, 5 observations, 3 active dates, ≈4 часа.
 - **Confidence:** `signal`.
-- **Automation option:** единая форма передачи и автоматическое заполнение общих полей.
-- **Почему не confirmed:** есть межсубъектная повторяемость, но недостаточно observations и временной устойчивости.
+- **Быстрое улучшение:** `ai_assistant_calc` — черновик расчёта по шаблону с проверкой специалистом.
+- **Почему не confirmed:** межсубъектная повторяемость есть, но observations и дат недостаточно.
 
 ### 5.3. Rare-role hypothesis
 
-- **Process:** первичная классификация требований тендерной документации.
-- **Scope:** функция тендеров, представленная одной редкой ролью.
-- **Evidence summary:** 1 contributor, 2 observations в одну дату; требуется интервью и просмотр неперсонального примера документа.
+- **Рутина:** разбор тендерной документации.
+- **Scope:** группа (единственный тендерный специалист; роль не называется).
+- **Evidence summary:** 1 contributor, 4 observations в 3 даты.
 - **Confidence:** `hypothesis`.
-- **Automation option:** прототип извлечения требований с обязательной проверкой специалистом.
-- **Почему допустимо:** отчёт предлагает проверить автоматизацию процесса и явно показывает слабое evidence; он не оценивает специалиста и не публикует raw quote.
+- **Для углублённого обследования:** какие требования из документации повторяются от тендера к тендеру и что из них можно извлекать автоматически.
+- **Почему допустимо:** рутина названа как вопрос второму этапу, а не как рекомендация; отчёт не оценивает специалиста и не публикует raw label или цитату.
 
 ## 6. Ручной review/publish flow
 
@@ -410,8 +395,8 @@ Typed команда формирует canonical internal/client DTO. Все р
 2. **Проверить scope и completeness.** Методолог сверяет tenant/group, coverage, missing traces, версии prompt/taxonomy и evidence refs. Scope mismatch прекращает подготовку целиком.
 3. **Разметить выводы.** Методолог записывает supporting/competing interpretations, confidence и необходимые проверки. Генератор не повышает confidence вручную сформулированным текстом.
 4. **Собрать client draft отдельным DTO.** Внешний документ создаётся из process-level summaries; копирование raw фрагментов из evidence pack запрещено.
-5. **Выполнить boundary preflight.** Проверяются запрещённые поля и содержимое, редкие идентифицирующие детали, персональные оценки, корректность coverage/confidence и наличие human-in-the-loop.
-6. **Редакторская проверка.** Методолог редактирует рекомендации, риски, prerequisites и 30/60/90. Для каждого пункта должна сохраняться внутренняя evidence linkage, не входящая в клиентский файл.
+5. **Выполнить boundary preflight.** Структурную часть закрывает схема client DTO; содержательную — `preflightFindings[]` команды отчёта (lint имён рутин, LLM-флаг редких идентифицирующих деталей, assertions policy: rare-role, confidence, coverage, `unnamed_routine`). Методолог читает список находок; находка `severity = high` без его решения блокирует publish (`unresolved_high_findings`), решение по каждой находке пишется в audit. Ничего не вырезается автоматически.
+6. **Редакторская проверка.** Методолог проверяет имена рутин, назначения quick win и первые шаги у рутин, попавших в клиентский отчёт, и формулировки deep-dive вопросов. Для каждого пункта должна сохраняться внутренняя evidence linkage, не входящая в клиентский файл.
 7. **Зафиксировать решение о передаче.** Оператор записывает версию артефакта, проверяющего, дату, согласованный канал и действующее решение о месте/сроке хранения. Пока отдельная retention policy не принята, нельзя обещать автоматический TTL.
 8. **Опубликовать вручную.** Оператор передаёт только финальный client artifact через согласованный канал. Evidence pack, промежуточные drafts и research export не прикладываются.
 9. **Сохранить audit metadata.** Фиксируются report version, company/group scope, reviewer и время передачи без копирования payload в audit log.
@@ -420,7 +405,7 @@ Typed команда формирует canonical internal/client DTO. Все р
 
 ## 7. Вход для canonical reporting
 
-Реализация `mnt-cycle-completion-4gd.9` использует этот документ как контракт:
+Реализация `mnt-cycle-completion-4gd.9` использовала v1 этого документа как контракт; DTO v2 (`routines`, `timeBudget`, quick wins, `preflightFindings`, справочник рутин) реализует эпик RFC инвентаря рутин. Общие требования:
 
 - internal DTO сохраняет subject-linked evidence refs и unique contributor semantics;
 - client DTO реализуется отдельным типом и проверяется на отсутствие запрещённых полей;
