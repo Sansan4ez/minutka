@@ -107,28 +107,15 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
     expect(buildPreflightFindings(report([]))).not.toContainEqual(expect.objectContaining({ rule: "unnamed_routine" }));
   });
 
-  it("accepts repeated one-contributor evidence as a group-level signal", () => {
-    const routine = baseRoutine({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
-    const client = {
-      topRoutines: [{
-        name: routine.name!,
-        scope: "группа",
-        evidenceSummary: { contributors: 1, observations: 4, activeDates: 4, estimatedHours: 1, unsizedObservations: 0 },
-        systems: [],
-        statedRecurrence: {},
-        confidence: "signal" as const,
-      }],
-      frictionRoutines: [],
-      firstSteps: [],
-      deepDive: [],
-      coverage: { assessment: "usable_with_limits", contributors: 1, activeDates: 4, observations: 4 } as ClientCompanyReport["coverage"],
-    };
-
-    expect(buildPreflightFindings({ ...report([routine]), client })).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
-  });
-
-  it("flags a one-contributor routine when the client scope exposes a role", () => {
-    const routine = baseRoutine({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
+  it("accepts one-contributor role scope when the client exposes only friction signals", () => {
+    const routine = baseRoutine({
+      contributors: 1,
+      observations: 4,
+      activeDates: 4,
+      confidence: "signal",
+      frictionSignals: { count: 1, byValue: { manual_reporting: 1 } },
+      energySignals: { count: 1, byValue: { fatigue: 1 } },
+    });
     const client = {
       topRoutines: [{
         name: routine.name!,
@@ -138,13 +125,50 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
         statedRecurrence: {},
         confidence: "signal" as const,
       }],
-      frictionRoutines: [],
+      frictionRoutines: [{
+        name: routine.name!,
+        scope: "Продажи",
+        signals: { manual_reporting: 1 },
+        evidenceSummary: { contributors: 1, observations: 4, activeDates: 4, estimatedHours: 1, unsizedObservations: 0 },
+        confidence: "signal" as const,
+        deepDive: true as const,
+      }],
       firstSteps: [],
       deepDive: [],
       coverage: { assessment: "usable_with_limits", contributors: 1, activeDates: 4, observations: 4 } as ClientCompanyReport["coverage"],
     };
 
-    expect(buildPreflightFindings({ ...report([routine]), client })).toContainEqual(expect.objectContaining({ rule: "rare_role", severity: "low" }));
+    const findings = buildPreflightFindings({ ...report([routine]), client });
+    expect(findings).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
+    expect(findings).not.toContainEqual(expect.objectContaining({ rule: "single_contributor_energy" }));
+  });
+
+  it("flags an energy signal exposed for a one-contributor client routine", () => {
+    const routine = baseRoutine({
+      contributors: 1,
+      observations: 4,
+      activeDates: 4,
+      confidence: "signal",
+      energySignals: { count: 1, byValue: { fatigue: 1 } },
+    });
+    const client = {
+      topRoutines: [],
+      frictionRoutines: [{
+        name: routine.name!,
+        scope: "Продажи",
+        signals: { fatigue: 1 },
+        evidenceSummary: { contributors: 1, observations: 4, activeDates: 4, estimatedHours: 1, unsizedObservations: 0 },
+        confidence: "signal" as const,
+        deepDive: true as const,
+      }],
+      firstSteps: [],
+      deepDive: [],
+      coverage: { assessment: "usable_with_limits", contributors: 1, activeDates: 4, observations: 4 } as ClientCompanyReport["coverage"],
+    };
+
+    const findings = buildPreflightFindings({ ...report([routine]), client });
+    expect(findings).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
+    expect(findings).toContainEqual(expect.objectContaining({ rule: "single_contributor_energy", severity: "low", excerpt: "fatigue" }));
   });
 
   it("flags a client routine below the minimum observation threshold", () => {

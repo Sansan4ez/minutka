@@ -95,7 +95,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(new Set(bucket?.evidenceRefs.map((ref) => ref.subjectKey))).toEqual(new Set(["subject_one"]));
   });
 
-  it("keeps a repeated one-contributor directory routine group-scoped without policy findings", async () => {
+  it("shows a one-contributor routine under its role without exposing energy signals", async () => {
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
     const directory = {
       schemaVersion: "minutka-routine-directory/v1",
@@ -112,15 +112,97 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       roleId: "role_sales",
       routineId: "sales_report",
       routineLabel: "Отчёты",
+      routinePattern: index === 0 ? "manual_reporting" : undefined,
+      energyStressMarker: "fatigue",
+      date: `2026-08-0${index + 1}`,
+    }));
+
+    const result = await service(participants, rows, {
+      companyLabel: "Компания ACME",
+      groupLabel: "Пилотная группа",
+      period: { start: "2026-08-01", end: "2026-08-31" },
+      roleLabels: { role_sales: "Продажи" },
+    }).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    const routine = result.internal.routines[0];
+
+    expect(routine).toMatchObject({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
+    expect(result.client.topRoutines).toEqual([expect.objectContaining({
+      name: "Подготовка отчётов",
+      scope: "Продажи",
+      confidence: "signal",
+      evidenceSummary: expect.objectContaining({ estimatedHours: 3 }),
+    })]);
+    expect(result.client.frictionRoutines).toEqual([expect.objectContaining({
+      name: "Подготовка отчётов",
+      scope: "Продажи",
+      signals: { manual_reporting: 1 },
+    })]);
+    expect(result.client.coverage).toMatchObject({
+      coveredRoles: ["Продажи"],
+      limitations: expect.arrayContaining(["Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка"]),
+    });
+    expect(result.internal.preflightFindings.filter(({ rule }) => rule === "single_contributor_energy")).toEqual([]);
+  });
+
+  it("shows energy signals for a routine with multiple contributors", async () => {
+    const participants = [
+      participant("one", "company_a", "group_a", "role_sales"),
+      participant("two", "company_a", "group_a", "role_sales"),
+    ];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "1",
+      sections: [{
+        roleId: "role_sales",
+        entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
+      }],
+    };
+    const rows = [
+      activity({ id: "one-1", subjectKey: "subject_one", routineId: "sales_report", routineLabel: "Отчёты", routinePattern: "manual_reporting", energyStressMarker: "fatigue", date: "2026-08-01" }),
+      activity({ id: "one-2", subjectKey: "subject_one", routineId: "sales_report", routineLabel: "Отчёты", date: "2026-08-02" }),
+      activity({ id: "two-1", subjectKey: "subject_two", routineId: "sales_report", routineLabel: "Отчёты", energyStressMarker: "frustration", date: "2026-08-03" }),
+    ];
+
+    const result = await service(participants, rows, {
+      companyLabel: "Компания ACME",
+      groupLabel: "Пилотная группа",
+      period: { start: "2026-08-01", end: "2026-08-31" },
+      roleLabels: { role_sales: "Продажи" },
+    }).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+
+    expect(result.client.frictionRoutines).toEqual([expect.objectContaining({
+      scope: "Продажи",
+      signals: { manual_reporting: 1, fatigue: 1, frustration: 1 },
+    })]);
+    expect(result.client.coverage.coveredRoles).toEqual(["Продажи"]);
+    expect(result.client.coverage.limitations).not.toContain("Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка");
+  });
+
+  it("omits a single-contributor routine with energy only from friction routines", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "1",
+      sections: [{
+        roleId: "role_sales",
+        entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
+      }],
+    };
+    const rows = Array.from({ length: 3 }, (_, index) => activity({
+      id: `energy-${index}`,
+      subjectKey: "subject_one",
+      routineId: "sales_report",
+      routineLabel: "Отчёты",
+      energyStressMarker: "fatigue",
       date: `2026-08-0${index + 1}`,
     }));
 
     const result = await service(participants, rows).buildReport({ companyId: "company_a", groupId: "group_a", directory });
-    const routine = result.internal.routines[0];
 
-    expect(routine).toMatchObject({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
-    expect(result.client.topRoutines).toEqual([expect.objectContaining({ name: "Подготовка отчётов", scope: "группа", confidence: "signal" })]);
-    expect(result.internal.preflightFindings.filter(({ rule }) => rule === "rare_role")).toEqual([]);
+    expect(result.client.topRoutines).toHaveLength(1);
+    expect(result.client.frictionRoutines).toEqual([]);
   });
 
   it("promotes confidence with distinct subjects, observations, and dates", async () => {
@@ -284,13 +366,22 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       companyLabel: "Компания ACME",
       groupLabel: "Пилотная группа",
       period: { start: "2026-08-01", end: "2026-08-31" },
-      coverage: { coveredRoles: [] },
+      coverage: {
+        coveredRoles: ["Логистика", "Продажи"],
+        limitations: expect.arrayContaining([
+          "Роль Логистика представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+          "Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+        ]),
+      },
     });
     expect(first.client.topRoutines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Подготовка отчётов", scope: "группа", quickWin: expect.objectContaining({ id: "report_template" }) }),
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", quickWin: expect.objectContaining({ id: "report_template" }) }),
     ]));
+    expect(first.client.frictionRoutines).toEqual([
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", signals: { manual_reporting: 1 } }),
+    ]);
     expect(first.client.deepDive).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Подготовка отчётов", scope: "группа" }),
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "Логистика" }),
     ]));
     expect(first.client.firstSteps).toHaveLength(1);
     expect(JSON.stringify(first.client)).not.toMatch(/subjectKey|routineKey|variants|evidenceRefs|routineLabel|mostFrequentLabel|roleId/);

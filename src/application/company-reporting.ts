@@ -47,10 +47,10 @@ export type CompanyReportStore = {
   loadGroupSnapshot(input: { companyId: string; groupId: string }): Promise<CompanyReportSnapshot>;
 };
 
-const frictionSignalValues = new Set<RoutinePatternType>([
+export const frictionSignalValues = new Set<RoutinePatternType>([
   "manual_reporting", "coordination_overhead", "context_switching", "waiting_for_input", "meeting_overload", "unclear_priority",
 ]);
-const energySignalValues = new Set<EnergyStressMarkerType>(["frustration", "fatigue", "overload", "focus_loss", "blocked_progress"]);
+export const energySignalValues = new Set<EnergyStressMarkerType>(["frustration", "fatigue", "overload", "focus_loss", "blocked_progress"]);
 
 export type InternalEvidenceBucket = {
   bucketId: string;
@@ -465,9 +465,17 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
   const assessment = coverage.observations === 0
     ? "insufficient"
     : coverage.contributors >= 3 && coverage.activeDates >= 3 ? "usable" : "usable_with_limits";
+  const roleLabels = internal.reference?.roleLabels ?? {};
+  const singleContributorRoleLimitations = Object.entries(internal.roleContributors)
+    .filter(([, count]) => count === 1)
+    .map(([roleId]) => roleLabels[roleId])
+    .filter((role): role is string => role !== undefined)
+    .sort()
+    .map((role) => `Роль ${role} представлена одним участником; её рутины — самоотчёт одного человека, не оценка`);
   const limitations = [
     ...(coverage.contributors < 2 ? ["Наблюдения внесены одним contributor; межсубъектная повторяемость не проверена"] : []),
     ...(coverage.activeDates < 3 ? ["Наблюдения покрывают меньше трёх рабочих дат"] : []),
+    ...singleContributorRoleLimitations,
   ];
   const namedRoutines = internal.routines.filter((routine) =>
     routine.name !== undefined
@@ -475,8 +483,8 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
   );
   const topRoutines = namedRoutines.slice(0, 10).map((routine) => toClientRoutine(routine, internal));
   const frictionRoutines = namedRoutines
-    .filter((routine) => routine.frictionSignals.count + routine.energySignals.count > 0)
-    .sort((left, right) => right.frictionSignals.count + right.energySignals.count - (left.frictionSignals.count + left.energySignals.count) || right.estimatedHours - left.estimatedHours)
+    .filter((routine) => signalCount(clientSignals(routine)) > 0)
+    .sort((left, right) => signalCount(clientSignals(right)) - signalCount(clientSignals(left)) || right.estimatedHours - left.estimatedHours)
     .slice(0, 5)
     .map((routine) => toClientFrictionRoutine(routine, internal));
   const firstSteps = uniqueBy(
@@ -503,9 +511,7 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     "Эффект и prerequisites быстрых улучшений требуют обследования процесса (второй этап)",
     ...limitations.map((limitation) => `Ограничение покрытия: ${limitation}`),
   ];
-  const roleLabels = internal.reference?.roleLabels ?? {};
   const coveredRoles = Object.entries(internal.roleContributors)
-    .filter(([, count]) => count >= 2)
     .map(([roleId]) => roleLabels[roleId])
     .filter((role): role is string => role !== undefined)
     .sort();
@@ -553,7 +559,7 @@ function toClientFrictionRoutine(routine: InternalRoutine, internal: InternalCom
   return {
     name: routine.name!,
     scope: routineScope(routine, internal),
-    signals: { ...routine.frictionSignals.byValue, ...routine.energySignals.byValue },
+    signals: clientSignals(routine),
     evidenceSummary: routineEvidenceSummary(routine),
     confidence: routine.confidence,
     ...(quickWin === undefined ? { deepDive: true as const } : { quickWin }),
@@ -564,9 +570,22 @@ function routineEvidenceSummary(routine: InternalRoutine): ClientRoutineEvidence
   return { contributors: routine.contributors, observations: routine.observations, activeDates: routine.activeDates, estimatedHours: routine.estimatedHours, unsizedObservations: routine.unsizedObservations };
 }
 
+function isSingleContributor(routine: InternalRoutine): boolean {
+  return routine.contributors === 1;
+}
+
+function clientSignals(routine: InternalRoutine): ClientFrictionRoutine["signals"] {
+  return isSingleContributor(routine)
+    ? { ...routine.frictionSignals.byValue }
+    : { ...routine.frictionSignals.byValue, ...routine.energySignals.byValue };
+}
+
+function signalCount(signals: ClientFrictionRoutine["signals"]): number {
+  return Object.values(signals).reduce((sum, count) => sum + (count ?? 0), 0);
+}
+
 function routineScope(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): string {
-  if (routine.contributors >= 2 && routine.key.roleId && (internal.roleContributors[routine.key.roleId] ?? 0) >= 2) return internal.reference?.roleLabels[routine.key.roleId] ?? "группа";
-  return "группа";
+  return internal.reference?.roleLabels[routine.key.roleId] ?? "группа";
 }
 
 function routineQuestion(routine: InternalRoutine): string {

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type {
-  ClientCompanyReport,
-  CompanyReportConfidence,
-  InternalCompanyEvidenceReport,
-  InternalRoutine,
+import type { EnergyStressMarkerType } from "../domain/insights.js";
+import {
+  energySignalValues,
+  type ClientCompanyReport,
+  type CompanyReportConfidence,
+  type InternalCompanyEvidenceReport,
+  type InternalRoutine,
 } from "./company-reporting.js";
 
 export const COMPANY_REPORT_CONFIDENCE_POLICY = {
@@ -85,12 +87,6 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
     if (routine.confidence !== expectedConfidence) {
       findings.push(makeFinding("policy", routineKey, "confidence_policy", routine.confidence, "low"));
     }
-    if (routine.contributors < 2 && routine.name !== undefined && report.client !== undefined) {
-      const clientRoutine = findClientRoutine(report.client, routine.name);
-      if (clientRoutine?.scope !== undefined && clientRoutine.scope !== "группа") {
-        findings.push(makeFinding("policy", routineKey, "rare_role", routine.name, "low"));
-      }
-    }
   }
 
   const expectedAssessment = coverageAssessment(report.coverage);
@@ -99,6 +95,21 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
   }
 
   if (report.client !== undefined) {
+    for (const clientRoutine of report.client.frictionRoutines) {
+      if (clientRoutine.evidenceSummary.contributors !== 1) continue;
+      const exposedEnergySignal = Object.keys(clientRoutine.signals)
+        .find((signal) => energySignalValues.has(signal as EnergyStressMarkerType));
+      if (exposedEnergySignal === undefined) continue;
+      const internalRoutine = report.routines.find((routine) => routine.name === clientRoutine.name && routine.contributors === 1);
+      findings.push(makeFinding(
+        "policy",
+        internalRoutine === undefined ? undefined : routineIdentity(internalRoutine),
+        "single_contributor_energy",
+        exposedEnergySignal,
+        "low",
+      ));
+    }
+
     const clientRoutineObservations = new Map<string, number>();
     for (const routine of [...report.client.topRoutines, ...report.client.frictionRoutines]) {
       clientRoutineObservations.set(routine.name, routine.evidenceSummary.observations);
@@ -206,8 +217,4 @@ export function confidenceForCounts(contributors: number, observations: number, 
 function coverageAssessment(coverage: PreflightReport["coverage"]): ClientCompanyReport["coverage"]["assessment"] {
   if (coverage.observations === 0) return "insufficient";
   return coverage.contributors >= 3 && coverage.activeDates >= 3 ? "usable" : "usable_with_limits";
-}
-
-function findClientRoutine(client: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines">, name: string): { scope: string } | undefined {
-  return [...client.topRoutines, ...client.frictionRoutines].find((routine) => routine.name === name);
 }
