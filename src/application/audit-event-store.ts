@@ -88,7 +88,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   invite_revoked: ["companyId", "groupId"],
   employee_data_deleted: [],
   report_preflight_decision: ["scope", "findingId", "decision", "reportVersion", "reviewer"],
-  client_report_published: ["scope", "reportVersion", "reviewer"],
+  client_report_published: ["scope", "reportVersion", "reviewer", "llmFindings"],
   client_report_publish_refused: ["scope", "reportVersion", "reason", "findingIds"],
 };
 

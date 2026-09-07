@@ -96,7 +96,7 @@ npm run company-report -- preflight-llm \
   --out ./operator/preflight-findings.json
 ```
 
-Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и сохраняет детерминированный lint вместе с результатом модели. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
+Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и сохраняет envelope `minutka-report-preflight-findings/v1` с `scope`, `reportVersion` (sha256 текущего client DTO) и детерминированным lint вместе с результатом модели. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
 
 ### 5. Решить high-находки
 
@@ -106,11 +106,13 @@ npm run company-report -- preflight-llm \
 npm run company-report -- resolve-finding \
   --company company_acme \
   --group group_acme_2026_09 \
+  --directory ./operator/routine-directory.company_acme.json \
   --finding <finding-id> \
-  --decision verified
+  --decision verified \
+  --findings ./operator/preflight-findings.json
 ```
 
-Для исправленной записи используйте `--decision fixed` и при необходимости `--note`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
+Для исправленной записи используйте `--decision fixed` и при необходимости `--note`. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
 
 ### 6. Опубликовать client DTO
 
@@ -118,11 +120,12 @@ npm run company-report -- resolve-finding \
 npm run company-report -- publish \
   --company company_acme \
   --group group_acme_2026_09 \
+  --directory ./operator/routine-directory.company_acme.json \
   --findings ./operator/preflight-findings.json \
   --out ./operator/client-report.json
 ```
 
-Команда заново пересчитывает report без передачи справочника через транспорт, объединяет его findings с переданным файлом и проверяет решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.json` находится единственный артефакт, который можно передать компании.
+Команда заново пересчитывает report без передачи справочника через транспорт и требует envelope findings-файла с тем же `scope` и `reportVersion`. Отсутствующий или невалидный файл даёт `missing_findings`, чужой или устаревший hash — `stale_findings`; артефакт не создаётся. Затем findings объединяются с текущим lint и проверяются решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.json` находится единственный артефакт, который можно передать компании.
 
 ## Confidence policy
 

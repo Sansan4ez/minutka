@@ -327,6 +327,7 @@ const clientCompanyReportSchema = z.strictObject({
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
 
 export const publishClientReportResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({ ok: z.literal(false), reason: z.enum(["missing_findings", "stale_findings"]), findingIds: z.array(z.string().min(1)).optional() }),
   z.strictObject({ ok: z.literal(false), reason: z.literal("unresolved_high_findings"), findingIds: z.array(z.string().min(1)) }),
   z.strictObject({ ok: z.literal(true), client: clientCompanyReportSchema, reportVersion: z.string().length(64) }),
 ]);

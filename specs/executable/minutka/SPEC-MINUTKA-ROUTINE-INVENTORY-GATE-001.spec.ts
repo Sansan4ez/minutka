@@ -13,6 +13,7 @@ import { CompanyReportingService } from "../../../src/application/company-report
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 import { createActivityTransactionExtractor } from "../../../src/application/activity-transaction-extractor.js";
 import { loadRoutineDirectory } from "../../../src/application/routine-directory.js";
+import { hashClientReport } from "../../../src/application/report-preflight.js";
 import { buildActivityTransactionPrompt } from "../../../src/mastra/activity-transaction-extractor.js";
 import { planDirectoryPurge } from "../../../src/application/routine-directory-purge.js";
 import { runRoutineDirectoryPurge } from "../../../src/runtime/routine-directory-purge-command.js";
@@ -186,10 +187,12 @@ describe("SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001: end-to-end routine inventory 
       expect(clientJson).not.toContain(forbidden);
     }
 
-    const refused = await harness.publishing.publishClientReport({ companyId: "company_gate", groupId: "group_gate", directory: gateDirectory() });
+    const reportVersion = hashClientReport(report.client);
+    const findings = { schemaVersion: "minutka-report-preflight-findings/v1" as const, scope: "company_gate/group_gate", reportVersion, findings: [] };
+    const refused = await harness.publishing.publishClientReport({ companyId: "company_gate", groupId: "group_gate", directory: gateDirectory(), findings });
     expect(refused).toEqual({ ok: false, reason: "unresolved_high_findings", findingIds: [unnamed!.id] });
-    await harness.publishing.resolvePreflightFinding({ companyId: "company_gate", groupId: "group_gate", findingId: unnamed!.id, decision: "fixed", directory: gateDirectory() });
-    const published = await harness.publishing.publishClientReport({ companyId: "company_gate", groupId: "group_gate", directory: gateDirectory() });
+    await harness.publishing.resolvePreflightFinding({ companyId: "company_gate", groupId: "group_gate", findingId: unnamed!.id, decision: "fixed", directory: gateDirectory(), findings });
+    const published = await harness.publishing.publishClientReport({ companyId: "company_gate", groupId: "group_gate", directory: gateDirectory(), findings });
     expect(published).toMatchObject({ ok: true, client: { schemaVersion: "minutka-client-report.v2" }, reportVersion: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(harness.audit).not.toContainEqual(expect.objectContaining({ metadata: expect.objectContaining({ payload: expect.anything() }) }));
 

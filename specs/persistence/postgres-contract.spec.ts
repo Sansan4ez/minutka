@@ -1713,8 +1713,8 @@ describe("PostgreSQL storage contracts", () => {
   it("accepts report preflight and client-report publication audit event types", async () => {
     const auditStore = createPostgresAuditEventStore(pool);
     await auditStore.append({ id: "evt_report_decision", requestId: "req_report_decision", type: "report_preflight_decision", occurredAt: now, metadata: { scope: "company_a/group_a", findingId: "finding_1", decision: "verified", reportVersion: "a".repeat(64), reviewer: "methodologist" } });
-    await auditStore.append({ id: "evt_report_published", requestId: "req_report_published", type: "client_report_published", occurredAt: now, metadata: { scope: "company_a/group_a", reportVersion: "a".repeat(64), reviewer: "methodologist" } });
-    await auditStore.append({ id: "evt_report_refused", requestId: "req_report_refused", type: "client_report_publish_refused", occurredAt: now, metadata: { scope: "company_a/group_a", reportVersion: "a".repeat(64), reason: "unresolved_high_findings", findingIds: ["finding_1"] } });
+    await auditStore.append({ id: "evt_report_published", requestId: "req_report_published", type: "client_report_published", occurredAt: now, metadata: { scope: "company_a/group_a", reportVersion: "a".repeat(64), reviewer: "methodologist", llmFindings: "applied" } });
+    await auditStore.append({ id: "evt_report_refused", requestId: "req_report_refused", type: "client_report_publish_refused", occurredAt: now, metadata: { scope: "company_a/group_a", reportVersion: "a".repeat(64), reason: "stale_findings" } });
     expect((await auditStore.listCurrent({ requestId: "req_report_refused", limit: 1 }))[0]?.type).toBe("client_report_publish_refused");
   });
 

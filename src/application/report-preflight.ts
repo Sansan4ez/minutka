@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import type {
   ClientCompanyReport,
   CompanyReportConfidence,
@@ -23,6 +24,25 @@ export type PreflightFinding = {
   severity: "high" | "medium" | "low";
   reason?: string;
 };
+
+export const preflightFindingSchema = z.strictObject({
+  id: z.string().min(1),
+  field: z.enum(["routine.name", "routine.variants", "policy"]),
+  routineKey: z.string().min(1).optional(),
+  rule: z.string().min(1),
+  excerpt: z.string().min(1),
+  severity: z.enum(["high", "medium", "low"]),
+  reason: z.string().min(1).max(500).optional(),
+});
+
+export const reportPreflightFindingsFileSchema = z.strictObject({
+  schemaVersion: z.literal("minutka-report-preflight-findings/v1"),
+  scope: z.string().trim().min(1),
+  reportVersion: z.string().regex(/^[a-f0-9]{64}$/),
+  findings: z.array(preflightFindingSchema),
+});
+
+export type ReportPreflightFindingsFile = z.infer<typeof reportPreflightFindingsFileSchema>;
 
 type PreflightReport = Pick<InternalCompanyEvidenceReport, "routines" | "buckets" | "coverage"> & {
   client?: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines" | "firstSteps" | "deepDive" | "coverage">;
@@ -128,6 +148,10 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
     || left.rule.localeCompare(right.rule)
     || left.excerpt.localeCompare(right.excerpt),
   );
+}
+
+export function hashClientReport(client: ClientCompanyReport): string {
+  return createHash("sha256").update(JSON.stringify(client), "utf8").digest("hex");
 }
 
 export function preflightFindingId(input: Pick<PreflightFinding, "field" | "routineKey" | "rule" | "excerpt">): string {

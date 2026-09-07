@@ -7,6 +7,7 @@ import {
   ReportPreflightLlmService,
   type ReportPreflightLlmGenerator,
 } from "../../../src/application/report-preflight-llm.js";
+import { hashClientReport } from "../../../src/application/report-preflight.js";
 import { buildReportPreflightLlmPrompt } from "../../../src/mastra/report-preflight-checker.js";
 import { runCompanyReportCommand } from "../../../src/runtime/company-report-command.js";
 
@@ -92,10 +93,15 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
           { routineKey: routines[1]!.routineKey, verdict: "ok" },
         ] }, []),
       }, (text) => writes.push(text));
-      expect(JSON.parse(writes[0] ?? "[]")).toEqual(expect.arrayContaining([
-        expect.objectContaining({ rule: "quote" }),
-        expect.objectContaining({ rule: "llm_identifying_detail", reason: "Редкое сочетание." }),
-      ]));
+      expect(JSON.parse(writes[0] ?? "{}")).toEqual(expect.objectContaining({
+        schemaVersion: "minutka-report-preflight-findings/v1",
+        scope: "company_a/group_a",
+        reportVersion: hashClientReport(report.client),
+        findings: expect.arrayContaining([
+          expect.objectContaining({ rule: "quote" }),
+          expect.objectContaining({ rule: "llm_identifying_detail", reason: "Редкое сочетание." }),
+        ]),
+      }));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 

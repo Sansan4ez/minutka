@@ -34,8 +34,6 @@ export function createSpecHttpApplication(
     getMonthlyUsage: async () => { throw new Error("usage reporting is not configured in this spec adapter"); },
     getGroupMonthlyUsage: async () => { throw new Error("group usage reporting is not configured in this spec adapter"); },
     exportCompanyReport: async () => { throw new Error("company reporting is not configured in this spec adapter"); },
-    resolvePreflightFinding: async () => { throw new Error("client report publishing is not configured in this spec adapter"); },
-    publishClientReport: async () => { throw new Error("client report publishing is not configured in this spec adapter"); },
     openInvite: (input) => service.openInvite(input),
     getProfile: (input) => service.getProfile(input),
     getPersonalContext: (input) => service.getPersonalContext(input),
