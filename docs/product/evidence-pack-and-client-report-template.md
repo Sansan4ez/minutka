@@ -196,8 +196,12 @@ Client DTO использует внешние labels и агрегирован�
     "observations": 386,
     "unsizedObservations": 157,
     "unattributedObservations": 40,
-    "coveredRoles": ["продажи", "логистика"],
-    "limitations": ["Тендеры и бухгалтерия представлены одним участником; их рутины показаны без роли"]
+    "coveredRoles": ["продажи", "логистика", "тендеры", "бухгалтерия", "директор"],
+    "limitations": [
+      "Роль тендеры представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+      "Роль бухгалтерия представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+      "Роль директор представлена одним участником; её рутины — самоотчёт одного человека, не оценка"
+    ]
   },
   "timeBudget": [
     { "taskCategory": "focus_work", "estimatedHours": 47.3, "share": 0.25, "contributors": 7 },
@@ -261,8 +265,8 @@ Client DTO использует внешние labels и агрегирован�
 | Поле | Правило |
 |---|---|
 | `name` | каноническое имя записи справочника рутин, проверенное методологом; raw label сотрудника — никогда |
-| `scope` | группа либо роль, у которой два и более contributors; рутина роли с одним человеком показывается без роли |
-| `evidenceSummary` | только агрегаты: contributors, observations, activeDates, ≈часы, unsizedObservations |
+| `scope` | роль из per-company справочника при наличии `roleId`, независимо от числа contributors; иначе группа |
+| `evidenceSummary` | только агрегаты: contributors, observations, activeDates, ≈часы, unsizedObservations; ≈часы рутины одного contributor остаются порядком величины по его самоотчёту |
 | `systems`, `statedRecurrence` | закрытые facets и заявленная частота как сказано, без сверки с наблюдениями |
 | `confidence` | `hypothesis`, `signal` или `confirmed` по §4 |
 | `quickWin` | строка закрытого каталога RFC §2.7 из записи справочника: `title`, `whatChanges`, `effort`, `whoCanDo`, `humanInTheLoop`, `firstStep` |
@@ -273,8 +277,8 @@ Client DTO использует внешние labels и агрегирован�
 - внутренний ключ участника и списки contributors;
 - employee/user/participant IDs и identity mapping;
 - raw `routineLabel`, `variants`, `routineKey`, evidence refs — только internal DTO;
-- роль с одним contributor как scope рутины;
-- ≈часы по отдельному сотруднику;
+- сигналы энергии/стресса рутины одного contributor;
+- ≈часы, представленные как точный замер или оценка сотрудника, а не порядок величины по самоотчёту;
 - raw message, transcript, цитата, source message ID;
 - trace ID, trace payload, prompt/context/tool-call payload;
 - research notes и human-label notes;
@@ -378,16 +382,17 @@ Coverage показывается до рекомендаций и описыв�
 - **Быстрое улучшение:** `ai_assistant_calc` — черновик расчёта по шаблону с проверкой специалистом.
 - **Почему не confirmed:** observations и дат достаточно, но для `confirmed` нужны не менее трёх contributors.
 
-Одинаковое имя работы у двух разных ролей не объединяет evidence: при одном contributor в каждой роли это две role-scoped рутины, показанные без роли; confidence каждой считается по parent policy §4 и может быть `signal` при повторяемости в несколько дат.
+Одинаковое имя работы у двух разных ролей не объединяет evidence: это две role-scoped рутины, каждая с ролью из справочника независимо от числа contributors; confidence каждой считается по parent policy §4 и может быть `signal` при повторяемости в несколько дат.
 
-### 5.3. Rare-role routine
+### 5.3. Routine роли с одним contributor
 
 - **Рутина:** разбор тендерной документации.
-- **Scope:** группа (единственный тендерный специалист; роль не называется).
-- **Evidence summary:** 1 contributor, 4 observations в 3 даты.
+- **Scope:** тендеры (роль из справочника; единственный contributor).
+- **Evidence summary:** 1 contributor, 4 observations в 3 даты, ≈3 часа по самоотчёту.
+- **Сигналы:** `waiting_for_input: 2`; сигналы энергии/стресса не показываются.
 - **Confidence:** `signal` по parent policy: 4 observations в 3 даты у одного contributor.
 - **Для углублённого обследования:** какие требования из документации повторяются от тендера к тендеру и что из них можно извлекать автоматически.
-- **Почему допустимо:** scope остаётся «группа», а рутина названа как вопрос второму этапу, а не как оценка специалиста; отчёт не публикует raw label или цитату.
+- **Почему допустимо:** роль описывает функцию работы, часы обозначены как порядок величины, а карточка не содержит оценки или сигналов состояния специалиста; `coverage.limitations` сообщает, что это самоотчёт одного человека.
 
 ## 6. Ручной review/publish flow
 
@@ -397,7 +402,7 @@ Typed команда формирует canonical internal/client DTO. Все р
 2. **Проверить scope и completeness.** Методолог сверяет tenant/group, coverage, missing traces, версии prompt/taxonomy и evidence refs. Scope mismatch прекращает подготовку целиком.
 3. **Разметить выводы.** Методолог записывает supporting/competing interpretations, confidence и необходимые проверки. Генератор не повышает confidence вручную сформулированным текстом.
 4. **Собрать client draft отдельным DTO.** Внешний документ создаётся из process-level summaries; копирование raw фрагментов из evidence pack запрещено.
-5. **Выполнить boundary preflight.** Структурную часть закрывает схема client DTO; содержательную — `preflightFindings[]` команды отчёта (lint имён рутин, LLM-флаг редких идентифицирующих деталей, assertions policy: rare-role, confidence, coverage, `unnamed_routine`). Методолог читает список находок; находка `severity = high` без его решения блокирует publish (`unresolved_high_findings`), решение по каждой находке пишется в audit. Ничего не вырезается автоматически.
+5. **Выполнить boundary preflight.** Структурную часть закрывает схема client DTO; содержательную — `preflightFindings[]` команды отчёта (lint имён рутин, LLM-флаг редких идентифицирующих деталей, assertions policy: `single_contributor_energy`, scope по справочной роли, confidence, coverage, `unnamed_routine`). Методолог читает список находок; находка `severity = high` без его решения блокирует publish (`unresolved_high_findings`), решение по каждой находке пишется в audit. Ничего не вырезается автоматически.
 6. **Редакторская проверка.** Методолог проверяет имена рутин, назначения quick win и первые шаги у рутин, попавших в клиентский отчёт, и формулировки deep-dive вопросов. Для каждого пункта должна сохраняться внутренняя evidence linkage, не входящая в клиентский файл.
 7. **Зафиксировать решение о передаче.** Оператор записывает версию артефакта, проверяющего, дату, согласованный канал и действующее решение о месте/сроке хранения. Пока отдельная retention policy не принята, нельзя обещать автоматический TTL.
 8. **Опубликовать вручную.** Оператор передаёт только финальный client artifact через согласованный канал. Evidence pack, промежуточные drafts и research export не прикладываются.

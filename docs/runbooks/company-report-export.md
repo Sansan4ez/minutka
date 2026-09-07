@@ -142,7 +142,7 @@ confirmedDates = 3
 - `signal`: минимум два subjects **или** повторяемость одной рутины в несколько дат;
 - `confirmed`: минимум три subjects, пять observations и три даты.
 
-Contributor считается по distinct `subject_key`: двадцать activities одного человека остаются одним contributor. Редкая роль не сливается в искусственный `other`; её routine-level observation остаётся без role-specific scope и confidence следует тем же policy, включая `signal` при повторяемости в несколько дат.
+Contributor считается по distinct `subject_key`: двадцать activities одного человека остаются одним contributor. Роль не сливается в искусственный `other`: если `roleId` рутины есть в справочнике компании, role label всегда является client scope независимо от числа contributors, а confidence следует тем же policy, включая `signal` при повторяемости в несколько дат. Для роли с одним contributor ≈часы и сигналы трения остаются, сигналы энергии/стресса отсутствуют, а `coverage.limitations` называет самоотчёт одного человека и не-оценочный характер карточки.
 
 ## Проверка результата
 
@@ -153,7 +153,7 @@ Contributor считается по distinct `subject_key`: двадцать act
 5. Проверьте quick win: он взят из закрытого каталога записи справочника и содержит `title`, `whatChanges`, `effort`, `whoCanDo`, `humanInTheLoop`, `firstStep`. Если назначения нет, routine идёт в `deepDive`, а не становится рекомендацией.
 6. Проверьте `preflightFindings`: high-находки имеют решение методолога для текущего hash отчёта; незакрытая high-находка должна блокировать publish.
 7. Human-impact signal может повысить `priority` и добавить risk, но не является routine key и не заменяет доказательство проблемы.
-8. При слабом coverage оставьте рассчитанный policy confidence (`hypothesis` или `signal`) и `insufficientEvidence`; не повышайте confidence редакторским текстом. Для одного contributor проверяйте, что client scope остаётся «группа», даже если confidence — `signal`. Перед передачей методолог подтверждает или редактирует имя и quick win.
+8. При слабом coverage оставьте рассчитанный policy confidence (`hypothesis` или `signal`) и `insufficientEvidence`; не повышайте confidence редакторским текстом. Для одного contributor проверяйте, что client scope равен label справочной роли (или «группа», только если справочного `roleId` нет), ≈часы обозначены как порядок величины, сигналы трения сохранены, сигналы энергии/стресса отсутствуют, а `coverage.limitations` содержит строку про самоотчёт одного участника. Перед передачей методолог подтверждает или редактирует имя и quick win.
 9. После correction, purge или изменения справочника запустите весь цикл повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities и текущей версии справочника.
 
 Отдельного reporting writer/table нет: correction и purge применяются к canonical subject-aware evidence, после чего report command пересчитывает результат.

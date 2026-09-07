@@ -84,7 +84,8 @@ canonical private conversation history and execution traces are intentional rese
 Developer provenance only. These repository files are validated by maintainers and are not runtime inputs or prompt content.
 
 - `docs/architecture/rfc-minutka-research-corpus-and-reporting.md#211-consent-до-первого-внешнего-пилота`
-- `docs/product/privacy-v6.html`
+- `docs/product/privacy-v6.html` — current Green-line cohort; it does not promise to hide the employee role and excludes personal evaluation.
+- `docs/product/privacy-v7.html` — disclosure for the next cohort: a sole participant's role is shown beside routines, hours remain approximate self-report, and energy/stress signals and personal evaluation are excluded. Activation and re-consent are a separate task; the active version remains privacy-v6.
 - `src/application/research-corpus-export.ts`
 - `src/application/company-reporting.ts`
 - `src/application/profile-store.ts`
