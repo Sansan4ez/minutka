@@ -196,7 +196,7 @@ export type ActivityTransactionContextMeasurement = {
   promptCharacters: number;
 };
 
-export const activityTransactionTraceDiagnostics = ["unknown_routine_id"] as const;
+export const activityTransactionTraceDiagnostics = ["unknown_routine_id", "routine_id_without_label"] as const;
 export type ActivityTransactionTraceDiagnostic = typeof activityTransactionTraceDiagnostics[number];
 
 export type ActivityTransactionGenerationTrace = {
@@ -371,9 +371,13 @@ function normalizeRoutineIds(
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
   const value = candidate as Record<string, unknown>;
   const allowedRoutineIds = new Set(directorySection?.entries.map(({ id }) => id) ?? []);
-  const normalizePatch = (patch: unknown): unknown => {
+  const normalizePatch = (patch: unknown, mode: "collect" | "correct"): unknown => {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
     const normalized = { ...(patch as Record<string, unknown>) };
+    if (mode === "collect" && typeof normalized.routineId === "string" && normalized.routineLabel === undefined) {
+      diagnostics.push("routine_id_without_label");
+      delete normalized.routineId;
+    }
     if (typeof normalized.routineId === "string" && (directorySection === undefined || !allowedRoutineIds.has(normalized.routineId))) {
       if (directorySection !== undefined) diagnostics.push("unknown_routine_id");
       delete normalized.routineId;
@@ -382,8 +386,8 @@ function normalizeRoutineIds(
   };
   return {
     ...value,
-    ...(Array.isArray(value.activities) ? { activities: value.activities.map(normalizePatch) } : {}),
-    ...(value.correction === null || value.correction === undefined ? {} : { correction: normalizePatch(value.correction) }),
+    ...(value.kind === "collect" && Array.isArray(value.activities) ? { activities: value.activities.map((patch) => normalizePatch(patch, "collect")) } : {}),
+    ...(value.kind === "correct" && value.correction !== null && value.correction !== undefined ? { correction: normalizePatch(value.correction, "correct") } : {}),
   };
 }
 

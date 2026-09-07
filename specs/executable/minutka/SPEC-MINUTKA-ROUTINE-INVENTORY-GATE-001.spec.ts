@@ -61,7 +61,7 @@ function createHarness() {
       energyStressMarker: null,
       system: "spreadsheets",
       routineId: isNamed ? "routine_weekly_report" : null,
-      routineLabel: isNamed ? null : "Согласование заявок",
+      routineLabel: isNamed ? "Подготовка еженедельных отчётов" : "Согласование заявок",
       recurrence: isNamed ? "weekly" : null,
       durationRef: isNamed ? "named_duration" : "free_duration",
     };
@@ -170,7 +170,11 @@ describe("SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001: end-to-end routine inventory 
     expect(report.internal.schemaVersion).toBe("minutka-internal-report/v2");
     expect(report.internal.timeBudget.length).toBeGreaterThan(0);
     expect(report.internal.routines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: { roleId: "role_sales", routineId: "routine_weekly_report" }, name: "Подготовка еженедельных отчётов" }),
+      expect.objectContaining({
+        key: { roleId: "role_sales", routineId: "routine_weekly_report" },
+        name: "Подготовка еженедельных отчётов",
+        variants: ["Еженедельные отчёты", "Подготовка еженедельных отчётов"],
+      }),
       expect.objectContaining({ key: { roleId: "role_sales", routineKey: "согласование заявок" } }),
     ]));
     const unnamed = report.internal.preflightFindings.find((finding) => finding.rule === "unnamed_routine");
@@ -190,7 +194,9 @@ describe("SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001: end-to-end routine inventory 
     expect(harness.audit).not.toContainEqual(expect.objectContaining({ metadata: expect.objectContaining({ payload: expect.anything() }) }));
 
     const personal = await harness.cycle.summarize({ employeeId: "employee_a", timezone: "Etc/UTC" });
-    expect(personal.routines).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Еженедельные отчёты" })]));
+    expect(personal.routines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Еженедельные отчёты", count: 6 }),
+    ]));
     expect(personal.routines).not.toContainEqual(expect.objectContaining({ label: "Согласование заявок" }));
     expect(JSON.stringify(personal)).not.toContain("subject_b");
   });

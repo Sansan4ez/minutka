@@ -195,6 +195,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(prompt).toMatch(/repeated real work.*do not infer paper_or_verbal.*routinePattern=other.*template_or_checklist.*neutral/i);
     expect(prompt).toMatch(/neutral is never a default/i);
     expect(prompt).toMatch(/names only a duration and no work object.*clarification.*latest supplied activity.*never a new activity/i);
+    expect(prompt).toMatch(/always emit a routineLabel.*additionally emit routineId/i);
     for (const forbidden of ["profile documents", "privacy policy", "company report", "schedule catalog", "tenant identity", "thread history", "subjectKey", "employeeId", "companyId", "groupId"]) {
       expect(prompt).not.toContain(forbidden);
     }
@@ -203,7 +204,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
-    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v3");
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v4");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({
@@ -224,9 +225,18 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     }), observed)({ mode: "record", currentText: "Prepared the weekly report", durationReferences: [], directorySection });
     const accepted = await extractorFor(transport({
       kind: "collect",
+      activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "routine_report", routineLabel: "Prepare reports" }],
+    }))({ mode: "record", currentText: "Prepared the weekly report", durationReferences: [], directorySection });
+    expect(accepted).toMatchObject({ decision: { activities: [{ routineId: "routine_report", routineLabel: "Prepare reports" }] } });
+
+    const missingLabel = await extractorFor(transport({
+      kind: "collect",
       activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "routine_report" }],
     }))({ mode: "record", currentText: "Prepared the weekly report", durationReferences: [], directorySection });
-    expect(accepted).toMatchObject({ decision: { activities: [{ routineId: "routine_report" }] } });
+    expect(missingLabel).toMatchObject({
+      status: "completed",
+      decision: { kind: "collect", activities: [{ taskCategory: "reporting" }] },
+    });
     expect(observed[0]?.prompt).toContain("# Routine directory section");
     expect(observed[0]?.prompt).toContain(JSON.stringify(directorySection));
     expect(result).toMatchObject({
@@ -235,10 +245,19 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     });
 
     const traceResult = await createActivityTransactionExtractor(async () => ({
-      object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "unknown" }] }),
-      trace: { promptVersion: "minutka-activity-transaction/v3", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
+      object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "unknown", routineLabel: "Prepare reports" }] }),
+      trace: { promptVersion: "minutka-activity-transaction/v4", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
     }), buildActivityTransactionPrompt)({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection });
-    expect(traceResult).toMatchObject({ trace: { diagnostics: ["unknown_routine_id"] }, decision: { activities: [{ taskCategory: "reporting" }] } });
+    expect(traceResult).toMatchObject({ trace: { diagnostics: ["unknown_routine_id"] }, decision: { activities: [{ taskCategory: "reporting", routineLabel: "Prepare reports" }] } });
+
+    const missingLabelTrace = await createActivityTransactionExtractor(async () => ({
+      object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "routine_report" }] }),
+      trace: { promptVersion: "minutka-activity-transaction/v4", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
+    }), buildActivityTransactionPrompt)({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection });
+    expect(missingLabelTrace).toMatchObject({
+      trace: { diagnostics: ["routine_id_without_label"] },
+      decision: { activities: [{ taskCategory: "reporting" }] },
+    });
 
     expect(() => buildActivityTransactionPrompt({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection: {
       version: "directory-v1",

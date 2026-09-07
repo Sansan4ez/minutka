@@ -18,6 +18,8 @@
 - [`src/server/`](src/server), [`src/telegram/`](src/telegram), [`src/client/`](src/client) — транспорты (HTTP API, Telegram-бот, CLI).
 - [`src/runtime/`](src/runtime), [`src/config/`](src/config), [`src/shared/`](src/shared) — сборка runtime, конфиг, утилиты.
 
+Для factual activity с объектом работы extractor всегда сохраняет `routineLabel` словами сотрудника; `routineId` добавляется только при совпадении с переданной записью справочника.
+
 ## Ключевые папки
 
 - [`docs/`](docs) — [`architecture/`](docs/architecture) (RFC), [`CONVENTIONS.md`](docs/CONVENTIONS.md) (правила доков), [`plans/`](docs/plans) ([индекс](docs/plans/README.md); планы ведутся **эпиками в `br`**, папка держит только шаблон/README/TODO), [`product/`](docs/product) (бриф), [`runbooks/`](docs/runbooks).
