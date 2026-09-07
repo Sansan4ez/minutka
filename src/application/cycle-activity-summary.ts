@@ -9,10 +9,12 @@ import type {
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import {
   ownActivitiesInWindow,
+  routineSummaries,
   shiftCalendarDate,
   tally,
   type ActivityTally,
   type OwnActivityReadStore,
+  type PersonalRoutineSummary,
 } from "./own-activity-window.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
@@ -56,6 +58,7 @@ export type CycleActivitySummary = {
   durationBuckets: ActivityTally<ActivityDurationBucket>[];
   systems: ActivityTally<ActivitySystem>[];
   confirmedPatterns: CycleConfirmedPatterns;
+  routines: PersonalRoutineSummary[];
 };
 
 /**
@@ -78,6 +81,8 @@ export class CycleActivitySummaryService {
     const window = { employeeId, fromDate, toDate };
     const activities = ownActivitiesInWindow(await this.store.listOwnActivities(window), window);
     const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
+    const sufficientData = activities.length >= cycleSummarySufficiency.activities
+      && activeDates >= cycleSummarySufficiency.activeDates;
 
     const taskCategories = tally(activities.map((activity) => activity.taskCategory));
     const routinePatterns = tally(activities.map((activity) => activity.routinePattern));
@@ -90,8 +95,7 @@ export class CycleActivitySummaryService {
       toDate,
       activityCount: activities.length,
       activeDates,
-      sufficientData: activities.length >= cycleSummarySufficiency.activities
-        && activeDates >= cycleSummarySufficiency.activeDates,
+      sufficientData,
       patternMinimumCount: cyclePatternMinimumCount,
       taskCategories,
       routinePatterns,
@@ -99,6 +103,7 @@ export class CycleActivitySummaryService {
       energyStressMarkers,
       durationBuckets: tally(activities.map((activity) => activity.durationBucket)),
       systems,
+      routines: sufficientData ? routineSummaries(activities, { minimumCount: cyclePatternMinimumCount }) : [],
       confirmedPatterns: {
         taskCategories: repeated(taskCategories),
         routinePatterns: repeated(routinePatterns),

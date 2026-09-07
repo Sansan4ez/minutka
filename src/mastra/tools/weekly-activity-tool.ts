@@ -14,6 +14,12 @@ export const readWeeklyActivitiesToolName = "readWeeklyActivities" as const;
 
 const tallySchema = <Values extends readonly [string, ...string[]]>(values: Values) =>
   z.array(z.strictObject({ value: z.enum(values), count: z.number().int().min(1) }));
+const routineSchema = z.strictObject({
+  label: z.string().min(1),
+  count: z.number().int().min(1),
+  activeDates: z.number().int().min(1),
+  statedRecurrence: z.partialRecord(z.enum(["daily", "several_per_week", "weekly", "monthly", "one_off"]), z.number().int().min(1)).optional(),
+});
 
 export const weeklyActivitySummarySchema = z.strictObject({
   fromDate: z.string(),
@@ -27,6 +33,7 @@ export const weeklyActivitySummarySchema = z.strictObject({
   energyStressMarkers: tallySchema(energyStressMarkerTypes),
   durationBuckets: tallySchema(activityDurationBuckets),
   systems: tallySchema(activitySystems),
+  routines: z.array(routineSchema).max(3),
 });
 
 /** Reads the authenticated employee's own counted week; it records nothing. */

@@ -328,6 +328,7 @@ describe("SPEC-MINUTKA-PERSONAL-GATE-001: personal context to weekly summary to 
       energyStressMarkers: [],
       durationBuckets: [],
       systems: [{ value: "spreadsheets", count: 1 }],
+      routines: [],
     });
 
     // 4. A rejected pattern changes nothing in the personal context.

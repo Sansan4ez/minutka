@@ -10,7 +10,7 @@ None. The employee and their timezone are bound by `AssistantService` outside mo
 
 ## Output
 
-Counted closed-dictionary tallies for the window: task categories, routine patterns, automation candidates, energy/stress markers, duration buckets, and systems, plus `activityCount`, `activeDates`, and `sufficientData`. It carries no free text, no subject key, no activity id, and no other participant's data.
+Counted closed-dictionary tallies for the window: task categories, routine patterns, automation candidates, energy/stress markers, duration buckets, and systems, plus `activityCount`, `activeDates`, and `sufficientData`. It also returns up to three `routines` (`label`, `count`, `activeDates`, and optional `statedRecurrence`) grouped from this employee's own labelled activities. It carries no hours, free text beyond the employee's routine labels, routine id, subject key, activity id, evidence refs, or other participant's data.
 
 ## Boundary
 

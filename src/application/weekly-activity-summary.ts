@@ -9,10 +9,12 @@ import type {
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import {
   ownActivitiesInWindow,
+  routineSummaries,
   shiftCalendarDate,
   tally,
   type ActivityTally,
   type OwnActivityReadStore,
+  type PersonalRoutineSummary,
 } from "./own-activity-window.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 
@@ -38,6 +40,7 @@ export type WeeklyActivitySummary = {
   energyStressMarkers: ActivityTally<EnergyStressMarkerType>[];
   durationBuckets: ActivityTally<ActivityDurationBucket>[];
   systems: ActivityTally<ActivitySystem>[];
+  routines: PersonalRoutineSummary[];
 };
 
 /**
@@ -73,6 +76,7 @@ export class WeeklyActivitySummaryService {
       energyStressMarkers: tally(activities.map((activity) => activity.energyStressMarker)),
       durationBuckets: tally(activities.map((activity) => activity.durationBucket)),
       systems: tally(activities.map((activity) => activity.system)),
+      routines: routineSummaries(activities, { limit: 3 }),
     };
   }
 }

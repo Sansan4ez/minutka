@@ -76,6 +76,9 @@ function record(input: {
   automationCandidate?: "report_generation";
   energyStressMarker?: "fatigue";
   durationBucket?: "1_2h";
+  routineId?: string;
+  routineLabel?: string;
+  recurrence?: "daily" | "several_per_week" | "weekly" | "monthly" | "one_off";
 }) {
   return {
     activityId: `activity_${input.employeeId}_${input.activityDate}_${input.taskCategory ?? "none"}`,
@@ -89,6 +92,9 @@ function record(input: {
     ...(input.automationCandidate === undefined ? {} : { automationCandidate: input.automationCandidate }),
     ...(input.energyStressMarker === undefined ? {} : { energyStressMarker: input.energyStressMarker }),
     ...(input.durationBucket === undefined ? {} : { durationBucket: input.durationBucket }),
+    ...(input.routineId === undefined ? {} : { routineId: input.routineId }),
+    ...(input.routineLabel === undefined ? {} : { routineLabel: input.routineLabel }),
+    ...(input.recurrence === undefined ? {} : { recurrence: input.recurrence }),
     activityDate: input.activityDate,
     recordedAt: friday,
   };
@@ -117,6 +123,7 @@ describe("SPEC-MINUTKA-WEEKLY-SUMMARY-001: personal weekly checkpoint", () => {
       energyStressMarkers: [{ value: "fatigue", count: 2 }],
       durationBuckets: [{ value: "1_2h", count: 1 }],
       systems: [],
+      routines: [],
     });
     await expect(weekly.summarize({ employeeId: "employee_b", timezone: "Europe/Moscow" })).resolves.toMatchObject({
       activityCount: 1,
@@ -163,6 +170,27 @@ describe("SPEC-MINUTKA-WEEKLY-SUMMARY-001: personal weekly checkpoint", () => {
       sufficientData: false,
       taskCategories: [],
     });
+  });
+
+  it("groups own labelled routines by id or normalized label, ranks them, and omits hours and ids", async () => {
+    const { state, weekly } = harness(async () => "unused");
+    state.activities.push(
+      record({ employeeId: "employee_a", activityDate: "2026-08-17", routineId: "routine_report", routineLabel: "Сверка остатков", recurrence: "weekly" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-18", routineId: "routine_report", routineLabel: "Сверка  остатков", recurrence: "weekly" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-19", routineLabel: "Подготовка писем", recurrence: "daily" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-20", routineLabel: "подготовка, писем", recurrence: "daily" }),
+      record({ employeeId: "employee_b", activityDate: "2026-08-20", routineId: "routine_other", routineLabel: "Чужая рутина" }),
+    );
+
+    const summary = await weekly.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow" });
+    expect(summary.routines).toEqual([
+      { label: "Сверка остатков", count: 2, activeDates: 2, statedRecurrence: { weekly: 2 } },
+      { label: "Подготовка писем", count: 2, activeDates: 2, statedRecurrence: { daily: 2 } },
+    ]);
+    expect(JSON.stringify(summary)).not.toContain("estimatedHours");
+    expect(JSON.stringify(summary)).not.toContain("routineId");
+    expect(JSON.stringify(summary)).not.toContain("subjectKey");
+    expect(JSON.stringify(summary)).not.toContain("evidenceRefs");
   });
 
   it("answers the scheduled weekly touch from the typed read without writing anything", async () => {

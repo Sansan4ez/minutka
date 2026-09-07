@@ -82,6 +82,9 @@ function record(input: {
   automationCandidate?: "report_generation";
   energyStressMarker?: "fatigue";
   system?: "spreadsheets";
+  routineId?: string;
+  routineLabel?: string;
+  recurrence?: "daily" | "several_per_week" | "weekly" | "monthly" | "one_off";
 }) {
   return {
     activityId: `activity_${input.employeeId}_${input.activityDate}_${input.taskCategory ?? "none"}_${input.routinePattern ?? input.automationCandidate ?? input.energyStressMarker ?? "none"}`,
@@ -95,6 +98,9 @@ function record(input: {
     ...(input.automationCandidate === undefined ? {} : { automationCandidate: input.automationCandidate }),
     ...(input.energyStressMarker === undefined ? {} : { energyStressMarker: input.energyStressMarker }),
     ...(input.system === undefined ? {} : { system: input.system }),
+    ...(input.routineId === undefined ? {} : { routineId: input.routineId }),
+    ...(input.routineLabel === undefined ? {} : { routineLabel: input.routineLabel }),
+    ...(input.recurrence === undefined ? {} : { recurrence: input.recurrence }),
     activityDate: input.activityDate,
     recordedAt: lastCycleDay,
   };
@@ -135,6 +141,7 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
       automationCandidates: [{ value: "report_generation", count: 2 }],
       energyStressMarkers: [{ value: "fatigue", count: 2 }],
       systems: [{ value: "spreadsheets", count: 2 }],
+      routines: [],
     });
     // The employee's own coordination day sits before the window; another
     // participant's row never reaches the report at all.
@@ -197,7 +204,30 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     await expect(cycle.summarize({ employeeId: "employee_b", timezone: "Europe/Moscow" })).resolves.toMatchObject({
       activityCount: 0, activeDates: 0, sufficientData: false, taskCategories: [],
       confirmedPatterns: { taskCategories: [], routinePatterns: [], automationCandidates: [], energyStressMarkers: [], systems: [] },
+      routines: [],
     });
+  });
+
+  it("includes only repeated own routines and keeps the personal result free of research and hour fields", async () => {
+    const { state, cycle } = harness(async () => "unused");
+    state.activities.push(
+      record({ employeeId: "employee_a", activityDate: "2026-08-15", routineId: "routine_report", routineLabel: "Сверка остатков", recurrence: "weekly" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-18", routineId: "routine_report", routineLabel: "Сверка остатков", recurrence: "weekly" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-20", routineLabel: "Одноразовая проверка" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-21", taskCategory: "reporting" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-22", taskCategory: "meetings" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-23", taskCategory: "coordination" }),
+      record({ employeeId: "employee_b", activityDate: "2026-08-21", routineId: "routine_other", routineLabel: "Чужая рутина" }),
+    );
+
+    const summary = await cycle.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow" });
+    expect(summary.routines).toEqual([
+      { label: "Сверка остатков", count: 2, activeDates: 2, statedRecurrence: { weekly: 2 } },
+    ]);
+    expect(JSON.stringify(summary)).not.toContain("estimatedHours");
+    expect(JSON.stringify(summary)).not.toContain("routineId");
+    expect(JSON.stringify(summary)).not.toContain("subjectKey");
+    expect(JSON.stringify(summary)).not.toContain("evidenceRefs");
   });
 
   it("answers the final touch from the typed read and records nothing", async () => {
