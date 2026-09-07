@@ -1,14 +1,13 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  loadRoutineDirectory,
-  loadRoutineDirectoryTombstones,
   roleSection,
   RoutineDirectoryError,
   type RoutineDirectory,
   type RoutineDirectorySection,
   type RoutineDirectorySectionProvider,
 } from "../application/routine-directory.js";
+import { isMissingFileError, readRoutineDirectoryFile } from "./routine-directory-files.js";
 
 function routineDirectoryEntryCount(directory: RoutineDirectory): number {
   return directory.sections.reduce((count, section) => count + section.entries.length, 0);
@@ -42,33 +41,20 @@ export function loadRoutineDirectoryProvider(
   if (!directory) return createProvider(directories);
 
   for (const companyId of options.companyIds) {
-    const tombstones = readTombstones(directory, companyId);
     const file = resolveDirectoryFile(directory, companyId);
-    let text: string;
     try {
-      text = readFileSync(file, "utf8");
-    } catch (error) {
-      if (isMissingFile(error)) {
-        options.warn?.(`Routine directory file is unavailable for company ${JSON.stringify(companyId)}.`);
-        continue;
-      }
-      throw new RoutineDirectoryProviderStartupError("directory_read_failed", companyId, error);
-    }
-    let json: unknown;
-    try {
-      json = JSON.parse(text) as unknown;
-    } catch (error) {
-      throw new RoutineDirectoryProviderStartupError("directory_schema_invalid", companyId, error);
-    }
-    try {
-      const loadedDirectory = loadRoutineDirectory(json, { expectedCompanyId: companyId, tombstoneIds: new Set(tombstones) });
+      const loadedDirectory = readRoutineDirectoryFile(file, { expectedCompanyId: companyId });
       directories.set(companyId, loadedDirectory);
       options.warn?.(`routine directory loaded: ${JSON.stringify(companyId)}, version ${JSON.stringify(loadedDirectory.version)}, entries ${routineDirectoryEntryCount(loadedDirectory)}`);
     } catch (error) {
+      if (isMissingFileError(error)) {
+        options.warn?.(`Routine directory file is unavailable for company ${JSON.stringify(companyId)}.`);
+        continue;
+      }
       if (error instanceof RoutineDirectoryError) {
         throw new RoutineDirectoryProviderStartupError(error.code, companyId, error);
       }
-      throw error;
+      throw new RoutineDirectoryProviderStartupError("directory_read_failed", companyId, error);
     }
   }
   return createProvider(directories, options.warn);
@@ -84,7 +70,7 @@ export function loadRoutineDirectoryProviderFromDirectory(
   try {
     files = readdirSync(directory).filter((file) => /^routine-directory\.[^./]+\.json$/u.test(file));
   } catch (error) {
-    if (isMissingFile(error)) {
+    if (isMissingFileError(error)) {
       options.warn?.("Routine directory directory is unavailable.");
       return createProvider(new Map());
     }
@@ -119,17 +105,4 @@ function createProvider(
 
 function resolveDirectoryFile(directory: string, companyId: string): string {
   return join(directory, `routine-directory.${companyId}.json`);
-}
-
-function readTombstones(directory: string, companyId: string): string[] {
-  try {
-    return loadRoutineDirectoryTombstones(JSON.parse(readFileSync(join(directory, `routine-directory.${companyId}.tombstones.json`), "utf8")) as unknown);
-  } catch (error) {
-    if (isMissingFile(error)) return [];
-    throw new RoutineDirectoryProviderStartupError("directory_schema_invalid", companyId, error);
-  }
-}
-
-function isMissingFile(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

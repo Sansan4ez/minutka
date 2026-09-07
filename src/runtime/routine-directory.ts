@@ -1,10 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { stdout } from "node:process";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
   RoutineDirectoryError,
-  loadRoutineDirectory,
   routineDirectoryCounts,
 } from "../application/routine-directory.js";
 import { runRoutineDirectoryPurge } from "./routine-directory-purge-command.js";
@@ -18,6 +17,7 @@ import { migrationStatus } from "../infrastructure/postgres/postgres-migrator.js
 import { createPostgresPool } from "../infrastructure/postgres/postgres-pool.js";
 import { createPostgresResearchCorpusSource } from "../infrastructure/postgres/postgres-research-corpus-source.js";
 import { createPostgresResearchTraceStore } from "../infrastructure/postgres/postgres-research-trace-store.js";
+import { readRoutineDirectoryFile } from "../infrastructure/routine-directory-files.js";
 import { loadDotEnv } from "../config/env.js";
 
 export async function runRoutineDirectoryCommand(argv: string[], write: (text: string) => void = (text) => stdout.write(text)): Promise<void> {
@@ -26,16 +26,8 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
     .requiredOption("--company <companyId>")
     .requiredOption("--file <path>")
     .action(async (options: { company: string; file: string }) => {
-      const text = await readFile(resolve(options.file), "utf8");
-      let json: unknown;
       try {
-        json = JSON.parse(text) as unknown;
-      } catch {
-        write(`${JSON.stringify({ ok: false, code: "directory_schema_invalid", message: "routine directory JSON is invalid" }, null, 2)}\n`);
-        return;
-      }
-      try {
-        const directory = loadRoutineDirectory(json, { expectedCompanyId: options.company });
+        const directory = readRoutineDirectoryFile(resolve(options.file), { expectedCompanyId: options.company });
         write(`${JSON.stringify({ ok: true, version: directory.version, ...routineDirectoryCounts(directory) }, null, 2)}\n`);
       } catch (error) {
         if (!(error instanceof RoutineDirectoryError)) throw error;
@@ -64,8 +56,7 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
     .option("--out <path>")
     .action(async (options: { company: string; group: string; file: string; out?: string }) => {
       loadDotEnv();
-      const text = await readFile(resolve(options.file), "utf8");
-      const directory = loadRoutineDirectory(JSON.parse(text) as unknown, { expectedCompanyId: options.company });
+      const directory = readRoutineDirectoryFile(resolve(options.file), { expectedCompanyId: options.company });
       const pool = createPostgresPool(postgresConfigFromEnv(process.env));
       try {
         const status = await migrationStatus(pool);

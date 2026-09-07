@@ -1,10 +1,7 @@
-import { readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { readdir, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import {
-  loadRoutineDirectory,
-  loadRoutineDirectoryTombstones,
-  type RoutineDirectory,
-} from "../application/routine-directory.js";
+import type { RoutineDirectory } from "../application/routine-directory.js";
+import { readRoutineDirectoryFile, readTombstones } from "../infrastructure/routine-directory-files.js";
 import {
   planDirectoryPurge,
   type RoutineDirectoryPurgeScope,
@@ -26,8 +23,8 @@ export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (te
   }
   const directoryPath = resolve(options.dir);
   const tombstonePath = join(directoryPath, `routine-directory.${options.company}.tombstones.json`);
-  const tombstoneIds = await readTombstones(tombstonePath);
-  const files = await readDirectoryFiles(directoryPath, options.company, new Set(tombstoneIds));
+  const tombstoneIds = readTombstones(directoryPath, options.company);
+  const files = await readDirectoryFiles(directoryPath, options.company);
   const scope: RoutineDirectoryPurgeScope = options.group === undefined
     ? "company"
     : options.subjectKey === undefined
@@ -59,7 +56,6 @@ export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (te
 async function readDirectoryFiles(
   directoryPath: string,
   companyId: string,
-  tombstoneIds: ReadonlySet<string>,
 ): Promise<DirectoryFile[]> {
   const files = await readdir(directoryPath, { withFileTypes: true });
   const prefix = `routine-directory.${companyId}`;
@@ -69,26 +65,12 @@ async function readDirectoryFiles(
     .sort();
   const result: DirectoryFile[] = [];
   for (const path of paths) {
-    const json = JSON.parse(await readFile(path, "utf8")) as unknown;
-    result.push({ path, directory: loadRoutineDirectory(json, { expectedCompanyId: companyId, tombstoneIds }) });
+    result.push({ path, directory: readRoutineDirectoryFile(path, { expectedCompanyId: companyId }) });
   }
   return result;
 }
 
-async function readTombstones(path: string): Promise<string[]> {
-  try {
-    return loadRoutineDirectoryTombstones(JSON.parse(await readFile(path, "utf8")) as unknown);
-  } catch (error) {
-    if (isMissingFile(error)) return [];
-    throw error;
-  }
-}
-
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-function isMissingFile(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 

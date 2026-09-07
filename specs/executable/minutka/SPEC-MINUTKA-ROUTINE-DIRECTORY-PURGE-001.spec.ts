@@ -1,10 +1,12 @@
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadRoutineDirectory, RoutineDirectoryError } from "../../../src/application/routine-directory.js";
 import { planDirectoryPurge } from "../../../src/application/routine-directory-purge.js";
 import { runRoutineDirectoryPurge } from "../../../src/runtime/routine-directory-purge-command.js";
+import { runRoutineDirectoryCommand } from "../../../src/runtime/routine-directory.js";
+import { runCompanyReportCommand } from "../../../src/runtime/company-report-command.js";
 import { loadRoutineDirectoryProviderFromDirectory } from "../../../src/infrastructure/routine-directory-provider.js";
 import type { RoutineDirectory } from "../../../src/application/routine-directory.js";
 
@@ -191,6 +193,49 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     const loaded = loadRoutineDirectory(restored, { expectedCompanyId: "company_a", tombstoneIds: new Set(["a"]) });
     expect(loaded.sections[0]?.entries[0]?.id).toBe("new-id");
     expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).toEqual({ ids: ["a"] });
+  });
+
+  it("rejects tombstoned ids at validate and company-report command boundaries before writing output", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+    ]);
+    await writeFile(join(directory, "routine-directory.company_a.tombstones.json"), JSON.stringify({ ids: ["a"] }), "utf8");
+    const directoryFile = join(directory, "routine-directory.company_a.json");
+    const reportFile = join(directory, "report.json");
+    let validateOutput = "";
+    await runRoutineDirectoryCommand(["validate", "--company", "company_a", "--file", directoryFile], (text) => { validateOutput += text; });
+    expect(JSON.parse(validateOutput)).toMatchObject({ ok: false, code: "directory_reused_id" });
+
+    let reportBuilds = 0;
+    const dependencies = {
+      reporting: { async buildReport() { reportBuilds += 1; return { internal: {}, client: {} } as never; } },
+      checkLlm: async () => ({ object: { results: [] } }),
+      publishing: {
+        async resolvePreflightFinding() { throw new Error("must not resolve"); },
+        async publishClientReport() { throw new Error("must not publish"); },
+      },
+    };
+    await expect(runCompanyReportCommand([
+      "build", "--company", "company_a", "--group", "group_a", "--directory", directoryFile, "--out", reportFile,
+    ], dependencies)).rejects.toMatchObject({ code: "directory_reused_id" });
+    await expect(stat(reportFile)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(runCompanyReportCommand([
+      "publish", "--company", "company_a", "--group", "group_a", "--directory", directoryFile,
+      "--findings", join(directory, "findings.json"), "--out", reportFile,
+    ], dependencies)).rejects.toMatchObject({ code: "directory_reused_id" });
+    expect(reportBuilds).toBe(0);
+    await expect(stat(reportFile)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves command behavior when the sibling tombstone file is absent", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+    ]);
+    let output = "";
+    await runRoutineDirectoryCommand([
+      "validate", "--company", "company_a", "--file", join(directory, "routine-directory.company_a.json"),
+    ], (text) => { output += text; });
+    expect(JSON.parse(output)).toMatchObject({ ok: true, version: "1", entries: 1 });
   });
 
   it("rejects a tombstone file containing non-ids", async () => {
