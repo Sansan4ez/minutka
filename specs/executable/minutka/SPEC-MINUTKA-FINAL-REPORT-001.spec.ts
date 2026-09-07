@@ -350,8 +350,15 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(skillsMap).toContain("readCycleActivities");
     const process = readFileSync("vault/assistant/processes/final_report.md", "utf8");
     expect(process).toContain("read-only");
-    expect(process).toContain("send it as a separate message after the report");
-    expect(process).toContain("does not reach the methodologist or the company");
+    expect(process).toContain("routines[]");
+    expect(process).toContain("frequency from `count`");
+    expect(process).toContain("which of these routines would the employee like to simplify?");
+    expect(process).toContain("corpus signal");
+    expect(process).toContain("Quick-win assignments live in the operator file");
+    expect(process).toContain("invent no routine, hour, or quick win");
+    expect(process).not.toContain("two or three concrete simplification steps");
+    expect(process).toContain("invite them to send it as a separate message after the report");
+    expect(process).toContain("The report stays personal");
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
     expect(packageJson.scripts["cycle:final-reports"]).toBe("tsx src/runtime/arm-final-reports.ts");
     expect(runbook).toContain("confirmation did not match; nothing was armed");
