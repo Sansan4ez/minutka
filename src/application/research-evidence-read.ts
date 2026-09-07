@@ -1,5 +1,7 @@
 import type { AuditEventStore } from "./audit-event-store.js";
 import type { EvaluationCaseStore, EvaluationHumanLabels } from "./research-evaluation.js";
+import type { PersonalActivityRecord } from "./activity-collection.js";
+import type { ResearchCorpusSource } from "./research-corpus-export.js";
 import {
   sanitizeResearchTrace,
   type ResearchTraceRecord,
@@ -37,7 +39,12 @@ export type ResearchTraceListItem = {
   completedAt: string;
 };
 
-type ReadOperation = "evaluation_list" | "traces_list" | "traces_get";
+export type RoutineEvidenceRead = {
+  messages: Array<{ messageId: string; subjectKey: string; userText: string; agentResponse: string; timestamp: string }>;
+  activities: Array<Omit<PersonalActivityRecord, "employeeId">>;
+};
+
+type ReadOperation = "evaluation_list" | "traces_list" | "traces_get" | "routine_evidence_list";
 
 export class ResearchEvidenceReadService {
   constructor(
@@ -46,6 +53,7 @@ export class ResearchEvidenceReadService {
     private readonly audit?: AuditEventStore,
     private readonly clock: Clock = systemClock,
     private readonly auditId: () => string = randomIdGenerator.auditEventId,
+    private readonly corpusSource?: Pick<ResearchCorpusSource, "listMessages" | "listActivities">,
   ) {}
 
   async listEvaluationCases(input: ResearchEvidenceScope): Promise<EvaluationCaseListItem[]> {
@@ -81,6 +89,23 @@ export class ResearchEvidenceReadService {
       assertExactScope(scope, records);
       return records.map(traceMetadata);
     }, (records) => records.length);
+  }
+
+  async listRoutineEvidence(input: ResearchEvidenceScope): Promise<RoutineEvidenceRead> {
+    const scope = normalizeScope(input);
+    if (!this.corpusSource) throw new Error("routine evidence source is unavailable");
+    return this.withAudit("routine_evidence_list", scope, async () => {
+      const [messages, activities] = await Promise.all([
+        this.corpusSource!.listMessages(scope),
+        this.corpusSource!.listActivities(scope),
+      ]);
+      assertExactScope(scope, activities);
+      const subjectKeys = new Set(messages.map((message) => message.subjectKey));
+      if (activities.some((activity) => !subjectKeys.has(activity.subjectKey))) {
+        throw new Error("research evidence source returned an activity outside the scoped messages");
+      }
+      return { messages, activities };
+    }, (result) => result.activities.length);
   }
 
   async getTrace(input: ResearchEvidenceScope & { traceId: string }): Promise<ResearchTraceRecord | undefined> {
