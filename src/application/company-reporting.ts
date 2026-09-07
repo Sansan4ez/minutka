@@ -3,13 +3,9 @@ import type { ActivityDurationBucket, ActivityRecurrence, ActivitySystem, Automa
 import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
 import { findQuickWin, type QuickWinId } from "./quick-wins.js";
 import { routineKey, tally } from "./own-activity-window.js";
+import { buildPreflightFindings, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
-export const COMPANY_REPORT_CONFIDENCE_POLICY = {
-  signalSubjects: 2,
-  confirmedSubjects: 3,
-  confirmedObservations: 5,
-  confirmedDates: 3,
-} as const;
+export { COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
 export const durationBucketHours: Record<ActivityDurationBucket, number> = {
   lt_15m: 0.2,
@@ -136,6 +132,7 @@ export type InternalCompanyEvidenceReport = {
   };
   timeBudget: InternalTimeBudgetEntry[];
   routines: InternalRoutine[];
+  preflightFindings: import("./report-preflight.js").PreflightFinding[];
   buckets: InternalEvidenceBucket[];
 };
 
@@ -263,7 +260,7 @@ function buildInternalReport(
   const classified = classifyActivities(activities, directory);
   const attributedActivities = classified.filter(({ routine }) => routine !== undefined).map(({ activity }) => activity);
   const unattributedActivities = classified.filter(({ routine }) => routine === undefined).map(({ activity }) => activity);
-  return {
+  const report: InternalCompanyEvidenceReport = {
     schemaVersion: "minutka-internal-report/v2",
     generatedAt,
     companyId,
@@ -283,6 +280,7 @@ function buildInternalReport(
     },
     timeBudget: buildTimeBudget(attributedActivities),
     routines: buildRoutines(classified.filter(({ routine }) => routine !== undefined) as ClassifiedActivity[]),
+    preflightFindings: [],
     buckets: [
       ...buildBuckets({ kind: "overall_group" }, attributedActivities),
       ...[...groupBy(attributedActivities, (activity) => activity.roleId).entries()]
@@ -290,6 +288,8 @@ function buildInternalReport(
         .flatMap(([roleId, roleActivities]) => buildBuckets({ kind: "role", roleId }, roleActivities)),
     ],
   };
+  report.preflightFindings = buildPreflightFindings({ ...report, client: buildClientReport(report) });
+  return report;
 }
 
 type ReportActivity = Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">;
@@ -569,7 +569,7 @@ function routineEvidenceSummary(routine: InternalRoutine): ClientRoutineEvidence
 }
 
 function routineScope(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): string {
-  if (routine.key.roleId && (internal.roleContributors[routine.key.roleId] ?? 0) >= 2) return internal.reference?.roleLabels[routine.key.roleId] ?? "группа";
+  if (routine.contributors >= 2 && routine.key.roleId && (internal.roleContributors[routine.key.roleId] ?? 0) >= 2) return internal.reference?.roleLabels[routine.key.roleId] ?? "группа";
   return "группа";
 }
 

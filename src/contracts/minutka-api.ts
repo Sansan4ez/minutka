@@ -260,6 +260,10 @@ const internalRoutineKeySchema = z.union([
   z.strictObject({ roleId: z.string().min(1), routineKey: z.string().min(1) }),
 ]);
 const routineSignalSchema = z.strictObject({ count: z.number().int().nonnegative(), byValue: z.record(z.string(), z.number().int().nonnegative()) });
+const preflightFindingSchema = z.strictObject({
+  id: z.string().min(1), field: z.enum(["routine.name", "routine.variants", "policy"]), routineKey: z.string().min(1).optional(),
+  rule: z.string().min(1), excerpt: z.string().min(1), severity: z.enum(["high", "medium", "low"]),
+});
 const internalRoutineSchema = z.strictObject({
   key: internalRoutineKeySchema,
   name: z.string().min(1).optional(), mostFrequentLabel: z.string().min(1).optional(), variants: z.array(z.string()),
@@ -282,6 +286,7 @@ const internalCompanyReportSchema = z.strictObject({
     taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(),
   })),
   routines: z.array(internalRoutineSchema),
+  preflightFindings: z.array(preflightFindingSchema),
   buckets: z.array(z.strictObject({
     bucketId: z.string().min(1),
     scope: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("overall_group") }), z.strictObject({ kind: z.literal("role"), roleId: z.string().min(1) })]),
