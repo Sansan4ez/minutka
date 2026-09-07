@@ -15,6 +15,7 @@ export const activityRecurrenceValues = activityRecurrenceTypes;
 export const activityRecurrenceSchema = z.enum(activityRecurrenceValues);
 export type ActivityRecurrence = (typeof activityRecurrenceValues)[number];
 export const collectActivitiesMaximumItems = 50;
+export const routineIdMaxLength = 64;
 
 /**
  * Every field is optional so an incomplete activity stays incomplete rather
@@ -43,7 +44,7 @@ export const activityCollectionItemSchema = z.strictObject({
   system: activitySystemSchema
     .describe("Optional generic system type. Include only for an explicitly named channel/system or an unambiguous generic mapping. Omit an unnamed or ambiguous system. Use other only for an explicit known system type outside the taxonomy.")
     .optional(),
-  routineId: z.string().trim().min(1).max(64).optional(),
+  routineId: z.string().trim().min(1).max(routineIdMaxLength).optional(),
   routineLabel: z.string().trim().min(3).max(80).optional(),
   recurrence: activityRecurrenceSchema.optional(),
 });

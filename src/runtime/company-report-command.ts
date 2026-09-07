@@ -72,12 +72,12 @@ export async function runCompanyReportCommand(
   if (dependencies.publishing) {
     program.command("resolve-finding")
       .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--finding <findingId>")
-      .requiredOption("--decision <decision>").option("--directory <path>").option("--findings <path>").option("--note <note>")
-      .action(async (options: { company: string; group: string; finding: string; decision: "verified" | "fixed"; directory?: string; findings?: string; note?: string }) => {
+      .requiredOption("--decision <decision>").option("--directory <path>").option("--findings <path>")
+      .action(async (options: { company: string; group: string; finding: string; decision: "verified" | "fixed"; directory?: string; findings?: string }) => {
         if (options.decision !== "verified" && options.decision !== "fixed") throw new Error("--decision must be verified or fixed");
         const directory = options.directory === undefined ? undefined : loadRoutineDirectory(JSON.parse(await readFile(resolve(options.directory), "utf8")) as unknown, { expectedCompanyId: options.company });
         const findings = options.findings === undefined ? undefined : JSON.parse(await readFile(resolve(options.findings), "utf8")) as never;
-        write(`${JSON.stringify(await dependencies.publishing!.resolvePreflightFinding({ companyId: options.company, groupId: options.group, findingId: options.finding, decision: options.decision, ...(directory === undefined ? {} : { directory }), ...(findings === undefined ? {} : { findings }), ...(options.note === undefined ? {} : { note: options.note }) }))}\n`);
+        write(`${JSON.stringify(await dependencies.publishing!.resolvePreflightFinding({ companyId: options.company, groupId: options.group, findingId: options.finding, decision: options.decision, ...(directory === undefined ? {} : { directory }), ...(findings === undefined ? {} : { findings }) }))}\n`);
       });
     program.command("publish")
       .requiredOption("--company <companyId>").requiredOption("--group <groupId>")

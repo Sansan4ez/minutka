@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityRecurrenceValues, collectActivitiesMaximumItems } from "../contracts/minutka-activity.js";
+import { activityRecurrenceValues, collectActivitiesMaximumItems, routineIdMaxLength } from "../contracts/minutka-activity.js";
 import type { RoutineDirectorySection } from "./routine-directory.js";
 import {
   activityDurationBuckets,
@@ -45,7 +45,7 @@ export const activityTransactionPatchSchema = z.strictObject({
   automationCandidate: z.enum(automationCandidateTypes).optional(),
   energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
   system: z.enum(activitySystems).optional(),
-  routineId: z.string().trim().min(1).max(64).nullable().optional(),
+  routineId: z.string().trim().min(1).max(routineIdMaxLength).nullable().optional(),
   routineLabel: z.string().trim().min(3).max(80).nullable().optional(),
   recurrence: z.enum(activityRecurrenceValues).nullable().optional(),
   durationRef: z.string().trim().min(1).max(64).optional(),
@@ -74,7 +74,7 @@ export type ActivityTransactionRecentCandidate = z.infer<typeof activityTransact
 const routineDirectorySectionSchema = z.strictObject({
   version: z.string().trim().min(1),
   entries: z.array(z.strictObject({
-    id: z.string().trim().min(1),
+    id: z.string().trim().min(1).max(routineIdMaxLength),
     name: z.string().trim().min(1),
     description: z.string().trim().min(1),
     examples: z.array(z.string().trim().min(1)).max(10),
@@ -148,7 +148,7 @@ const nullablePatchBase = {
   system: z.enum(activitySystems)
     .describe("Generic system or channel explicitly named or unambiguously typed in the current employee message. null when unstated. paper_or_verbal requires explicit paper or verbal evidence; other requires an explicit known outside-taxonomy system type.")
     .nullable(),
-  routineId: z.string().trim().min(1).max(64)
+  routineId: z.string().trim().min(1).max(routineIdMaxLength)
     .describe("Routine directory id explicitly supported by the current employee message or existing activity correction evidence. null when unstated or when no directory entry applies.")
     .nullable(),
   routineLabel: z.string().trim().min(3).max(80)

@@ -38,7 +38,6 @@ export class ClientReportPublishingService {
     findingId: string;
     decision: PreflightFindingDecision;
     directory?: unknown;
-    note?: string;
     findings?: ReportPreflightFindingsFile;
   }): Promise<{ ok: true }> {
     const scope = normalizeScope(input);

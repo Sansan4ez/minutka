@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { quickWinAssignmentSchema } from "./quick-wins.js";
+import { routineIdMaxLength } from "../contracts/minutka-activity.js";
 
 const routineDirectorySchemaVersion = "minutka-routine-directory/v1" as const;
 
@@ -9,7 +10,7 @@ const provenanceSchema = z.strictObject({
 });
 
 const routineEntrySchema = z.strictObject({
-  id: z.string().trim().min(1),
+  id: z.string().trim().min(1).max(routineIdMaxLength),
   name: z.string().trim().min(3).max(80),
   description: z.string().trim().min(1),
   examples: z.array(z.string().trim().min(1)).max(10),
@@ -74,7 +75,7 @@ const routineDirectoryStructureSchema = z.strictObject({
   sections: z.array(z.strictObject({
     roleId: z.string().trim().min(1),
     entries: z.array(z.strictObject({
-      id: z.string().trim().min(1),
+      id: z.string().trim().min(1).max(routineIdMaxLength),
       name: z.string().trim().min(3).max(80),
       description: z.string().trim().min(1),
       examples: z.array(z.string().trim().min(1)).max(10),
@@ -106,7 +107,7 @@ export function loadRoutineDirectory(
   }
 
   const structure = routineDirectoryStructureSchema.safeParse(json);
-  if (!structure.success) throw new RoutineDirectoryError("directory_schema_invalid", "routine directory schema is invalid");
+  if (!structure.success) throw new RoutineDirectoryError("directory_schema_invalid", routineDirectorySchemaError(structure.error));
 
   if (structure.data.companyId !== options.expectedCompanyId) {
     throw new RoutineDirectoryError("directory_scope_mismatch", "routine directory company does not match the expected company");
@@ -132,7 +133,7 @@ export function loadRoutineDirectory(
   }
 
   const parsed = routineDirectorySchema.safeParse(structure.data);
-  if (!parsed.success) throw new RoutineDirectoryError("directory_schema_invalid", "routine directory schema is invalid");
+  if (!parsed.success) throw new RoutineDirectoryError("directory_schema_invalid", routineDirectorySchemaError(parsed.error));
   return parsed.data;
 }
 
@@ -183,6 +184,12 @@ function findDuplicateId(directory: RoutineDirectoryStructure): string | undefin
     }
   }
   return undefined;
+}
+
+function routineDirectorySchemaError(error: z.ZodError): string {
+  return error.issues.some((issue) => issue.code === "too_big" && issue.path.at(-1) === "id")
+    ? `routine directory routine id must be at most ${routineIdMaxLength} characters`
+    : "routine directory schema is invalid";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

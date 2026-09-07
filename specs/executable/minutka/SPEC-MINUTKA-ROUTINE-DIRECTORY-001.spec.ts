@@ -76,6 +76,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
     ["unknown quick win", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], quickWin: "not-a-quick-win" }] }] }, "directory_unknown_quick_win"],
     ["provenance missing", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], provenance: [] }] }] }, "directory_provenance_missing"],
     ["schema invalid", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], name: "x" }] }] }, "directory_schema_invalid"],
+    ["routine id too long", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], id: "x".repeat(65) }] }] }, "directory_schema_invalid"],
   ];
 
   for (const [label, input, code] of cases) {
@@ -83,6 +84,9 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
       expect(() => loadRoutineDirectory(input, { expectedCompanyId: "company_a" })).toThrowError(
         expect.objectContaining({ code }),
       );
+      if (label === "routine id too long") {
+        expect(() => loadRoutineDirectory(input, { expectedCompanyId: "company_a" })).toThrow("routine directory routine id must be at most 64 characters");
+      }
       try {
         loadRoutineDirectory(input, { expectedCompanyId: "company_a" });
       } catch (error) {
