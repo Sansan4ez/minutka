@@ -203,12 +203,52 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
-    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v2");
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v3");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({
       mode: "record", currentText: "Finished a report", durationReferences: [], recentCandidates: [recent("forbidden")],
     }).success).toBe(false);
+    expect(prompt).not.toContain("Routine directory section");
+  });
+
+  it("uses the role directory in the bounded prompt and drops unknown ids with a trace diagnostic", async () => {
+    const observed: Array<{ prompt: string; schema: unknown }> = [];
+    const directorySection = {
+      version: "directory-v1",
+      entries: [{ id: "routine_report", name: "Prepare reports", description: "Prepare recurring reports", examples: ["monthly report"] }],
+    };
+    const result = await extractorFor(transport({
+      kind: "collect",
+      activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "unknown", routineLabel: "Prepare reports", recurrence: "weekly" }],
+    }), observed)({ mode: "record", currentText: "Prepared the weekly report", durationReferences: [], directorySection });
+    const accepted = await extractorFor(transport({
+      kind: "collect",
+      activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "routine_report" }],
+    }))({ mode: "record", currentText: "Prepared the weekly report", durationReferences: [], directorySection });
+    expect(accepted).toMatchObject({ decision: { activities: [{ routineId: "routine_report" }] } });
+    expect(observed[0]?.prompt).toContain("# Routine directory section");
+    expect(observed[0]?.prompt).toContain(JSON.stringify(directorySection));
+    expect(result).toMatchObject({
+      status: "completed",
+      decision: { kind: "collect", activities: [{ taskCategory: "reporting", routineLabel: "Prepare reports", recurrence: "weekly" }] },
+    });
+
+    const traceResult = await createActivityTransactionExtractor(async () => ({
+      object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "unknown" }] }),
+      trace: { promptVersion: "minutka-activity-transaction/v3", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
+    }), buildActivityTransactionPrompt)({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection });
+    expect(traceResult).toMatchObject({ trace: { diagnostics: ["unknown_routine_id"] }, decision: { activities: [{ taskCategory: "reporting" }] } });
+
+    expect(() => buildActivityTransactionPrompt({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection: {
+      version: "directory-v1",
+      entries: Array.from({ length: 41 }, (_, index) => ({ id: `routine_${index}`, name: "Routine", description: "Description", examples: [] })),
+    } })).toThrow(/routine directory entries/i);
+    expect(activityTransactionExtractorInputSchema.safeParse({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection }).success).toBe(true);
+    expect(createActivityTransactionTransportSchema([]).safeParse(transport({
+      kind: "collect",
+      activities: [{ ...nullPatch, recurrence: "sometimes" }],
+    })).success).toBe(false);
   });
 
   it.each([

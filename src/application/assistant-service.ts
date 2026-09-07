@@ -1190,6 +1190,7 @@ function activityTransactionTraceAttempt(
     toolResults: [],
     ...(extraction?.trace?.model ? { model: extraction.trace.model } : {}),
     ...(extraction?.trace?.promptVersion ? { promptVersion: extraction.trace.promptVersion } : {}),
+    ...(extraction?.trace?.diagnostics ? { diagnostics: extraction.trace.diagnostics } : {}),
     ...(extraction?.decision ? { decision: extraction.decision } : {}),
     mutationResult: activityTransactionMutationResult(result),
     ...(extraction?.usage ? { usage: extraction.usage } : {}),

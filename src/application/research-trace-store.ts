@@ -18,6 +18,7 @@ export type ResearchTraceAttempt = {
   toolResults: unknown[];
   model?: string;
   promptVersion?: string;
+  diagnostics?: string[];
   decision?: unknown;
   mutationResult?: unknown;
   usage?: ModelTokenUsage;
@@ -105,6 +106,7 @@ const traceSchema = z.strictObject({
     toolResults: z.array(z.unknown()),
     model: z.string().trim().min(1).optional(),
     promptVersion: z.string().trim().min(1).optional(),
+    diagnostics: z.array(z.string().trim().min(1)).optional(),
     decision: z.unknown().optional(),
     mutationResult: z.unknown().optional(),
     usage: z.strictObject({

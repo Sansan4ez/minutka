@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { activityRecurrenceValues, collectActivitiesMaximumItems } from "../contracts/minutka-activity.js";
+import type { RoutineDirectorySection } from "./routine-directory.js";
 import {
   activityDurationBuckets,
   activitySystems,
@@ -70,9 +71,20 @@ export const activityTransactionRecentCandidateSchema = z.strictObject({
 });
 export type ActivityTransactionRecentCandidate = z.infer<typeof activityTransactionRecentCandidateSchema>;
 
+const routineDirectorySectionSchema = z.strictObject({
+  version: z.string().trim().min(1),
+  entries: z.array(z.strictObject({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+    examples: z.array(z.string().trim().min(1)).max(10),
+  })),
+});
+
 const activityTransactionInputBase = {
   currentText: z.string().trim().min(1),
   durationReferences: z.array(durationReferenceSchema).max(MAX_DURATION_REFERENCES),
+  directorySection: routineDirectorySectionSchema.optional(),
   signal: z.custom<AbortSignal>().optional(),
 };
 
@@ -178,8 +190,14 @@ export type ActivityTransactionContextMeasurement = {
   staticRulesCharacters: number;
   durationReferencesCharacters: number;
   recentCandidatesCharacters: number;
+  directoryVersion?: string;
+  directoryEntries?: number;
+  directoryCharacters?: number;
   promptCharacters: number;
 };
+
+export const activityTransactionTraceDiagnostics = ["unknown_routine_id"] as const;
+export type ActivityTransactionTraceDiagnostic = typeof activityTransactionTraceDiagnostics[number];
 
 export type ActivityTransactionGenerationTrace = {
   promptVersion: string;
@@ -187,6 +205,7 @@ export type ActivityTransactionGenerationTrace = {
   boundedContext: string;
   modelSteps: unknown[];
   latencyMs: number;
+  diagnostics?: ActivityTransactionTraceDiagnostic[];
 };
 
 export type ActivityTransactionExtractionResult =
@@ -260,9 +279,19 @@ export function createActivityTransactionExtractor(
     const normalized = normalizeActivityTransactionTransport(
       generated.object,
       parsedInput.durationReferences.map(({ ref }) => ref),
+      parsedInput.directorySection,
     );
     const usage = generated.usage ? { usage: generated.usage } : {};
-    const trace = generated.trace ? { trace: generated.trace } : {};
+    const trace = generated.trace
+      ? {
+        trace: normalized.success && normalized.diagnostics?.length
+          ? {
+            ...generated.trace,
+            diagnostics: [...new Set([...(generated.trace.diagnostics ?? []), ...normalized.diagnostics])],
+          }
+          : generated.trace,
+      }
+      : {};
     return normalized.success && decisionFitsExtractorInput(parsedInput, normalized.decision)
       ? { status: "completed", decision: normalized.decision, context: built.context, ...usage, ...trace }
       : { status: "failed", code: "schema_error", context: built.context, ...usage, ...trace };
@@ -272,7 +301,8 @@ export function createActivityTransactionExtractor(
 export function normalizeActivityTransactionTransport(
   value: unknown,
   durationRefs: readonly string[],
-): { success: true; decision: ActivityTransactionDecision } | { success: false } {
+  directorySection?: RoutineDirectorySection,
+): { success: true; decision: ActivityTransactionDecision; diagnostics?: ActivityTransactionTraceDiagnostic[] } | { success: false } {
   const parsed = createActivityTransactionTransportSchema(durationRefs).safeParse(value);
   if (!parsed.success) return { success: false };
   const input = parsed.data;
@@ -325,8 +355,36 @@ export function normalizeActivityTransactionTransport(
       };
       break;
   }
-  const decision = activityTransactionDecisionSchema.safeParse(candidate);
-  return decision.success ? { success: true, decision: decision.data } : { success: false };
+  const diagnostics: ActivityTransactionTraceDiagnostic[] = [];
+  const normalizedCandidate = normalizeRoutineIds(candidate, directorySection, diagnostics);
+  const decision = activityTransactionDecisionSchema.safeParse(normalizedCandidate);
+  return decision.success
+    ? { success: true, decision: decision.data, ...(diagnostics.length === 0 ? {} : { diagnostics }) }
+    : { success: false };
+}
+
+function normalizeRoutineIds(
+  candidate: unknown,
+  directorySection: RoutineDirectorySection | undefined,
+  diagnostics: ActivityTransactionTraceDiagnostic[],
+): unknown {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
+  const value = candidate as Record<string, unknown>;
+  const allowedRoutineIds = new Set(directorySection?.entries.map(({ id }) => id) ?? []);
+  const normalizePatch = (patch: unknown): unknown => {
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
+    const normalized = { ...(patch as Record<string, unknown>) };
+    if (typeof normalized.routineId === "string" && (directorySection === undefined || !allowedRoutineIds.has(normalized.routineId))) {
+      if (directorySection !== undefined) diagnostics.push("unknown_routine_id");
+      delete normalized.routineId;
+    }
+    return normalized;
+  };
+  return {
+    ...value,
+    ...(Array.isArray(value.activities) ? { activities: value.activities.map(normalizePatch) } : {}),
+    ...(value.correction === null || value.correction === undefined ? {} : { correction: normalizePatch(value.correction) }),
+  };
 }
 
 function decisionFitsExtractorInput(
