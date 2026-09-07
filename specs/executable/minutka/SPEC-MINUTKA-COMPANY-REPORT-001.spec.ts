@@ -95,6 +95,34 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(new Set(bucket?.evidenceRefs.map((ref) => ref.subjectKey))).toEqual(new Set(["subject_one"]));
   });
 
+  it("keeps a repeated one-contributor directory routine group-scoped without policy findings", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "directory-confidence",
+      sections: [{
+        roleId: "role_sales",
+        entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
+      }],
+    };
+    const rows = Array.from({ length: 4 }, (_, index) => activity({
+      id: `routine-${index}`,
+      subjectKey: "subject_one",
+      roleId: "role_sales",
+      routineId: "sales_report",
+      routineLabel: "Отчёты",
+      date: `2026-08-0${index + 1}`,
+    }));
+
+    const result = await service(participants, rows).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    const routine = result.internal.routines[0];
+
+    expect(routine).toMatchObject({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
+    expect(result.client.topRoutines).toEqual([expect.objectContaining({ name: "Подготовка отчётов", scope: "группа", confidence: "signal" })]);
+    expect(result.internal.preflightFindings.filter(({ rule }) => rule === "rare_role")).toEqual([]);
+  });
+
   it("promotes confidence with distinct subjects, observations, and dates", async () => {
     const participants = ["one", "two", "three"].map((id) => participant(id, "company_a", "group_a", "role_sales"));
     const rows = [
@@ -174,7 +202,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(result.client.deepDive).toEqual([]);
   });
 
-  it("returns a rare-role process hypothesis without employee evaluation or raw quote", async () => {
+  it("returns a rare-role process signal without employee evaluation or raw quote", async () => {
     const participants = [
       participant("tender", "company_a", "group_a", "role_tender_specialist"),
       participant("sales", "company_a", "group_a", "role_sales"),

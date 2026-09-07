@@ -3,7 +3,7 @@ import type { ActivityDurationBucket, ActivityRecurrence, ActivitySystem, Automa
 import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
 import { findQuickWin, type QuickWinId } from "./quick-wins.js";
 import { routineKey, tally } from "./own-activity-window.js";
-import { buildPreflightFindings, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
+import { buildPreflightFindings, confidenceForCounts, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
 export { COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
@@ -231,16 +231,6 @@ export class CompanyReportingService {
   }
 }
 
-export function confidenceForEvidence(input: { contributors: number; observations: number; activeDates: number }): CompanyReportConfidence {
-  if (
-    input.contributors >= COMPANY_REPORT_CONFIDENCE_POLICY.confirmedSubjects
-    && input.observations >= COMPANY_REPORT_CONFIDENCE_POLICY.confirmedObservations
-    && input.activeDates >= COMPANY_REPORT_CONFIDENCE_POLICY.confirmedDates
-  ) return "confirmed";
-  if (input.contributors >= COMPANY_REPORT_CONFIDENCE_POLICY.signalSubjects || input.activeDates >= 2) return "signal";
-  return "hypothesis";
-}
-
 function buildInternalReport(
   companyId: string,
   groupId: string,
@@ -337,7 +327,7 @@ function buildRoutines(classified: ClassifiedActivity[]): InternalRoutine[] {
       contributors,
       observations,
       activeDates,
-      confidence: confidenceForEvidence({ contributors, observations, activeDates }),
+      confidence: confidenceForCounts(contributors, observations, activeDates),
       statedRecurrence: Object.fromEntries(tally(activities.map(({ recurrence }) => recurrence)).map(({ value, count }) => [value, count])),
       systems: uniqueSorted(activities.flatMap(({ system }) => system === undefined ? [] : [system])),
       taskCategories: uniqueSorted(activities.flatMap(({ taskCategory }) => taskCategory === undefined ? [] : [taskCategory])),
@@ -439,7 +429,7 @@ function buildBuckets(
       contributors,
       observations: observations.length,
       activeDates,
-      confidence: confidenceForEvidence({ contributors, observations: observations.length, activeDates }),
+      confidence: confidenceForCounts(contributors, observations.length, activeDates),
       supportingEvidence: {
         automationHypotheses: buildSupportingFacets(observations, (activity) => activity.automationCandidate),
         humanImpactSignals: buildSupportingFacets(observations, (activity) => activity.energyStressMarker),
@@ -463,7 +453,7 @@ function buildSupportingFacets<T extends string>(
         contributors,
         observations: observations.length,
         activeDates,
-        confidence: confidenceForEvidence({ contributors, observations: observations.length, activeDates }),
+        confidence: confidenceForCounts(contributors, observations.length, activeDates),
         evidenceRefs: evidenceRefs(observations),
       };
     })

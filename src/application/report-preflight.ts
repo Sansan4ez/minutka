@@ -81,16 +81,14 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
       if (match !== undefined) findings.push(makeFinding("routine.variants", routineKey, match.rule, match.excerpt, "medium"));
     }
 
-    const expectedConfidence = confidenceForEvidence(routine);
+    const expectedConfidence = confidenceForCounts(routine.contributors, routine.observations, routine.activeDates);
     if (routine.confidence !== expectedConfidence) {
       findings.push(makeFinding("policy", routineKey, "confidence_policy", routine.confidence, "low"));
     }
-    if (routine.contributors < 2) {
-      const clientRoutine = report.client === undefined || routine.name === undefined
-        ? undefined
-        : findClientRoutine(report.client, routine.name);
-      if (routine.confidence !== "hypothesis" || (clientRoutine !== undefined && (clientRoutine.scope !== "группа" || clientRoutine.confidence !== "hypothesis"))) {
-        findings.push(makeFinding("policy", routineKey, "rare_role", routine.name ?? routine.mostFrequentLabel ?? routineKey, "low"));
+    if (routine.contributors < 2 && routine.name !== undefined && report.client !== undefined) {
+      const clientRoutine = findClientRoutine(report.client, routine.name);
+      if (clientRoutine?.scope !== undefined && clientRoutine.scope !== "группа") {
+        findings.push(makeFinding("policy", routineKey, "rare_role", routine.name, "low"));
       }
     }
   }
@@ -195,11 +193,7 @@ function routineIdentity(routine: InternalRoutine): string {
   return "routineKey" in routine.key ? routine.key.routineKey : routine.key.routineId;
 }
 
-function confidenceForEvidence(routine: Pick<InternalRoutine, "contributors" | "observations" | "activeDates">): CompanyReportConfidence {
-  return confidenceForCounts(routine.contributors, routine.observations, routine.activeDates);
-}
-
-function confidenceForCounts(contributors: number, observations: number, activeDates: number): CompanyReportConfidence {
+export function confidenceForCounts(contributors: number, observations: number, activeDates: number): CompanyReportConfidence {
   if (
     contributors >= COMPANY_REPORT_CONFIDENCE_POLICY.confirmedSubjects
     && observations >= COMPANY_REPORT_CONFIDENCE_POLICY.confirmedObservations
@@ -214,6 +208,6 @@ function coverageAssessment(coverage: PreflightReport["coverage"]): ClientCompan
   return coverage.contributors >= 3 && coverage.activeDates >= 3 ? "usable" : "usable_with_limits";
 }
 
-function findClientRoutine(client: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines">, name: string): { scope: string; confidence: CompanyReportConfidence } | undefined {
+function findClientRoutine(client: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines">, name: string): { scope: string } | undefined {
   return [...client.topRoutines, ...client.frictionRoutines].find((routine) => routine.name === name);
 }

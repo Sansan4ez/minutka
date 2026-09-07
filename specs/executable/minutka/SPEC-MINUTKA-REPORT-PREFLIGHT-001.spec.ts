@@ -95,9 +95,44 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
     expect(buildPreflightFindings(report([]))).not.toContainEqual(expect.objectContaining({ rule: "unnamed_routine" }));
   });
 
-  it("keeps rare-role evidence as a group-level hypothesis", () => {
-    const routine = baseRoutine({ contributors: 1, observations: 1, activeDates: 1, confidence: "hypothesis" });
-    expect(buildPreflightFindings(report([routine]))).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
+  it("accepts repeated one-contributor evidence as a group-level signal", () => {
+    const routine = baseRoutine({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
+    const client = {
+      topRoutines: [{
+        name: routine.name!,
+        scope: "группа",
+        evidenceSummary: { contributors: 1, observations: 4, activeDates: 4, estimatedHours: 1, unsizedObservations: 0 },
+        systems: [],
+        statedRecurrence: {},
+        confidence: "signal" as const,
+      }],
+      frictionRoutines: [],
+      firstSteps: [],
+      deepDive: [],
+      coverage: { assessment: "usable_with_limits", contributors: 1, activeDates: 4, observations: 4 } as ClientCompanyReport["coverage"],
+    };
+
+    expect(buildPreflightFindings({ ...report([routine]), client })).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
+  });
+
+  it("flags a one-contributor routine when the client scope exposes a role", () => {
+    const routine = baseRoutine({ contributors: 1, observations: 4, activeDates: 4, confidence: "signal" });
+    const client = {
+      topRoutines: [{
+        name: routine.name!,
+        scope: "Продажи",
+        evidenceSummary: { contributors: 1, observations: 4, activeDates: 4, estimatedHours: 1, unsizedObservations: 0 },
+        systems: [],
+        statedRecurrence: {},
+        confidence: "signal" as const,
+      }],
+      frictionRoutines: [],
+      firstSteps: [],
+      deepDive: [],
+      coverage: { assessment: "usable_with_limits", contributors: 1, activeDates: 4, observations: 4 } as ClientCompanyReport["coverage"],
+    };
+
+    expect(buildPreflightFindings({ ...report([routine]), client })).toContainEqual(expect.objectContaining({ rule: "rare_role", severity: "low" }));
   });
 
   it("flags a client routine below the minimum observation threshold", () => {
