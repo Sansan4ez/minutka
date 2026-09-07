@@ -28,8 +28,9 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
             `INSERT INTO minutka_private.activities
               (activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
                task_category, routine_pattern, automation_candidate, energy_stress_marker,
-               duration_bucket, system, activity_date, recorded_at, revision, status, updated_at)
-             SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1,'active',$15
+               duration_bucket, system, routine_id, routine_label, recurrence, activity_date,
+               recorded_at, revision, status, updated_at)
+             SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,1,'active',$18
              WHERE NOT EXISTS (
                SELECT 1 FROM minutka_private.messages message
                WHERE message.message_id = $4
@@ -50,6 +51,9 @@ export function createPostgresActivityCollectionStore(pool: Pool): ActivityColle
               activity.energyStressMarker ?? null,
               activity.durationBucket ?? null,
               activity.system ?? null,
+              activity.routineId ?? null,
+              activity.routineLabel ?? null,
+              activity.recurrence ?? null,
               activity.activityDate,
               activity.recordedAt,
             ],
@@ -192,6 +196,9 @@ type ActivityRow = {
   energy_stress_marker: OwnActivityFacet["energyStressMarker"] | null;
   duration_bucket: OwnActivityFacet["durationBucket"] | null;
   system: OwnActivityFacet["system"] | null;
+  routine_id: PersonalActivityRecord["routineId"] | null;
+  routine_label: PersonalActivityRecord["routineLabel"] | null;
+  recurrence: PersonalActivityRecord["recurrence"] | null;
   activity_date: string;
   recorded_at: Date;
   revision: number;
@@ -205,20 +212,22 @@ type ActivityRow = {
 const activityColumns = `activity.activity_id, activity.employee_id, activity.subject_key, activity.source_message_id,
   activity.company_id, activity.group_id, activity.role_id, activity.task_category, activity.routine_pattern,
   activity.automation_candidate, activity.energy_stress_marker, activity.duration_bucket, activity.system,
+  activity.routine_id, activity.routine_label, activity.recurrence,
   activity.activity_date::text AS activity_date, activity.recorded_at, activity.revision, activity.status,
   activity.superseded_by_activity_id, activity.last_correction_message_id, activity.updated_at`;
 const revisionProjection = `COALESCE((SELECT json_agg(json_strip_nulls(json_build_object(
   'revision', history.revision, 'operation', history.operation, 'sourceMessageId', history.source_message_id,
   'taskCategory', history.task_category, 'routinePattern', history.routine_pattern,
   'automationCandidate', history.automation_candidate, 'energyStressMarker', history.energy_stress_marker,
-  'durationBucket', history.duration_bucket, 'system', history.system, 'status', history.status,
+  'durationBucket', history.duration_bucket, 'system', history.system, 'routineId', history.routine_id,
+  'routineLabel', history.routine_label, 'recurrence', history.recurrence, 'status', history.status,
   'supersededByActivityId', history.superseded_by_activity_id,
   'changedAt', ${canonicalActivityRevisionChangedAtSql})) ORDER BY history.revision)
   FROM minutka_private.activity_revisions history WHERE history.activity_id=activity.activity_id), '[]'::json) AS revisions`;
 const activitySelect = `SELECT ${activityColumns}, ${revisionProjection} FROM minutka_private.activities activity`;
 const activityReturning = `activity_id, employee_id, subject_key, source_message_id, company_id, group_id, role_id,
   task_category, routine_pattern, automation_candidate, energy_stress_marker, duration_bucket, system,
-  activity_date::text AS activity_date, recorded_at, revision, status, superseded_by_activity_id,
+  routine_id, routine_label, recurrence, activity_date::text AS activity_date, recorded_at, revision, status, superseded_by_activity_id,
   last_correction_message_id, updated_at`;
 
 function personalActivity(row: ActivityRow): PersonalActivityRecord {
@@ -234,6 +243,9 @@ function personalActivity(row: ActivityRow): PersonalActivityRecord {
     ...(row.routine_pattern ? { routinePattern: row.routine_pattern } : {}),
     ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
     ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
+    ...(row.routine_id ? { routineId: row.routine_id } : {}),
+    ...(row.routine_label ? { routineLabel: row.routine_label } : {}),
+    ...(row.recurrence ? { recurrence: row.recurrence } : {}),
     activityDate: row.activity_date,
     recordedAt: row.recorded_at.toISOString(),
     revision: row.revision,
@@ -280,6 +292,9 @@ type OwnActivityRow = {
   energy_stress_marker: OwnActivityFacet["energyStressMarker"] | null;
   duration_bucket: OwnActivityFacet["durationBucket"] | null;
   system: OwnActivityFacet["system"] | null;
+  routine_id: PersonalActivityRecord["routineId"] | null;
+  routine_label: PersonalActivityRecord["routineLabel"] | null;
+  recurrence: PersonalActivityRecord["recurrence"] | null;
   activity_date: string;
 };
 
@@ -290,7 +305,8 @@ export function createPostgresOwnActivityReadStore(pool: Pool): OwnActivityReadS
       try {
         const result = await pool.query<OwnActivityRow>(
           `SELECT employee_id, task_category, routine_pattern, automation_candidate, energy_stress_marker,
-                  duration_bucket, system, activity_date::text AS activity_date
+                  duration_bucket, system, routine_id, routine_label, recurrence,
+                  activity_date::text AS activity_date
            FROM minutka_private.activities
            WHERE employee_id=$1 AND status='active' AND activity_date BETWEEN $2::date AND $3::date
            ORDER BY activity_date, recorded_at, activity_id`,
@@ -302,6 +318,9 @@ export function createPostgresOwnActivityReadStore(pool: Pool): OwnActivityReadS
           ...(row.routine_pattern ? { routinePattern: row.routine_pattern } : {}),
           ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
           ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
+          ...(row.routine_id ? { routineId: row.routine_id } : {}),
+          ...(row.routine_label ? { routineLabel: row.routine_label } : {}),
+          ...(row.recurrence ? { recurrence: row.recurrence } : {}),
           ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
           ...(row.system ? { system: row.system } : {}),
           activityDate: row.activity_date,
@@ -342,12 +361,13 @@ async function insertRevision(
   await client.query(
     `INSERT INTO minutka_private.activity_revisions
       (activity_id, revision, operation, source_message_id, task_category, routine_pattern,
-       automation_candidate, energy_stress_marker, duration_bucket, system, status,
-       superseded_by_activity_id, changed_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       automation_candidate, energy_stress_marker, duration_bucket, system, routine_id,
+       routine_label, recurrence, status, superseded_by_activity_id, changed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [input.activityId, input.revision ?? 1, input.operation, input.sourceMessageId ?? null,
       input.taskCategory ?? null, input.routinePattern ?? null, input.automationCandidate ?? null,
       input.energyStressMarker ?? null, input.durationBucket ?? null, input.system ?? null,
+      input.routineId ?? null, input.routineLabel ?? null, input.recurrence ?? null,
       input.status ?? "active", input.supersededByActivityId ?? null, input.changedAt],
   );
 }
@@ -380,6 +400,9 @@ function clearFacets(activity: PersonalActivityRecord): PersonalActivityRecord {
   delete result.routinePattern;
   delete result.automationCandidate;
   delete result.energyStressMarker;
+  delete result.routineId;
+  delete result.routineLabel;
+  delete result.recurrence;
   delete result.durationBucket;
   delete result.system;
   return result;
@@ -390,6 +413,9 @@ function applyCommandFacets(target: PersonalActivityRecord, command: ActivityCor
   if (command.routinePattern !== undefined) target.routinePattern = command.routinePattern;
   if (command.automationCandidate !== undefined) target.automationCandidate = command.automationCandidate;
   if (command.energyStressMarker !== undefined) target.energyStressMarker = command.energyStressMarker;
+  if (command.routineId !== undefined) target.routineId = command.routineId;
+  if (command.routineLabel !== undefined) target.routineLabel = command.routineLabel;
+  if (command.recurrence !== undefined) target.recurrence = command.recurrence;
   if (command.durationBucket !== undefined) target.durationBucket = command.durationBucket;
   if (command.system !== undefined) target.system = command.system;
 }
@@ -399,6 +425,9 @@ function sameFacets(left: PersonalActivityRecord, right: PersonalActivityRecord)
     && left.routinePattern === right.routinePattern
     && left.automationCandidate === right.automationCandidate
     && left.energyStressMarker === right.energyStressMarker
+    && left.routineId === right.routineId
+    && left.routineLabel === right.routineLabel
+    && left.recurrence === right.recurrence
     && left.durationBucket === right.durationBucket
     && left.system === right.system;
 }

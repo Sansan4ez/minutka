@@ -7,6 +7,7 @@ import {
 } from "../contracts/minutka-activity.js";
 import type {
   ActivityDurationBucket,
+  ActivityRecurrence,
   ActivitySystem,
   AutomationCandidateType,
   EnergyStressMarkerType,
@@ -32,6 +33,9 @@ export type PersonalActivityRecord = {
   energyStressMarker?: EnergyStressMarkerType;
   durationBucket?: ActivityDurationBucket;
   system?: ActivitySystem;
+  routineId?: string;
+  routineLabel?: string;
+  recurrence?: ActivityRecurrence;
   activityDate: string;
   recordedAt: string;
   revision?: number;
@@ -96,6 +100,9 @@ export class CollectActivityService {
       ...(input.activity.routinePattern === undefined ? {} : { routinePattern: input.activity.routinePattern }),
       ...(input.activity.automationCandidate === undefined ? {} : { automationCandidate: input.activity.automationCandidate }),
       ...(input.activity.energyStressMarker === undefined ? {} : { energyStressMarker: input.activity.energyStressMarker }),
+      ...(input.activity.routineId === undefined ? {} : { routineId: input.activity.routineId }),
+      ...(input.activity.routineLabel === undefined ? {} : { routineLabel: input.activity.routineLabel }),
+      ...(input.activity.recurrence === undefined ? {} : { recurrence: input.activity.recurrence }),
       activityDate: calendarDateInIanaTimezone(recordedAt, input.timezone),
       recordedAt,
       revision: 1,
@@ -109,6 +116,9 @@ export class CollectActivityService {
         ...(input.activity.routinePattern === undefined ? {} : { routinePattern: input.activity.routinePattern }),
         ...(input.activity.automationCandidate === undefined ? {} : { automationCandidate: input.activity.automationCandidate }),
         ...(input.activity.energyStressMarker === undefined ? {} : { energyStressMarker: input.activity.energyStressMarker }),
+        ...(input.activity.routineId === undefined ? {} : { routineId: input.activity.routineId }),
+        ...(input.activity.routineLabel === undefined ? {} : { routineLabel: input.activity.routineLabel }),
+        ...(input.activity.recurrence === undefined ? {} : { recurrence: input.activity.recurrence }),
         ...(input.activity.durationBucket === undefined ? {} : { durationBucket: input.activity.durationBucket }),
         ...(input.activity.system === undefined ? {} : { system: input.activity.system }),
         status: "active",

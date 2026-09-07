@@ -20,6 +20,9 @@ export type ActivityRevisionRecord = {
   routinePattern?: PersonalActivityRecord["routinePattern"];
   automationCandidate?: PersonalActivityRecord["automationCandidate"];
   energyStressMarker?: PersonalActivityRecord["energyStressMarker"];
+  routineId?: PersonalActivityRecord["routineId"];
+  routineLabel?: PersonalActivityRecord["routineLabel"];
+  recurrence?: PersonalActivityRecord["recurrence"];
   durationBucket?: PersonalActivityRecord["durationBucket"];
   system?: PersonalActivityRecord["system"];
   status: ActivityStatus;

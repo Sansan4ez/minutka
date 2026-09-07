@@ -319,6 +319,9 @@ describe("PostgreSQL storage contracts", () => {
         energyStressMarker: "frustration",
         durationBucket: "1_2h",
         system: "spreadsheets",
+        routineId: "routine_weekly_report",
+        routineLabel: "Weekly reports",
+        recurrence: "weekly",
       },
     });
     await createPostgresConversationStore(pool).appendTurn({
@@ -329,7 +332,8 @@ describe("PostgreSQL storage contracts", () => {
     const canonical = await pool.query(
       `SELECT activity_id, employee_id, subject_key::text, source_message_id, company_id, group_id, role_id,
               task_category, routine_pattern, automation_candidate, energy_stress_marker,
-              duration_bucket, system, activity_date::text, recorded_at
+              duration_bucket, system, routine_id, routine_label, recurrence,
+              activity_date::text, recorded_at
        FROM minutka_private.activities WHERE activity_id='activity_pg_one'`,
     );
     expect(canonical.rows).toEqual([expect.objectContaining({
@@ -337,7 +341,8 @@ describe("PostgreSQL storage contracts", () => {
       source_message_id: "message_activity_one", company_id: companyId, group_id: groupId, role_id: roleId,
       task_category: "reporting", routine_pattern: "manual_reporting",
       automation_candidate: "report_generation", energy_stress_marker: "frustration",
-      duration_bucket: "1_2h", system: "spreadsheets", activity_date: "2026-08-16",
+      duration_bucket: "1_2h", system: "spreadsheets", routine_id: "routine_weekly_report",
+      routine_label: "Weekly reports", recurrence: "weekly", activity_date: "2026-08-16",
     })]);
     expect((await pool.query<{ user_text: string }>(
       `SELECT message.user_text FROM minutka_private.activities activity
@@ -352,12 +357,16 @@ describe("PostgreSQL storage contracts", () => {
       revisions: [expect.objectContaining({ changedAt: "2026-08-15T22:17:35.000Z" })],
     })]);
     const collected = await createPostgresActivityCollectionStore(pool).getActivityById!("activity_pg_one");
+    expect(collected?.revisions?.[0]).toMatchObject({
+      routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly",
+    });
     expect(collected?.revisions?.[0]?.changedAt).toBe(collected?.recordedAt);
     const ownActivities = createPostgresOwnActivityReadStore(pool);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([{
       employeeId: "activity_owner", taskCategory: "reporting", routinePattern: "manual_reporting",
       automationCandidate: "report_generation", energyStressMarker: "frustration",
-      durationBucket: "1_2h", system: "spreadsheets", activityDate: "2026-08-16",
+      durationBucket: "1_2h", system: "spreadsheets", routineId: "routine_weekly_report",
+      routineLabel: "Weekly reports", recurrence: "weekly", activityDate: "2026-08-16",
     }]);
     expect(await ownActivities.listOwnActivities({ employeeId: "activity_owner", fromDate: "2026-08-09", toDate: "2026-08-15" })).toEqual([]);
     expect(await ownActivities.listOwnActivities({ employeeId: "another_owner", fromDate: "2026-08-10", toDate: "2026-08-16" })).toEqual([]);
@@ -370,6 +379,7 @@ describe("PostgreSQL storage contracts", () => {
         handle: "activity_pg_one", revision: 1, taskCategory: "reporting",
         routinePattern: "manual_reporting", automationCandidate: "report_generation",
         energyStressMarker: "frustration", durationBucket: "1_2h", system: "spreadsheets",
+        routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly",
         activityDate: "2026-08-16", recordedAt: "2026-08-15T22:17:35.000Z",
       }],
     });
@@ -401,6 +411,7 @@ describe("PostgreSQL storage contracts", () => {
     );
     expect(columns.rows.map((row) => row.column_name)).toEqual(expect.arrayContaining([
       "routine_pattern", "automation_candidate", "energy_stress_marker",
+      "routine_id", "routine_label", "recurrence",
     ]));
     expect(columns.rows.map((row) => row.column_name)).not.toEqual(expect.arrayContaining([
       "obstacle_kind", "obstacle_value",

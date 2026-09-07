@@ -187,6 +187,9 @@ function revisionSnapshot(
     ...(activity.routinePattern === undefined ? {} : { routinePattern: activity.routinePattern }),
     ...(activity.automationCandidate === undefined ? {} : { automationCandidate: activity.automationCandidate }),
     ...(activity.energyStressMarker === undefined ? {} : { energyStressMarker: activity.energyStressMarker }),
+    ...(activity.routineId === undefined ? {} : { routineId: activity.routineId }),
+    ...(activity.routineLabel === undefined ? {} : { routineLabel: activity.routineLabel }),
+    ...(activity.recurrence === undefined ? {} : { recurrence: activity.recurrence }),
     ...(activity.durationBucket === undefined ? {} : { durationBucket: activity.durationBucket }),
     ...(activity.system === undefined ? {} : { system: activity.system }),
     status: activity.status ?? "active",
@@ -203,6 +206,9 @@ function correctedFacets(activity: PersonalActivityRecord, command: ActivityCorr
     ...(command.routinePattern === undefined ? {} : { routinePattern: command.routinePattern }),
     ...(command.automationCandidate === undefined ? {} : { automationCandidate: command.automationCandidate }),
     ...(command.energyStressMarker === undefined ? {} : { energyStressMarker: command.energyStressMarker }),
+    ...(command.routineId === undefined ? {} : { routineId: command.routineId }),
+    ...(command.routineLabel === undefined ? {} : { routineLabel: command.routineLabel }),
+    ...(command.recurrence === undefined ? {} : { recurrence: command.recurrence }),
     ...(command.durationBucket === undefined ? {} : { durationBucket: command.durationBucket }),
     ...(command.system === undefined ? {} : { system: command.system }),
   };
@@ -214,13 +220,16 @@ function clearFacets(activity: PersonalActivityRecord): PersonalActivityRecord {
   delete result.routinePattern;
   delete result.automationCandidate;
   delete result.energyStressMarker;
+  delete result.routineId;
+  delete result.routineLabel;
+  delete result.recurrence;
   delete result.durationBucket;
   delete result.system;
   return result;
 }
 
 function applyFacets(target: PersonalActivityRecord, source: PersonalActivityRecord): void {
-  for (const facet of ["taskCategory", "routinePattern", "automationCandidate", "energyStressMarker", "durationBucket", "system"] as const) {
+  for (const facet of ["taskCategory", "routinePattern", "automationCandidate", "energyStressMarker", "routineId", "routineLabel", "recurrence", "durationBucket", "system"] as const) {
     if (source[facet] === undefined) delete target[facet];
     else Object.assign(target, { [facet]: source[facet] });
   }
@@ -255,6 +264,9 @@ function sameFacets(left: PersonalActivityRecord, right: PersonalActivityRecord)
     && left.routinePattern === right.routinePattern
     && left.automationCandidate === right.automationCandidate
     && left.energyStressMarker === right.energyStressMarker
+    && left.routineId === right.routineId
+    && left.routineLabel === right.routineLabel
+    && left.recurrence === right.recurrence
     && left.durationBucket === right.durationBucket
     && left.system === right.system;
 }

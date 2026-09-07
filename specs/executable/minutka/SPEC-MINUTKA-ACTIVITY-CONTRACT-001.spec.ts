@@ -21,6 +21,9 @@ const expectedFields = [
   "automationCandidate",
   "energyStressMarker",
   "durationBucket",
+  "routineId",
+  "routineLabel",
+  "recurrence",
   "system",
 ];
 
@@ -78,6 +81,15 @@ describe("SPEC-MINUTKA-ACTIVITY-CONTRACT-001: typed activity collection", () => 
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ label: "планёрка" }] }).success).toBe(false);
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ rationale: "можно автоматизировать" }] }).success).toBe(false);
     expect(collectActivitiesInputSchema.safeParse({ activities: [{ interferesWith: "работой" }] }).success).toBe(false);
+  });
+
+  it("validates optional routine identity and recurrence fields", () => {
+    expect(activityCollectionItemSchema.parse({ routineId: "routine_1", routineLabel: "Weekly reports", recurrence: "weekly" })).toEqual({
+      routineId: "routine_1", routineLabel: "Weekly reports", recurrence: "weekly",
+    });
+    expect(activityCollectionItemSchema.safeParse({ routineLabel: "No" }).success).toBe(false);
+    expect(activityCollectionItemSchema.safeParse({ routineLabel: "x".repeat(81) }).success).toBe(false);
+    expect(activityCollectionItemSchema.safeParse({ recurrence: "sometimes" }).success).toBe(false);
   });
 
   it("models one activity with a category and independent optional facets", () => {

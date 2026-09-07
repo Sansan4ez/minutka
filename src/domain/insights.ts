@@ -34,6 +34,16 @@ export const routinePatternTypes = [
 
 export type RoutinePatternType = (typeof routinePatternTypes)[number];
 
+export const activityRecurrenceTypes = [
+  "daily",
+  "several_per_week",
+  "weekly",
+  "monthly",
+  "one_off",
+] as const;
+
+export type ActivityRecurrence = (typeof activityRecurrenceTypes)[number];
+
 export const energyStressMarkerTypes = [
   "overload",
   "fatigue",
