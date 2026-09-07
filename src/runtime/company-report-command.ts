@@ -6,10 +6,12 @@ import { CompanyReportingService } from "../application/company-reporting.js";
 import { ReportPreflightLlmService } from "../application/report-preflight-llm.js";
 import type { ReportPreflightLlmGenerator } from "../application/report-preflight-llm.js";
 import { loadRoutineDirectory } from "../application/routine-directory.js";
+import type { ClientReportPublishingService } from "../application/client-report-publishing.js";
 
 export type CompanyReportPreflightDependencies = {
   reporting: Pick<CompanyReportingService, "buildReport">;
   checkLlm: ReportPreflightLlmGenerator;
+  publishing?: Pick<ClientReportPublishingService, "resolvePreflightFinding" | "publishClientReport">;
 };
 
 export async function runCompanyReportCommand(
@@ -47,5 +49,24 @@ export async function runCompanyReportCommand(
       if (options.out) await writeFile(resolve(options.out), output, "utf8");
       else write(output);
     });
+  if (dependencies.publishing) {
+    program.command("resolve-finding")
+      .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--finding <findingId>")
+      .requiredOption("--decision <decision>").option("--note <note>")
+      .action(async (options: { company: string; group: string; finding: string; decision: "verified" | "fixed"; note?: string }) => {
+        if (options.decision !== "verified" && options.decision !== "fixed") throw new Error("--decision must be verified or fixed");
+        write(`${JSON.stringify(await dependencies.publishing!.resolvePreflightFinding({ companyId: options.company, groupId: options.group, findingId: options.finding, decision: options.decision, ...(options.note === undefined ? {} : { note: options.note }) }))}\n`);
+      });
+    program.command("publish")
+      .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--directory <path>")
+      .option("--findings <path>").requiredOption("--out <path>")
+      .action(async (options: { company: string; group: string; directory: string; findings?: string; out: string }) => {
+        const directory = loadRoutineDirectory(JSON.parse(await readFile(resolve(options.directory), "utf8")) as unknown, { expectedCompanyId: options.company });
+        const findings = options.findings === undefined ? undefined : JSON.parse(await readFile(resolve(options.findings), "utf8")) as never;
+        const result = await dependencies.publishing!.publishClientReport({ companyId: options.company, groupId: options.group, directory, ...(findings === undefined ? {} : { findings }) });
+        if (result.ok) await writeFile(resolve(options.out), `${JSON.stringify(result.client, null, 2)}\n`, "utf8");
+        write(`${JSON.stringify(result)}\n`);
+      });
+  }
   await program.parseAsync(argv, { from: "user" });
 }

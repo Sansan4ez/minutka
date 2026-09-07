@@ -67,5 +67,18 @@ export function createPostgresAuditEventStore(pool: Pool): AuditEventStore {
         throw mapPostgresError(error);
       }
     },
+    async listByTypeAndScope({ type, scope, limit }) {
+      try {
+        const result = await pool.query<Row>(
+          `SELECT * FROM minutka_audit.events
+           WHERE event_type=$1 AND metadata->>'scope'=$2
+           ORDER BY occurred_at ASC, event_id ASC LIMIT $3`,
+          [type, scope, Math.max(0, limit)],
+        );
+        return result.rows.map(event);
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
   };
 }

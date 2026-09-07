@@ -42,6 +42,7 @@ import type { MonthlyUsage, UsageStore } from "./usage-store.js";
 import type { ContextDocumentAuditContext, ContextDocumentService } from "./context-document-service.js";
 import type { CompanyReportingService } from "./company-reporting.js";
 import type { GroupUsageReportingService } from "./group-usage-reporting.js";
+import type { ClientReportPublishingService } from "./client-report-publishing.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
@@ -88,6 +89,7 @@ export class PersonalAssistantService {
     private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject" | "listVersions" | "restoreVersion">,
     private readonly companyReporting?: Pick<CompanyReportingService, "exportGroup">,
     private readonly groupUsageReporting?: Pick<GroupUsageReportingService, "getMonthly">,
+    private readonly clientReportPublishing?: Pick<ClientReportPublishingService, "resolvePreflightFinding" | "publishClientReport">,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -104,6 +106,14 @@ export class PersonalAssistantService {
   exportCompanyReport(input: { companyId: string; groupId: string; directory?: unknown }) {
     if (!this.companyReporting) throw new Error("company reporting is not configured");
     return this.companyReporting.exportGroup(input);
+  }
+  resolvePreflightFinding(input: Parameters<ClientReportPublishingService["resolvePreflightFinding"]>[0]) {
+    if (!this.clientReportPublishing) throw new Error("client report publishing is not configured");
+    return this.clientReportPublishing.resolvePreflightFinding(input);
+  }
+  publishClientReport(input: Parameters<ClientReportPublishingService["publishClientReport"]>[0]) {
+    if (!this.clientReportPublishing) throw new Error("client report publishing is not configured");
+    return this.clientReportPublishing.publishClientReport(input);
   }
   openInvite(input: OpenInviteInput): Promise<OpenInviteResult> { return this.identityService.openInvite(input); }
   recordPrivacyExplanationShown(input: RecordPrivacyExplanationShownInput): Promise<void> { return this.identityService.recordPrivacyExplanationShown(input); }

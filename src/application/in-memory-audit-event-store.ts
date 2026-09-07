@@ -21,6 +21,12 @@ export function createInMemoryAuditEventStore(world: InMemoryWorld): AuditEventS
     async listRecent({ employeeId, threadId, limit }) {
       return world.auditEvents.filter((event) => event.employeeId === employeeId && (threadId === undefined || event.threadId === threadId)).slice(-Math.max(0, limit)).map(copy);
     },
+    async listByTypeAndScope({ type, scope, limit }) {
+      return world.auditEvents
+        .filter((event) => event.type === type && event.metadata.scope === scope)
+        .slice(0, Math.max(0, limit))
+        .map(copy);
+    },
   };
 }
 

@@ -78,6 +78,7 @@ import { ActivityTransactionService } from "../application/activity-transaction-
 import { extractActivityTransactionWithAgent } from "../mastra/activity-transaction-extractor.js";
 import { routineDirectoryRuntimeConfigFromEnv } from "../config/routine-directory.js";
 import { loadRoutineDirectoryProviderFromDirectory } from "../infrastructure/routine-directory-provider.js";
+import { ClientReportPublishingService } from "../application/client-report-publishing.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -300,8 +301,9 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
     const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
+    const clientReportPublishing = new ClientReportPublishingService(companyReporting, auditEventStore, systemClock, randomIdGenerator);
     const groupUsageReporting = new GroupUsageReportingService(usageStore, usageCostPolicy);
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting, clientReportPublishing);
     const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({
       assistant,
       telegramSessionStore,

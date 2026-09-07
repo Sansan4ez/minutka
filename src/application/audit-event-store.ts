@@ -32,7 +32,10 @@ export type AuditEventType =
   | "research_evidence_read"
   | "research_scope_purged"
   | "invite_revoked"
-  | "employee_data_deleted";
+  | "employee_data_deleted"
+  | "report_preflight_decision"
+  | "client_report_published"
+  | "client_report_publish_refused";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
 
@@ -84,6 +87,9 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   research_scope_purged: ["scope", "companyId", "groupId", "outcome", "participants", "messages", "activities", "traces", "feedback", "evaluationCases", "insights", "auditEvents", "objectVersions"],
   invite_revoked: ["companyId", "groupId"],
   employee_data_deleted: [],
+  report_preflight_decision: ["scope", "findingId", "decision", "reportVersion", "reviewer"],
+  client_report_published: ["scope", "reportVersion", "reviewer"],
+  client_report_publish_refused: ["scope", "reportVersion", "reason", "findingIds"],
 };
 
 export const auditEventTypes = Object.keys(allowedMetadataKeys) as AuditEventType[];
@@ -105,6 +111,11 @@ export type AuditEventStore = {
   listRecent(input: {
     employeeId: string;
     threadId?: string;
+    limit: number;
+  }): Promise<AuditEventRecord[]>;
+  listByTypeAndScope?(input: {
+    type: AuditEventType;
+    scope: string;
     limit: number;
   }): Promise<AuditEventRecord[]>;
 };

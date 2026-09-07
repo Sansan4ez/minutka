@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import type { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import {
-  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminGroupUsageRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, deleteInvitedParticipantRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema,
+  acceptConsentRequestSchema, acceptEmployeeConsentRequestSchema, adminGroupUsageRequestSchema, adminUsageRequestSchema, chatRequestSchema, companyReportRequestSchema, completeOnboardingRequestSchema, contextDocumentVersionsRequestSchema, deleteInvitedParticipantRequestSchema, employeeIdSchema, personalContextPatchSchema, restoreContextDocumentVersionBodySchema, serviceChatRequestSchema, publishClientReportRequestSchema, resolvePreflightFindingRequestSchema,
   issueInviteRequestSchema, listInsightsRequestSchema, listParticipantsRequestSchema, onboardingAnswerRequestSchema, openInviteRequestSchema,
   taskMutationDecisionRequestSchema, contextDocumentDecisionRequestSchema, ideaDeletionDecisionRequestSchema, recordPrivacyExplanationShownRequestSchema, redeemTelegramInviteRequestSchema,
   submitFeedbackRequestSchema, threadIdSchema, type ChatResponse,
@@ -34,6 +34,8 @@ export type HttpApplicationService = Pick<PersonalAssistantService,
   | "getMonthlyUsage"
   | "getGroupMonthlyUsage"
   | "exportCompanyReport"
+  | "resolvePreflightFinding"
+  | "publishClientReport"
   | "listContextDocumentVersions"
   | "restoreContextDocumentVersion"
   | "openInvite"
@@ -165,6 +167,18 @@ export function createHttpServer(options: HttpServerOptions): Server {
         const input = parse(adminGroupUsageRequestSchema, query(url));
         status = 200;
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.getGroupMonthlyUsage(input)), id);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/admin/report-preflight/resolve") {
+        template = "/v1/admin/report-preflight/resolve";
+        requireKind(principal, "operator");
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.resolvePreflightFinding(parse(resolvePreflightFindingRequestSchema, await body(req)))), id);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/admin/client-report/publish") {
+        template = "/v1/admin/client-report/publish";
+        requireKind(principal, "operator");
+        status = 200;
+        return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.publishClientReport(parse(publishClientReportRequestSchema, await body(req)))), id);
       }
       const adminCompanyReport = url.pathname.match(/^\/v1\/admin\/companies\/([^/]+)\/report$/);
       if (req.method === "GET" && adminCompanyReport) {

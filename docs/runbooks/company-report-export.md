@@ -31,6 +31,24 @@ npm run company-report -- preflight-llm \
 
 Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и объединяет результат с детерминированным lint в `preflight-findings.json`. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
 
+### Решение high-находок и публикация
+
+После проверки методолог фиксирует решение по каждой high-находке в audit и публикует только client DTO:
+
+```bash
+npm run cli -- admin company-report resolve-finding \
+  --company company_acme --group group_acme_2026_09 \
+  --finding <finding-id> --decision verified
+
+npm run cli -- admin company-report publish \
+  --company company_acme --group group_acme_2026_09 \
+  --directory ./operator/routine-directory.company_acme.json \
+  --findings ./operator/preflight-findings.json \
+  --out ./operator/client-report.json
+```
+
+Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт файл и пишет в audit только scope, finding ids, причину и hash client DTO. Решение другой группы не учитывается; изменение находки с новым id требует нового решения. Medium и low находки publish не блокируют.
+
 ## Confidence policy
 
 Пороговые значения определены вместе в `src/application/company-reporting.ts`:
