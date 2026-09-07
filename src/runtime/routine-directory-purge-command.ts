@@ -37,10 +37,11 @@ export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (te
   const nextTombstones = [...new Set([...tombstoneIds, ...plan.affectedEntryIds])].sort();
 
   if (!options.dryRun) {
+    for (const path of plan.filesToDelete) await unlink(path);
     if (plan.survivingVersion !== undefined) {
       await writeJson(plan.survivingVersion.path, plan.survivingVersion.directory);
+      await writeJson(join(directoryPath, `routine-directory.${options.company}.json`), plan.survivingVersion.directory);
     }
-    for (const path of plan.filesToDelete) await unlink(path);
     if (nextTombstones.length !== tombstoneIds.length) {
       await writeJson(tombstonePath, { ids: nextTombstones });
     }

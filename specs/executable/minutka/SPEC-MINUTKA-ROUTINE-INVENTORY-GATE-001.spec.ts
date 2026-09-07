@@ -22,7 +22,7 @@ import { loadRoutineDirectoryProviderFromDirectory } from "../../../src/infrastr
 const directory = {
   schemaVersion: "minutka-routine-directory/v1",
   companyId: "company_gate",
-  version: "gate-1",
+  version: "1",
   sections: [{
     roleId: "role_sales",
     entries: [{
@@ -115,7 +115,7 @@ async function recordExtractedActivity(
       { ref: harness.state.activities.length === 0 ? "named_duration" : "free_duration", bucket: harness.state.activities.length === 0 ? "30_60m" : "2_4h", sourceOrder: 0 },
     ],
     directorySection: {
-      version: "gate-1",
+      version: "1",
       entries: gateDirectory().sections[0]!.entries.map(({ id, name, description, examples }) => ({ id, name, description, examples })),
     },
   });

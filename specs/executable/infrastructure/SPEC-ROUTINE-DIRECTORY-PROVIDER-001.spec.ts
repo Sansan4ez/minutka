@@ -8,7 +8,7 @@ import {
 const directory = {
   schemaVersion: "minutka-routine-directory/v1",
   companyId: "company_a",
-  version: "directory-v1",
+  version: "1",
   sections: [{
     roleId: "role_a",
     entries: [{
@@ -35,17 +35,27 @@ describe("SPEC-ROUTINE-DIRECTORY-PROVIDER-001: startup routine directory provide
       const provider = loadRoutineDirectoryProviderFromDirectory(path, { warn: (message) => warnings.push(message) });
 
       expect(provider("company_a", "role_a")).toEqual({
-        version: "directory-v1",
+        version: "1",
         entries: [{ id: "routine_a", name: "Prepare reports", description: "Prepare reports", examples: ["prepared a report"] }],
       });
       expect(provider("company_a", "role_other")).toBeUndefined();
       expect(provider("company_b", "role_a")).toBeUndefined();
       expect(provider("company_b", "role_a")).toBeUndefined();
       expect(warnings).toEqual([
-        "routine directory loaded: \"company_a\", version \"directory-v1\", entries 1",
+        "routine directory loaded: \"company_a\", version \"1\", entries 1",
         "Routine directory file is unavailable for company \"company_b\".",
       ]);
       expect(warnings[0]).not.toMatch(/routine_a|Prepare reports/u);
+    });
+  });
+
+  it("does not fall back to a versioned copy when the active file is absent", () => {
+    withDirectory((path) => {
+      writeFileSync(join(path, "routine-directory.company_a.10.json"), JSON.stringify(directory));
+      const warnings: string[] = [];
+      const provider = loadRoutineDirectoryProviderFromDirectory(path, { warn: (message) => warnings.push(message) });
+      expect(provider("company_a", "role_a")).toBeUndefined();
+      expect(warnings).toContain("Routine directory file is unavailable for company \"company_a\".");
     });
   });
 

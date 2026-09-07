@@ -212,7 +212,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
 
   it("passes the participant company and role directory section to extraction", async () => {
     const directorySection = {
-      version: "directory-v1",
+      version: "1",
       entries: [{ id: "routine-report", name: "Prepare reports", description: "Prepare reports", examples: ["prepared a report"] }],
     };
     const calls: Array<[string, string]> = [];

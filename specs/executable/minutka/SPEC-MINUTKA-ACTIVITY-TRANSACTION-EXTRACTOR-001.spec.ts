@@ -216,7 +216,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
   it("uses the role directory in the bounded prompt and drops unknown ids with a trace diagnostic", async () => {
     const observed: Array<{ prompt: string; schema: unknown }> = [];
     const directorySection = {
-      version: "directory-v1",
+      version: "1",
       entries: [{ id: "routine_report", name: "Prepare reports", description: "Prepare recurring reports", examples: ["monthly report"] }],
     };
     const result = await extractorFor(transport({
@@ -260,7 +260,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     });
 
     expect(() => buildActivityTransactionPrompt({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection: {
-      version: "directory-v1",
+      version: "1",
       entries: Array.from({ length: 41 }, (_, index) => ({ id: `routine_${index}`, name: "Routine", description: "Description", examples: [] })),
     } })).toThrow(/routine directory entries/i);
     expect(activityTransactionExtractorInputSchema.safeParse({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection }).success).toBe(true);

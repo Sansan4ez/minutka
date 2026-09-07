@@ -27,7 +27,7 @@ const routineSectionSchema = z.strictObject({
 export const routineDirectorySchema = z.strictObject({
   schemaVersion: z.literal(routineDirectorySchemaVersion),
   companyId: z.string().trim().min(1),
-  version: z.string().trim().min(1),
+  version: z.string().regex(/^\d+$/u),
   createdAt: z.iso.datetime().optional(),
   sections: z.array(routineSectionSchema),
 });
@@ -50,6 +50,7 @@ export type RoutineDirectorySuggestSection = RoutineDirectorySection & {
 export type RoutineDirectoryErrorCode =
   | "directory_scope_mismatch"
   | "directory_version_missing"
+  | "directory_version_invalid"
   | "directory_duplicate_id"
   | "directory_unknown_quick_win"
   | "directory_provenance_missing"
@@ -70,7 +71,7 @@ export class RoutineDirectoryError extends Error {
 const routineDirectoryStructureSchema = z.strictObject({
   schemaVersion: z.literal(routineDirectorySchemaVersion),
   companyId: z.string().trim().min(1),
-  version: z.string().trim().min(1),
+  version: z.string().regex(/^\d+$/u),
   createdAt: z.iso.datetime().optional(),
   sections: z.array(z.strictObject({
     roleId: z.string().trim().min(1),
@@ -107,7 +108,12 @@ export function loadRoutineDirectory(
   }
 
   const structure = routineDirectoryStructureSchema.safeParse(json);
-  if (!structure.success) throw new RoutineDirectoryError("directory_schema_invalid", routineDirectorySchemaError(structure.error));
+  if (!structure.success) {
+    if (isRecord(json) && typeof json.version === "string" && !/^\d+$/u.test(json.version.trim())) {
+      throw new RoutineDirectoryError("directory_version_invalid", "routine directory version must be a non-negative integer");
+    }
+    throw new RoutineDirectoryError("directory_schema_invalid", routineDirectorySchemaError(structure.error));
+  }
 
   if (structure.data.companyId !== options.expectedCompanyId) {
     throw new RoutineDirectoryError("directory_scope_mismatch", "routine directory company does not match the expected company");
@@ -135,6 +141,12 @@ export function loadRoutineDirectory(
   const parsed = routineDirectorySchema.safeParse(structure.data);
   if (!parsed.success) throw new RoutineDirectoryError("directory_schema_invalid", routineDirectorySchemaError(parsed.error));
   return parsed.data;
+}
+
+export function compareDirectoryVersions(left: string, right: string): number {
+  const leftValue = BigInt(left);
+  const rightValue = BigInt(right);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
 }
 
 export function roleSection(directory: RoutineDirectory, roleId: string): RoutineDirectorySection {

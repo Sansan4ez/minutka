@@ -10,7 +10,7 @@ import {
 const validDirectory = {
   schemaVersion: "minutka-routine-directory/v1",
   companyId: "company_a",
-  version: "2026-09-07.1",
+  version: "1",
   sections: [
     {
       roleId: "sales",
@@ -45,7 +45,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
 
     const extractorSection = roleSection(directory, "sales");
     expect(extractorSection).toEqual({
-      version: "2026-09-07.1",
+      version: "1",
       entries: [
         {
           id: "sales_follow_up",
@@ -63,7 +63,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
     });
     expect(JSON.stringify(extractorSection)).not.toContain("provenance");
     expect(JSON.stringify(extractorSection)).not.toContain("methodologistNote");
-    expect(roleSection(directory, "unknown")).toEqual({ version: "2026-09-07.1", entries: [] });
+    expect(roleSection(directory, "unknown")).toEqual({ version: "1", entries: [] });
 
     expect(roleSectionForSuggest(directory, "sales").entries[0]).toMatchObject({ quickWin: "waiting_sla", methodologistNote: "Проверять наличие даты следующего шага" });
     expect(JSON.stringify(roleSectionForSuggest(directory, "sales"))).not.toContain("provenance");
@@ -72,6 +72,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
   const cases: Array<[string, unknown, string]> = [
     ["scope mismatch", { ...validDirectory, companyId: "company_b" }, "directory_scope_mismatch"],
     ["version missing", { ...validDirectory, version: "" }, "directory_version_missing"],
+    ["version format invalid", { ...validDirectory, version: "v1" }, "directory_version_invalid"],
     ["duplicate id", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [validDirectory.sections[0].entries[0], { ...validDirectory.sections[0].entries[1], id: validDirectory.sections[0].entries[0].id }] }] }, "directory_duplicate_id"],
     ["unknown quick win", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], quickWin: "not-a-quick-win" }] }] }, "directory_unknown_quick_win"],
     ["provenance missing", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], provenance: [] }] }] }, "directory_provenance_missing"],

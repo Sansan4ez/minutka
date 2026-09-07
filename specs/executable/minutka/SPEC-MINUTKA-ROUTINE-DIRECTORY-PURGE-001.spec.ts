@@ -60,6 +60,22 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     expect((await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).not.toContain("example X");
   });
 
+  it("selects numeric version 10 over version 9 and writes the surviving version as active", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.9.json", base("9", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+      ["routine-directory.company_a.10.json", base("10", [
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+        entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+      ])],
+    ]);
+    await runSubjectPurge(directory);
+    const surviving = JSON.parse(await readFile(join(directory, "routine-directory.company_a.json"), "utf8")) as RoutineDirectory;
+    expect(surviving.version).toBe("11");
+    expect(surviving.sections[0]?.entries.map(({ id }) => id)).toEqual(["b"]);
+    expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.11.json"), "utf8"))).toEqual(surviving);
+    expect(loadRoutineDirectoryProviderFromDirectory(directory).directories.get("company_a")?.version).toBe("11");
+  });
+
   it("preserves B-only entries from a mixed file in a new version", async () => {
     const directory = await fixtureDirectory([
       ["routine-directory.company_a.1.json", base("1", [
@@ -149,6 +165,8 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     const output = await runSubjectPurge(directory, "subject_a", "group_a", true);
     expect(JSON.parse(output)).toMatchObject({ runtimeRestartRequired: true });
     expect(await readdir(directory)).toEqual(before);
+    const activeDirectory = base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])]);
+    await writeFile(join(directory, "routine-directory.company_a.json"), `${JSON.stringify(activeDirectory)}\n`, "utf8");
     await writeFile(join(directory, "routine-directory.company_a.tombstones.json"), "[\"a\"]\n", "utf8");
     expect(() => loadRoutineDirectoryProviderFromDirectory(directory)).toThrowError(expect.objectContaining({ code: "directory_reused_id" }));
   });

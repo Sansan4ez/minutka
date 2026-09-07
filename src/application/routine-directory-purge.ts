@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import type { RoutineDirectory, RoutineDirectoryEntry } from "./routine-directory.js";
+import { compareDirectoryVersions, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
 
 export type RoutineDirectoryFile = {
   path: string;
@@ -103,14 +103,13 @@ function provenanceMatches(
 }
 
 function compareFiles(left: RoutineDirectoryFile, right: RoutineDirectoryFile): number {
-  const versionOrder = left.directory.version.localeCompare(right.directory.version);
+  const versionOrder = compareDirectoryVersions(left.directory.version, right.directory.version);
   return versionOrder || left.path.localeCompare(right.path);
 }
 
 function nextDirectoryVersion(current: string, existing: ReadonlySet<string>): string {
-  const match = /^(.*?)(\d+)$/u.exec(current);
-  let candidate = match ? `${match[1]}${Number(match[2]) + 1}` : `${current}-purged`;
-  while (existing.has(candidate)) candidate = `${candidate}-1`;
+  let candidate = (BigInt(current) + 1n).toString();
+  while (existing.has(candidate)) candidate = (BigInt(candidate) + 1n).toString();
   return candidate;
 }
 

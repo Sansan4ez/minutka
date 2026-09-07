@@ -100,7 +100,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const directory = {
       schemaVersion: "minutka-routine-directory/v1",
       companyId: "company_a",
-      version: "directory-confidence",
+      version: "1",
       sections: [{
         roleId: "role_sales",
         entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
@@ -243,7 +243,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const directory = {
       schemaVersion: "minutka-routine-directory/v1",
       companyId: "company_a",
-      version: "directory-1",
+      version: "1",
       sections: [
         { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "report_template", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
         { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
@@ -270,7 +270,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const first = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
     const second = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
     expect(first).toEqual(second);
-    expect(first.internal.directoryVersion).toBe("directory-1");
+    expect(first.internal.directoryVersion).toBe("1");
     expect(first.internal.routines).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: { roleId: "role_sales", routineId: "sales_report" }, name: "Подготовка отчётов", quickWin: "report_template", statedRecurrence: { weekly: 1 }, frictionSignals: { count: 1, byValue: { manual_reporting: 1 } }, energySignals: { count: 1, byValue: { fatigue: 1 } } }),
       expect.objectContaining({ key: { roleId: "role_logistics", routineId: "logistics_report" }, name: "Подготовка отчётов", quickWin: "deep_dive" }),
@@ -306,7 +306,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const directory = {
       schemaVersion: "minutka-routine-directory/v1",
       companyId: "company_a",
-      version: "directory-threshold",
+      version: "2",
       sections: [{
         roleId: "role_sales",
         entries: [{ id: "rare", name: "Редкая рутина", description: "Rare", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
@@ -335,7 +335,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
   it("rejects a directory belonging to another company before building the report", async () => {
     const reporting = service([participant("one", "company_a", "group_a", "role_sales")], []);
     await expect(reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory: {
-      schemaVersion: "minutka-routine-directory/v1", companyId: "company_b", version: "directory-1", sections: [],
+      schemaVersion: "minutka-routine-directory/v1", companyId: "company_b", version: "1", sections: [],
     } })).rejects.toMatchObject({ code: "directory_scope_mismatch" });
   });
 
@@ -344,7 +344,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const file = join(directory, "directory.json");
     const output = join(directory, "report.json");
     const payload = {
-      schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1",
+      schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "1",
       sections: [{ roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "x".repeat(100_000), examples: [], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }] }],
     };
     writeFileSync(file, JSON.stringify(payload));

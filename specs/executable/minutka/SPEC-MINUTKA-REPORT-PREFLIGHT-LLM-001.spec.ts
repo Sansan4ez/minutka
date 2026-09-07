@@ -84,7 +84,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
     };
     const directory = mkdtempSync(join(tmpdir(), "minutka-preflight-llm-"));
     const directoryFile = join(directory, "directory.json");
-    writeFileSync(directoryFile, JSON.stringify({ schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1", sections: [] }));
+    writeFileSync(directoryFile, JSON.stringify({ schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "1", sections: [] }));
     try {
       await runCompanyReportCommand(["preflight-llm", "--company", "company_a", "--group", "group_a", "--directory", directoryFile], {
         reporting: { async buildReport() { return report as never; } },
@@ -109,7 +109,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
     const directory = mkdtempSync(join(tmpdir(), "minutka-preflight-llm-failure-"));
     const directoryFile = join(directory, "directory.json");
     const outputFile = join(directory, "findings.json");
-    writeFileSync(directoryFile, JSON.stringify({ schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1", sections: [] }));
+    writeFileSync(directoryFile, JSON.stringify({ schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "1", sections: [] }));
     try {
       await expect(runCompanyReportCommand(["preflight-llm", "--company", "company_a", "--group", "group_a", "--directory", directoryFile, "--out", outputFile], {
         reporting: { async buildReport() { return { internal: { routines: [{ key: { roleId: "role_sales", routineKey: "reports" }, name: "Подготовка отчётов", variants: [] }], preflightFindings: [] }, client: {} } as never; } },

@@ -14,7 +14,7 @@ const now = "2026-09-07T12:00:00.000Z";
 const directory: RoutineDirectory = {
   schemaVersion: "minutka-routine-directory/v1",
   companyId: "company-a",
-  version: "2026-09-07",
+  version: "1",
   sections: [{
     roleId: "sales",
     entries: [{

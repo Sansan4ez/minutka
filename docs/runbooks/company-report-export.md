@@ -26,7 +26,7 @@ npm run routine-directory -- validate \
   --file ./operator/routine-directory.company_acme.json
 ```
 
-Команда проверяет схему `minutka-routine-directory/v1`, компанию, версию, provenance, уникальность ids и назначение quick win. При старте runtime дополнительно проверяются tombstones; в отчёт можно передавать только справочник, который вернул `ok: true`.
+Команда проверяет схему `minutka-routine-directory/v1`, компанию, версию, provenance, уникальность ids и назначение quick win. `version` — монотонное целое без префикса (`"1"`, `"2"`, …); не используйте `v1`, даты или другие строки. При старте runtime дополнительно проверяются tombstones; в отчёт можно передавать только справочник, который вернул `ok: true`.
 
 ### 2. Собрать первый отчёт
 
@@ -66,7 +66,7 @@ npm run routine-directory -- suggest \
   --out ./operator/routine-directory-suggestions.group_acme_2026_09.json
 ```
 
-`routine-directory suggest` не изменяет справочник. Он возвращает review-pack с предложениями `attach`, `create` и `free` и опорными фразами. Методолог проверяет предложения, добавляет принятые записи или назначения в операторский JSON, увеличивает `version` и снова выполняет `validate`. `leave_free` остаётся свободным и не получает клиентского имени.
+`routine-directory suggest` не изменяет справочник. Он возвращает review-pack с предложениями `attach`, `create` и `free` и опорными фразами. Методолог проверяет предложения, добавляет принятые записи или назначения в операторский JSON, увеличивает `version` на единицу и снова выполняет `validate`. `leave_free` остаётся свободным и не получает клиентского имени.
 
 ### 4. Повторно собрать отчёт и проверить preflight
 

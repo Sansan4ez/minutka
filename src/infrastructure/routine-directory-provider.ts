@@ -74,7 +74,7 @@ export function loadRoutineDirectoryProvider(
   return createProvider(directories, options.warn);
 }
 
-/** Loads every routine-directory.<companyId>.json file in the operator directory. */
+/** Loads every active routine-directory.<companyId>.json file in the operator directory. */
 export function loadRoutineDirectoryProviderFromDirectory(
   directory: string | undefined,
   options: { warn?: (message: string) => void } = {},
@@ -82,7 +82,7 @@ export function loadRoutineDirectoryProviderFromDirectory(
   if (!directory) return createProvider(new Map());
   let files: string[];
   try {
-    files = readdirSync(directory).filter((file) => /^routine-directory\.[^./]+(?:\.[^./]+)?\.json$/u.test(file) && !file.endsWith(".tombstones.json"));
+    files = readdirSync(directory).filter((file) => /^routine-directory\.[^./]+\.json$/u.test(file));
   } catch (error) {
     if (isMissingFile(error)) {
       options.warn?.("Routine directory directory is unavailable.");
@@ -118,18 +118,7 @@ function createProvider(
 }
 
 function resolveDirectoryFile(directory: string, companyId: string): string {
-  const active = join(directory, `routine-directory.${companyId}.json`);
-  try {
-    readFileSync(active);
-    return active;
-  } catch (error) {
-    if (!isMissingFile(error)) throw error;
-  }
-  const versioned = readdirSync(directory)
-    .filter((file) => file.startsWith(`routine-directory.${companyId}.`) && file.endsWith(".json") && !file.endsWith(".tombstones.json"))
-    .sort()
-    .reverse();
-  return join(directory, versioned[0] ?? `routine-directory.${companyId}.json`);
+  return join(directory, `routine-directory.${companyId}.json`);
 }
 
 function readTombstones(directory: string, companyId: string): string[] {

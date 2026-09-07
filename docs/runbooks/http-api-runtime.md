@@ -10,11 +10,11 @@
 ROUTINE_DIRECTORY_DIR=/srv/minutka/operator/routine-directories
 ```
 
-При старте runtime читает активные файлы вида `routine-directory.<company>.json` и, если активного файла нет, последнюю версионированную копию `routine-directory.<company>.<version>.json` из этого каталога. Каждый файл проверяется как `minutka-routine-directory/v1`: компания, версия, provenance, уникальные ids, quick win и tombstones должны быть корректны. Некорректный найденный файл останавливает startup с безопасной ошибкой; исправьте его и перезапустите runtime.
+При старте runtime читает только активные файлы вида `routine-directory.<company>.json`. Версионированные копии `routine-directory.<company>.<version>.json` хранят историю и не являются fallback-источником. Каждый активный файл проверяется как `minutka-routine-directory/v1`: `version` — монотонное целое без префикса (`"1"`, `"2"`, …), а компания, provenance, уникальные ids, quick win и tombstones должны быть корректны. Некорректный найденный файл останавливает startup с безопасной ошибкой; исправьте его и перезапустите runtime.
 
 Если `ROUTINE_DIRECTORY_DIR` не задан, каталог не существует или для компании нет файла, runtime запускается без секции справочника. Activity transaction сохраняет свободный `routineLabel` без `routineId`, а отчёт всё равно строит coverage и time budget; имена рутин в client DTO появляются только после передачи проверенного справочника команде отчёта. Отсутствие файла не является основанием для создания каталога или записи в corpus. Проверку и предложение остатка выполняйте командами [`routine-directory validate`](company-report-export.md#1-проверить-справочник) и [`routine-directory suggest`](company-report-export.md#3-предложить-записи-для-остатка).
 
-Файлы справочника читаются один раз при старте runtime и затем используются из памяти. После purge или замены версии файла нужен обязательный рестарт (`systemctl restart <unit>`). В логе старта проверьте строку `routine directory loaded`, содержащую компанию, версию и число записей; имена записей в неё не попадают.
+Файлы справочника читаются один раз при старте runtime и затем используются из памяти. После purge очищенная версия записывается и в `routine-directory.<company>.<version>.json`, и в новый активный `routine-directory.<company>.json`; после purge или замены версии файла нужен обязательный рестарт (`systemctl restart <unit>`). В логе старта проверьте строку `routine directory loaded`, содержащую компанию, версию и число записей; имена записей в неё не попадают.
 
 Справочник и tombstones содержат операторские данные и не должны попадать в репозиторий, corpus, traces, model prompt или client artifact без предусмотренной редактуры.
 
