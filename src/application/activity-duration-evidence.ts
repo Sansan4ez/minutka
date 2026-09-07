@@ -23,7 +23,7 @@ const oneAndHalfHourPattern = /(?<![\p{L}\p{N}])(?:полтора|полторы
 const durationOnlyResiduePattern = /^(?:(?:уже|всего|примерно|приблизительно|около|где[\s-]*то|почти|заняло|занимало|получилось|это|ещ[её]|about|around|approximately|roughly|already|just|took|and|и)\s*)*$/iu;
 
 export function extractDurationEvidence(text: string): DurationEvidenceCandidate[] {
-  return recognizedDurationMatches(text)
+  return resolveDurationMatches(text).matches
     .slice(0, MAX_DURATION_REFERENCES)
     .map((match, sourceOrder) => ({
       ref: `duration_${sourceOrder + 1}`,
@@ -34,8 +34,36 @@ export function extractDurationEvidence(text: string): DurationEvidenceCandidate
 
 /** A bounded guard for replies that add duration but name no work object. */
 export function isDurationOnlyActivityReply(text: string): boolean {
-  const matches = recognizedDurationMatches(text);
-  if (matches.length === 0) return false;
+  return resolveDurationMatches(text).durationOnly;
+}
+
+function resolveDurationMatches(text: string): { matches: DurationMatch[]; durationOnly: boolean } {
+  const directMatches: DurationMatch[] = [];
+  collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), directMatches);
+  collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), directMatches);
+  collectMatches(integerDurationPattern, text, numericDuration, directMatches);
+
+  const reversedMatches: DurationMatch[] = [];
+  collectMatches(reversedIntegerDurationPattern, text, numericDuration, reversedMatches);
+
+  const allMatches = normalizeDurationMatches([...directMatches, ...reversedMatches], text);
+  const durationOnly = allMatches.length > 0 && hasDurationOnlyResidue(text, allMatches);
+  return {
+    matches: durationOnly ? allMatches : normalizeDurationMatches(directMatches, text),
+    durationOnly,
+  };
+}
+
+function normalizeDurationMatches(matches: DurationMatch[], text: string): DurationMatch[] {
+  matches.sort((left, right) => left.index - right.index || right.end - left.end);
+  const nonOverlapping: DurationMatch[] = [];
+  for (const match of matches) {
+    if (nonOverlapping.length === 0 || match.index >= nonOverlapping.at(-1)!.end) nonOverlapping.push(match);
+  }
+  return mergeCompoundDurationMatches(nonOverlapping, text);
+}
+
+function hasDurationOnlyResidue(text: string, matches: readonly DurationMatch[]): boolean {
   let residue = "";
   let cursor = 0;
   for (const match of matches) {
@@ -48,20 +76,6 @@ export function isDurationOnlyActivityReply(text: string): boolean {
     .replace(/\s+/gu, " ")
     .trim();
   return durationOnlyResiduePattern.test(normalized);
-}
-
-function recognizedDurationMatches(text: string): DurationMatch[] {
-  const matches: DurationMatch[] = [];
-  collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), matches);
-  collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), matches);
-  collectMatches(integerDurationPattern, text, numericDuration, matches);
-  collectMatches(reversedIntegerDurationPattern, text, numericDuration, matches);
-  matches.sort((left, right) => left.index - right.index || right.end - left.end);
-  const nonOverlapping: DurationMatch[] = [];
-  for (const match of matches) {
-    if (nonOverlapping.length === 0 || match.index >= nonOverlapping.at(-1)!.end) nonOverlapping.push(match);
-  }
-  return mergeCompoundDurationMatches(nonOverlapping, text);
 }
 
 function numericDuration(match: RegExpExecArray): Pick<DurationMatch, "minutes" | "unit"> | undefined {

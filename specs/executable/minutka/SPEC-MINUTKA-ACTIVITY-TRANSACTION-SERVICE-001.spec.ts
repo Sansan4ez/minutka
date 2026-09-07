@@ -202,6 +202,29 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
     });
   });
 
+  it("keeps work-bearing reversed wording in record mode without false duration evidence", async () => {
+    let collectionCalls = 0;
+    const { service, extractorInputs, recentReads } = harness((input) => {
+      expect(input).toEqual({ mode: "record", currentText: "За час 3 заявки", durationReferences: [] });
+      return { kind: "collect", activities: [{ taskCategory: "communication" }] };
+    }, {
+      rows: [row()],
+      collection: {
+        async collectBatch(input) {
+          collectionCalls += 1;
+          expect(input.activities).toEqual([expect.objectContaining({ taskCategory: "communication" })]);
+          return { status: "completed", savedCount: 1, activityIds: ["activity_new"] };
+        },
+      },
+    });
+
+    await expect(service.process({ ...request, currentText: "За час 3 заявки", mode: "record" }))
+      .resolves.toMatchObject({ status: "completed", operation: "collect", savedCount: 1 });
+    expect(extractorInputs).toEqual([{ mode: "record", currentText: "За час 3 заявки", durationReferences: [] }]);
+    expect(recentReads()).toBe(0);
+    expect(collectionCalls).toBe(1);
+  });
+
   it("returns clarification without collecting when duration-only reply has no same-day activity", async () => {
     let collectionCalls = 0;
     const { service, extractorInputs } = harness((input) => {

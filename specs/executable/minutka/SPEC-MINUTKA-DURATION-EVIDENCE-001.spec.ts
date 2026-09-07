@@ -38,13 +38,16 @@ describe("SPEC-MINUTKA-DURATION-EVIDENCE-001: request-local explicit duration ev
   });
 
   it.each([
-    "30 минут",
-    "3 часа",
-    "уже минут 30",
-    "заняло около 2 часов",
-    "about 35 minutes",
-  ])("recognizes a duration-only clarification: %s", (text) => {
+    ["минут 30", "15_30m"],
+    ["часа 3", "2_4h"],
+    ["уже минут 30", "15_30m"],
+    ["30 минут", "15_30m"],
+    ["3 часа", "2_4h"],
+    ["заняло около 2 часов", "1_2h"],
+    ["about 35 minutes", "30_60m"],
+  ] as const)("keeps the duration-only guard and evidence aligned for %s", (text, bucket) => {
     expect(isDurationOnlyActivityReply(text)).toBe(true);
+    expect(buckets(text)).toEqual([{ ref: "duration_1", bucket, sourceOrder: 0 }]);
   });
 
   it.each([
@@ -52,8 +55,25 @@ describe("SPEC-MINUTKA-DURATION-EVIDENCE-001: request-local explicit duration ev
     "Встреча заняла 3 часа",
     "30 минут согласовывал документы",
     "Сделал 35 задач за 2 часа",
+    "За час 3 заявки",
+    "За несколько минут 30 заявок",
+    "работал минут 30 над заявками",
   ])("does not classify work-bearing text as duration-only: %s", (text) => {
     expect(isDurationOnlyActivityReply(text)).toBe(false);
+  });
+
+  it.each([
+    "За час 3 заявки",
+    "За несколько минут 30 заявок",
+    "работал минут 30 над заявками",
+  ])("does not publish reversed duration evidence inside work-bearing text: %s", (text) => {
+    expect(extractDurationEvidence(text)).toEqual([]);
+  });
+
+  it("keeps direct evidence and renumbers refs after omitting a reversed work-bearing match", () => {
+    expect(buckets("За несколько минут 30 заявок, затем отчёт 2 часа")).toEqual([
+      { ref: "duration_1", bucket: "1_2h", sourceOrder: 0 },
+    ]);
   });
 
   it("keeps repeated expressions as separate ordered refs across Unicode whitespace", () => {
