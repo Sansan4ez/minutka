@@ -1,5 +1,6 @@
 import { countUnicodeCodePoints, maxChatInputCharacters } from "../shared/chat-limits.js";
 import { MAX_DURATION_REFERENCES } from "../application/activity-duration-evidence.js";
+import { routineDirectorySectionBudget } from "../application/routine-directory.js";
 import { renderUntrustedCurrentText } from "../application/untrusted-conversation-context.js";
 import {
   createActivityTransactionExtractor,
@@ -26,9 +27,9 @@ export const activityTransactionContextBudget = {
   staticRulesCharacters: 6_000,
   durationReferencesCharacters: 2_000,
   recentCandidatesCharacters: 8_000,
-  directorySectionCharacters: 12_000,
+  directorySectionCharacters: routineDirectorySectionBudget.maximumCharacters,
   maximumRecentCandidates: recentOwnActivitiesMaximumItems,
-  maximumDirectoryEntries: 40,
+  maximumDirectoryEntries: routineDirectorySectionBudget.maximumEntries,
 } as const;
 
 const activityTransactionStaticRules = [

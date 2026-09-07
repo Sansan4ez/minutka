@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { quickWinAssignmentSchema } from "./quick-wins.js";
 import { routineIdMaxLength } from "../contracts/minutka-activity.js";
+import { countUnicodeCodePoints } from "../shared/chat-limits.js";
 
 const routineDirectorySchemaVersion = "minutka-routine-directory/v1" as const;
 
@@ -38,6 +39,17 @@ export type RoutineDirectoryEntry = RoutineDirectory["sections"][number]["entrie
 export type RoutineDirectorySection = {
   version: string;
   entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples">>;
+};
+
+export const routineDirectorySectionBudget = {
+  maximumEntries: 40,
+  maximumCharacters: 12_000,
+} as const;
+
+export type RoutineDirectoryRoleSectionMeasurement = {
+  roleId: string;
+  entries: number;
+  characters: number;
 };
 
 /** Request-local lookup used by the activity transaction boundary. */
@@ -154,6 +166,15 @@ export function roleSection(directory: RoutineDirectory, roleId: string): Routin
   return {
     version: directory.version,
     entries: (section?.entries ?? []).map(({ id, name, description, examples }) => ({ id, name, description, examples })),
+  };
+}
+
+export function measureRoleSection(directory: RoutineDirectory, roleId: string): RoutineDirectoryRoleSectionMeasurement {
+  const section = roleSection(directory, roleId);
+  return {
+    roleId,
+    entries: section.entries.length,
+    characters: countUnicodeCodePoints(JSON.stringify(section)),
   };
 }
 

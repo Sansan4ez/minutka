@@ -8,6 +8,7 @@ import {
   createActivityTransactionTransportSchema,
   normalizeActivityTransactionTransport,
 } from "../../../src/application/activity-transaction-extractor.js";
+import { routineDirectorySectionBudget } from "../../../src/application/routine-directory.js";
 import {
   activityTransactionContextBudget,
   activityTransactionPromptVersion,
@@ -259,9 +260,11 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
       decision: { activities: [{ taskCategory: "reporting" }] },
     });
 
+    expect(activityTransactionContextBudget.maximumDirectoryEntries).toBe(routineDirectorySectionBudget.maximumEntries);
+    expect(activityTransactionContextBudget.directorySectionCharacters).toBe(routineDirectorySectionBudget.maximumCharacters);
     expect(() => buildActivityTransactionPrompt({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection: {
       version: "1",
-      entries: Array.from({ length: 41 }, (_, index) => ({ id: `routine_${index}`, name: "Routine", description: "Description", examples: [] })),
+      entries: Array.from({ length: routineDirectorySectionBudget.maximumEntries + 1 }, (_, index) => ({ id: `routine_${index}`, name: "Routine", description: "Description", examples: [] })),
     } })).toThrow(/routine directory entries/i);
     expect(activityTransactionExtractorInputSchema.safeParse({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection }).success).toBe(true);
     expect(createActivityTransactionTransportSchema([]).safeParse(transport({

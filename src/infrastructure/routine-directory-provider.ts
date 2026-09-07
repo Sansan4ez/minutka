@@ -1,8 +1,10 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
+  measureRoleSection,
   roleSection,
   RoutineDirectoryError,
+  routineDirectorySectionBudget,
   type RoutineDirectory,
   type RoutineDirectorySection,
   type RoutineDirectorySectionProvider,
@@ -38,14 +40,26 @@ export function loadRoutineDirectoryProvider(
   options: { companyIds: readonly string[]; warn?: (message: string) => void } = { companyIds: [] },
 ): LoadedRoutineDirectoryProvider {
   const directories = new Map<string, RoutineDirectory>();
-  if (!directory) return createProvider(directories);
+  const disabledSections = new Set<string>();
+  if (!directory) return createProvider(directories, disabledSections);
 
   for (const companyId of options.companyIds) {
     const file = resolveDirectoryFile(directory, companyId);
     try {
       const loadedDirectory = readRoutineDirectoryFile(file, { expectedCompanyId: companyId });
       directories.set(companyId, loadedDirectory);
-      options.warn?.(`routine directory loaded: ${JSON.stringify(companyId)}, version ${JSON.stringify(loadedDirectory.version)}, entries ${routineDirectoryEntryCount(loadedDirectory)}`);
+      let disabledSectionCount = 0;
+      for (const { roleId } of loadedDirectory.sections) {
+        const measurement = measureRoleSection(loadedDirectory, roleId);
+        if (
+          measurement.entries <= routineDirectorySectionBudget.maximumEntries
+          && measurement.characters <= routineDirectorySectionBudget.maximumCharacters
+        ) continue;
+        disabledSections.add(sectionKey(companyId, roleId));
+        disabledSectionCount += 1;
+        options.warn?.(`routine directory section over budget: company ${JSON.stringify(companyId)}, role ${JSON.stringify(roleId)}, entries ${measurement.entries}, characters ${measurement.characters}; section disabled`);
+      }
+      options.warn?.(`routine directory loaded: ${JSON.stringify(companyId)}, version ${JSON.stringify(loadedDirectory.version)}, entries ${routineDirectoryEntryCount(loadedDirectory)}, disabled sections ${disabledSectionCount}`);
     } catch (error) {
       if (isMissingFileError(error)) {
         options.warn?.(`Routine directory file is unavailable for company ${JSON.stringify(companyId)}.`);
@@ -57,7 +71,7 @@ export function loadRoutineDirectoryProvider(
       throw new RoutineDirectoryProviderStartupError("directory_read_failed", companyId, error);
     }
   }
-  return createProvider(directories, options.warn);
+  return createProvider(directories, disabledSections, options.warn);
 }
 
 /** Loads every active routine-directory.<companyId>.json file in the operator directory. */
@@ -65,14 +79,14 @@ export function loadRoutineDirectoryProviderFromDirectory(
   directory: string | undefined,
   options: { warn?: (message: string) => void } = {},
 ): LoadedRoutineDirectoryProvider {
-  if (!directory) return createProvider(new Map());
+  if (!directory) return createProvider(new Map(), new Set());
   let files: string[];
   try {
     files = readdirSync(directory).filter((file) => /^routine-directory\.[^./]+\.json$/u.test(file));
   } catch (error) {
     if (isMissingFileError(error)) {
       options.warn?.("Routine directory directory is unavailable.");
-      return createProvider(new Map());
+      return createProvider(new Map(), new Set());
     }
     throw new RoutineDirectoryProviderStartupError("directory_read_failed", "*", error);
   }
@@ -84,6 +98,7 @@ export function loadRoutineDirectoryProviderFromDirectory(
 
 function createProvider(
   directories: Map<string, RoutineDirectory>,
+  disabledSections: ReadonlySet<string>,
   warn?: (message: string) => void,
 ): LoadedRoutineDirectoryProvider {
   const warnedCompanies = new Set<string>();
@@ -97,10 +112,15 @@ function createProvider(
       return undefined;
     }
     if (!directory.sections.some((section) => section.roleId === roleId)) return undefined;
+    if (disabledSections.has(sectionKey(companyId, roleId))) return undefined;
     return roleSection(directory, roleId);
   }) as LoadedRoutineDirectoryProvider;
   Object.defineProperty(provider, "directories", { value: directories });
   return provider;
+}
+
+function sectionKey(companyId: string, roleId: string): string {
+  return JSON.stringify([companyId, roleId]);
 }
 
 function resolveDirectoryFile(directory: string, companyId: string): string {

@@ -1,11 +1,18 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   loadRoutineDirectory,
+  measureRoleSection,
   roleSection,
   roleSectionForSuggest,
   RoutineDirectoryError,
   routineDirectoryCounts,
+  routineDirectorySectionBudget,
 } from "../../../src/application/routine-directory.js";
+import { runRoutineDirectoryCommand } from "../../../src/runtime/routine-directory.js";
+import { countUnicodeCodePoints } from "../../../src/shared/chat-limits.js";
 
 const validDirectory = {
   schemaVersion: "minutka-routine-directory/v1",
@@ -67,6 +74,48 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
 
     expect(roleSectionForSuggest(directory, "sales").entries[0]).toMatchObject({ quickWin: "waiting_sla", methodologistNote: "Проверять наличие даты следующего шага" });
     expect(JSON.stringify(roleSectionForSuggest(directory, "sales"))).not.toContain("provenance");
+    expect(measureRoleSection(directory, "sales")).toEqual({
+      roleId: "sales",
+      entries: extractorSection.entries.length,
+      characters: countUnicodeCodePoints(JSON.stringify(extractorSection)),
+    });
+  });
+
+  it.each([
+    ["entry count", Array.from({ length: routineDirectorySectionBudget.maximumEntries + 1 }, (_, index) => ({
+      ...validDirectory.sections[0].entries[0],
+      id: `secret_routine_${index}`,
+      name: `Secret routine ${index}`,
+    }))],
+    ["character count", [{
+      ...validDirectory.sections[0].entries[0],
+      id: "secret_large_routine",
+      name: "Secret large routine",
+      description: "x".repeat(routineDirectorySectionBudget.maximumCharacters),
+    }]],
+  ] as const)("reports a role section over the %s budget without entry names", async (_label, entries) => {
+    const path = await mkdtemp(join(tmpdir(), "minutka-routine-validate-"));
+    try {
+      const file = join(path, "routine-directory.company_a.json");
+      await writeFile(file, JSON.stringify({
+        ...validDirectory,
+        sections: [{ roleId: "sales", entries }],
+      }), "utf8");
+      let output = "";
+      await runRoutineDirectoryCommand(["validate", "--company", "company_a", "--file", file], (text) => { output += text; });
+      const result = JSON.parse(output) as Record<string, unknown>;
+      expect(result).toMatchObject({
+        ok: false,
+        code: "directory_section_over_budget",
+        sections: [{ roleId: "sales", entries: entries.length }],
+        budget: routineDirectorySectionBudget,
+      });
+      expect(result).toHaveProperty("overBudget.0.roleId", "sales");
+      expect(output).not.toContain("Secret routine");
+      expect(output).not.toContain("Secret large routine");
+    } finally {
+      await rm(path, { recursive: true, force: true });
+    }
   });
 
   const cases: Array<[string, unknown, string]> = [

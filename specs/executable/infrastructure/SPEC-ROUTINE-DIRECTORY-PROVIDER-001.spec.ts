@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { routineDirectorySectionBudget } from "../../../src/application/routine-directory.js";
 import {
   loadRoutineDirectoryProviderFromDirectory,
 } from "../../../src/infrastructure/routine-directory-provider.js";
@@ -42,10 +43,37 @@ describe("SPEC-ROUTINE-DIRECTORY-PROVIDER-001: startup routine directory provide
       expect(provider("company_b", "role_a")).toBeUndefined();
       expect(provider("company_b", "role_a")).toBeUndefined();
       expect(warnings).toEqual([
-        "routine directory loaded: \"company_a\", version \"1\", entries 1",
+        "routine directory loaded: \"company_a\", version \"1\", entries 1, disabled sections 0",
         "Routine directory file is unavailable for company \"company_b\".",
       ]);
       expect(warnings[0]).not.toMatch(/routine_a|Prepare reports/u);
+    });
+  });
+
+  it("disables only over-budget role sections and logs content-free startup counters once", () => {
+    withDirectory((path) => {
+      const overBudgetEntries = Array.from({ length: routineDirectorySectionBudget.maximumEntries + 1 }, (_, index) => ({
+        ...directory.sections[0].entries[0],
+        id: `secret_routine_${index}`,
+        name: `Secret routine ${index}`,
+      }));
+      writeFileSync(join(path, "routine-directory.company_a.json"), JSON.stringify({
+        ...directory,
+        sections: [
+          { roleId: "role_over_budget", entries: overBudgetEntries },
+          { roleId: "role_a", entries: directory.sections[0].entries },
+        ],
+      }));
+      const warnings: string[] = [];
+      const provider = loadRoutineDirectoryProviderFromDirectory(path, { warn: (message) => warnings.push(message) });
+
+      expect(provider("company_a", "role_over_budget")).toBeUndefined();
+      expect(provider("company_a", "role_a")).toMatchObject({ version: "1", entries: [{ id: "routine_a" }] });
+      expect(warnings).toEqual([
+        expect.stringMatching(/^routine directory section over budget: company "company_a", role "role_over_budget", entries 41, characters \d+; section disabled$/u),
+        "routine directory loaded: \"company_a\", version \"1\", entries 42, disabled sections 1",
+      ]);
+      expect(warnings.join("\n")).not.toMatch(/secret_routine|Secret routine|Prepare reports/u);
     });
   });
 

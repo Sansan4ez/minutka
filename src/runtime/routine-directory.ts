@@ -3,8 +3,10 @@ import { stdout } from "node:process";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  measureRoleSection,
   RoutineDirectoryError,
   routineDirectoryCounts,
+  routineDirectorySectionBudget,
 } from "../application/routine-directory.js";
 import { runRoutineDirectoryPurge } from "./routine-directory-purge-command.js";
 import { RoutineDirectorySuggestService } from "../application/routine-directory-suggest.js";
@@ -28,7 +30,20 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
     .action(async (options: { company: string; file: string }) => {
       try {
         const directory = readRoutineDirectoryFile(resolve(options.file), { expectedCompanyId: options.company });
-        write(`${JSON.stringify({ ok: true, version: directory.version, ...routineDirectoryCounts(directory) }, null, 2)}\n`);
+        const sections = directory.sections.map(({ roleId }) => measureRoleSection(directory, roleId));
+        const overBudget = sections.filter(({ entries, characters }) => (
+          entries > routineDirectorySectionBudget.maximumEntries
+          || characters > routineDirectorySectionBudget.maximumCharacters
+        ));
+        const result = {
+          ok: overBudget.length === 0,
+          ...(overBudget.length === 0 ? {} : { code: "directory_section_over_budget", overBudget }),
+          version: directory.version,
+          ...routineDirectoryCounts(directory),
+          sections,
+          budget: routineDirectorySectionBudget,
+        };
+        write(`${JSON.stringify(result, null, 2)}\n`);
       } catch (error) {
         if (!(error instanceof RoutineDirectoryError)) throw error;
         write(`${JSON.stringify({ ok: false, code: error.code, message: error.message }, null, 2)}\n`);
