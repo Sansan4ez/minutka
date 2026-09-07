@@ -112,7 +112,7 @@ npm run company-report -- resolve-finding \
   --findings ./operator/preflight-findings.json
 ```
 
-Для исправленной записи используйте `--decision fixed` и при необходимости `--note`. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
+Для исправленной записи используйте `--decision fixed`. Замечание методолога храните в `methodologistNote` соответствующей записи справочника. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
 
 ### 6. Опубликовать client DTO
 
@@ -152,8 +152,8 @@ Contributor считается по distinct `subject_key`: двадцать act
 4. Убедитесь, что routine названа словами справочника, а не raw label; `routineKey`, варианты, subject keys, employee ids, source refs и traces отсутствуют в client DTO.
 5. Проверьте quick win: он взят из закрытого каталога записи справочника и содержит `title`, `whatChanges`, `effort`, `whoCanDo`, `humanInTheLoop`, `firstStep`. Если назначения нет, routine идёт в `deepDive`, а не становится рекомендацией.
 6. Проверьте `preflightFindings`: high-находки имеют решение методолога для текущего hash отчёта; незакрытая high-находка должна блокировать publish.
-7. Human-impact signal может повысить `priority` и добавить risk, но не является routine key и не заменяет доказательство проблемы.
-8. При слабом coverage оставьте рассчитанный policy confidence (`hypothesis` или `signal`) и `insufficientEvidence`; не повышайте confidence редакторским текстом. Для одного contributor проверяйте, что client scope равен label справочной роли (или «группа», только если справочного `roleId` нет), ≈часы обозначены как порядок величины, сигналы трения сохранены, сигналы энергии/стресса отсутствуют, а `coverage.limitations` содержит строку про самоотчёт одного участника. Перед передачей методолог подтверждает или редактирует имя и quick win.
+7. Human-impact/friction signals поднимают рутину в разделе «Что мешает» (`frictionRoutines`), но не меняют confidence и quick win.
+8. При слабом coverage оставьте рассчитанный policy confidence (`hypothesis` или `signal`), ограничения зафиксируйте в `coverage.limitations`, а недоступные выводы — в `cannotConclude`; не повышайте confidence редакторским текстом. Для одного contributor проверяйте, что client scope равен label справочной роли (или «группа», только если справочного `roleId` нет), ≈часы обозначены как порядок величины, сигналы трения сохранены, сигналы энергии/стресса отсутствуют, а `coverage.limitations` содержит строку про самоотчёт одного участника. Перед передачей методолог подтверждает или редактирует имя и quick win.
 9. После correction, purge или изменения справочника запустите весь цикл повторно: сохранённого materialized report source нет, результат должен пересчитаться из актуальных canonical activities и текущей версии справочника.
 
 Отдельного reporting writer/table нет: correction и purge применяются к canonical subject-aware evidence, после чего report command пересчитывает результат.
