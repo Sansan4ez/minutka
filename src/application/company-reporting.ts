@@ -1,7 +1,7 @@
 import type { PersonalActivityRecord } from "./activity-collection.js";
 import type { ActivityDurationBucket, ActivityRecurrence, ActivitySystem, AutomationCandidateType, EnergyStressMarkerType, RoutinePatternType, TaskCategory } from "../domain/insights.js";
 import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
-import type { QuickWinId } from "./quick-wins.js";
+import { findQuickWin, type QuickWinId } from "./quick-wins.js";
 import { routineKey, tally } from "./own-activity-window.js";
 
 export const COMPANY_REPORT_CONFIDENCE_POLICY = {
@@ -39,6 +39,12 @@ export type CompanyReportSnapshot = {
   invitedParticipants: number;
   subjects: Array<{ subjectKey: string; roleId?: string }>;
   activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>;
+  reference?: {
+    companyLabel: string;
+    groupLabel: string;
+    period: { start: string; end: string };
+    roleLabels: Record<string, string>;
+  };
 };
 
 export type CompanyReportStore = {
@@ -112,6 +118,9 @@ export type InternalCompanyEvidenceReport = {
   companyId: string;
   groupId: string;
   directoryVersion?: string;
+  reference?: CompanyReportSnapshot["reference"];
+  period: { start: string; end: string };
+  roleContributors: Record<string, number>;
   coverage: {
     invitedParticipants: number;
     subjects: number;
@@ -130,49 +139,61 @@ export type InternalCompanyEvidenceReport = {
   buckets: InternalEvidenceBucket[];
 };
 
-export type ClientReportRecommendation = {
-  recommendationId: string;
-  process: string;
+export type ClientRoutineEvidenceSummary = {
+  contributors: number;
+  observations: number;
+  activeDates: number;
+  estimatedHours: number;
+  unsizedObservations: number;
+};
+
+export type ClientQuickWin = NonNullable<ReturnType<typeof findQuickWin>>;
+
+export type ClientRoutine = {
+  name: string;
   scope: string;
-  problem: string;
+  evidenceSummary: ClientRoutineEvidenceSummary;
   systems: string[];
-  evidenceSummary: {
-    contributors: number;
-    observations: number;
-    activeDates: number;
-    summary: string;
-    limitations: string[];
-  };
+  statedRecurrence: Partial<Record<ActivityRecurrence, number>>;
   confidence: CompanyReportConfidence;
-  priority: "standard" | "elevated";
-  automationOption: string;
-  humanImpact: string[];
-  humanInTheLoop: string;
-  expectedEffect: string;
-  prerequisites: string[];
-  risks: string[];
+  quickWin?: ClientQuickWin;
+  deepDive?: true;
+  question?: string;
+};
+
+export type ClientFrictionRoutine = {
+  name: string;
+  scope: string;
+  signals: Partial<Record<RoutinePatternType | EnergyStressMarkerType, number>>;
+  evidenceSummary: ClientRoutineEvidenceSummary;
+  confidence: CompanyReportConfidence;
+  quickWin?: ClientQuickWin;
+  deepDive?: true;
 };
 
 export type ClientCompanyReport = {
-  schemaVersion: "minutka-client-report.v1";
+  schemaVersion: "minutka-client-report.v2";
   title: string;
   companyLabel: string;
   groupLabel: string;
+  period: { start: string; end: string };
   coverage: {
     assessment: "insufficient" | "usable_with_limits" | "usable";
     invitedParticipants: number;
     contributors: number;
     activeDates: number;
     observations: number;
+    unsizedObservations: number;
+    unattributedObservations: number;
+    coveredRoles: string[];
     limitations: string[];
   };
-  recommendations: ClientReportRecommendation[];
-  insufficientEvidence: Array<{
-    scope: string;
-    question: string;
-    reason: string;
-    allowedConclusion: string;
-  }>;
+  timeBudget: InternalTimeBudgetEntry[];
+  topRoutines: ClientRoutine[];
+  frictionRoutines: ClientFrictionRoutine[];
+  firstSteps: Array<{ routine: string; firstStep: string; effort: "hours" | "days" | "weeks"; whoCanDo: string }>;
+  deepDive: Array<{ name: string; scope: string; question: string; reason: string }>;
+  cannotConclude: string[];
 };
 
 export type CompanyReportResult = {
@@ -204,7 +225,7 @@ export class CompanyReportingService {
     assertExactScope(companyId, groupId, snapshot);
     const subjectKeys = new Set(snapshot.subjects.map((subject) => subject.subjectKey));
     const activities = snapshot.activities.filter((activity) => subjectKeys.has(activity.subjectKey));
-    const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory);
+    const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory, snapshot.reference);
     return { internal, client: buildClientReport(internal) };
   }
 
@@ -231,8 +252,13 @@ function buildInternalReport(
   activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>,
   generatedAt: string,
   directory?: RoutineDirectory,
+  reference?: CompanyReportSnapshot["reference"],
 ): InternalCompanyEvidenceReport {
   const contributors = new Set(activities.map((activity) => activity.subjectKey)).size;
+  const roleContributors = Object.fromEntries(
+    [...groupBy(activities, (activity) => activity.roleId).entries()]
+      .map(([roleId, roleActivities]) => [roleId, new Set(roleActivities.map((activity) => activity.subjectKey)).size]),
+  );
   const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
   const classified = classifyActivities(activities, directory);
   const attributedActivities = classified.filter(({ routine }) => routine !== undefined).map(({ activity }) => activity);
@@ -243,6 +269,9 @@ function buildInternalReport(
     companyId,
     groupId,
     ...(directory === undefined ? {} : { directoryVersion: directory.version }),
+    ...(reference === undefined ? {} : { reference }),
+    period: reference?.period ?? periodForActivities(activities, generatedAt),
+    roleContributors,
     coverage: {
       invitedParticipants,
       subjects: subjectCount,
@@ -447,132 +476,118 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     ? "insufficient"
     : coverage.contributors >= 3 && coverage.activeDates >= 3 ? "usable" : "usable_with_limits";
   const limitations = [
-    ...(coverage.contributors < 2 ? ["Evidence внесено одним contributor; межсубъектная повторяемость не проверена"] : []),
+    ...(coverage.contributors < 2 ? ["Наблюдения внесены одним contributor; межсубъектная повторяемость не проверена"] : []),
     ...(coverage.activeDates < 3 ? ["Наблюдения покрывают меньше трёх рабочих дат"] : []),
   ];
-  const overallBuckets = internal.buckets.filter((bucket) => bucket.scope.kind === "overall_group");
-  const recommendations = overallBuckets.filter((bucket) => isAutomationOpportunity(bucket.process)).map(toClientRecommendation);
-  const roleHypotheses = internal.buckets
-    .filter((bucket) => bucket.scope.kind === "role" && bucket.confidence === "hypothesis" && (
-      isAutomationOpportunity(bucket.process) || bucket.supportingEvidence.automationHypotheses.length > 0
-    ))
-    .map((bucket) => ({
-      scope: "Редкая рабочая функция",
-      question: hypothesisQuestion(bucket),
-      reason: evidenceSentence(bucket),
-      allowedConclusion: bucket.process.routinePattern
-        ? "Гипотеза о процессе для интервью; не оценка сотрудника и не подтверждённый вывод"
-        : "Гипотеза об automation option для интервью; наблюдаемая проблема ещё не подтверждена и это не оценка сотрудника",
+  const namedRoutines = internal.routines.filter((routine) => routine.name !== undefined);
+  const topRoutines = namedRoutines.slice(0, 10).map((routine) => toClientRoutine(routine, internal));
+  const frictionRoutines = namedRoutines
+    .filter((routine) => routine.frictionSignals.count + routine.energySignals.count > 0)
+    .sort((left, right) => right.frictionSignals.count + right.energySignals.count - (left.frictionSignals.count + left.energySignals.count) || right.estimatedHours - left.estimatedHours)
+    .slice(0, 5)
+    .map((routine) => toClientFrictionRoutine(routine, internal));
+  const firstSteps = uniqueBy(
+    [...topRoutines, ...frictionRoutines]
+      .flatMap((routine) => routine.quickWin === undefined ? [] : [{ routine: routine.name, firstStep: routine.quickWin.firstStep, effort: routine.quickWin.effort, whoCanDo: routine.quickWin.whoCanDo }])
+      .sort((left, right) => effortRank(left.effort) - effortRank(right.effort) || left.routine.localeCompare(right.routine)),
+    (step) => step.routine,
+  ).slice(0, 3);
+  const deepDive = namedRoutines
+    .filter((routine) => routine.quickWin === undefined || routine.quickWin === "deep_dive")
+    .slice(0, 10)
+    .map((routine) => ({
+      name: routine.name!,
+      scope: routineScope(routine, internal),
+      question: routineQuestion(routine),
+      reason: routine.quickWin === "deep_dive" ? "Запись справочника требует углублённого обследования" : "Для этой рутины пока не назначено быстрое улучшение",
     }));
+  const unsizedShare = coverage.observations === 0 ? 0 : Math.round((coverage.unsizedObservations / coverage.observations) * 100);
+  const cannotConclude = [
+    ...(coverage.unsizedObservations > 0 ? [`Точные часы: ${unsizedShare} % наблюдений без длительности; часы — порядок величины по самоотчётам`] : []),
+    "Эффект и prerequisites быстрых улучшений требуют обследования процесса (второй этап)",
+    ...limitations.map((limitation) => `Ограничение покрытия: ${limitation}`),
+  ];
+  const roleLabels = internal.reference?.roleLabels ?? {};
+  const coveredRoles = Object.entries(internal.roleContributors)
+    .filter(([, count]) => count >= 2)
+    .map(([roleId]) => roleLabels[roleId])
+    .filter((role): role is string => role !== undefined)
+    .sort();
   return {
-    schemaVersion: "minutka-client-report.v1",
-    title: "Карта возможностей автоматизации",
-    companyLabel: internal.companyId,
-    groupLabel: internal.groupId,
+    schemaVersion: "minutka-client-report.v2",
+    title: "Карта рутин и быстрых улучшений",
+    companyLabel: internal.reference?.companyLabel ?? internal.companyId,
+    groupLabel: internal.reference?.groupLabel ?? internal.groupId,
+    period: internal.period,
     coverage: {
       assessment,
       invitedParticipants: coverage.invitedParticipants,
       contributors: coverage.contributors,
       activeDates: coverage.activeDates,
       observations: coverage.observations,
+      unsizedObservations: coverage.unsizedObservations,
+      unattributedObservations: coverage.unattributedObservations.count,
+      coveredRoles,
       limitations,
     },
-    recommendations,
-    insufficientEvidence: uniqueBy(roleHypotheses, (item) => `${item.scope}:${item.question}`),
+    timeBudget: internal.timeBudget,
+    topRoutines,
+    frictionRoutines,
+    firstSteps,
+    deepDive,
+    cannotConclude: uniqueBy(cannotConclude, (item) => item),
   };
 }
 
-function toClientRecommendation(bucket: InternalEvidenceBucket): ClientReportRecommendation {
-  const humanImpact = bucket.supportingEvidence.humanImpactSignals.map((signal) => (
-    `${facetLabel(signal.value)} — ${signal.observations} observation(s), confidence ${signal.confidence}`
-  ));
-  const elevatedPriority = bucket.supportingEvidence.humanImpactSignals.some((signal) => signal.value !== "neutral");
+function toClientRoutine(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): ClientRoutine {
+  const quickWin = routine.quickWin === undefined || routine.quickWin === "deep_dive" ? undefined : findQuickWin(routine.quickWin);
   return {
-    recommendationId: bucket.bucketId,
-    process: processLabel(bucket.process),
-    scope: "Вся группа",
-    problem: observedProblem(bucket.process),
-    systems: bucket.systems.map(systemLabel),
-    evidenceSummary: {
-      contributors: bucket.contributors,
-      observations: bucket.observations,
-      activeDates: bucket.activeDates,
-      summary: evidenceSentence(bucket),
-      limitations: [
-        ...(bucket.confidence === "hypothesis" ? ["Требуется интервью или дополнительное наблюдение проблемы"] : []),
-        ...(bucket.supportingEvidence.automationHypotheses.length === 0 ? ["Automation option не наблюдался в canonical activities и требует композиции методологом"] : []),
-        ...(bucket.supportingEvidence.automationHypotheses.some((item) => item.confidence === "hypothesis") ? ["Automation hypothesis опирается на единичное или слабое evidence"] : []),
-      ],
-    },
-    confidence: bucket.confidence,
-    priority: elevatedPriority ? "elevated" : "standard",
-    automationOption: automationOption(bucket),
-    humanImpact,
-    humanInTheLoop: "Владелец процесса проверяет исключения и подтверждает спорные результаты",
-    expectedEffect: expectedEffect(bucket.process),
-    prerequisites: ["владелец процесса", "неперсональный пример текущего процесса", "baseline времени и ошибок"],
-    risks: [
-      "неполное покрытие исключений",
-      "автоматизация нестабильного процесса",
-      ...(elevatedPriority ? ["human-impact signal требует проверки причин и безопасного темпа изменения процесса"] : []),
-    ],
+    name: routine.name!,
+    scope: routineScope(routine, internal),
+    evidenceSummary: routineEvidenceSummary(routine),
+    systems: routine.systems.map(systemLabel),
+    statedRecurrence: routine.statedRecurrence,
+    confidence: routine.confidence,
+    ...(quickWin === undefined ? { deepDive: true as const, question: routineQuestion(routine) } : { quickWin }),
   };
 }
 
-function isAutomationOpportunity(process: CompanyReportProcessKey): boolean {
-  return process.routinePattern !== undefined
-    && ["manual_reporting", "coordination_overhead", "meeting_overload", "context_switching"].includes(process.routinePattern);
-}
-
-function processLabel(process: CompanyReportProcessKey): string {
-  return process.taskCategory ? taskCategoryLabel(process.taskCategory) : "Рабочий процесс";
-}
-
-function observedProblem(process: CompanyReportProcessKey): string {
-  if (!process.routinePattern) return "Наблюдаемая проблема ещё не зафиксирована";
-  const labels: Record<RoutinePatternType, string> = {
-    manual_reporting: "Отчётность готовится вручную",
-    coordination_overhead: "Повторяющаяся координация создаёт лишние шаги",
-    meeting_overload: "Рабочий процесс перегружен синхронными встречами",
-    context_switching: "Частое переключение контекста прерывает работу",
-    waiting_for_input: "Продвижение работы зависит от ожидания входных данных",
-    unclear_priority: "Неясный приоритет замедляет выбор следующего шага",
-    other: "Наблюдается рабочее трение вне текущей taxonomy",
+function toClientFrictionRoutine(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): ClientFrictionRoutine {
+  const quickWin = routine.quickWin === undefined || routine.quickWin === "deep_dive" ? undefined : findQuickWin(routine.quickWin);
+  return {
+    name: routine.name!,
+    scope: routineScope(routine, internal),
+    signals: { ...routine.frictionSignals.byValue, ...routine.energySignals.byValue },
+    evidenceSummary: routineEvidenceSummary(routine),
+    confidence: routine.confidence,
+    ...(quickWin === undefined ? { deepDive: true as const } : { quickWin }),
   };
-  return labels[process.routinePattern];
 }
 
-function hypothesisQuestion(bucket: InternalEvidenceBucket): string {
-  if (bucket.process.routinePattern) return `${processLabel(bucket.process)}: ${observedProblem(bucket.process)}`;
-  const options = bucket.supportingEvidence.automationHypotheses.map((item) => facetLabel(item.value)).join(", ");
-  return `${processLabel(bucket.process)}: проверить automation hypothesis «${options}» после подтверждения наблюдаемой проблемы`;
+function routineEvidenceSummary(routine: InternalRoutine): ClientRoutineEvidenceSummary {
+  return { contributors: routine.contributors, observations: routine.observations, activeDates: routine.activeDates, estimatedHours: routine.estimatedHours, unsizedObservations: routine.unsizedObservations };
 }
 
-function taskCategoryLabel(value: TaskCategory): string {
-  return ({ planning: "Планирование", reporting: "Подготовка отчётности", meetings: "Встречи", coordination: "Координация", communication: "Коммуникация", admin: "Административная работа", focus_work: "Фокусная работа", unknown: "Рабочий процесс" } as const)[value];
+function routineScope(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): string {
+  if (routine.key.roleId && (internal.roleContributors[routine.key.roleId] ?? 0) >= 2) return internal.reference?.roleLabels[routine.key.roleId] ?? "группа";
+  return "группа";
 }
-function facetLabel(value: RoutinePatternType | AutomationCandidateType | EnergyStressMarkerType): string {
-  const labels: Record<string, string> = {
-    manual_reporting: "ручная отчётность", coordination_overhead: "избыточная координация", meeting_overload: "перегруз встречами", context_switching: "переключение контекста", waiting_for_input: "ожидание входных данных", unclear_priority: "неясный приоритет", report_generation: "генерация отчётов", meeting_reduction: "сокращение встреч", async_status_update: "асинхронные статусы", task_routing: "маршрутизация задач", template_or_checklist: "шаблон или чек-лист", data_entry_reduction: "сокращение ручного ввода", overload: "перегруз", fatigue: "усталость", frustration: "фрустрация", focus_loss: "потеря фокуса", blocked_progress: "блокировка прогресса", neutral: "нейтральный сигнал", other: "прочее",
-  };
-  return labels[value] ?? "рабочее препятствие";
+
+function routineQuestion(routine: InternalRoutine): string {
+  return `Как устроена рутина «${routine.name}» и какую её часть можно упростить без потери контроля?`;
 }
+
+function effortRank(effort: "hours" | "days" | "weeks"): number {
+  return ({ hours: 0, days: 1, weeks: 2 } as const)[effort];
+}
+
+function periodForActivities(activities: ReportActivity[], generatedAt: string): { start: string; end: string } {
+  const dates = activities.map(({ activityDate }) => activityDate).sort();
+  return { start: dates[0] ?? generatedAt.slice(0, 10), end: dates.at(-1) ?? generatedAt.slice(0, 10) };
+}
+
 function systemLabel(value: ActivitySystem): string {
   return ({ bitrix24: "Bitrix24", one_c: "1С", spreadsheets: "Электронные таблицы", email: "Почта", messengers: "Мессенджеры", crm: "CRM", task_tracker: "Таск-трекер", telephony: "Телефония", tender_platform: "Тендерная площадка", logistics_system: "Логистическая система", learning_platform: "Платформа обучения", paper_or_verbal: "Бумага или устно", other: "Другая система" } as const)[value];
-}
-function automationOption(bucket: InternalEvidenceBucket): string {
-  const hypotheses = bucket.supportingEvidence.automationHypotheses;
-  if (hypotheses.length > 0) {
-    const options = hypotheses.map((item) => `«${facetLabel(item.value)}» (${item.confidence})`).join(", ");
-    return `Automation hypotheses для проверки методологом: ${options}`;
-  }
-  return "Гипотеза методолога: стандартизировать шаги процесса и проверить автоматизацию повторяемой части с ручной очередью исключений";
-}
-function expectedEffect(process: CompanyReportProcessKey): string {
-  return process.routinePattern === "meeting_overload" ? "Сокращение синхронных согласований" : "Сокращение повторного ручного труда и числа ошибок";
-}
-function evidenceSentence(bucket: InternalEvidenceBucket): string {
-  return `${bucket.contributors} contributor(s), ${bucket.observations} observation(s), ${bucket.activeDates} active date(s)`;
 }
 function evidenceRefs(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): CompanyReportEvidenceRef[] {
   return activities

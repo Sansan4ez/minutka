@@ -270,6 +270,9 @@ const internalRoutineSchema = z.strictObject({
 });
 const internalCompanyReportSchema = z.strictObject({
   schemaVersion: z.literal("minutka-internal-report/v2"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1), directoryVersion: z.string().min(1).optional(),
+  period: z.strictObject({ start: z.string().min(1), end: z.string().min(1) }),
+  reference: z.strictObject({ companyLabel: z.string().min(1), groupLabel: z.string().min(1), period: z.strictObject({ start: z.string().min(1), end: z.string().min(1) }), roleLabels: z.record(z.string(), z.string().min(1)) }).optional(),
+  roleContributors: z.record(z.string(), z.number().int().nonnegative()),
   coverage: z.strictObject({
     invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(),
     unsizedObservations: z.number().int().nonnegative(),
@@ -292,12 +295,30 @@ const internalCompanyReportSchema = z.strictObject({
     evidenceRefs: z.array(companyReportEvidenceRefSchema),
   })),
 });
-const clientEvidenceSummarySchema = z.strictObject({ contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), summary: z.string(), limitations: z.array(z.string()) });
+const clientQuickWinSchema = z.strictObject({
+  id: z.enum(quickWinIds), title: z.string().min(1), whatChanges: z.string().min(1), effort: z.enum(["hours", "days", "weeks"]),
+  whoCanDo: z.enum(["employee", "internal_it", "with_algoritm"]), humanInTheLoop: z.string().min(1), firstStep: z.string().min(1),
+});
+const clientRoutineEvidenceSummarySchema = z.strictObject({ contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), estimatedHours: z.number().nonnegative(), unsizedObservations: z.number().int().nonnegative() });
+const clientRoutineSchema = z.strictObject({
+  name: z.string().min(1), scope: z.string().min(1), evidenceSummary: clientRoutineEvidenceSummarySchema,
+  systems: z.array(z.string()), statedRecurrence: z.record(z.string(), z.number().int().positive()), confidence: companyReportConfidenceSchema,
+  quickWin: clientQuickWinSchema.optional(), deepDive: z.literal(true).optional(), question: z.string().min(1).optional(),
+});
+const clientFrictionRoutineSchema = z.strictObject({
+  name: z.string().min(1), scope: z.string().min(1), signals: z.record(z.string(), z.number().int().nonnegative()), evidenceSummary: clientRoutineEvidenceSummarySchema,
+  confidence: companyReportConfidenceSchema, quickWin: clientQuickWinSchema.optional(), deepDive: z.literal(true).optional(),
+});
 const clientCompanyReportSchema = z.strictObject({
-  schemaVersion: z.literal("minutka-client-report.v1"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
-  coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), limitations: z.array(z.string()) }),
-  recommendations: z.array(z.strictObject({ recommendationId: z.string().min(1), process: z.string().min(1), scope: z.string().min(1), problem: z.string().min(1), systems: z.array(z.string()), evidenceSummary: clientEvidenceSummarySchema, confidence: companyReportConfidenceSchema, priority: z.enum(["standard", "elevated"]), automationOption: z.string().min(1), humanImpact: z.array(z.string()), humanInTheLoop: z.string().min(1), expectedEffect: z.string().min(1), prerequisites: z.array(z.string()), risks: z.array(z.string()) })),
-  insufficientEvidence: z.array(z.strictObject({ scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1), allowedConclusion: z.string().min(1) })),
+  schemaVersion: z.literal("minutka-client-report.v2"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
+  period: z.strictObject({ start: z.string().min(1), end: z.string().min(1) }),
+  coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(), unattributedObservations: z.number().int().nonnegative(), coveredRoles: z.array(z.string()), limitations: z.array(z.string()) }),
+  timeBudget: z.array(z.strictObject({ taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative() })),
+  topRoutines: z.array(clientRoutineSchema).max(10),
+  frictionRoutines: z.array(clientFrictionRoutineSchema).max(5),
+  firstSteps: z.array(z.strictObject({ routine: z.string().min(1), firstStep: z.string().min(1), effort: z.enum(["hours", "days", "weeks"]), whoCanDo: z.enum(["employee", "internal_it", "with_algoritm"]) })).max(3),
+  deepDive: z.array(z.strictObject({ name: z.string().min(1), scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1) })),
+  cannotConclude: z.array(z.string()),
 });
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
 const usageTotalsResponseSchema = z.strictObject({

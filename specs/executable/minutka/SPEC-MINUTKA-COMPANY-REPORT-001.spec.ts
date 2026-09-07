@@ -60,10 +60,10 @@ function activity(input: {
   };
 }
 
-function service(participants: Participant[], personalActivities: PersonalActivityRecord[]) {
+function service(participants: Participant[], personalActivities: PersonalActivityRecord[], reference?: Parameters<typeof createInMemoryCompanyReportStore>[0]["reference"]) {
   const activities = createInMemoryActivityCollectionState();
   activities.activities.push(...personalActivities);
-  return new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities }), () => "2026-08-18T00:00:00.000Z");
+  return new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities, reference }), () => "2026-08-18T00:00:00.000Z");
 }
 
 function automationActivity(id: string, subjectKey: string, date: string, roleId = "role_sales") {
@@ -120,11 +120,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       activeDates: COMPANY_REPORT_CONFIDENCE_POLICY.confirmedDates,
       confidence: "confirmed",
     });
-    expect(result.client.recommendations).toEqual([expect.objectContaining({
-      confidence: "confirmed",
-      problem: "Отчётность готовится вручную",
-      evidenceSummary: expect.objectContaining({ contributors: 3, observations: 5, activeDates: 3 }),
-    })]);
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.cannotConclude).toContain("Эффект и prerequisites быстрых улучшений требуют обследования процесса (второй этап)");
   });
 
   it("keeps supporting automation and human-impact facets inside one observed process", async () => {
@@ -158,13 +155,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
         ],
       },
     });
-    expect(result.client.recommendations).toEqual([expect.objectContaining({
-      process: "Подготовка отчётности",
-      problem: "Отчётность готовится вручную",
-      priority: "elevated",
-      automationOption: expect.stringContaining("Automation hypotheses для проверки методологом"),
-      humanImpact: expect.arrayContaining([expect.stringContaining("усталость"), expect.stringContaining("фрустрация")]),
-    })]);
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.frictionRoutines).toEqual([]);
   });
 
   it("does not promote an automation hypothesis or energy marker without observed friction to a recommendation", async () => {
@@ -184,11 +176,9 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
         },
       }),
     ]);
-    expect(result.client.recommendations).toEqual([]);
-    expect(result.client.insufficientEvidence).toEqual([expect.objectContaining({
-      question: expect.stringContaining("automation hypothesis"),
-      allowedConclusion: expect.stringContaining("наблюдаемая проблема ещё не подтверждена"),
-    })]);
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.frictionRoutines).toEqual([]);
+    expect(result.client.deepDive).toEqual([]);
   });
 
   it("returns a rare-role process hypothesis without employee evaluation or raw quote", async () => {
@@ -204,7 +194,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
     const serializedClient = JSON.stringify(result.client);
 
-    expect(result.client.insufficientEvidence).toEqual([expect.objectContaining({ scope: "Редкая рабочая функция", allowedConclusion: expect.stringContaining("не оценка сотрудника") })]);
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.coverage.coveredRoles).toEqual([]);
     expect(serializedClient).not.toMatch(/subject_|employee_|raw|quote|trace|message/i);
   });
 
@@ -244,7 +235,12 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       activity({ id: "dangling", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", routineLabel: "Свободная работа", taskCategory: "admin" }),
       activity({ id: "unattributed", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", workObject: false, taskCategory: "admin" }),
     ];
-    const reporting = service(participants, rows);
+    const reporting = service(participants, rows, {
+      companyLabel: "Компания ACME",
+      groupLabel: "Пилотная группа",
+      period: { start: "2026-08-01", end: "2026-08-31" },
+      roleLabels: { role_sales: "Продажи", role_logistics: "Логистика" },
+    });
 
     const first = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
     const second = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
@@ -257,6 +253,22 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       expect.objectContaining({ key: { roleId: "role_sales", routineKey: "подготовка писем" } }),
     ]));
     expect(first.internal.routines).toHaveLength(4);
+    expect(first.client).toMatchObject({
+      schemaVersion: "minutka-client-report.v2",
+      title: "Карта рутин и быстрых улучшений",
+      companyLabel: "Компания ACME",
+      groupLabel: "Пилотная группа",
+      period: { start: "2026-08-01", end: "2026-08-31" },
+      coverage: { coveredRoles: [] },
+    });
+    expect(first.client.topRoutines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "группа", quickWin: expect.objectContaining({ id: "report_template" }) }),
+    ]));
+    expect(first.client.deepDive).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "группа" }),
+    ]));
+    expect(first.client.firstSteps).toHaveLength(1);
+    expect(JSON.stringify(first.client)).not.toMatch(/subjectKey|routineKey|variants|evidenceRefs|routineLabel|mostFrequentLabel|roleId/);
     expect(first.internal.coverage.unattributedObservations).toMatchObject({ count: 1 });
     expect(first.internal.timeBudget).toEqual(expect.arrayContaining([
       expect.objectContaining({ taskCategory: "admin", observations: 1 }),
@@ -325,19 +337,16 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     state.activities.push(automationActivity("a1", "subject_one", "2026-08-15"));
     const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({ participants, activities: state }));
 
-    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.recommendations[0]).toMatchObject({
-      process: "Подготовка отчётности",
-      problem: "Отчётность готовится вручную",
-    });
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client.topRoutines).toEqual([]);
     state.activities[0] = activity({ id: "a1", subjectKey: "subject_one", taskCategory: "reporting", automationCandidate: "report_generation", system: "spreadsheets" });
     const corrected = await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" });
-    expect(corrected.client.recommendations).toEqual([]);
+    expect(corrected.client.topRoutines).toEqual([]);
     expect(corrected.internal.buckets.find((bucket) => bucket.scope.kind === "overall_group")).toMatchObject({
       process: { taskCategory: "reporting" },
       supportingEvidence: { automationHypotheses: [expect.objectContaining({ value: "report_generation" })] },
     });
     state.activities.length = 0;
-    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, recommendations: [] });
+    expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, topRoutines: [], frictionRoutines: [], firstSteps: [], deepDive: [] });
   });
 
   it("exposes the separate internal/client DTO through the operator CLI", async () => {
@@ -354,7 +363,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       const result = await runMinutkaCli(client, ["admin", "company-report", "--company", "company_a", "--group", "group_a"]);
       const dto = JSON.parse(result.stdout[0] ?? "{}");
       expect(result).toMatchObject({ exitCode: 0, stderr: [] });
-      expect(dto).toMatchObject({ internal: { companyId: "company_a", groupId: "group_a" }, client: { schemaVersion: "minutka-client-report.v1" } });
+      expect(dto).toMatchObject({ internal: { companyId: "company_a", groupId: "group_a" }, client: { schemaVersion: "minutka-client-report.v2" } });
       expect(JSON.stringify(dto.client)).not.toContain("subject_one");
     } finally { await server.close(); }
   });

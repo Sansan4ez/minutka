@@ -5,6 +5,7 @@ import type { CompanyReportStore } from "./company-reporting.js";
 export function createInMemoryCompanyReportStore(input: {
   participants: Participant[];
   activities: InMemoryActivityCollectionState;
+  reference?: NonNullable<Awaited<ReturnType<CompanyReportStore["loadGroupSnapshot"]>>["reference"]>;
 }): CompanyReportStore {
   return {
     async loadGroupSnapshot({ companyId, groupId }) {
@@ -19,6 +20,7 @@ export function createInMemoryCompanyReportStore(input: {
             && activity.groupId === groupId
             && (activity.status ?? "active") === "active")
           .map(({ employeeId: _employeeId, sourceMessageId: _sourceMessageId, ...activity }) => structuredClone(activity)),
+        ...(input.reference === undefined ? {} : { reference: structuredClone(input.reference) }),
       };
     },
   };

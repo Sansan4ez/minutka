@@ -551,10 +551,8 @@ describe("PostgreSQL storage contracts", () => {
         activeDates: 1,
         confidence: "hypothesis",
       }));
-      expect(report.client.recommendations).toContainEqual(expect.objectContaining({
-        confidence: "hypothesis",
-        evidenceSummary: expect.objectContaining({ contributors: 1, observations: 5, activeDates: 1 }),
-      }));
+      expect(report.client.topRoutines).toEqual([]);
+      expect(report.client.coverage).toMatchObject({ contributors: 1, observations: 5, activeDates: 1 });
       expect(JSON.stringify(report.client)).not.toContain("subject_key");
     } finally {
       if (originalTimezone === undefined) delete process.env.TZ;

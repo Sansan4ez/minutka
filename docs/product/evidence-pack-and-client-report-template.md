@@ -4,7 +4,7 @@
 
 **accepted template v2 (2026-09-07); принят 2026-08-18 как v1.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. Клиентский контракт v2 — «Карта рутин и быстрых улучшений» по [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) §2.8: рутины из проверенного справочника, бюджет времени, quick wins из закрытого каталога, deep-dive вопросы; без `expectedEffect`, `prerequisites`, `risks` и 30/60/90. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет и публикует клиентский артефакт.
 
-> **Статус реализации.** Runtime сейчас отдаёт `minutka-client-report.v1` (структура в git-истории этого файла до 2026-09-07); DTO v2, справочник рутин и `preflightFindings` реализуются эпиком RFC инвентаря рутин. Единственный активный контракт — v2 этого документа.
+> **Статус реализации.** Runtime отдаёт `minutka-client-report.v2`; это единственный активный клиентский контракт. Preflight и publish gate реализуются отдельными задачами RFC инвентаря рутин.
 
 Шаблоны конкретизируют [RFC исследовательского корпуса и клиентской карты автоматизации §2.7–2.9](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack):
 
