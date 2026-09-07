@@ -262,7 +262,7 @@ const internalRoutineKeySchema = z.union([
 const routineSignalSchema = z.strictObject({ count: z.number().int().nonnegative(), byValue: z.record(z.string(), z.number().int().nonnegative()) });
 const preflightFindingSchema = z.strictObject({
   id: z.string().min(1), field: z.enum(["routine.name", "routine.variants", "policy"]), routineKey: z.string().min(1).optional(),
-  rule: z.string().min(1), excerpt: z.string().min(1), severity: z.enum(["high", "medium", "low"]),
+  rule: z.string().min(1), excerpt: z.string().min(1), severity: z.enum(["high", "medium", "low"]), reason: z.string().min(1).max(500).optional(),
 });
 const internalRoutineSchema = z.strictObject({
   key: internalRoutineKeySchema,

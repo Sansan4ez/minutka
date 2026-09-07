@@ -17,6 +17,20 @@ npm run cli -- admin company-report --company company_acme --group group_acme_20
 
 Перед ручной передачей извлеките только поле `client`, проверьте формулировки и пройдите boundary preflight из шаблона. HTTP/CLI остаётся операторским контуром; автоматической публикации и company account нет.
 
+### Семантический preflight имён
+
+После сборки отчёта со справочником запустите отдельный операторский LLM-шаг:
+
+```bash
+npm run company-report -- preflight-llm \
+  --company company_acme \
+  --group group_acme_2026_09 \
+  --directory ./operator/routine-directory.company_acme.json \
+  --out ./operator/preflight-findings.json
+```
+
+Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и объединяет результат с детерминированным lint в `preflight-findings.json`. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
+
 ## Confidence policy
 
 Пороговые значения определены вместе в `src/application/company-reporting.ts`:

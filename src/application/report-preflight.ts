@@ -20,6 +20,7 @@ export type PreflightFinding = {
   rule: string;
   excerpt: string;
   severity: "high" | "medium" | "low";
+  reason?: string;
 };
 
 type PreflightReport = Pick<InternalCompanyEvidenceReport, "routines" | "buckets" | "coverage"> & {
@@ -120,6 +121,18 @@ function makeFinding(
   severity: PreflightFinding["severity"],
 ): PreflightFinding {
   const finding = { field, ...(routineKey === undefined ? {} : { routineKey }), rule, excerpt, severity } as Omit<PreflightFinding, "id">;
+  return { id: preflightFindingId(finding), ...finding };
+}
+
+export function createPreflightFinding(
+  field: PreflightFinding["field"],
+  routineKey: string | undefined,
+  rule: string,
+  excerpt: string,
+  severity: PreflightFinding["severity"],
+  reason?: string,
+): PreflightFinding {
+  const finding = { field, ...(routineKey === undefined ? {} : { routineKey }), rule, excerpt, severity, ...(reason === undefined ? {} : { reason }) } as Omit<PreflightFinding, "id">;
   return { id: preflightFindingId(finding), ...finding };
 }
 
