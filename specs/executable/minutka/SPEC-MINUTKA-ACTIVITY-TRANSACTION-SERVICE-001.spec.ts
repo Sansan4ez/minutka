@@ -61,6 +61,7 @@ function harness(
     collection?: Pick<CollectActivityService, "collectBatch">;
     recentRead?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<{ activities: never[] }>;
     corrections?: Pick<ActivityCorrectionService, "correct" | "supersede">;
+    routineDirectorySectionProvider?: (companyId: string, roleId: string) => import("../../../src/application/routine-directory.js").RoutineDirectorySection | undefined;
   } = {},
 ) {
   const state = createInMemoryActivityCollectionState();
@@ -91,7 +92,14 @@ function harness(
     createInMemoryActivityMutationStore(state),
     { now: () => now },
   );
-  const service = new ActivityTransactionService({ extractor, collection, recentActivities, corrections, clock: { now: () => now } });
+  const service = new ActivityTransactionService({
+    extractor,
+    collection,
+    recentActivities,
+    corrections,
+    routineDirectorySectionProvider: options.routineDirectorySectionProvider,
+    clock: { now: () => now },
+  });
   return { service, state, extractorInputs, recentReads: () => recentReads };
 }
 
@@ -199,6 +207,45 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
       durationBucket,
       revision: 2,
       lastCorrectionMessageId: request.sourceMessageId,
+    });
+  });
+
+  it("passes the participant company and role directory section to extraction", async () => {
+    const directorySection = {
+      version: "directory-v1",
+      entries: [{ id: "routine-report", name: "Prepare reports", description: "Prepare reports", examples: ["prepared a report"] }],
+    };
+    const calls: Array<[string, string]> = [];
+    const { service, extractorInputs } = harness({ kind: "none", reason: "no_factual_activity" }, {
+      routineDirectorySectionProvider: (companyId, roleId) => {
+        calls.push([companyId, roleId]);
+        return companyId === request.companyId && roleId === request.roleId ? directorySection : undefined;
+      },
+    });
+
+    await service.process({ ...request, mode: "record" });
+    await service.process({ ...request, companyId: "company_other", mode: "record" });
+    await service.process({ ...request, roleId: "role_other", mode: "record" });
+
+    expect(calls).toEqual([
+      [request.companyId, request.roleId],
+      ["company_other", request.roleId],
+      [request.companyId, "role_other"],
+    ]);
+    expect(extractorInputs[0]).toMatchObject({ directorySection });
+    expect(extractorInputs[1]).not.toHaveProperty("directorySection");
+    expect(extractorInputs[2]).not.toHaveProperty("directorySection");
+  });
+
+  it("keeps the extractor input unchanged when no directory provider is configured", async () => {
+    const { service, extractorInputs } = harness({ kind: "none", reason: "no_factual_activity" });
+
+    await service.process({ ...request, mode: "record" });
+
+    expect(extractorInputs[0]).toEqual({
+      mode: "record",
+      currentText: request.currentText,
+      durationReferences: [{ ref: "duration_1", bucket: "30_60m", sourceOrder: 0 }],
     });
   });
 

@@ -76,6 +76,8 @@ import { llmModel } from "../config/llm.js";
 import { RecentOwnActivitiesService } from "../application/recent-own-activities.js";
 import { ActivityTransactionService } from "../application/activity-transaction-service.js";
 import { extractActivityTransactionWithAgent } from "../mastra/activity-transaction-extractor.js";
+import { routineDirectoryRuntimeConfigFromEnv } from "../config/routine-directory.js";
+import { loadRoutineDirectoryProviderFromDirectory } from "../infrastructure/routine-directory-provider.js";
 
 export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput & { telegramShell?: Pick<ReturnType<typeof createTelegramShell>, "deliverProactive" | "deliverReminder"> }) {
   // The process manual is deployment configuration: validate it before opening
@@ -89,6 +91,11 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
   const taskMutationCompletedReplayRetentionMilliseconds = taskMutationCompletedReplayRetentionFromEnv(input.env);
   const usageCostPolicy = usageCostPolicyFromEnv(input.env);
   const artifactConfig = artifactRuntimeConfigFromEnv(input.env);
+  const routineDirectoryConfig = routineDirectoryRuntimeConfigFromEnv(input.env);
+  const routineDirectorySectionProvider = loadRoutineDirectoryProviderFromDirectory(
+    routineDirectoryConfig.directory,
+    { warn: (message) => console.warn(message) },
+  );
   const pool = createPostgresPool(config);
   try {
     await pool.query("SELECT 1");
@@ -244,6 +251,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       collection: activityCollection,
       recentActivities: recentOwnActivities,
       corrections: activityCorrections,
+      routineDirectorySectionProvider,
     });
     const weeklyActivitySummary = new WeeklyActivitySummaryService(ownActivityReadStore, systemClock);
     const cycleActivitySummary = new CycleActivitySummaryService(ownActivityReadStore, systemClock);

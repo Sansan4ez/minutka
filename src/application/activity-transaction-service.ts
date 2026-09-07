@@ -18,6 +18,7 @@ import {
 } from "./activity-duration-evidence.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import type { RecentOwnActivitiesService } from "./recent-own-activities.js";
+import type { RoutineDirectorySectionProvider } from "./routine-directory.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
 import type { ModelTokenUsage } from "./usage-store.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
@@ -99,14 +100,15 @@ type ActivityTransactionDependencies = {
   collection: Pick<CollectActivityService, "collectBatch">;
   recentActivities: Pick<RecentOwnActivitiesService, "read">;
   corrections: Pick<ActivityCorrectionService, "correct" | "supersede">;
+  routineDirectorySectionProvider?: RoutineDirectorySectionProvider;
   clock?: Clock;
 };
 
 /**
  * One request-bound activity transaction over the existing canonical use-cases.
  * Identity and message evidence enter through the trusted closure; the extractor
- * sees only the current text, request-local duration refs, and (for repair) a
- * bounded projection of recent own activities.
+ * sees only the current text, request-local duration refs, the matching role-directory
+ * section when configured, and (for repair) a bounded projection of recent own activities.
  */
 export class ActivityTransactionService {
   private readonly clock: Clock;
@@ -145,11 +147,13 @@ export class ActivityTransactionService {
     }
 
     const extractionStartedAt = Date.now();
+    const directorySection = this.deps.routineDirectorySectionProvider?.(input.companyId, input.roleId);
     const extracted = await this.deps.extractor(effectiveMode === "record"
       ? {
         mode: "record",
         currentText: input.currentText,
         durationReferences: [...durationEvidence.candidates],
+        ...(directorySection ? { directorySection } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
       }
       : {
@@ -157,6 +161,7 @@ export class ActivityTransactionService {
         currentText: input.currentText,
         durationReferences: [...durationEvidence.candidates],
         recentCandidates: recentCandidates ?? [],
+        ...(directorySection ? { directorySection } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
       });
 

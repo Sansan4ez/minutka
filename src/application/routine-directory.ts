@@ -39,6 +39,9 @@ export type RoutineDirectorySection = {
   entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples">>;
 };
 
+/** Request-local lookup used by the activity transaction boundary. */
+export type RoutineDirectorySectionProvider = (companyId: string, roleId: string) => RoutineDirectorySection | undefined;
+
 export type RoutineDirectorySuggestSection = RoutineDirectorySection & {
   entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples" | "quickWin" | "methodologistNote">>;
 };
