@@ -30,7 +30,7 @@
 
 - `npx vitest run specs/executable/minutka/SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001.spec.ts` — focused gate: PASS.
 - `npm run verify` — PASS.
-- `npm run specs:persistence` — not run: `TEST_DATABASE_URL` и `TEST_MIGRATION_DATABASE_URL` отсутствуют в окружении; persistence gate требует настроенную PostgreSQL test database.
+- `npm run specs:persistence` — PASS, 56/56 тестов (2026-09-07; настроенная PostgreSQL test database, миграции 0001–0079).
 - `git diff --check` — PASS.
 
-Persistence execution remains an operator/environment gate; no credentials or database payload were added to the repository.
+Persistence gate выполнен на локальной тестовой PostgreSQL; credentials и database payload в репозиторий не добавлялись.

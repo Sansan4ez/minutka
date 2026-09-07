@@ -527,9 +527,18 @@ describe("PostgreSQL storage contracts", () => {
         groupId,
         roleId,
         timezone,
-        activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" },
+        activity: { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets", routineLabel: "Weekly reports" },
       });
     }
+    await collect.collect({
+      employeeId: "report_date_0",
+      subjectKey: (await profiles.getParticipant("report_date_0"))!.subjectKey,
+      companyId,
+      groupId,
+      roleId,
+      timezone,
+      activity: { taskCategory: "meetings", durationBucket: "gt_4h" },
+    });
     expect((await pool.query<{ activity_date: string }>(
       "SELECT DISTINCT activity_date::text AS activity_date FROM minutka_private.activities WHERE company_id=$1",
       [companyId],
@@ -540,7 +549,13 @@ describe("PostgreSQL storage contracts", () => {
     try {
       const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool))
         .exportGroup({ companyId, groupId });
-      expect(report.internal.coverage).toMatchObject({ invitedParticipants: 5, contributors: 1, observations: 5, activeDates: 1 });
+      expect(report.internal.coverage).toMatchObject({
+        invitedParticipants: 5,
+        contributors: 1,
+        observations: 6,
+        activeDates: 1,
+        unattributedObservations: { count: 1, estimatedHours: 5, unsized: 0 },
+      });
       expect(report.internal.buckets).toContainEqual(expect.objectContaining({
         scope: { kind: "overall_group" },
         process: { taskCategory: "reporting", routinePattern: "manual_reporting" },
@@ -551,8 +566,17 @@ describe("PostgreSQL storage contracts", () => {
         activeDates: 1,
         confidence: "hypothesis",
       }));
+      expect(report.internal.buckets).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ process: expect.objectContaining({ taskCategory: "meetings" }) }),
+      ]));
+      expect(report.internal.timeBudget).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ taskCategory: "meetings" }),
+      ]));
+      expect(report.internal.routines).toEqual([
+        expect.objectContaining({ mostFrequentLabel: "Weekly reports", observations: 5 }),
+      ]);
       expect(report.client.topRoutines).toEqual([]);
-      expect(report.client.coverage).toMatchObject({ contributors: 1, observations: 5, activeDates: 1 });
+      expect(report.client.coverage).toMatchObject({ contributors: 1, observations: 6, activeDates: 1, unattributedObservations: 1 });
       expect(JSON.stringify(report.client)).not.toContain("subject_key");
     } finally {
       if (originalTimezone === undefined) delete process.env.TZ;
@@ -592,9 +616,9 @@ describe("PostgreSQL storage contracts", () => {
 
     // One day before the cycle, six days inside it, and one day of another owner.
     await collectOn("own_window_a", "2026-08-14", { taskCategory: "coordination" });
-    await collectOn("own_window_a", "2026-08-17", { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets" });
-    await collectOn("own_window_a", "2026-08-19", { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets" });
-    await collectOn("own_window_a", "2026-08-22", { taskCategory: "reporting", routinePattern: "manual_reporting" });
+    await collectOn("own_window_a", "2026-08-17", { taskCategory: "reporting", routinePattern: "manual_reporting", durationBucket: "1_2h", system: "spreadsheets", routineLabel: "Weekly reports" });
+    await collectOn("own_window_a", "2026-08-19", { taskCategory: "reporting", routinePattern: "manual_reporting", system: "spreadsheets", routineLabel: "Weekly reports" });
+    await collectOn("own_window_a", "2026-08-22", { taskCategory: "reporting", routinePattern: "manual_reporting", routineLabel: "Weekly reports" });
     await collectOn("own_window_a", "2026-08-24", { taskCategory: "reporting", automationCandidate: "report_generation", durationBucket: "1_2h" });
     await collectOn("own_window_a", "2026-08-26", { taskCategory: "reporting" });
     await collectOn("own_window_a", "2026-08-27", { taskCategory: "meetings", energyStressMarker: "fatigue" });
@@ -615,6 +639,7 @@ describe("PostgreSQL storage contracts", () => {
       energyStressMarkers: [{ value: "fatigue", count: 1 }],
       durationBuckets: [{ value: "1_2h", count: 1 }],
       systems: [],
+      routines: [{ label: "Weekly reports", count: 1, activeDates: 1 }],
     });
 
     await expect(new CycleActivitySummaryService(reads, lastCycleDay)
@@ -631,6 +656,7 @@ describe("PostgreSQL storage contracts", () => {
       energyStressMarkers: [{ value: "fatigue", count: 1 }],
       durationBuckets: [{ value: "1_2h", count: 2 }],
       systems: [{ value: "spreadsheets", count: 2 }],
+      routines: [{ label: "Weekly reports", count: 3, activeDates: 3 }],
       confirmedPatterns: {
         taskCategories: ["reporting"],
         routinePatterns: ["manual_reporting"],

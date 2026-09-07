@@ -294,7 +294,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 | --- | --- |
 | Closed facets activity, `ActivityTransactionExtractor`, corrections/revisions | Оставляем; добавляем два optional поля |
 | `CompanyReportingService`, confidence policy, internal/client DTO boundary | Оставляем; DTO v2 с `routines` и `timeBudget` |
-| Buckets `taskCategory + routinePattern` | Оставляем как бюджет времени по категории и fallback для activities без label; перестают называться «процессом» |
+| Buckets `taskCategory + routinePattern` | Оставляем как бюджет времени по категории для activities с объектом работы; activities без `routineId` и `routineLabel` в buckets и time budget не входят и учитываются только в `unattributedObservations`; перестают называться «процессом» |
 | `supportingEvidence.automationHypotheses / humanImpactSignals` | Оставляем как supporting сигналы рутины и раздела «что мешает»; триггером каталога не являются |
 | Личные `readWeeklyActivities` / `readCycleActivities` | Оставляем; добавляем `routines` |
 | Research corpus, traces, evaluation export | Оставляем без изменений |
@@ -348,7 +348,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 
 ## 6. Error handling & деградация
 
-- **Label не извлечён.** Activity сохраняется с facets, попадает в бюджет времени по категории; рутиной не становится; в отчёте — строка «без названия» только в internal DTO.
+- **Label не извлечён.** Activity сохраняется с facets, но без `routineId` и `routineLabel` не входит в бюджет времени по категории и рутиной не становится. Известные часы и число таких записей учитываются в `unattributedObservations`; без `durationBucket` часы не домысливаются.
 - **Label содержит имя/контрагента.** Extractor-правило нарушено; ловится на проверке остатка справочника и boundary preflight; исправление — существующий correction path activity и правка канонического имени, затем пересчёт отчёта. Raw label в клиентский DTO не попадает никогда (§2.3).
 - **Рутина без записи справочника.** Остаётся в internal DTO с находкой `unnamed_routine`; в клиентские разделы 3–6 не входит, в бюджет времени по категории входит (объект работы назван).
 - **Activity без объекта работы.** Не входит в бюджет; часы считаются в `unattributedObservations`.
@@ -425,6 +425,10 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 Решение владельца по ревью purge (2026-09-07, `mnt-2wia`; контракт уточнён в `mnt-1zv3`):
 
 14. Для subject/group purge удаляется вся запись справочника, если её provenance пересекается со scope, даже если она общая с другими участниками; удаляются содержащие её версии/копии (§2.4). Удаление только пар provenance отвергнуто: оно оставляет производный текст без связи с удалённым вкладом. Незатронутые записи и canonical activities вне scope сохраняются; временная потеря общей записи принята как простой надёжный privacy-компромисс. Восстановление — из surviving corpus с новым id и проверкой; dangling id с label становится свободной рутиной, без label — internal unattributed observation с отдельными часами вне бюджета. Это уточнение обязательного purge-контракта §8.6, не ввод автоматического sanitizer или runtime справочника.
+
+Решение реализации бюджета времени (2026-09-07, `mnt-xa71.9`; persistence gate подтверждён в `mnt-xa71.22`):
+
+15. Activity входит в buckets и бюджет времени только при наличии объекта работы (`routineId` или `routineLabel`). Activity без обоих полей учитывается отдельно в `unattributedObservations`; известные часы не относятся к категории, неизвестные не домысливаются (§2.4, §2.5, §3, §6).
 
 Открытых вопросов нет.
 
