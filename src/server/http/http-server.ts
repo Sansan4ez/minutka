@@ -170,7 +170,13 @@ export function createHttpServer(options: HttpServerOptions): Server {
       if (req.method === "GET" && adminCompanyReport) {
         template = "/v1/admin/companies/:companyId/report";
         requireKind(principal, "operator");
-        const input = parse(companyReportRequestSchema, { companyId: decodeURIComponent(adminCompanyReport[1]), groupId: url.searchParams.get("groupId") });
+        const directoryText = url.searchParams.get("directory");
+        let directory: unknown;
+        if (directoryText !== null) {
+          try { directory = JSON.parse(directoryText) as unknown; }
+          catch { throw httpError(400, "invalid_request", "Request validation failed."); }
+        }
+        const input = parse(companyReportRequestSchema, { companyId: decodeURIComponent(adminCompanyReport[1]), groupId: url.searchParams.get("groupId"), ...(directory === undefined ? {} : { directory }) });
         status = 200;
         return send(res, status, await withHandlerTimeout(defaultHandlerTimeoutMs, async () => options.application.exportCompanyReport(input)), id);
       }

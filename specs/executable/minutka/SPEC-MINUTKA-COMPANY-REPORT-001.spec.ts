@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   COMPANY_REPORT_CONFIDENCE_POLICY,
@@ -30,6 +33,9 @@ function activity(input: {
   automationCandidate?: PersonalActivityRecord["automationCandidate"];
   energyStressMarker?: PersonalActivityRecord["energyStressMarker"];
   system?: PersonalActivityRecord["system"];
+  routineId?: string;
+  routineLabel?: string;
+  recurrence?: PersonalActivityRecord["recurrence"];
 }): PersonalActivityRecord {
   return {
     activityId: input.id,
@@ -43,7 +49,11 @@ function activity(input: {
     ...(input.automationCandidate ? { automationCandidate: input.automationCandidate } : {}),
     ...(input.energyStressMarker ? { energyStressMarker: input.energyStressMarker } : {}),
     ...(input.system ? { system: input.system } : {}),
-    ...(input.workObject === false ? {} : { routineLabel: "test work" }),
+    ...(input.routineId === undefined ? {} : { routineId: input.routineId }),
+    ...(input.routineLabel === undefined
+      ? (input.workObject === false ? {} : { routineLabel: "test work" })
+      : { routineLabel: input.routineLabel }),
+    ...(input.recurrence === undefined ? {} : { recurrence: input.recurrence }),
     durationBucket: "30_60m",
     activityDate: input.date ?? "2026-08-15",
     recordedAt: `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
@@ -211,6 +221,76 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(result.internal.timeBudget).toEqual([expect.objectContaining({ taskCategory: "reporting", observations: 1, estimatedHours: 0.8 })]);
     expect(result.internal.buckets.every((bucket) => bucket.observations === 1)).toBe(true);
     expect(result.internal.coverage.unattributedObservations).toEqual({ count: 2, estimatedHours: 0.8, unsized: 1 });
+  });
+
+  it("builds deterministic role-scoped routines from a validated directory and free labels", async () => {
+    const participants = [
+      participant("sales", "company_a", "group_a", "role_sales"),
+      participant("logistics", "company_a", "group_a", "role_logistics"),
+    ];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "directory-1",
+      sections: [
+        { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "report_template", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
+        { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
+      ],
+    };
+    const rows = [
+      activity({ id: "sales-id", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_report", routineLabel: "Отчёт", recurrence: "weekly", taskCategory: "reporting", routinePattern: "manual_reporting", energyStressMarker: "fatigue" }),
+      activity({ id: "sales-free", subjectKey: "subject_sales", roleId: "role_sales", routineLabel: "Подготовка, писем", taskCategory: "communication" }),
+      activity({ id: "logistics-id", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_report", routineLabel: "Отчёт", taskCategory: "reporting" }),
+      activity({ id: "dangling", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", routineLabel: "Свободная работа", taskCategory: "admin" }),
+      activity({ id: "unattributed", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", workObject: false, taskCategory: "admin" }),
+    ];
+    const reporting = service(participants, rows);
+
+    const first = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    const second = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    expect(first).toEqual(second);
+    expect(first.internal.directoryVersion).toBe("directory-1");
+    expect(first.internal.routines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: { roleId: "role_sales", routineId: "sales_report" }, name: "Подготовка отчётов", quickWin: "report_template", statedRecurrence: { weekly: 1 }, frictionSignals: { count: 1, byValue: { manual_reporting: 1 } }, energySignals: { count: 1, byValue: { fatigue: 1 } } }),
+      expect.objectContaining({ key: { roleId: "role_logistics", routineId: "logistics_report" }, name: "Подготовка отчётов", quickWin: "deep_dive" }),
+      expect.objectContaining({ key: { roleId: "role_sales", routineKey: "свободная работа" } }),
+      expect.objectContaining({ key: { roleId: "role_sales", routineKey: "подготовка писем" } }),
+    ]));
+    expect(first.internal.routines).toHaveLength(4);
+    expect(first.internal.coverage.unattributedObservations).toMatchObject({ count: 1 });
+    expect(first.internal.timeBudget).toEqual(expect.arrayContaining([
+      expect.objectContaining({ taskCategory: "admin", observations: 1 }),
+    ]));
+    expect(JSON.stringify(first.internal.routines)).not.toContain("provenance");
+  });
+
+  it("rejects a directory belonging to another company before building the report", async () => {
+    const reporting = service([participant("one", "company_a", "group_a", "role_sales")], []);
+    await expect(reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory: {
+      schemaVersion: "minutka-routine-directory/v1", companyId: "company_b", version: "directory-1", sections: [],
+    } })).rejects.toMatchObject({ code: "directory_scope_mismatch" });
+  });
+
+  it("passes --directory from the operator CLI", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "minutka-directory-"));
+    const file = join(directory, "directory.json");
+    writeFileSync(file, JSON.stringify({
+      schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1", sections: [],
+    }));
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const reporting = service(participants, [activity({ id: "a1", subjectKey: "subject_one", routineLabel: "Free work" })]);
+    const runtime = createInMemoryRuntime({ agentRunner: async () => "unused" });
+    const clock = { now: () => createdAt };
+    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 } });
+    const application = new PersonalAssistantService(runtime.service, { async chat() { throw new Error("not used"); } }, artifactStore, undefined, undefined, undefined, undefined, undefined, undefined, reporting);
+    const adminToken = "d".repeat(64);
+    const server = await listenHttpServer({ application, port: 0, logger: () => undefined, auth: { adminToken, employeeTokens: new Map() } });
+    try {
+      const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
+      const result = await runMinutkaCli(client, ["admin", "company-report", "--company", "company_a", "--group", "group_a", "--directory", file]);
+      expect(result).toMatchObject({ exitCode: 0, stderr: [] });
+      expect(JSON.parse(result.stdout[0] ?? "{}")).toMatchObject({ internal: { directoryVersion: "directory-1" } });
+    } finally { await server.close(); }
   });
 
   it("keeps subject-linked refs internal and excludes identities and source refs from the client DTO", async () => {

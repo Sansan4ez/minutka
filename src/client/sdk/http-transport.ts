@@ -74,6 +74,7 @@ export class HttpAdminMinutkaTransport extends HttpTransportBase implements Admi
   }
   exportCompanyReport(input: CompanyReportRequest) {
     const query = new URLSearchParams({ groupId: input.groupId });
+    if (input.directory !== undefined) query.set("directory", JSON.stringify(input.directory));
     return this.request("GET", `/v1/admin/companies/${encodeURIComponent(input.companyId)}/report?${query}`);
   }
   listContextDocumentVersions(input: ContextDocumentVersionsRequest) {

@@ -5,6 +5,7 @@ import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledProcessIds } from "../domain/assistant-process.js";
 import { activityDurationBuckets, activitySystems, automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
 import { personalContextPatchFields, personalContextLimits } from "../application/personal-context-review.js";
+import { quickWinIds } from "../application/quick-wins.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -238,6 +239,7 @@ export const adminGroupUsageRequestSchema = z.strictObject({
 export const companyReportRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128),
   groupId: z.string().min(1).max(128),
+  directory: z.unknown().optional(),
 });
 const companyReportConfidenceSchema = z.enum(["hypothesis", "signal", "confirmed"]);
 const companyReportProcessSchema = z.strictObject({
@@ -253,8 +255,21 @@ const supportingFacetSchema = <T extends z.ZodType>(value: T) => z.strictObject(
   confidence: companyReportConfidenceSchema,
   evidenceRefs: z.array(companyReportEvidenceRefSchema),
 });
+const internalRoutineKeySchema = z.union([
+  z.strictObject({ roleId: z.string().min(1), routineId: z.string().min(1) }),
+  z.strictObject({ roleId: z.string().min(1), routineKey: z.string().min(1) }),
+]);
+const routineSignalSchema = z.strictObject({ count: z.number().int().nonnegative(), byValue: z.record(z.string(), z.number().int().nonnegative()) });
+const internalRoutineSchema = z.strictObject({
+  key: internalRoutineKeySchema,
+  name: z.string().min(1).optional(), mostFrequentLabel: z.string().min(1).optional(), variants: z.array(z.string()),
+  contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), confidence: companyReportConfidenceSchema,
+  statedRecurrence: z.record(z.string(), z.number().int().positive()), systems: z.array(z.enum(activitySystems)), taskCategories: z.array(z.enum(taskCategories)),
+  estimatedHours: z.number().nonnegative(), unsizedObservations: z.number().int().nonnegative(), frictionSignals: routineSignalSchema, energySignals: routineSignalSchema,
+  automationHypotheses: z.array(supportingFacetSchema(z.enum(automationCandidateTypes))), quickWin: z.union([z.enum(quickWinIds), z.literal("deep_dive")]).optional(), evidenceRefs: z.array(companyReportEvidenceRefSchema),
+});
 const internalCompanyReportSchema = z.strictObject({
-  schemaVersion: z.literal("minutka-internal-report/v2"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),
+  schemaVersion: z.literal("minutka-internal-report/v2"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1), directoryVersion: z.string().min(1).optional(),
   coverage: z.strictObject({
     invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(),
     unsizedObservations: z.number().int().nonnegative(),
@@ -263,6 +278,7 @@ const internalCompanyReportSchema = z.strictObject({
   timeBudget: z.array(z.strictObject({
     taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(),
   })),
+  routines: z.array(internalRoutineSchema),
   buckets: z.array(z.strictObject({
     bucketId: z.string().min(1),
     scope: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("overall_group") }), z.strictObject({ kind: z.literal("role"), roleId: z.string().min(1) })]),

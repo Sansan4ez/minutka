@@ -1,5 +1,8 @@
 import type { PersonalActivityRecord } from "./activity-collection.js";
-import type { ActivityDurationBucket, ActivitySystem, AutomationCandidateType, EnergyStressMarkerType, RoutinePatternType, TaskCategory } from "../domain/insights.js";
+import type { ActivityDurationBucket, ActivityRecurrence, ActivitySystem, AutomationCandidateType, EnergyStressMarkerType, RoutinePatternType, TaskCategory } from "../domain/insights.js";
+import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
+import type { QuickWinId } from "./quick-wins.js";
+import { routineKey, tally } from "./own-activity-window.js";
 
 export const COMPANY_REPORT_CONFIDENCE_POLICY = {
   signalSubjects: 2,
@@ -42,6 +45,11 @@ export type CompanyReportStore = {
   loadGroupSnapshot(input: { companyId: string; groupId: string }): Promise<CompanyReportSnapshot>;
 };
 
+const frictionSignalValues = new Set<RoutinePatternType>([
+  "manual_reporting", "coordination_overhead", "context_switching", "waiting_for_input", "meeting_overload", "unclear_priority",
+]);
+const energySignalValues = new Set<EnergyStressMarkerType>(["frustration", "fatigue", "overload", "focus_loss", "blocked_progress"]);
+
 export type InternalEvidenceBucket = {
   bucketId: string;
   scope: { kind: "overall_group" } | { kind: "role"; roleId: string };
@@ -68,11 +76,42 @@ export type InternalTimeBudgetEntry = {
   unsizedObservations: number;
 };
 
+export type InternalRoutineKey =
+  | { roleId: string; routineId: string }
+  | { roleId: string; routineKey: string };
+
+export type InternalRoutineSignal = {
+  count: number;
+  byValue: Partial<Record<RoutinePatternType | EnergyStressMarkerType, number>>;
+};
+
+export type InternalRoutine = {
+  key: InternalRoutineKey;
+  name?: string;
+  mostFrequentLabel?: string;
+  variants: string[];
+  contributors: number;
+  observations: number;
+  activeDates: number;
+  confidence: CompanyReportConfidence;
+  statedRecurrence: Partial<Record<ActivityRecurrence, number>>;
+  systems: ActivitySystem[];
+  taskCategories: TaskCategory[];
+  estimatedHours: number;
+  unsizedObservations: number;
+  frictionSignals: InternalRoutineSignal;
+  energySignals: InternalRoutineSignal;
+  automationHypotheses: Array<InternalSupportingFacet<AutomationCandidateType>>;
+  quickWin?: QuickWinId | "deep_dive";
+  evidenceRefs: CompanyReportEvidenceRef[];
+};
+
 export type InternalCompanyEvidenceReport = {
   schemaVersion: "minutka-internal-report/v2";
   generatedAt: string;
   companyId: string;
   groupId: string;
+  directoryVersion?: string;
   coverage: {
     invitedParticipants: number;
     subjects: number;
@@ -87,6 +126,7 @@ export type InternalCompanyEvidenceReport = {
     };
   };
   timeBudget: InternalTimeBudgetEntry[];
+  routines: InternalRoutine[];
   buckets: InternalEvidenceBucket[];
 };
 
@@ -151,18 +191,25 @@ export class CompanyReportingService {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  async exportGroup(input: { companyId: string; groupId: string }): Promise<CompanyReportResult> {
+  async buildReport(input: { companyId: string; groupId: string; directory?: unknown }): Promise<CompanyReportResult> {
     const companyId = input.companyId.trim();
     const groupId = input.groupId.trim();
     if (!companyId) throw new Error("companyId is required");
     if (!groupId) throw new Error("groupId is required");
 
+    const directory = input.directory === undefined
+      ? undefined
+      : loadRoutineDirectory(input.directory, { expectedCompanyId: companyId });
     const snapshot = await this.store.loadGroupSnapshot({ companyId, groupId });
     assertExactScope(companyId, groupId, snapshot);
     const subjectKeys = new Set(snapshot.subjects.map((subject) => subject.subjectKey));
     const activities = snapshot.activities.filter((activity) => subjectKeys.has(activity.subjectKey));
-    const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now());
+    const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory);
     return { internal, client: buildClientReport(internal) };
+  }
+
+  async exportGroup(input: { companyId: string; groupId: string; directory?: unknown }): Promise<CompanyReportResult> {
+    return this.buildReport(input);
   }
 }
 
@@ -183,16 +230,19 @@ function buildInternalReport(
   subjectCount: number,
   activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>,
   generatedAt: string,
+  directory?: RoutineDirectory,
 ): InternalCompanyEvidenceReport {
   const contributors = new Set(activities.map((activity) => activity.subjectKey)).size;
   const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
-  const attributedActivities = activities.filter(hasWorkObject);
-  const unattributedActivities = activities.filter((activity) => !hasWorkObject(activity));
+  const classified = classifyActivities(activities, directory);
+  const attributedActivities = classified.filter(({ routine }) => routine !== undefined).map(({ activity }) => activity);
+  const unattributedActivities = classified.filter(({ routine }) => routine === undefined).map(({ activity }) => activity);
   return {
     schemaVersion: "minutka-internal-report/v2",
     generatedAt,
     companyId,
     groupId,
+    ...(directory === undefined ? {} : { directoryVersion: directory.version }),
     coverage: {
       invitedParticipants,
       subjects: subjectCount,
@@ -203,6 +253,7 @@ function buildInternalReport(
       unattributedObservations: observationCoverage(unattributedActivities),
     },
     timeBudget: buildTimeBudget(attributedActivities),
+    routines: buildRoutines(classified.filter(({ routine }) => routine !== undefined) as ClassifiedActivity[]),
     buckets: [
       ...buildBuckets({ kind: "overall_group" }, attributedActivities),
       ...[...groupBy(attributedActivities, (activity) => activity.roleId).entries()]
@@ -212,8 +263,81 @@ function buildInternalReport(
   };
 }
 
-function hasWorkObject(activity: Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">): boolean {
-  return activity.routineId !== undefined || activity.routineLabel !== undefined;
+type ReportActivity = Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">;
+type ClassifiedActivity = { activity: ReportActivity; routine?: RoutineDescriptor };
+type RoutineDescriptor = {
+  key: InternalRoutineKey;
+  entry?: RoutineDirectoryEntry;
+};
+
+function classifyActivities(activities: ReportActivity[], directory?: RoutineDirectory): ClassifiedActivity[] {
+  return activities.map((activity) => {
+    const entry = activity.routineId === undefined || directory === undefined
+      ? undefined
+      : directory.sections.find((section) => section.roleId === activity.roleId)?.entries.find(({ id }) => id === activity.routineId);
+    if (entry !== undefined) return { activity, routine: { key: { roleId: activity.roleId, routineId: entry.id }, entry } };
+    if (activity.routineLabel !== undefined) {
+      return { activity, routine: { key: { roleId: activity.roleId, routineKey: routineKey(activity.routineLabel) }, ...(activity.routineId === undefined || directory === undefined ? {} : {}) } };
+    }
+    return { activity };
+  });
+}
+
+function buildRoutines(classified: ClassifiedActivity[]): InternalRoutine[] {
+  const groups = new Map<string, ClassifiedActivity[]>();
+  for (const item of classified) {
+    if (item.routine === undefined) continue;
+    const key = JSON.stringify(item.routine.key);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()].map((items) => {
+    const descriptor = items[0]!.routine!;
+    const activities = items.map(({ activity }) => activity);
+    const labels = tallyLabels(activities.flatMap(({ routineLabel }) => routineLabel === undefined ? [] : [routineLabel]));
+    const contributors = new Set(activities.map(({ subjectKey }) => subjectKey)).size;
+    const observations = activities.length;
+    const activeDates = new Set(activities.map(({ activityDate }) => activityDate)).size;
+    const friction = tallySignals(activities, (activity) => activity.routinePattern, frictionSignalValues);
+    const energy = tallySignals(activities, (activity) => activity.energyStressMarker, energySignalValues);
+    const automationHypotheses = buildSupportingFacets(activities, (activity) => activity.automationCandidate);
+    const routine: InternalRoutine = {
+      key: descriptor.key,
+      ...(descriptor.entry === undefined ? {} : { name: descriptor.entry.name }),
+      ...(labels[0] === undefined ? {} : { mostFrequentLabel: labels[0].value }),
+      variants: uniqueSorted(activities.flatMap(({ routineLabel }) => routineLabel === undefined ? [] : [routineLabel])),
+      contributors,
+      observations,
+      activeDates,
+      confidence: confidenceForEvidence({ contributors, observations, activeDates }),
+      statedRecurrence: Object.fromEntries(tally(activities.map(({ recurrence }) => recurrence)).map(({ value, count }) => [value, count])),
+      systems: uniqueSorted(activities.flatMap(({ system }) => system === undefined ? [] : [system])),
+      taskCategories: uniqueSorted(activities.flatMap(({ taskCategory }) => taskCategory === undefined ? [] : [taskCategory])),
+      estimatedHours: roundHours(activities.reduce((sum, activity) => sum + durationHours(activity), 0)),
+      unsizedObservations: activities.filter(({ durationBucket }) => durationBucket === undefined).length,
+      frictionSignals: friction,
+      energySignals: energy,
+      automationHypotheses,
+      ...(descriptor.entry?.quickWin === undefined ? {} : { quickWin: descriptor.entry.quickWin }),
+      evidenceRefs: evidenceRefs(activities),
+    };
+    return routine;
+  }).sort((left, right) => right.estimatedHours - left.estimatedHours || right.observations - left.observations || JSON.stringify(left.key).localeCompare(JSON.stringify(right.key)));
+}
+
+function tallyLabels(values: string[]): Array<{ value: string; count: number }> {
+  const counts = new Map<string, { value: string; count: number }>();
+  for (const value of values) {
+    const key = routineKey(value);
+    const existing = counts.get(key);
+    counts.set(key, existing === undefined ? { value, count: 1 } : { value: existing.value, count: existing.count + 1 });
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || routineKey(left.value).localeCompare(routineKey(right.value)));
+}
+
+function tallySignals<T extends string>(activities: ReportActivity[], facet: (activity: ReportActivity) => T | undefined, allowed: Set<T>): InternalRoutineSignal {
+  const values = activities.map(facet).filter((value): value is T => value !== undefined && allowed.has(value));
+  const byValue = Object.fromEntries(tally(values).map(({ value, count }) => [value, count]));
+  return { count: values.length, byValue };
 }
 
 function observationCoverage(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): InternalCompanyEvidenceReport["coverage"]["unattributedObservations"] {

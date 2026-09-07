@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import type { AdminMinutkaClient, EmployeeMinutkaClient } from "../sdk/minutka-client.js";
 
@@ -70,8 +71,10 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
   admin.addCommand(new Command("company-report")
     .requiredOption("--company <companyId>")
     .requiredOption("--group <groupId>")
-    .action(async (o: { company: string; group: string }) => {
-      stdout.push(JSON.stringify(await adminClient.exportCompanyReport({ companyId: o.company, groupId: o.group })));
+    .option("--directory <path>")
+    .action(async (o: { company: string; group: string; directory?: string }) => {
+      const directory = o.directory === undefined ? undefined : JSON.parse(await readFile(o.directory, "utf8")) as unknown;
+      stdout.push(JSON.stringify(await adminClient.exportCompanyReport({ companyId: o.company, groupId: o.group, ...(directory === undefined ? {} : { directory }) })));
     }));
   admin.addCommand(new Command("usage")
     .option("--employee <employeeId>")

@@ -101,7 +101,7 @@ export class PersonalAssistantService {
     if (!this.groupUsageReporting) throw new Error("group usage reporting is not configured");
     return this.groupUsageReporting.getMonthly(input);
   }
-  exportCompanyReport(input: { companyId: string; groupId: string }) {
+  exportCompanyReport(input: { companyId: string; groupId: string; directory?: unknown }) {
     if (!this.companyReporting) throw new Error("company reporting is not configured");
     return this.companyReporting.exportGroup(input);
   }
