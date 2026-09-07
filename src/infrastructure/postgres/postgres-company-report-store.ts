@@ -58,9 +58,10 @@ export function createPostgresCompanyReportStore(pool: Pool): CompanyReportStore
               [companyId, groupId],
             ),
             client.query<ReferenceRow>(
+              // daterange upper bounds are exclusive; the report contract exposes the inclusive final day.
               `SELECT company.name AS company_name, training_group.name AS group_name,
                       lower(training_group.period)::text AS period_start,
-                      upper(training_group.period)::text AS period_end
+                      (upper(training_group.period) - 1)::text AS period_end
                FROM minutka_reference.companies AS company
                JOIN minutka_reference.training_groups AS training_group
                  ON training_group.company_id = company.id

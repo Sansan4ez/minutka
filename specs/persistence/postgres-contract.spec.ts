@@ -387,6 +387,8 @@ describe("PostgreSQL storage contracts", () => {
     expect(await recentOwnActivities.read({ employeeId: "activity_owner", companyId: "another_company", groupId })).toEqual({ activities: [] });
     expect(await recentOwnActivities.read({ employeeId: "activity_owner", companyId, groupId: "another_group" })).toEqual({ activities: [] });
     const report = await new CompanyReportingService(createPostgresCompanyReportStore(pool)).exportGroup({ companyId, groupId });
+    expect(report.internal.reference?.period).toEqual({ start: "2026-08-01", end: "2026-08-31" });
+    expect(report.client.period).toEqual(report.internal.reference?.period);
     expect(report.internal.coverage).toMatchObject({ contributors: 1, observations: 1, activeDates: 1 });
     expect(JSON.stringify(report.client)).not.toMatch(/activity_pg_one|message_activity_one|activity_owner|subject_/u);
     const pilotStatus = await createPostgresPilotStatusStore(pool).loadSnapshot();
