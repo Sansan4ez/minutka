@@ -52,7 +52,7 @@ function findingsFor(text: string, field: "routine.name" | "routine.variants" = 
 
 describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary preflight", () => {
   const cases: Array<[string, "routine.name" | "routine.variants", string, PreflightFinding["severity"]]> = [
-    ["Иван Петров", "routine.name", "capitalized_pair", "high"],
+    ["Звонок Иван Петров", "routine.name", "capitalized_pair", "high"],
     ["Иванович", "routine.name", "patronymic_suffix", "high"],
     ["ООО Ромашка", "routine.name", "organization_marker", "high"],
     ["Заявка 20261234", "routine.name", "long_number", "high"],
@@ -61,7 +61,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
     ["Открыть https://example.com", "routine.name", "url", "high"],
     ["Написать @manager", "routine.name", "handle", "high"],
     ["Сделать «срочно»", "routine.name", "quote", "high"],
-    ["Иван Петров", "routine.variants", "capitalized_pair", "medium"],
+    ["Звонок Иван Петров", "routine.variants", "capitalized_pair", "medium"],
     ["Иванович", "routine.variants", "patronymic_suffix", "medium"],
     ["ООО Ромашка", "routine.variants", "organization_marker", "medium"],
     ["Заявка 20261234", "routine.variants", "long_number", "medium"],
@@ -76,6 +76,18 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
     expect(findingsFor(text, field)).toEqual([
       expect.objectContaining({ field, rule, severity, excerpt: expect.any(String), id: expect.any(String) }),
     ]);
+  });
+
+  it("does not flag abbreviations or a title-case first word as a capitalized pair", () => {
+    for (const text of ["Подготовка КП", "Обзвон CRM", "Сверка остатков 1С"]) {
+      expect(findingsFor(text)).not.toContainEqual(expect.objectContaining({ rule: "capitalized_pair" }));
+    }
+  });
+
+  it("flags title-case people names after a routine title", () => {
+    for (const text of ["Звонок Иван Петров", "Согласование с Анной Ивановой"]) {
+      expect(findingsFor(text)).toContainEqual(expect.objectContaining({ rule: "capitalized_pair", severity: "high" }));
+    }
   });
 
   it("returns no findings for a clean name and variant", () => {

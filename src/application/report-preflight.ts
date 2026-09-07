@@ -60,7 +60,7 @@ const lintRules: Array<{
   { rule: "long_number", pattern: /(?<!\d)\d{4,}(?!\d)/u },
   { rule: "organization_marker", pattern: /(?<![\p{L}\p{N}])(?:ООО|ИП|АО|ЗАО|ПАО)(?![\p{L}\p{N}])/iu },
   { rule: "patronymic_suffix", pattern: /(?<![\p{L}])[\p{L}-]+(?:ович|евич|овна|евна|ич)(?![\p{L}])/iu },
-  { rule: "capitalized_pair", pattern: /(?<![\p{L}])[\p{Lu}][\p{L}'’-]*\s+[\p{Lu}][\p{L}'’-]*(?![\p{L}])/u },
+  { rule: "capitalized_pair", pattern: /(?<![\p{L}])(?<!^)[\p{Lu}][\p{Ll}]+\s+[\p{Lu}][\p{Ll}]+(?![\p{L}])/u },
 ];
 
 /**
