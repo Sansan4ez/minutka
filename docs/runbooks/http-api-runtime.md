@@ -2,6 +2,20 @@
 
 > **Унаследовано от персонального ассистента.** Команды и стек служат операционным фундаментом клона; хосты, unit names и пути должны быть перенастроены под «Минутку». Живые продуктовые и privacy-решения: [RFC «Минутки»](../architecture/rfc-minutka-tenancy-and-reporting.md).
 
+## Справочник рутин
+
+Для activity extractor и отчёта v2 оператор может подключить каталог `routine-directory.<company>.json` через отдельный каталог файлов:
+
+```dotenv
+ROUTINE_DIRECTORY_DIR=/srv/minutka/operator/routine-directories
+```
+
+При старте runtime читает активные файлы вида `routine-directory.<company>.json` и, если активного файла нет, последнюю версионированную копию `routine-directory.<company>.<version>.json` из этого каталога. Каждый файл проверяется как `minutka-routine-directory/v1`: компания, версия, provenance, уникальные ids, quick win и tombstones должны быть корректны. Некорректный найденный файл останавливает startup с безопасной ошибкой; исправьте его и перезапустите runtime.
+
+Если `ROUTINE_DIRECTORY_DIR` не задан, каталог не существует или для компании нет файла, runtime запускается без секции справочника. Activity transaction сохраняет свободный `routineLabel` без `routineId`, а отчёт всё равно строит coverage и time budget; имена рутин в client DTO появляются только после передачи проверенного справочника команде отчёта. Отсутствие файла не является основанием для создания каталога или записи в corpus. Проверку и предложение остатка выполняйте командами [`routine-directory validate`](company-report-export.md#1-проверить-справочник) и [`routine-directory suggest`](company-report-export.md#3-предложить-записи-для-остатка).
+
+Справочник и tombstones содержат операторские данные и не должны попадать в репозиторий, corpus, traces, model prompt или client artifact без предусмотренной редактуры.
+
 
 ## Start
 
