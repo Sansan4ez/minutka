@@ -29,7 +29,7 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
     .requiredOption("--file <path>")
     .action(async (options: { company: string; file: string }) => {
       try {
-        const directory = readRoutineDirectoryFile(resolve(options.file), { expectedCompanyId: options.company });
+        const directory = readRoutineDirectoryFile(resolve(options.file), { expectedCompanyId: options.company, requireWorkCategories: true });
         const sections = directory.sections.map(({ roleId }) => measureRoleSection(directory, roleId));
         const overBudget = sections.filter(({ entries, characters }) => (
           entries > routineDirectorySectionBudget.maximumEntries

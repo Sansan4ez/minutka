@@ -111,7 +111,7 @@ routineKey = lower(trim(collapseWhitespace(stripPunctuation(routineLabel))))
 - `quickWin` (§2.7) или `deepDive: true`;
 - `evidenceRefs` (только internal).
 
-Activities без `routineId` и без `routineLabel` рутиной не становятся и в бюджет времени по категории не входят: без объекта работы «много поработала» превращается в четыре часа `focus_work`, и это шум, а не данные. Их часы считаются отдельно как `unattributedObservations` (internal DTO и раздел «Чего нельзя заключить» клиентского отчёта, §2.5).
+Activities без `routineId` и без `routineLabel` рутиной не становятся. Однако полный клиентский бюджет времени включает каждую active activity ровно один раз: запись без разрешённой проверенной рутины относится на report-level остаток `other`, а `unattributedObservations` сохраняется как quality diagnostic без двойного счёта. Legacy `taskCategory` остаётся evidence facet canonical activity, но не определяет клиентскую предметную категорию.
 
 **Справочник рутин вместо свободной склейки** (решение оператора §8.8 по итогам спайка 4). Нормализация не склеит «сверка остатков», «сверял остатки в 1С» и «остатки сверить с таблицей», а свободная LLM-склейка нестабильна: два прогона одного prompt на одних 223 ключах совпали по каноническому имени лишь для 41 % ключей, хотя решение «склеить ли пару» совпало на 99 % (§9). Нестабильны имена и границы групп, а не оценка сходства. Поэтому имена и границы фиксируются в справочнике, а модель только сопоставляет с ним:
 
@@ -128,7 +128,7 @@ Activities без `routineId` и без `routineLabel` рутиной не ст�
 - **Сохранение остатка.** Для subject/group purge оператор сохраняет незатронутые записи актуального справочника в новой версии до удаления содержащих их смешанных файлов; затронутые записи в неё не копируются. Потребители переключаются на очищенную версию, старые копии (включая загруженные секции extractor-а) перестают использоваться до завершения purge. Незатронутые версии без удаляемых записей можно сохранить. Canonical activities других участников не удаляются из-за инвалидации общей записи справочника; canonical purge остаётся в исходном scope.
 - **Восстановление.** При необходимости методолог создаёт запись заново только из оставшегося разрешённого canonical corpus, с новым `id`, актуальным provenance и обычной проверкой. Старые артефакты не служат источником восстановления; удалённый `id` не переиспользуется и не перенаправляется автоматически. Временная потеря общей записи принята в пользу удаления всего производного вклада; новые stores, пофразный provenance, LLM-sanitizer и backfill не вводятся.
 
-**Activity с отсутствующим `routineId`.** Отчёт проверяет разрешимость id в текущем справочнике своей компании и роли; старый id не восстанавливает имя из предыдущих версий и не подменяется другой записью. Если у оставшейся activity есть `routineLabel`, она обрабатывается как свободная рутина по `routineKey` внутри роли: известные часы входят в бюджет категории, клиентского имени нет до обычной проверки справочника, `unnamed_routine` имеет `high` для рутины в топе по часам по §2.8. Если label нет, activity остаётся internal unresolved/unattributed observation: её часы учитываются отдельно в `unattributedObservations`, не в бюджете категорий/рутин; без bucket она также учитывается в счётчике наблюдений без длительности, часы не домысливаются. В клиентский отчёт идут только предусмотренные агрегаты ограничений, не id, имя или отдельная строка этой activity. `unnamed_routine` не создаётся только из-за отсутствующего id у observation без label: рутина не сформирована. Последующее уточнение идёт существующим typed correction; автоматического переноса surviving activities на новый id нет. После purge отчёт пересчитывается по очищенному справочнику и оставшемуся canonical corpus.
+**Activity с отсутствующим `routineId`.** Отчёт проверяет разрешимость id в текущем справочнике своей компании и роли; старый id не восстанавливает имя из предыдущих версий и не подменяется другой записью. Если у оставшейся activity есть `routineLabel`, она обрабатывается как свободная рутина по `routineKey` внутри роли: известные часы входят в полный бюджет как `other`, клиентского имени нет до обычной проверки справочника, `unnamed_routine` имеет `high` для рутины в топе по часам по §2.8. Если label нет, activity остаётся internal unresolved/unattributed observation: её часы входят в `other` и одновременно учитываются в diagnostic `unattributedObservations`; без bucket она также учитывается в счётчике наблюдений без длительности, часы не домысливаются. В клиентский отчёт идут только предусмотренные агрегаты ограничений, не id, имя или отдельная строка этой activity. `unnamed_routine` не создаётся только из-за отсутствующего id у observation без label: рутина не сформирована. Последующее уточнение идёт существующим typed correction; автоматического переноса surviving activities на новый id нет. После purge отчёт пересчитывается по очищенному справочнику и оставшемуся canonical corpus.
 
 **Приёмочные сценарии будущей реализации** (`mnt-1zv3`). Синтетические A и B — разные subjects; X — пример, происходящий только от A. Это проверяемый контракт, не результаты runtime-тестов.
 
@@ -140,8 +140,8 @@ Activities без `routineId` и без `routineLabel` рутиной не ст�
 | Group purge G1; общая запись с `(G1,A)` и `(G2,B)` | Общая запись удалена; запись только из G2 и canonical activities G2 сохранены; одинаковый subjectKey из G2 сам по себе не расширяет scope |
 | Company purge C1 | Все версии/копии справочника C1 удалены; справочник C2 не затронут |
 | Затронутая запись есть только в старой версии или тот же id есть в нескольких версиях | Ни одна содержащая удаляемую запись версия/копия не остаётся источником чтения или восстановления |
-| У surviving activity dangling id и есть label | Свободная role-scoped рутина, часы в категории, без raw имени в client DTO; в топе по часам — `unnamed_routine: high`, publish по §2.8 |
-| У surviving activity dangling id и нет label | Internal unattributed, известные часы отдельно вне бюджета, без клиентского имени и без искусственной `unnamed_routine` |
+| У surviving activity dangling id и есть label | Свободная role-scoped рутина, часы в `other`, без raw имени в client DTO; в топе по часам — `unnamed_routine: high`, publish по §2.8 |
+| У surviving activity dangling id и нет label | Internal unattributed, известные часы включены в `other` и diagnostic, без клиентского имени и без искусственной `unnamed_routine` |
 | Повторный purge того же scope | Не восстанавливает удалённые записи/версии и не удаляет дополнительные незатронутые записи |
 | Методолог восстанавливает общую рутину по surviving corpus B | Новый id и provenance B; пример X и прежний id не возвращаются, activities не перепривязываются автоматически |
 
@@ -162,7 +162,7 @@ Falsifier: если после purge A из актуального или сох
 | `2_4h` | 3 |
 | `gt_4h` | 5 |
 
-`estimatedHours` рутины и категории — сумма по activities с известным bucket; число activities без bucket показывается отдельно (`unsizedObservations`). В отчёте величина подписана как «≈ часов за цикл по самоотчётам группы», а не как замер. Доля категории считается от суммы известных часов. Точность не улучшается дополнительными вопросами: если сотрудник не назвал длительность, она отсутствует. На Green-line без bucket остались 40,7 % activities (§9), поэтому фраза приглашения §2.10 обязательна. Activities без объекта работы (§2.4) в бюджет не входят и показываются как `unattributedObservations` с их часами рядом с `unsizedObservations`.
+`workCategory` — свойство проверенной записи routine directory из закрытого словаря; historical запись без категории безопасно деградирует в report-level `other`. `estimatedHours` рутины и предметной категории — сумма по activities с известным bucket; число activities без bucket показывается отдельно (`unsizedObservations`). В отчёте величина подписана как «≈ часов за цикл по самоотчётам группы», а не как замер. Доля категории считается от суммы известных часов. Точность не улучшается дополнительными вопросами: если сотрудник не назвал длительность, она отсутствует. На Green-line без bucket остались 40,7 % activities (§9), поэтому фраза приглашения §2.10 обязательна. Activities без объекта работы (§2.4) входят в полный баланс как `other` и одновременно показываются как `unattributedObservations` рядом с `unsizedObservations`, чтобы остаток не выдавался за предметно определённую работу.
 
 ### 2.6. Сигналы трения и нудности
 
@@ -239,7 +239,7 @@ type QuickWin = {
 
 ```text
 1. Coverage и ограничения           — как сейчас
-2. Куда уходит время                — таблица по taskCategory: ≈часов, доля, contributors
+2. Куда уходит время                — таблица по workCategory проверенных рутин: русский label, ≈часы, доля, contributors, observations, unsizedObservations
 3. Топ рутин по времени (≤10)       — name, scope, contributors/observations/dates, ≈часов,
                                       systems, statedRecurrence, confidence,
                                       quickWin {title, whatChanges, effort, whoCanDo,
@@ -294,7 +294,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 | --- | --- |
 | Closed facets activity, `ActivityTransactionExtractor`, corrections/revisions | Оставляем; добавляем два optional поля |
 | `CompanyReportingService`, confidence policy, internal/client DTO boundary | Оставляем; DTO v2 с `routines` и `timeBudget` |
-| Buckets `taskCategory + routinePattern` | Оставляем как бюджет времени по категории для activities с объектом работы; activities без `routineId` и `routineLabel` в buckets и time budget не входят и учитываются только в `unattributedObservations`; перестают называться «процессом» |
+| Buckets `taskCategory + routinePattern` | Сохраняем только как внутреннюю legacy evidence-проекцию. Клиентский `timeBudget` строится по `workCategory` проверенной рутины и полному scope; всё неразрешённое входит в `other` и одновременно учитывается в `unattributedObservations` |
 | `supportingEvidence.automationHypotheses / humanImpactSignals` | Оставляем как supporting сигналы рутины и раздела «что мешает»; триггером каталога не являются |
 | Личные `readWeeklyActivities` / `readCycleActivities` | Оставляем; добавляем `routines` |
 | Research corpus, traces, evaluation export | Оставляем без изменений |
@@ -348,10 +348,10 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 
 ## 6. Error handling & деградация
 
-- **Label не извлечён.** Activity сохраняется с facets, но без `routineId` и `routineLabel` не входит в бюджет времени по категории и рутиной не становится. Известные часы и число таких записей учитываются в `unattributedObservations`; без `durationBucket` часы не домысливаются.
+- **Label не извлечён.** Activity сохраняется с legacy facets, рутиной не становится и входит в полный бюджет как `other`. Известные часы и число таких записей также учитываются в `unattributedObservations`; без `durationBucket` часы не домысливаются.
 - **Label содержит имя/контрагента.** Extractor-правило нарушено; ловится на проверке остатка справочника и boundary preflight; исправление — существующий correction path activity и правка канонического имени, затем пересчёт отчёта. Raw label в клиентский DTO не попадает никогда (§2.3).
-- **Рутина без записи справочника.** Остаётся в internal DTO с находкой `unnamed_routine`; в клиентские разделы 3–6 не входит, в бюджет времени по категории входит (объект работы назван).
-- **Activity без объекта работы.** Не входит в бюджет; часы считаются в `unattributedObservations`.
+- **Рутина без записи справочника.** Остаётся в internal DTO с находкой `unnamed_routine`; в клиентские разделы 3–6 не входит, в полном бюджете относится к `other`.
+- **Activity без объекта работы.** Входит в полный баланс как `other`; часы также считаются в `unattributedObservations` как diagnostic.
 - **Нет `durationBucket`.** Рутина показывает `unsizedObservations`; часы не домысливаются.
 - **Справочник не той компании, без версии или с дублями `id`.** Команда отчёта прекращается целиком с явной ошибкой; отчёт без справочника остаётся доступен.
 - **Провайдер недоступен для `routine-directory suggest`.** Команда завершается ошибкой без изменений справочника; прежняя версия и отчёт остаются доступны.
@@ -430,7 +430,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 
 Решение реализации бюджета времени (2026-09-07, `mnt-xa71.9`; persistence gate подтверждён в `mnt-xa71.22`):
 
-15. Activity входит в buckets и бюджет времени только при наличии объекта работы (`routineId` или `routineLabel`). Activity без обоих полей учитывается отдельно в `unattributedObservations`; известные часы не относятся к категории, неизвестные не домысливаются (§2.4, §2.5, §3, §6).
+15. Решение `mnt-xa71.38` supersedes старое ограничение: каждая active activity scope входит ровно в одну строку `timeBudget`. Разрешённый `routineId` берёт `workCategory` записи своей роли; free label, dangling id, historical entry без категории и отсутствие объекта работы относятся к report-level `other`. `unattributedObservations` остаётся диагностикой, часы не дублируются, неизвестная длительность не домысливается. Новые inferred activity-level facets по-прежнему запрещены: `workCategory` принадлежит проверенной рутине, не canonical activity.
 
 Решение владельца по scope роли и защите карточки (2026-09-07, `mnt-xa71.36`):
 

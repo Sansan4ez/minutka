@@ -5,6 +5,7 @@ import type { ResearchEvidenceReadService } from "./research-evidence-read.js";
 import { roleSectionForSuggest, type RoutineDirectory, type RoutineDirectorySuggestSection as DirectorySuggestSection } from "./routine-directory.js";
 import { quickWinAssignmentSchema, quickWinCatalog, findQuickWin } from "./quick-wins.js";
 import { routineKey } from "./own-activity-window.js";
+import { workCategories, workCategorySchema } from "../domain/work-categories.js";
 
 export const routineDirectorySuggestSchemaVersion = "minutka-routine-directory-suggest/v1" as const;
 
@@ -13,6 +14,7 @@ const createProposalSchema = z.strictObject({
   kind: z.literal("create"),
   name: z.string().trim().min(3).max(80),
   description: z.string().trim().min(1).max(500),
+  workCategory: workCategorySchema,
   quickWin: quickWinAssignmentSchema,
 });
 const freeProposalSchema = z.strictObject({ kind: z.literal("free") });
@@ -36,6 +38,7 @@ export type RoutineDirectorySuggestionGeneratorInput = {
   roleId: string;
   roleSection: RoutineDirectorySuggestSection;
   catalog: Array<Pick<(typeof quickWinCatalog)[number], "id" | "typicalFor" | "title">>;
+  workCategories: typeof workCategories;
   freeRoutines: RoutineDirectoryFreeRoutine[];
 };
 export type RoutineDirectorySuggestionGenerator = (
@@ -89,6 +92,7 @@ export class RoutineDirectorySuggestService {
         roleId,
         roleSection,
         catalog: quickWinCatalog.map(({ id, typicalFor, title }) => ({ id, typicalFor, title })),
+        workCategories,
         freeRoutines,
       });
       const suggestions = normalizeGeneratorResult(transport, freeRoutines, roleSection);

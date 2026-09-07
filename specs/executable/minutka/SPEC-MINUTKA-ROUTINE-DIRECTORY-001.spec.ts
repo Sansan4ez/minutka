@@ -27,6 +27,7 @@ const validDirectory = {
           name: "Контроль следующих шагов",
           description: "Проверка статуса и напоминания по открытым задачам",
           examples: ["Проверить статус договора"],
+          workCategory: "client_sales",
           quickWin: "waiting_sla",
           methodologistNote: "Проверять наличие даты следующего шага",
           provenance: [{ groupId: "group_a", subjectKey: "subject_1" }],
@@ -36,6 +37,7 @@ const validDirectory = {
           name: "Исследование клиентов",
           description: "Поиск и отбор информации о клиентах",
           examples: ["Собрать информацию о компании"],
+          workCategory: "client_sales",
           quickWin: "deep_dive",
           provenance: [{ groupId: "group_a", subjectKey: "subject_2" }],
         },
@@ -48,7 +50,10 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
   it("loads a valid directory and exposes only model-safe role projections", () => {
     const directory = loadRoutineDirectory(validDirectory, { expectedCompanyId: "company_a" });
     expect(directory.companyId).toBe("company_a");
-    expect(routineDirectoryCounts(directory)).toEqual({ roles: 1, entries: 2, quickWins: 1, deepDive: 1 });
+    expect(routineDirectoryCounts(directory)).toEqual({
+      roles: 1, entries: 2, quickWins: 1, deepDive: 1, missingWorkCategories: 0,
+      workCategories: { client_sales: 2, tender_procurement: 0, logistics_operations: 0, documents_contracts: 0, finance_accounting: 0, calculations_analysis: 0, internal_management: 0, learning_development: 0, other: 0 },
+    });
 
     const extractorSection = roleSection(directory, "sales");
     expect(extractorSection).toEqual({
@@ -124,6 +129,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-001: validated routine directory", () =
     ["version format invalid", { ...validDirectory, version: "v1" }, "directory_version_invalid"],
     ["duplicate id", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [validDirectory.sections[0].entries[0], { ...validDirectory.sections[0].entries[1], id: validDirectory.sections[0].entries[0].id }] }] }, "directory_duplicate_id"],
     ["unknown quick win", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], quickWin: "not-a-quick-win" }] }] }, "directory_unknown_quick_win"],
+    ["unknown work category", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], workCategory: "not-a-category" }] }] }, "directory_unknown_work_category"],
     ["provenance missing", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], provenance: [] }] }] }, "directory_provenance_missing"],
     ["schema invalid", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], name: "x" }] }] }, "directory_schema_invalid"],
     ["routine id too long", { ...validDirectory, sections: [{ ...validDirectory.sections[0], entries: [{ ...validDirectory.sections[0].entries[0], id: "x".repeat(65) }] }] }, "directory_schema_invalid"],

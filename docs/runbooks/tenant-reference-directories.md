@@ -118,7 +118,7 @@ Research readers всегда задают одновременно `company_id`
 
 **Правила расширения.** Per-company словарь отклонён ([RFC §5](../architecture/rfc-minutka-tenancy-and-reporting.md#5-trade-offs)): свободное пополнение компанией — это возврат свободного текста через боковую дверь. Новое значение добавляется только правкой кода и только когда фактический inventory не покрыт, одной поставкой: `src/domain/insights.ts`, миграция с `activities_system_check`, метка в `src/application/company-reporting.ts` и спеки. Парность словаря и CHECK держит `ACTIVITY-SYSTEM-DICTIONARY-PARITY`; contract- и tool-схемы выводятся из словаря автоматически. Consent-тексты словарь систем не перечисляют и правки не требуют.
 
-**Заранее не расширять `task_category`.** Первая когорта работает на существующих cross-functional категориях и словарях помех. Расширение допустимо только по документированному misfit из первой недели сбора.
+**Пересмотр `task_category` выполнен после первой недели.** Документированный misfit Green-line показал, что legacy activity-level категории смешивают разные предметные рутины. Решение `mnt-xa71.38`: canonical `taskCategory` сохраняется как research evidence facet, а клиентский бюджет строится по закрытому `workCategory` проверенной записи routine directory; активный справочник обязан иметь категорию у каждой записи, historical versions остаются читаемыми.
 
 ## Проверка скоупа компании
 

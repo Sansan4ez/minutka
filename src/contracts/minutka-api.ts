@@ -6,6 +6,7 @@ import { assistantDiagnosticProcessIds, assistantProcessIds, assistantScheduledP
 import { activityDurationBuckets, activitySystems, automationCandidateTypes, energyStressMarkerTypes, routinePatternTypes, taskCategories } from "../domain/insights.js";
 import { personalContextPatchFields, personalContextLimits } from "../application/personal-context-review.js";
 import { quickWinIds } from "../application/quick-wins.js";
+import { workCategories } from "../domain/work-categories.js";
 
 /** Stable, transport-neutral DTOs for the versioned Minutka application API. */
 export const personaSchema = z.enum(["support", "efficiency"]);
@@ -282,7 +283,7 @@ const internalCompanyReportSchema = z.strictObject({
     unattributedObservations: z.strictObject({ count: z.number().int().nonnegative(), estimatedHours: z.number().nonnegative(), unsized: z.number().int().nonnegative() }),
   }),
   timeBudget: z.array(z.strictObject({
-    taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(),
+    workCategory: z.enum(workCategories), label: z.string().min(1), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(),
   })),
   routines: z.array(internalRoutineSchema),
   preflightFindings: z.array(preflightFindingSchema),
@@ -317,7 +318,7 @@ const clientCompanyReportSchema = z.strictObject({
   schemaVersion: z.literal("minutka-client-report.v2"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
   period: z.strictObject({ start: z.string().min(1), end: z.string().min(1) }),
   coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(), unattributedObservations: z.number().int().nonnegative(), coveredRoles: z.array(z.string()), limitations: z.array(z.string()) }),
-  timeBudget: z.array(z.strictObject({ taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative() })),
+  timeBudget: z.array(z.strictObject({ workCategory: z.enum(workCategories), label: z.string().min(1), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative() })),
   topRoutines: z.array(clientRoutineSchema).max(10),
   frictionRoutines: z.array(clientFrictionRoutineSchema).max(5),
   firstSteps: z.array(z.strictObject({ routine: z.string().min(1), firstStep: z.string().min(1), effort: z.enum(["hours", "days", "weeks"]), whoCanDo: z.enum(["employee", "internal_it", "with_algoritm"]) })).max(3),

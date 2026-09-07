@@ -76,8 +76,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
 
     expect(result.internal.schemaVersion).toBe("minutka-internal-report/v2");
     expect(result.internal.timeBudget).toEqual([
-      expect.objectContaining({ taskCategory: "meetings", estimatedHours: 3, share: 0.79, observations: 1, unsizedObservations: 0 }),
-      expect.objectContaining({ taskCategory: "reporting", estimatedHours: 0.8, share: 0.21, observations: 2, unsizedObservations: 1 }),
+      expect.objectContaining({ workCategory: "other", label: "Другое / не удалось классифицировать", estimatedHours: 3.8, share: 1, observations: 3, unsizedObservations: 1 }),
     ]);
     expect(result.internal.coverage).toMatchObject({ unsizedObservations: 1, unattributedObservations: { count: 0, estimatedHours: 0, unsized: 0 } });
     expect(result.internal.timeBudget.reduce((sum, entry) => sum + entry.share, 0)).toBe(1);
@@ -312,7 +311,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
 
     const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
 
-    expect(result.internal.timeBudget).toEqual([expect.objectContaining({ taskCategory: "reporting", observations: 1, estimatedHours: 0.8 })]);
+    expect(result.internal.timeBudget).toEqual([expect.objectContaining({ workCategory: "other", observations: 3, estimatedHours: 1.5, unsizedObservations: 1 })]);
     expect(result.internal.buckets.every((bucket) => bucket.observations === 1)).toBe(true);
     expect(result.internal.coverage.unattributedObservations).toEqual({ count: 2, estimatedHours: 0.8, unsized: 1 });
   });
@@ -327,8 +326,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       companyId: "company_a",
       version: "1",
       sections: [
-        { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "report_template", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
-        { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
+        { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "documents_contracts", quickWin: "report_template", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
+        { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "logistics_operations", quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
       ],
     };
     const rows = [
@@ -387,8 +386,12 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(JSON.stringify(first.client)).not.toMatch(/subjectKey|routineKey|variants|evidenceRefs|routineLabel|mostFrequentLabel|roleId/);
     expect(first.internal.coverage.unattributedObservations).toMatchObject({ count: 1 });
     expect(first.internal.timeBudget).toEqual(expect.arrayContaining([
-      expect.objectContaining({ taskCategory: "admin", observations: 1 }),
+      expect.objectContaining({ workCategory: "documents_contracts", observations: 3 }),
+      expect.objectContaining({ workCategory: "logistics_operations", observations: 3 }),
+      expect.objectContaining({ workCategory: "other", observations: 3 }),
     ]));
+    expect(first.internal.timeBudget.reduce((sum, entry) => sum + entry.observations, 0)).toBe(first.internal.coverage.observations);
+    expect(JSON.stringify(first.client.timeBudget)).not.toMatch(/taskCategory|focus_work|reporting|meetings|admin/);
     expect(JSON.stringify(first.internal.routines)).not.toContain("provenance");
   });
 
@@ -436,7 +439,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     const output = join(directory, "report.json");
     const payload = {
       schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "1",
-      sections: [{ roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "x".repeat(100_000), examples: [], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }] }],
+      sections: [{ roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "x".repeat(100_000), examples: [], workCategory: "documents_contracts", quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }] }],
     };
     writeFileSync(file, JSON.stringify(payload));
     const participants = [participant("one", "company_a", "group_a", "role_sales")];

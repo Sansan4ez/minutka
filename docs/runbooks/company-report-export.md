@@ -150,7 +150,7 @@ Contributor считается по distinct `subject_key`: двадцать act
 
 1. Сверьте `internal.companyId` и `internal.groupId` с выбранной группой.
 2. Проверьте coverage: invited participants, contributors, observations, active dates, unsized и unattributed observations.
-3. Проверьте `timeBudget` и у каждой клиентской routine — каноническое имя справочника, scope, contributors, observations, dates, приблизительные часы, системы, stated recurrence и confidence.
+3. Проверьте `timeBudget`: категории берутся только из `workCategory` проверенных записей справочника; суммы observations и unsizedObservations совпадают с coverage; сумма известных часов совпадает с bucket-оценками всего scope; сумма долей равна 1 при ненулевых часах. Остаток `other` обязателен при неразрешённых рутинах и сопровождается limitation. У каждой клиентской routine проверьте каноническое имя справочника, scope, contributors, observations, dates, приблизительные часы, системы, stated recurrence и confidence.
 4. Убедитесь, что routine названа словами справочника, а не raw label; `routineKey`, варианты, subject keys, employee ids, source refs и traces отсутствуют в client DTO.
 5. Проверьте quick win: он взят из закрытого каталога записи справочника и содержит `title`, `whatChanges`, `effort`, `whoCanDo`, `humanInTheLoop`, `firstStep`. Если назначения нет, routine идёт в `deepDive`, а не становится рекомендацией.
 6. Проверьте `preflightFindings`: high-находки имеют решение методолога для текущего hash отчёта; незакрытая high-находка должна блокировать publish.

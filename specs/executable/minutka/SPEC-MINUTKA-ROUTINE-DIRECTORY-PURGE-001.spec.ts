@@ -22,6 +22,7 @@ const entry = (id: string, provenance: Array<{ groupId: string; subjectKey: stri
   name: `Routine ${id}`,
   description: `Description ${id}`,
   examples: [example],
+  workCategory: "internal_management",
   quickWin: "checklist",
   provenance,
 });

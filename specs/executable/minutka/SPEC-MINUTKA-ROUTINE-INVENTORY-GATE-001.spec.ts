@@ -30,6 +30,7 @@ const directory = {
       name: "Подготовка еженедельных отчётов",
       description: "Подготовка отчётов для рабочего цикла",
       examples: ["Подготовить еженедельный отчёт"],
+      workCategory: "documents_contracts",
       quickWin: "report_template",
       provenance: [{ groupId: "group_gate", subjectKey: "subject_a" }],
     }],
@@ -219,7 +220,7 @@ describe("SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001: end-to-end routine inventory 
       sections: [{
         roleId: "role_sales",
         entries: [{ ...directory.sections[0]!.entries[0]!, id: "shared_routine", provenance: [{ groupId: "group_gate", subjectKey: "subject_a" }, { groupId: "group_gate", subjectKey: "subject_b" }] }, {
-          id: "survivor", name: "Проверка остатков", description: "Проверка остатков", examples: ["Проверить остатки"], quickWin: "checklist", provenance: [{ groupId: "group_gate", subjectKey: "subject_b" }],
+          id: "survivor", name: "Проверка остатков", description: "Проверка остатков", examples: ["Проверить остатки"], workCategory: "logistics_operations", quickWin: "checklist", provenance: [{ groupId: "group_gate", subjectKey: "subject_b" }],
         }],
       }],
     };

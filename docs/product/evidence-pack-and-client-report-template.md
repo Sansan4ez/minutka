@@ -195,17 +195,19 @@ Client DTO использует внешние labels и агрегирован�
     "activeDates": 15,
     "observations": 386,
     "unsizedObservations": 157,
-    "unattributedObservations": 40,
+    "unattributedObservations": 63,
     "coveredRoles": ["продажи", "логистика", "тендеры", "бухгалтерия", "директор"],
     "limitations": [
       "Роль тендеры представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
       "Роль бухгалтерия представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
-      "Роль директор представлена одним участником; её рутины — самоотчёт одного человека, не оценка"
+      "Роль директор представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+      "Часть времени не удалось предметно связать с проверенной рутиной; она показана как остаток «Другое / не удалось классифицировать»"
     ]
   },
   "timeBudget": [
-    { "taskCategory": "focus_work", "estimatedHours": 47.3, "share": 0.25, "contributors": 7 },
-    { "taskCategory": "admin", "estimatedHours": 42.9, "share": 0.23, "contributors": 8 }
+    { "workCategory": "documents_contracts", "label": "Документы и договоры", "estimatedHours": 52.4, "share": 0.28, "contributors": 8, "observations": 94, "unsizedObservations": 35 },
+    { "workCategory": "client_sales", "label": "Работа с клиентами и продажи", "estimatedHours": 41.7, "share": 0.22, "contributors": 6, "observations": 76, "unsizedObservations": 29 },
+    { "workCategory": "other", "label": "Другое / не удалось классифицировать", "estimatedHours": 45.8, "share": 0.24, "contributors": 8, "observations": 63, "unsizedObservations": 17 }
   ],
   "topRoutines": [
     {
@@ -255,6 +257,7 @@ Client DTO использует внешние labels и агрегирован�
   ],
   "cannotConclude": [
     "Точные часы: 41 % наблюдений без длительности, часы — порядок величины по самоотчётам",
+    "Часть времени не удалось предметно связать с проверенной рутиной; остаток включён в «Другое / не удалось классифицировать»",
     "Эффект и prerequisites быстрых улучшений: требуют обследования процесса (второй этап)"
   ]
 }
@@ -299,7 +302,7 @@ Client DTO использует внешние labels и агрегирован�
 - Пробелы и ограничения:
 
 ## 2. Куда уходит время
-| Категория | ≈часов за цикл | Доля | Contributors |
+| Предметная категория рутин | ≈часов за цикл | Доля | Contributors | Observations | Без длительности |
 
 ## 3. Топ рутин по времени (до 10)
 ### <name> — <scope> — <confidence>

@@ -46,7 +46,7 @@ export function loadRoutineDirectoryProvider(
   for (const companyId of options.companyIds) {
     const file = resolveDirectoryFile(directory, companyId);
     try {
-      const loadedDirectory = readRoutineDirectoryFile(file, { expectedCompanyId: companyId });
+      const loadedDirectory = readRoutineDirectoryFile(file, { expectedCompanyId: companyId, requireWorkCategories: true });
       directories.set(companyId, loadedDirectory);
       let disabledSectionCount = 0;
       for (const { roleId } of loadedDirectory.sections) {

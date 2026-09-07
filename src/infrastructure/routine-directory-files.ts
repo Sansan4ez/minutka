@@ -9,7 +9,7 @@ import {
 
 export function readRoutineDirectoryFile(
   path: string,
-  options: { expectedCompanyId: string },
+  options: { expectedCompanyId: string; requireWorkCategories?: boolean },
 ): RoutineDirectory {
   const tombstoneIds = readTombstones(dirname(path), options.expectedCompanyId);
   const json = readJson(path, "routine directory JSON is invalid");

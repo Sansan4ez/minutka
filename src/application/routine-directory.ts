@@ -2,6 +2,7 @@ import { z } from "zod";
 import { quickWinAssignmentSchema } from "./quick-wins.js";
 import { routineIdMaxLength } from "../contracts/minutka-activity.js";
 import { countUnicodeCodePoints } from "../shared/chat-limits.js";
+import { workCategories, workCategorySchema, type WorkCategory } from "../domain/work-categories.js";
 
 const routineDirectorySchemaVersion = "minutka-routine-directory/v1" as const;
 
@@ -15,6 +16,7 @@ const routineEntrySchema = z.strictObject({
   name: z.string().trim().min(3).max(80),
   description: z.string().trim().min(1),
   examples: z.array(z.string().trim().min(1)).max(10),
+  workCategory: workCategorySchema.optional(),
   quickWin: quickWinAssignmentSchema,
   methodologistNote: z.string().trim().min(1).optional(),
   provenance: z.array(provenanceSchema).min(1),
@@ -41,6 +43,8 @@ export type RoutineDirectorySection = {
   entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples">>;
 };
 
+export type RoutineDirectoryWorkCategoryCounts = Record<WorkCategory, number>;
+
 export const routineDirectorySectionBudget = {
   maximumEntries: 40,
   maximumCharacters: 12_000,
@@ -56,7 +60,7 @@ export type RoutineDirectoryRoleSectionMeasurement = {
 export type RoutineDirectorySectionProvider = (companyId: string, roleId: string) => RoutineDirectorySection | undefined;
 
 export type RoutineDirectorySuggestSection = RoutineDirectorySection & {
-  entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples" | "quickWin" | "methodologistNote">>;
+  entries: Array<Pick<RoutineDirectoryEntry, "id" | "name" | "description" | "examples" | "workCategory" | "quickWin" | "methodologistNote">>;
 };
 
 export type RoutineDirectoryErrorCode =
@@ -65,6 +69,8 @@ export type RoutineDirectoryErrorCode =
   | "directory_version_invalid"
   | "directory_duplicate_id"
   | "directory_unknown_quick_win"
+  | "directory_unknown_work_category"
+  | "directory_work_category_missing"
   | "directory_provenance_missing"
   | "directory_reused_id"
   | "directory_schema_invalid";
@@ -92,6 +98,7 @@ const routineDirectoryStructureSchema = z.strictObject({
       name: z.string().trim().min(3).max(80),
       description: z.string().trim().min(1),
       examples: z.array(z.string().trim().min(1)).max(10),
+      workCategory: z.string().trim().min(1).optional(),
       quickWin: z.string().trim().min(1),
       methodologistNote: z.string().trim().min(1).optional(),
       provenance: z.array(provenanceSchema).optional(),
@@ -113,7 +120,7 @@ export function loadRoutineDirectoryTombstones(json: unknown): string[] {
 
 export function loadRoutineDirectory(
   json: unknown,
-  options: { expectedCompanyId: string; tombstoneIds?: RoutineDirectoryTombstoneIds },
+  options: { expectedCompanyId: string; tombstoneIds?: RoutineDirectoryTombstoneIds; requireWorkCategories?: boolean },
 ): RoutineDirectory {
   if (isRecord(json) && (!Object.hasOwn(json, "version") || (typeof json.version === "string" && json.version.trim() === ""))) {
     throw new RoutineDirectoryError("directory_version_missing", "routine directory version is required");
@@ -143,6 +150,12 @@ export function loadRoutineDirectory(
       }
       if (!entry.provenance || entry.provenance.length === 0) {
         throw new RoutineDirectoryError("directory_provenance_missing", `routine directory entry ${JSON.stringify(entry.id)} has no provenance`);
+      }
+      if (entry.workCategory !== undefined && !workCategorySchema.safeParse(entry.workCategory).success) {
+        throw new RoutineDirectoryError("directory_unknown_work_category", `routine directory entry ${JSON.stringify(entry.id)} has an unknown work category`);
+      }
+      if (options.requireWorkCategories && entry.workCategory === undefined) {
+        throw new RoutineDirectoryError("directory_work_category_missing", "routine directory has entries without work categories");
       }
       if (!quickWinAssignmentSchema.safeParse(entry.quickWin).success) {
         throw new RoutineDirectoryError("directory_unknown_quick_win", `routine directory entry ${JSON.stringify(entry.id)} has an unknown quick win`);
@@ -182,11 +195,12 @@ export function roleSectionForSuggest(directory: RoutineDirectory, roleId: strin
   const section = directory.sections.find((candidate) => candidate.roleId === roleId);
   return {
     version: directory.version,
-    entries: (section?.entries ?? []).map(({ id, name, description, examples, quickWin, methodologistNote }) => ({
+    entries: (section?.entries ?? []).map(({ id, name, description, examples, workCategory, quickWin, methodologistNote }) => ({
       id,
       name,
       description,
       examples,
+      ...(workCategory ? { workCategory } : {}),
       quickWin,
       ...(methodologistNote ? { methodologistNote } : {}),
     })),
@@ -198,6 +212,8 @@ export function routineDirectoryCounts(directory: RoutineDirectory): {
   entries: number;
   quickWins: number;
   deepDive: number;
+  workCategories: RoutineDirectoryWorkCategoryCounts;
+  missingWorkCategories: number;
 } {
   const entries = directory.sections.flatMap(({ entries: sectionEntries }) => sectionEntries);
   return {
@@ -205,6 +221,8 @@ export function routineDirectoryCounts(directory: RoutineDirectory): {
     entries: entries.length,
     quickWins: entries.filter(({ quickWin }) => quickWin !== "deep_dive").length,
     deepDive: entries.filter(({ quickWin }) => quickWin === "deep_dive").length,
+    workCategories: Object.fromEntries(workCategories.map((category) => [category, entries.filter(({ workCategory }) => workCategory === category).length])) as RoutineDirectoryWorkCategoryCounts,
+    missingWorkCategories: entries.filter(({ workCategory }) => workCategory === undefined).length,
   };
 }
 

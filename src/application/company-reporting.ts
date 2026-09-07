@@ -4,6 +4,7 @@ import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry
 import { findQuickWin, type QuickWinId } from "./quick-wins.js";
 import { routineKey, tally } from "./own-activity-window.js";
 import { buildPreflightFindings, confidenceForCounts, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
+import { workCategoryLabels, type WorkCategory } from "../domain/work-categories.js";
 
 export { COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
@@ -70,7 +71,8 @@ export type InternalEvidenceBucket = {
 };
 
 export type InternalTimeBudgetEntry = {
-  taskCategory?: TaskCategory;
+  workCategory: WorkCategory;
+  label: string;
   estimatedHours: number;
   share: number;
   contributors: number;
@@ -268,7 +270,7 @@ function buildInternalReport(
       unsizedObservations: activities.filter((activity) => activity.durationBucket === undefined).length,
       unattributedObservations: observationCoverage(unattributedActivities),
     },
-    timeBudget: buildTimeBudget(attributedActivities),
+    timeBudget: buildTimeBudget(classified),
     routines: buildRoutines(classified.filter(({ routine }) => routine !== undefined) as ClassifiedActivity[]),
     preflightFindings: [],
     buckets: [
@@ -367,33 +369,39 @@ function observationCoverage(activities: Array<Omit<PersonalActivityRecord, "emp
   };
 }
 
-function buildTimeBudget(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): InternalTimeBudgetEntry[] {
-  const groups = groupBy(activities, (activity) => activity.taskCategory ?? "__uncategorized__");
-  const entries = [...groups.entries()].map(([key, observations]) => ({
-    ...(key === "__uncategorized__" ? {} : { taskCategory: key as TaskCategory }),
-    estimatedHours: roundHours(observations.reduce((sum, activity) => sum + durationHours(activity), 0)),
-    share: 0,
-    contributors: new Set(observations.map((activity) => activity.subjectKey)).size,
-    observations: observations.length,
-    unsizedObservations: observations.filter((activity) => activity.durationBucket === undefined).length,
-  }));
-  const totalHours = entries.reduce((sum, entry) => sum + entry.estimatedHours, 0);
-  let assignedShare = 0;
-  entries.sort((left, right) => right.estimatedHours - left.estimatedHours || timeBudgetKey(left).localeCompare(timeBudgetKey(right)));
-  entries.forEach((entry, index) => {
-    if (totalHours === 0) entry.share = 0;
-    else if (index === entries.length - 1) entry.share = roundShare(1 - assignedShare);
-    else {
-      entry.share = roundShare(entry.estimatedHours / totalHours);
-      assignedShare += entry.share;
-    }
+function buildTimeBudget(classified: ClassifiedActivity[]): InternalTimeBudgetEntry[] {
+  const groups = groupBy(classified, ({ routine }) => routine?.entry?.workCategory ?? "other");
+  const entries = [...groups.entries()].map(([workCategory, items]) => {
+    const activities = items.map(({ activity }) => activity);
+    return {
+      workCategory: workCategory as WorkCategory,
+      label: workCategoryLabels[workCategory as WorkCategory],
+      estimatedHours: roundHours(activities.reduce((sum, activity) => sum + durationHours(activity), 0)),
+      share: 0,
+      contributors: new Set(activities.map((activity) => activity.subjectKey)).size,
+      observations: activities.length,
+      unsizedObservations: activities.filter((activity) => activity.durationBucket === undefined).length,
+    };
   });
-  if (entries.length > 0 && totalHours > 0) entries.at(-1)!.share = roundShare(1 - entries.slice(0, -1).reduce((sum, entry) => sum + entry.share, 0));
+  const totalHours = entries.reduce((sum, entry) => sum + entry.estimatedHours, 0);
+  entries.sort((left, right) => right.estimatedHours - left.estimatedHours || left.workCategory.localeCompare(right.workCategory));
+  if (totalHours > 0) assignNormalizedShares(entries, totalHours);
   return entries;
 }
 
-function timeBudgetKey(entry: InternalTimeBudgetEntry): string {
-  return entry.taskCategory ?? "__uncategorized__";
+function assignNormalizedShares(entries: InternalTimeBudgetEntry[], totalHours: number): void {
+  const allocations = entries.map((entry, index) => {
+    const exactHundredths = (entry.estimatedHours / totalHours) * 100;
+    const floor = Math.floor(exactHundredths);
+    return { index, floor, remainder: exactHundredths - floor };
+  });
+  let remaining = 100 - allocations.reduce((sum, allocation) => sum + allocation.floor, 0);
+  allocations.sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+  for (const allocation of allocations) {
+    const hundredths = allocation.floor + (remaining > 0 ? 1 : 0);
+    if (remaining > 0) remaining -= 1;
+    entries[allocation.index]!.share = hundredths / 100;
+  }
 }
 
 function durationHours(activity: Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">): number {
@@ -402,10 +410,6 @@ function durationHours(activity: Omit<PersonalActivityRecord, "employeeId" | "so
 
 function roundHours(value: number): number {
   return Math.round(value * 10) / 10;
-}
-
-function roundShare(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 function buildBuckets(
@@ -475,6 +479,7 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
   const limitations = [
     ...(coverage.contributors < 2 ? ["Наблюдения внесены одним contributor; межсубъектная повторяемость не проверена"] : []),
     ...(coverage.activeDates < 3 ? ["Наблюдения покрывают меньше трёх рабочих дат"] : []),
+    ...(coverage.unattributedObservations.count > 0 ? ["Часть времени не удалось предметно связать с проверенной рутиной; она показана как остаток «Другое / не удалось классифицировать»"] : []),
     ...singleContributorRoleLimitations,
   ];
   const namedRoutines = internal.routines.filter((routine) =>

@@ -17,6 +17,7 @@ const directory = {
       name: "Prepare reports",
       description: "Prepare reports",
       examples: ["prepared a report"],
+      workCategory: "documents_contracts",
       quickWin: "deep_dive",
       provenance: [{ groupId: "group_a", subjectKey: "subject_a" }],
     }],

@@ -22,6 +22,7 @@ const directory: RoutineDirectory = {
       name: "Подготовка отчётов",
       description: "Подготовка регулярных отчётов",
       examples: ["Сводка показателей"],
+      workCategory: "documents_contracts",
       quickWin: "report_template",
       provenance: [{ groupId: "group-a", subjectKey: "subject-a" }],
     }],
@@ -135,11 +136,30 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-SUGGEST-001: free labels review pack", 
     expect(pack.roles[0]?.suggestions[0]).not.toHaveProperty("supportingPhrase");
   });
 
+  it("requires a closed work category for create suggestions", async () => {
+    const { service: validCreate } = service(async () => ({
+      routineKey: "prepare reports",
+      proposal: { kind: "create", name: "Подготовка отчётов", description: "Подготовка регулярных отчётов", workCategory: "documents_contracts", quickWin: "report_template" },
+      supportingPhrase: "prepare reports",
+    }));
+    await expect(validCreate.suggest({ companyId: "company-a", groupId: "group-a", directory })).resolves.toMatchObject({
+      roles: [{ suggestions: [{ proposal: { kind: "create", workCategory: "documents_contracts" } }] }],
+    });
+
+    const { service: invalidCreate } = service(async () => ({
+      routineKey: "prepare reports",
+      proposal: { kind: "create", name: "Подготовка отчётов", description: "Подготовка регулярных отчётов", workCategory: "focus_work", quickWin: "report_template" } as never,
+      supportingPhrase: "prepare reports",
+    }));
+    await expect(invalidCreate.suggest({ companyId: "company-a", groupId: "group-a", directory })).rejects.toThrow();
+  });
+
   it("keeps the model prompt bounded to free routines and propagates generator errors before producing output", async () => {
     const prompt = buildRoutineDirectorySuggestPrompt({
       roleId: "sales",
       roleSection: { version: directory.version, entries: [] },
       catalog: [{ id: "report_template", typicalFor: "reports", title: "Report template" }],
+      workCategories: ["client_sales", "tender_procurement", "logistics_operations", "documents_contracts", "finance_accounting", "calculations_analysis", "internal_management", "learning_development", "other"],
       freeRoutines: [{ routineKey: "prepare reports", observations: 1, contributors: 1, activeDates: 1, messages: ["I prepare reports"] }],
     });
     expect(prompt).toContain("prepare reports");
