@@ -254,8 +254,15 @@ const supportingFacetSchema = <T extends z.ZodType>(value: T) => z.strictObject(
   evidenceRefs: z.array(companyReportEvidenceRefSchema),
 });
 const internalCompanyReportSchema = z.strictObject({
-  schemaVersion: z.literal("minutka-internal-report/v1"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),
-  coverage: z.strictObject({ invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative() }),
+  schemaVersion: z.literal("minutka-internal-report/v2"), generatedAt: z.iso.datetime(), companyId: z.string().min(1), groupId: z.string().min(1),
+  coverage: z.strictObject({
+    invitedParticipants: z.number().int().nonnegative(), subjects: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(),
+    unsizedObservations: z.number().int().nonnegative(),
+    unattributedObservations: z.strictObject({ count: z.number().int().nonnegative(), estimatedHours: z.number().nonnegative(), unsized: z.number().int().nonnegative() }),
+  }),
+  timeBudget: z.array(z.strictObject({
+    taskCategory: z.enum(taskCategories).optional(), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(),
+  })),
   buckets: z.array(z.strictObject({
     bucketId: z.string().min(1),
     scope: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("overall_group") }), z.strictObject({ kind: z.literal("role"), roleId: z.string().min(1) })]),

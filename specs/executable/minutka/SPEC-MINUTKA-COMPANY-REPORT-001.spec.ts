@@ -24,7 +24,7 @@ function participant(employeeId: string, companyId: string, groupId: string, rol
 }
 
 function activity(input: {
-  id: string; subjectKey: string; companyId?: string; groupId?: string; roleId?: string; date?: string;
+  id: string; subjectKey: string; companyId?: string; groupId?: string; roleId?: string; date?: string; workObject?: boolean;
   taskCategory?: PersonalActivityRecord["taskCategory"];
   routinePattern?: PersonalActivityRecord["routinePattern"];
   automationCandidate?: PersonalActivityRecord["automationCandidate"];
@@ -43,6 +43,7 @@ function activity(input: {
     ...(input.automationCandidate ? { automationCandidate: input.automationCandidate } : {}),
     ...(input.energyStressMarker ? { energyStressMarker: input.energyStressMarker } : {}),
     ...(input.system ? { system: input.system } : {}),
+    ...(input.workObject === false ? {} : { routineLabel: "test work" }),
     durationBucket: "30_60m",
     activityDate: input.date ?? "2026-08-15",
     recordedAt: `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
@@ -60,6 +61,25 @@ function automationActivity(id: string, subjectKey: string, date: string, roleId
 }
 
 describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", () => {
+  it("maps duration buckets into a sorted time budget and keeps category shares normalized", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales"), participant("two", "company_a", "group_a", "role_sales")];
+    const rows = [
+      activity({ id: "short", subjectKey: "subject_one", taskCategory: "reporting" }),
+      { ...activity({ id: "long", subjectKey: "subject_two", taskCategory: "meetings" }), durationBucket: "2_4h" as const },
+      { ...activity({ id: "unsized", subjectKey: "subject_one", taskCategory: "reporting" }), durationBucket: undefined },
+    ];
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+
+    expect(result.internal.schemaVersion).toBe("minutka-internal-report/v2");
+    expect(result.internal.timeBudget).toEqual([
+      expect.objectContaining({ taskCategory: "meetings", estimatedHours: 3, share: 0.79, observations: 1, unsizedObservations: 0 }),
+      expect.objectContaining({ taskCategory: "reporting", estimatedHours: 0.8, share: 0.21, observations: 2, unsizedObservations: 1 }),
+    ]);
+    expect(result.internal.coverage).toMatchObject({ unsizedObservations: 1, unattributedObservations: { count: 0, estimatedHours: 0, unsized: 0 } });
+    expect(result.internal.timeBudget.reduce((sum, entry) => sum + entry.share, 0)).toBe(1);
+  });
+
   it("counts one subject with twenty activities as one contributor", async () => {
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
     const rows = Array.from({ length: 20 }, (_, index) => automationActivity(`activity_${index}`, "subject_one", `2026-08-${String(1 + (index % 4)).padStart(2, "0")}`));
@@ -176,6 +196,21 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
 
     expect(result.client.insufficientEvidence).toEqual([expect.objectContaining({ scope: "Редкая рабочая функция", allowedConclusion: expect.stringContaining("не оценка сотрудника") })]);
     expect(serializedClient).not.toMatch(/subject_|employee_|raw|quote|trace|message/i);
+  });
+
+  it("keeps activities without a work object out of the budget and counts them as unattributed", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const rows = [
+      activity({ id: "named", subjectKey: "subject_one", taskCategory: "reporting" }),
+      activity({ id: "unattributed", subjectKey: "subject_one", taskCategory: "reporting", workObject: false }),
+      { ...activity({ id: "unattributed_unsized", subjectKey: "subject_one", taskCategory: "meetings", workObject: false }), durationBucket: undefined },
+    ];
+
+    const result = await service(participants, rows).exportGroup({ companyId: "company_a", groupId: "group_a" });
+
+    expect(result.internal.timeBudget).toEqual([expect.objectContaining({ taskCategory: "reporting", observations: 1, estimatedHours: 0.8 })]);
+    expect(result.internal.buckets.every((bucket) => bucket.observations === 1)).toBe(true);
+    expect(result.internal.coverage.unattributedObservations).toEqual({ count: 2, estimatedHours: 0.8, unsized: 1 });
   });
 
   it("keeps subject-linked refs internal and excludes identities and source refs from the client DTO", async () => {

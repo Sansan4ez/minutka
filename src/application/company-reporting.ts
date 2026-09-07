@@ -8,6 +8,15 @@ export const COMPANY_REPORT_CONFIDENCE_POLICY = {
   confirmedDates: 3,
 } as const;
 
+export const durationBucketHours: Record<ActivityDurationBucket, number> = {
+  lt_15m: 0.2,
+  "15_30m": 0.4,
+  "30_60m": 0.75,
+  "1_2h": 1.5,
+  "2_4h": 3,
+  gt_4h: 5,
+};
+
 export type CompanyReportConfidence = "hypothesis" | "signal" | "confirmed";
 export type CompanyReportEvidenceRef = { kind: "activity"; id: string; subjectKey: string };
 export type CompanyReportProcessKey = {
@@ -50,8 +59,17 @@ export type InternalEvidenceBucket = {
   evidenceRefs: CompanyReportEvidenceRef[];
 };
 
+export type InternalTimeBudgetEntry = {
+  taskCategory?: TaskCategory;
+  estimatedHours: number;
+  share: number;
+  contributors: number;
+  observations: number;
+  unsizedObservations: number;
+};
+
 export type InternalCompanyEvidenceReport = {
-  schemaVersion: "minutka-internal-report/v1";
+  schemaVersion: "minutka-internal-report/v2";
   generatedAt: string;
   companyId: string;
   groupId: string;
@@ -61,7 +79,14 @@ export type InternalCompanyEvidenceReport = {
     contributors: number;
     observations: number;
     activeDates: number;
+    unsizedObservations: number;
+    unattributedObservations: {
+      count: number;
+      estimatedHours: number;
+      unsized: number;
+    };
   };
+  timeBudget: InternalTimeBudgetEntry[];
   buckets: InternalEvidenceBucket[];
 };
 
@@ -161,19 +186,83 @@ function buildInternalReport(
 ): InternalCompanyEvidenceReport {
   const contributors = new Set(activities.map((activity) => activity.subjectKey)).size;
   const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
+  const attributedActivities = activities.filter(hasWorkObject);
+  const unattributedActivities = activities.filter((activity) => !hasWorkObject(activity));
   return {
-    schemaVersion: "minutka-internal-report/v1",
+    schemaVersion: "minutka-internal-report/v2",
     generatedAt,
     companyId,
     groupId,
-    coverage: { invitedParticipants, subjects: subjectCount, contributors, observations: activities.length, activeDates },
+    coverage: {
+      invitedParticipants,
+      subjects: subjectCount,
+      contributors,
+      observations: activities.length,
+      activeDates,
+      unsizedObservations: activities.filter((activity) => activity.durationBucket === undefined).length,
+      unattributedObservations: observationCoverage(unattributedActivities),
+    },
+    timeBudget: buildTimeBudget(attributedActivities),
     buckets: [
-      ...buildBuckets({ kind: "overall_group" }, activities),
-      ...[...groupBy(activities, (activity) => activity.roleId).entries()]
+      ...buildBuckets({ kind: "overall_group" }, attributedActivities),
+      ...[...groupBy(attributedActivities, (activity) => activity.roleId).entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .flatMap(([roleId, roleActivities]) => buildBuckets({ kind: "role", roleId }, roleActivities)),
     ],
   };
+}
+
+function hasWorkObject(activity: Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">): boolean {
+  return activity.routineId !== undefined || activity.routineLabel !== undefined;
+}
+
+function observationCoverage(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): InternalCompanyEvidenceReport["coverage"]["unattributedObservations"] {
+  return {
+    count: activities.length,
+    estimatedHours: roundHours(activities.reduce((sum, activity) => sum + durationHours(activity), 0)),
+    unsized: activities.filter((activity) => activity.durationBucket === undefined).length,
+  };
+}
+
+function buildTimeBudget(activities: Array<Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">>): InternalTimeBudgetEntry[] {
+  const groups = groupBy(activities, (activity) => activity.taskCategory ?? "__uncategorized__");
+  const entries = [...groups.entries()].map(([key, observations]) => ({
+    ...(key === "__uncategorized__" ? {} : { taskCategory: key as TaskCategory }),
+    estimatedHours: roundHours(observations.reduce((sum, activity) => sum + durationHours(activity), 0)),
+    share: 0,
+    contributors: new Set(observations.map((activity) => activity.subjectKey)).size,
+    observations: observations.length,
+    unsizedObservations: observations.filter((activity) => activity.durationBucket === undefined).length,
+  }));
+  const totalHours = entries.reduce((sum, entry) => sum + entry.estimatedHours, 0);
+  let assignedShare = 0;
+  entries.sort((left, right) => right.estimatedHours - left.estimatedHours || timeBudgetKey(left).localeCompare(timeBudgetKey(right)));
+  entries.forEach((entry, index) => {
+    if (totalHours === 0) entry.share = 0;
+    else if (index === entries.length - 1) entry.share = roundShare(1 - assignedShare);
+    else {
+      entry.share = roundShare(entry.estimatedHours / totalHours);
+      assignedShare += entry.share;
+    }
+  });
+  if (entries.length > 0 && totalHours > 0) entries.at(-1)!.share = roundShare(1 - entries.slice(0, -1).reduce((sum, entry) => sum + entry.share, 0));
+  return entries;
+}
+
+function timeBudgetKey(entry: InternalTimeBudgetEntry): string {
+  return entry.taskCategory ?? "__uncategorized__";
+}
+
+function durationHours(activity: Omit<PersonalActivityRecord, "employeeId" | "sourceMessageId">): number {
+  return activity.durationBucket === undefined ? 0 : durationBucketHours[activity.durationBucket];
+}
+
+function roundHours(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function roundShare(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function buildBuckets(

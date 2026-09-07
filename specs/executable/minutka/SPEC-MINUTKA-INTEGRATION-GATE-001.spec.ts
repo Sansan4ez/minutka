@@ -73,6 +73,7 @@ function createGateHarness() {
       await context.collectActivities({ activities: [{
         taskCategory: "reporting",
         routinePattern: "manual_reporting",
+        routineLabel: "weekly report",
         durationBucket: "30_60m",
         system: "spreadsheets",
       }] });

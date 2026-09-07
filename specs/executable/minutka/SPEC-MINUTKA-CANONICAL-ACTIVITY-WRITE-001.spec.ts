@@ -301,6 +301,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
             roleId: "role_a",
             taskCategory: "reporting" as const,
             routinePattern: "manual_reporting" as const,
+            routineLabel: "weekly report",
             activityDate: "2026-08-16",
             recordedAt: "2026-08-15T22:17:35.000Z",
           }],
