@@ -52,10 +52,11 @@ export async function runCompanyReportCommand(
   if (dependencies.publishing) {
     program.command("resolve-finding")
       .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--finding <findingId>")
-      .requiredOption("--decision <decision>").option("--note <note>")
-      .action(async (options: { company: string; group: string; finding: string; decision: "verified" | "fixed"; note?: string }) => {
+      .requiredOption("--decision <decision>").option("--directory <path>").option("--note <note>")
+      .action(async (options: { company: string; group: string; finding: string; decision: "verified" | "fixed"; directory?: string; note?: string }) => {
         if (options.decision !== "verified" && options.decision !== "fixed") throw new Error("--decision must be verified or fixed");
-        write(`${JSON.stringify(await dependencies.publishing!.resolvePreflightFinding({ companyId: options.company, groupId: options.group, findingId: options.finding, decision: options.decision, ...(options.note === undefined ? {} : { note: options.note }) }))}\n`);
+        const directory = options.directory === undefined ? undefined : loadRoutineDirectory(JSON.parse(await readFile(resolve(options.directory), "utf8")) as unknown, { expectedCompanyId: options.company });
+        write(`${JSON.stringify(await dependencies.publishing!.resolvePreflightFinding({ companyId: options.company, groupId: options.group, findingId: options.finding, decision: options.decision, ...(directory === undefined ? {} : { directory }), ...(options.note === undefined ? {} : { note: options.note }) }))}\n`);
       });
     program.command("publish")
       .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--directory <path>")

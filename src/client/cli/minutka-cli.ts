@@ -83,9 +83,11 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
   admin.addCommand(new Command("company-report-resolve-finding")
     .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--finding <findingId>")
     .requiredOption("--decision <decision>", "verified|fixed", (value: string) => parseChoice(value, ["verified", "fixed"] as const, "decision"))
+    .option("--directory <path>")
     .option("--note <note>")
-    .action(async (o: { company: string; group: string; finding: string; decision: "verified" | "fixed"; note?: string }) => {
-      stdout.push(JSON.stringify(await adminClient.resolvePreflightFinding({ companyId: o.company, groupId: o.group, findingId: o.finding, decision: o.decision, ...(o.note === undefined ? {} : { note: o.note }) })));
+    .action(async (o: { company: string; group: string; finding: string; decision: "verified" | "fixed"; directory?: string; note?: string }) => {
+      const directory = o.directory === undefined ? undefined : JSON.parse(await readFile(o.directory, "utf8")) as unknown;
+      stdout.push(JSON.stringify(await adminClient.resolvePreflightFinding({ companyId: o.company, groupId: o.group, findingId: o.finding, decision: o.decision, ...(directory === undefined ? {} : { directory }), ...(o.note === undefined ? {} : { note: o.note }) })));
     }));
   admin.addCommand(new Command("company-report-publish")
     .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--directory <path>")

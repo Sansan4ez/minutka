@@ -31,11 +31,12 @@ export class ClientReportPublishingService {
     groupId: string;
     findingId: string;
     decision: PreflightFindingDecision;
+    directory?: unknown;
     note?: string;
   }): Promise<{ ok: true }> {
     const scope = normalizeScope(input);
     const findingId = required(input.findingId, "findingId");
-    const report = await this.reporting.buildReport({ companyId: scope.companyId, groupId: scope.groupId });
+    const report = await this.reporting.buildReport({ companyId: scope.companyId, groupId: scope.groupId, directory: input.directory });
     const occurredAt = this.clock.now();
     await this.audit.append({
       id: this.idGenerator.auditEventId(),

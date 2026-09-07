@@ -328,7 +328,7 @@ const clientCompanyReportSchema = z.strictObject({
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
 export const resolvePreflightFindingRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), findingId: z.string().min(1).max(256),
-  decision: z.enum(["verified", "fixed"]), note: z.string().trim().min(1).max(500).optional(),
+  decision: z.enum(["verified", "fixed"]), directory: z.unknown().optional(), note: z.string().trim().min(1).max(500).optional(),
 });
 export const publishClientReportRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), directory: z.unknown().optional(), findings: z.array(preflightFindingSchema).optional(),

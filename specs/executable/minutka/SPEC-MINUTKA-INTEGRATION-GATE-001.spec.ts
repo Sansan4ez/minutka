@@ -22,6 +22,7 @@ import { createInMemoryRuntime, executableSpecPrivacyExplanation } from "../../.
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { TelegramDriver } from "../support/telegram-driver.js";
+import "./SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001.spec.js";
 
 const now = "2026-08-18T21:30:00.000Z";
 const traceVersions = {
