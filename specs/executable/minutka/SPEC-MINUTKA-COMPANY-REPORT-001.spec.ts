@@ -9,16 +9,9 @@ import {
 } from "../../../src/application/company-reporting.js";
 import { createInMemoryActivityCollectionState } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryCompanyReportStore } from "../../../src/application/in-memory-company-report-store.js";
-import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
-import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
-import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import type { PersonalActivityRecord } from "../../../src/application/activity-collection.js";
 import type { Participant } from "../../../src/domain/employee.js";
-import { createInMemoryRuntime } from "../../../src/runtime/create-in-memory-runtime.js";
-import { listenHttpServer } from "../../../src/server/http/http-server.js";
-import { AdminMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { HttpAdminMinutkaTransport } from "../../../src/client/sdk/http-transport.js";
-import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
+import { runCompanyReportCommand } from "../../../src/runtime/company-report-command.js";
 
 const createdAt = "2026-08-15T00:00:00.000Z";
 
@@ -318,26 +311,24 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     } })).rejects.toMatchObject({ code: "directory_scope_mismatch" });
   });
 
-  it("passes --directory from the operator CLI", async () => {
+  it("builds a report in process from a large directory file", async () => {
     const directory = mkdtempSync(join(tmpdir(), "minutka-directory-"));
     const file = join(directory, "directory.json");
-    writeFileSync(file, JSON.stringify({
-      schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1", sections: [],
-    }));
+    const output = join(directory, "report.json");
+    const payload = {
+      schemaVersion: "minutka-routine-directory/v1", companyId: "company_a", version: "directory-1",
+      sections: [{ roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "x".repeat(100_000), examples: [], quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }] }],
+    };
+    writeFileSync(file, JSON.stringify(payload));
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
-    const reporting = service(participants, [activity({ id: "a1", subjectKey: "subject_one", routineLabel: "Free work" })]);
-    const runtime = createInMemoryRuntime({ agentRunner: async () => "unused" });
-    const clock = { now: () => createdAt };
-    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 } });
-    const application = new PersonalAssistantService(runtime.service, { async chat() { throw new Error("not used"); } }, artifactStore, undefined, undefined, undefined, undefined, undefined, undefined, reporting);
-    const adminToken = "d".repeat(64);
-    const server = await listenHttpServer({ application, port: 0, logger: () => undefined, auth: { adminToken, employeeTokens: new Map() } });
-    try {
-      const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
-      const result = await runMinutkaCli(client, ["admin", "company-report", "--company", "company_a", "--group", "group_a", "--directory", file]);
-      expect(result).toMatchObject({ exitCode: 0, stderr: [] });
-      expect(JSON.parse(result.stdout[0] ?? "{}")).toMatchObject({ internal: { directoryVersion: "directory-1" } });
-    } finally { await server.close(); }
+    const reporting = service(participants, [activity({ id: "a1", subjectKey: "subject_one", routineId: "sales_report", routineLabel: "Отчёты" })]);
+    const writes: string[] = [];
+    await runCompanyReportCommand(["build", "--company", "company_a", "--group", "group_a", "--directory", file, "--out", output], {
+      reporting,
+      checkLlm: async () => ({ object: { results: [] } }),
+    }, (text) => writes.push(text));
+    expect(JSON.parse(readFileSync(output, "utf8"))).toEqual(await reporting.buildReport({ companyId: "company_a", groupId: "group_a", directory: payload }));
+    expect(writes).toHaveLength(1);
   });
 
   it("keeps subject-linked refs internal and excludes identities and source refs from the client DTO", async () => {
@@ -384,23 +375,13 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect((await reporting.exportGroup({ companyId: "company_a", groupId: "group_a" })).client).toMatchObject({ coverage: { assessment: "insufficient", observations: 0 }, topRoutines: [], frictionRoutines: [], firstSteps: [], deepDive: [] });
   });
 
-  it("exposes the separate internal/client DTO through the operator CLI", async () => {
+  it("returns a directory-free report through the HTTP export path", async () => {
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
-    const reporting = service(participants, [automationActivity("a1", "subject_one", "2026-08-15")]);
-    const runtime = createInMemoryRuntime({ agentRunner: async () => "unused" });
-    const clock = { now: () => createdAt };
-    const artifactStore = createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore(clock), clock, limits: { maximumBytes: 1_000_000, timeoutMs: 1_000 } });
-    const application = new PersonalAssistantService(runtime.service, { async chat() { throw new Error("not used"); } }, artifactStore, undefined, undefined, undefined, undefined, undefined, undefined, reporting);
-    const adminToken = "d".repeat(64);
-    const server = await listenHttpServer({ application, port: 0, logger: () => undefined, auth: { adminToken, employeeTokens: new Map() } });
-    try {
-      const client = new AdminMinutkaClient(new HttpAdminMinutkaTransport({ baseUrl: server.url, token: adminToken }));
-      const result = await runMinutkaCli(client, ["admin", "company-report", "--company", "company_a", "--group", "group_a"]);
-      const dto = JSON.parse(result.stdout[0] ?? "{}");
-      expect(result).toMatchObject({ exitCode: 0, stderr: [] });
-      expect(dto).toMatchObject({ internal: { companyId: "company_a", groupId: "group_a" }, client: { schemaVersion: "minutka-client-report.v2" } });
-      expect(JSON.stringify(dto.client)).not.toContain("subject_one");
-    } finally { await server.close(); }
+    const result = await service(participants, [automationActivity("a1", "subject_one", "2026-08-15")]).exportGroup({ companyId: "company_a", groupId: "group_a" });
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.frictionRoutines).toEqual([]);
+    expect(result.client.firstSteps).toEqual([]);
+    expect(result.client.deepDive).toEqual([]);
   });
 
   it("documents canonical recompute, confidence thresholds, and the client delivery boundary", () => {

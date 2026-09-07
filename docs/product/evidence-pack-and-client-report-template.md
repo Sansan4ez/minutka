@@ -4,7 +4,7 @@
 
 **accepted template v2 (2026-09-07); принят 2026-08-18 как v1.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. Клиентский контракт v2 — «Карта рутин и быстрых улучшений» по [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) §2.8: рутины из проверенного справочника, бюджет времени, quick wins из закрытого каталога, deep-dive вопросы; без `expectedEffect`, `prerequisites`, `risks` и 30/60/90. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет и публикует клиентский артефакт.
 
-> **Статус реализации.** Runtime отдаёт `minutka-client-report.v2`; это единственный активный клиентский контракт. Операторский порядок `validate → report → suggest → повторный report → preflight → resolve-finding → publish` описан в [runbook выгрузки отчёта](../runbooks/company-report-export.md).
+> **Статус реализации.** Runtime отдаёт `minutka-client-report.v2`; это единственный активный клиентский контракт. Операторский порядок выполняется in-process командой `npm run company-report`: `validate → build → suggest → повторный build → preflight → resolve-finding → publish`. HTTP используется только для отчёта без справочника; операторский справочник не передаётся через API. Подробности — в [runbook выгрузки отчёта](../runbooks/company-report-export.md).
 
 Шаблоны конкретизируют [RFC исследовательского корпуса и клиентской карты автоматизации §2.7–2.9](../architecture/rfc-minutka-research-corpus-and-reporting.md#27-внутренний-evidence-pack):
 

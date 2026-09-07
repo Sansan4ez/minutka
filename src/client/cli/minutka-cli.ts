@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import type { AdminMinutkaClient, EmployeeMinutkaClient } from "../sdk/minutka-client.js";
 
@@ -18,10 +17,6 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
   const adminClient = client as AdminMinutkaClient;
   const stdout: string[] = []; const stderr: string[] = [];
   const program = new Command().name("minutka").exitOverride().configureOutput({ writeOut: (v) => stdout.push(v.trim()), writeErr: (v) => stderr.push(v.trim()) });
-  const normalizedArgv = argv[0] === "admin" && argv[1] === "company-report"
-    && (argv[2] === "resolve-finding" || argv[2] === "publish")
-    ? [argv[0], `company-report-${argv[2]}`, ...argv.slice(3)]
-    : argv;
   const employee = new Command("employee").description("Commands for the authenticated employee");
   employee.addCommand(new Command("open-invite").requiredOption("--invite <inviteCode>").action(async (o: { invite: string }) => { stdout.push(JSON.stringify(await employeeClient.openInvite({ inviteCode: o.invite }))); }));
   employee.addCommand(new Command("accept-consent").option("--yes").action(async (o: { yes?: boolean }) => { if (o.yes !== true) throw new Error("privacy consent must be explicitly accepted"); stdout.push(JSON.stringify(await employeeClient.acceptConsent({ accepted: true, source: "cli" }))); }));
@@ -71,33 +66,6 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
       const page = await adminClient.listParticipants({ companyId: o.company, groupId: o.group, limit: o.limit, after: o.after });
       stdout.push(JSON.stringify(page));
       if (page.nextCursor) stdout.push(`Next page: npm run cli -- admin list-participants --company ${o.company} --group ${o.group}${o.limit === undefined ? "" : ` --limit ${o.limit}`} --after ${page.nextCursor}`);
-    }));
-  admin.addCommand(new Command("company-report")
-    .requiredOption("--company <companyId>")
-    .requiredOption("--group <groupId>")
-    .option("--directory <path>")
-    .action(async (o: { company: string; group: string; directory?: string }) => {
-      const directory = o.directory === undefined ? undefined : JSON.parse(await readFile(o.directory, "utf8")) as unknown;
-      stdout.push(JSON.stringify(await adminClient.exportCompanyReport({ companyId: o.company, groupId: o.group, ...(directory === undefined ? {} : { directory }) })));
-    }));
-  admin.addCommand(new Command("company-report-resolve-finding")
-    .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--finding <findingId>")
-    .requiredOption("--decision <decision>", "verified|fixed", (value: string) => parseChoice(value, ["verified", "fixed"] as const, "decision"))
-    .option("--directory <path>")
-    .option("--note <note>")
-    .action(async (o: { company: string; group: string; finding: string; decision: "verified" | "fixed"; directory?: string; note?: string }) => {
-      const directory = o.directory === undefined ? undefined : JSON.parse(await readFile(o.directory, "utf8")) as unknown;
-      stdout.push(JSON.stringify(await adminClient.resolvePreflightFinding({ companyId: o.company, groupId: o.group, findingId: o.finding, decision: o.decision, ...(directory === undefined ? {} : { directory }), ...(o.note === undefined ? {} : { note: o.note }) })));
-    }));
-  admin.addCommand(new Command("company-report-publish")
-    .requiredOption("--company <companyId>").requiredOption("--group <groupId>").requiredOption("--directory <path>")
-    .option("--findings <path>").requiredOption("--out <path>")
-    .action(async (o: { company: string; group: string; directory: string; findings?: string; out: string }) => {
-      const directory = JSON.parse(await readFile(o.directory, "utf8")) as unknown;
-      const findings = o.findings === undefined ? undefined : JSON.parse(await readFile(o.findings, "utf8")) as unknown;
-      const result = await adminClient.publishClientReport({ companyId: o.company, groupId: o.group, directory, ...(findings === undefined ? {} : { findings }) });
-      if (result.ok) await import("node:fs/promises").then(({ writeFile }) => writeFile(o.out, `${JSON.stringify(result.client, null, 2)}\n`, "utf8"));
-      stdout.push(JSON.stringify(result));
     }));
   admin.addCommand(new Command("usage")
     .option("--employee <employeeId>")
@@ -152,6 +120,6 @@ export async function runMinutkaCli(client: EmployeeMinutkaClient | AdminMinutka
         : `Version not found for ${result.path}`);
     }));
   program.addCommand(admin);
-  try { await program.parseAsync(normalizedArgv, { from: "user" }); return { exitCode: 0, stdout, stderr }; }
+  try { await program.parseAsync(argv, { from: "user" }); return { exitCode: 0, stdout, stderr }; }
   catch (error) { stderr.push(error instanceof Error ? error.message : String(error)); return { exitCode: 1, stdout, stderr }; }
 }

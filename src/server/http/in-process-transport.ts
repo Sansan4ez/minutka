@@ -1,7 +1,7 @@
 import { PersonalAssistantService } from "../../application/personal-assistant-service.js";
 import type { MinutkaService } from "../../application/minutka-service.js";
 import type {
-  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminGroupUsageRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, DeleteInvitedParticipantRequest, PersonalContextPatch, ServiceChatRequest, PublishClientReportRequest, ResolvePreflightFindingRequest,
+  AcceptConsentRequest, AcceptEmployeeConsentRequest, AdminGroupUsageRequest, AdminUsageRequest, ChatRequest, CompanyReportRequest, CompleteOnboardingRequest, ContextDocumentVersionsRequest, DeleteInvitedParticipantRequest, PersonalContextPatch, ServiceChatRequest,
   IssueInviteRequest, ListInsightsRequest, ListParticipantsRequest, OnboardingAnswerRequest, OpenInviteRequest, RedeemTelegramInviteRequest,
   RestoreContextDocumentVersionRequest, SubmitFeedbackRequest, TaskMutationDecisionRequest, ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
@@ -63,8 +63,6 @@ export class InProcessAdminMinutkaTransport implements AdminMinutkaTransport {
   getMonthlyUsage(input: AdminUsageRequest) { operator(this.principal); return personal(this.application).getMonthlyUsage(input.employeeId, input.month); }
   getGroupMonthlyUsage(input: AdminGroupUsageRequest) { operator(this.principal); return personal(this.application).getGroupMonthlyUsage(input); }
   exportCompanyReport(input: CompanyReportRequest) { operator(this.principal); return personal(this.application).exportCompanyReport(input); }
-  resolvePreflightFinding(input: ResolvePreflightFindingRequest) { operator(this.principal); return personal(this.application).resolvePreflightFinding(input); }
-  publishClientReport(input: PublishClientReportRequest) { operator(this.principal); return personal(this.application).publishClientReport(input); }
   listContextDocumentVersions(input: ContextDocumentVersionsRequest) { operator(this.principal); return personal(this.application).listContextDocumentVersions(input.employeeId, { path: input.path, limit: input.limit }); }
   restoreContextDocumentVersion(input: RestoreContextDocumentVersionRequest) { operator(this.principal); return personal(this.application).restoreContextDocumentVersion(input.employeeId, { path: input.path, version: input.version }); }
 }

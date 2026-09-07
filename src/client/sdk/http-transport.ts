@@ -1,6 +1,6 @@
 import {
   errorEnvelopeSchema,
-  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminGroupUsageRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest, type PublishClientReportRequest, type ResolvePreflightFindingRequest,
+  type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminGroupUsageRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
   type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type IssueInviteRequest, type PersonalContextPatch, type ServiceChatRequest, type ListInsightsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest, type ListParticipantsRequest,
 } from "../../contracts/minutka-api.js";
@@ -74,11 +74,8 @@ export class HttpAdminMinutkaTransport extends HttpTransportBase implements Admi
   }
   exportCompanyReport(input: CompanyReportRequest) {
     const query = new URLSearchParams({ groupId: input.groupId });
-    if (input.directory !== undefined) query.set("directory", JSON.stringify(input.directory));
     return this.request("GET", `/v1/admin/companies/${encodeURIComponent(input.companyId)}/report?${query}`);
   }
-  resolvePreflightFinding(input: ResolvePreflightFindingRequest) { return this.request("POST", "/v1/admin/report-preflight/resolve", input); }
-  publishClientReport(input: PublishClientReportRequest) { return this.request("POST", "/v1/admin/client-report/publish", input); }
   listContextDocumentVersions(input: ContextDocumentVersionsRequest) {
     const query = new URLSearchParams({ path: input.path, limit: String(input.limit) });
     return this.request("GET", `/v1/admin/employees/${encodeURIComponent(input.employeeId)}/context-documents/versions?${query}`);

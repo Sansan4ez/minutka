@@ -31,12 +31,14 @@ npm run routine-directory -- validate \
 ### 2. Собрать первый отчёт
 
 ```bash
-npm run cli -- admin company-report \
+npm run company-report -- build \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
-  > ./operator/company-report.draft.json
+  --out ./operator/company-report.draft.json
 ```
+
+Справочник читается этой in-process командой рядом с базой и не передаётся через HTTP. HTTP `GET /v1/admin/companies/:id/report` предназначен только для отчёта без справочника (coverage, time budget и ограничения).
 
 Команда возвращает два DTO:
 
@@ -73,11 +75,11 @@ npm run routine-directory -- validate \
   --company company_acme \
   --file ./operator/routine-directory.company_acme.json
 
-npm run cli -- admin company-report \
+npm run company-report -- build \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
-  > ./operator/company-report.v2.json
+  --out ./operator/company-report.v2.json
 
 jq '.internal.preflightFindings' ./operator/company-report.v2.json
 ```
@@ -101,27 +103,26 @@ npm run company-report -- preflight-llm \
 Методолог читает объединённые `internal.preflightFindings` и `preflight-findings.json`. High-находка не означает автоматическое удаление текста: методолог либо подтверждает безопасный результат, либо исправляет справочник и пересобирает отчёт.
 
 ```bash
-npm run cli -- admin company-report-resolve-finding \
+npm run company-report -- resolve-finding \
   --company company_acme \
   --group group_acme_2026_09 \
   --finding <finding-id> \
   --decision verified
 ```
 
-Для исправленной записи используйте `--decision fixed` и при необходимости `--note`. После изменения справочника снова пройдите шаги `validate`, выгрузки и preflight: решение относится к hash конкретного client DTO.
+Для исправленной записи используйте `--decision fixed` и при необходимости `--note`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
 
 ### 6. Опубликовать client DTO
 
 ```bash
-npm run cli -- admin company-report-publish \
+npm run company-report -- publish \
   --company company_acme \
   --group group_acme_2026_09 \
-  --directory ./operator/routine-directory.company_acme.json \
   --findings ./operator/preflight-findings.json \
   --out ./operator/client-report.json
 ```
 
-Команда заново пересчитывает report, объединяет его findings с переданным файлом и проверяет решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.json` находится единственный артефакт, который можно передать компании.
+Команда заново пересчитывает report без передачи справочника через транспорт, объединяет его findings с переданным файлом и проверяет решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.json` находится единственный артефакт, который можно передать компании.
 
 ## Confidence policy
 

@@ -239,7 +239,6 @@ export const adminGroupUsageRequestSchema = z.strictObject({
 export const companyReportRequestSchema = z.strictObject({
   companyId: z.string().min(1).max(128),
   groupId: z.string().min(1).max(128),
-  directory: z.unknown().optional(),
 });
 const companyReportConfidenceSchema = z.enum(["hypothesis", "signal", "confirmed"]);
 const companyReportProcessSchema = z.strictObject({
@@ -326,13 +325,7 @@ const clientCompanyReportSchema = z.strictObject({
   cannotConclude: z.array(z.string()),
 });
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
-export const resolvePreflightFindingRequestSchema = z.strictObject({
-  companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), findingId: z.string().min(1).max(256),
-  decision: z.enum(["verified", "fixed"]), directory: z.unknown().optional(), note: z.string().trim().min(1).max(500).optional(),
-});
-export const publishClientReportRequestSchema = z.strictObject({
-  companyId: z.string().min(1).max(128), groupId: z.string().min(1).max(128), directory: z.unknown().optional(), findings: z.array(preflightFindingSchema).optional(),
-});
+
 export const publishClientReportResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({ ok: z.literal(false), reason: z.literal("unresolved_high_findings"), findingIds: z.array(z.string().min(1)) }),
   z.strictObject({ ok: z.literal(true), client: clientCompanyReportSchema, reportVersion: z.string().length(64) }),
@@ -436,8 +429,6 @@ export type ListParticipantsResponse = z.infer<typeof listParticipantsResponseSc
 export type AdminUsageRequest = z.infer<typeof adminUsageRequestSchema>;
 export type AdminGroupUsageRequest = z.infer<typeof adminGroupUsageRequestSchema>;
 export type CompanyReportRequest = z.infer<typeof companyReportRequestSchema>;
-export type ResolvePreflightFindingRequest = z.infer<typeof resolvePreflightFindingRequestSchema>;
-export type PublishClientReportRequest = z.infer<typeof publishClientReportRequestSchema>;
 export type CompanyReportResponse = z.infer<typeof companyReportResponseSchema>;
 export type MonthlyUsageResponse = z.infer<typeof monthlyUsageResponseSchema>;
 export type GroupMonthlyUsageResponse = z.infer<typeof groupMonthlyUsageResponseSchema>;

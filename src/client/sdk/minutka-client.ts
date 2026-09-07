@@ -1,5 +1,5 @@
 import {
-  acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema, adminGroupUsageRequestSchema, adminUsageRequestSchema, companyReportRequestSchema, companyReportResponseSchema, publishClientReportRequestSchema, publishClientReportResponseSchema, resolvePreflightFindingRequestSchema,
+  acceptConsentRequestSchema, acceptConsentResponseSchema, acceptEmployeeConsentRequestSchema, adminGroupUsageRequestSchema, adminUsageRequestSchema, companyReportRequestSchema, companyReportResponseSchema,
   contextDocumentVersionsRequestSchema, contextDocumentVersionsResponseSchema, restoreContextDocumentVersionRequestSchema, restoreContextDocumentVersionResponseSchema,
   chatRequestSchema, chatResponseSchema, completeOnboardingRequestSchema, completeOnboardingResponseSchema, deleteInvitedParticipantRequestSchema, deleteInvitedParticipantResponseSchema, serviceChatRequestSchema,
   issueInviteRequestSchema, issueInviteResponseSchema, listInsightsRequestSchema, listParticipantsRequestSchema, listParticipantsResponseSchema, onboardingAnswerRequestSchema, onboardingProgressSchema, openInviteRequestSchema,
@@ -7,7 +7,7 @@ import {
   structuredInsightSchema, submitFeedbackRequestSchema, submitFeedbackResponseSchema, taskMutationDecisionRequestSchema, taskMutationDecisionResponseSchema,
   ideaDeletionDecisionRequestSchema, ideaDeletionDecisionResponseSchema, ideaMutationOutcomeSchema, contextDocumentDecisionRequestSchema, contextDocumentDecisionResponseSchema, groupMonthlyUsageResponseSchema, monthlyUsageResponseSchema, personalContextPatchSchema, personalContextUpdateResponseSchema, personalContextViewSchema, scheduleListResponseSchema, userProfileSchema,
   type AcceptConsentRequest, type AcceptEmployeeConsentRequest, type AdminGroupUsageRequest, type AdminUsageRequest, type ChatRequest, type CompanyReportRequest, type ContextDocumentVersionsRequest,
-  type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest, type PublishClientReportRequest, type ResolvePreflightFindingRequest,
+  type CompleteOnboardingRequest, type DeleteInvitedParticipantRequest, type ServiceChatRequest, type IssueInviteRequest, type ListInsightsRequest, type ListParticipantsRequest,
   type OnboardingAnswerRequest, type OpenInviteRequest, type RedeemTelegramInviteRequest, type RestoreContextDocumentVersionRequest, type SubmitFeedbackRequest, type TaskMutationDecisionRequest, type ContextDocumentDecisionRequest,
 } from "../../contracts/minutka-api.js";
 import { z } from "zod";
@@ -38,8 +38,6 @@ export type AdminMinutkaTransport = {
   getMonthlyUsage(input: AdminUsageRequest): Promise<unknown>;
   getGroupMonthlyUsage(input: AdminGroupUsageRequest): Promise<unknown>;
   exportCompanyReport(input: CompanyReportRequest): Promise<unknown>;
-  resolvePreflightFinding(input: ResolvePreflightFindingRequest): Promise<unknown>;
-  publishClientReport(input: PublishClientReportRequest): Promise<unknown>;
   listContextDocumentVersions(input: ContextDocumentVersionsRequest): Promise<unknown>;
   restoreContextDocumentVersion(input: RestoreContextDocumentVersionRequest): Promise<unknown>;
 };
@@ -107,8 +105,6 @@ export class AdminMinutkaClient {
   async getMonthlyUsage(input: unknown) { return validate(monthlyUsageResponseSchema, await this.transport.getMonthlyUsage(validate(adminUsageRequestSchema, input, "getMonthlyUsage request")), "getMonthlyUsage response"); }
   async getGroupMonthlyUsage(input: unknown) { return validate(groupMonthlyUsageResponseSchema, await this.transport.getGroupMonthlyUsage(validate(adminGroupUsageRequestSchema, input, "getGroupMonthlyUsage request")), "getGroupMonthlyUsage response"); }
   async exportCompanyReport(input: unknown) { return validate(companyReportResponseSchema, await this.transport.exportCompanyReport(validate(companyReportRequestSchema, input, "exportCompanyReport request")), "exportCompanyReport response"); }
-  async resolvePreflightFinding(input: unknown) { return validate(z.strictObject({ ok: z.literal(true) }), await this.transport.resolvePreflightFinding(validate(resolvePreflightFindingRequestSchema, input, "resolvePreflightFinding request")), "resolvePreflightFinding response"); }
-  async publishClientReport(input: unknown) { return validate(publishClientReportResponseSchema, await this.transport.publishClientReport(validate(publishClientReportRequestSchema, input, "publishClientReport request")), "publishClientReport response"); }
   async listContextDocumentVersions(input: unknown) { return validate(contextDocumentVersionsResponseSchema, await this.transport.listContextDocumentVersions(validate(contextDocumentVersionsRequestSchema, input, "listContextDocumentVersions request")), "listContextDocumentVersions response"); }
   async restoreContextDocumentVersion(input: unknown) { return validate(restoreContextDocumentVersionResponseSchema, await this.transport.restoreContextDocumentVersion(validate(restoreContextDocumentVersionRequestSchema, input, "restoreContextDocumentVersion request")), "restoreContextDocumentVersion response"); }
 }
