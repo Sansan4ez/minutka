@@ -77,9 +77,9 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
                     'revision', history.revision, 'operation', history.operation,
                     'sourceMessageId', history.source_message_id, 'taskCategory', history.task_category,
                     'routinePattern', history.routine_pattern, 'automationCandidate', history.automation_candidate,
-                    'energyStressMarker', history.energy_stress_marker, 'durationBucket', history.duration_bucket,
-                    'system', history.system, 'routineId', history.routine_id, 'routineLabel', history.routine_label,
-                    'recurrence', history.recurrence, 'status', history.status,
+                    'energyStressMarker', history.energy_stress_marker, 'routineId', history.routine_id,
+                    'routineLabel', history.routine_label, 'recurrence', history.recurrence,
+                    'durationBucket', history.duration_bucket, 'system', history.system, 'status', history.status,
                     'supersededByActivityId', history.superseded_by_activity_id,
                     'changedAt', ${canonicalActivityRevisionChangedAtSql})) ORDER BY history.revision)
                     FROM minutka_private.activity_revisions history

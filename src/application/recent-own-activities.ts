@@ -29,6 +29,9 @@ export type RecentOwnActivity = {
   routinePattern?: PersonalActivityRecord["routinePattern"];
   automationCandidate?: PersonalActivityRecord["automationCandidate"];
   energyStressMarker?: PersonalActivityRecord["energyStressMarker"];
+  routineId?: PersonalActivityRecord["routineId"];
+  routineLabel?: PersonalActivityRecord["routineLabel"];
+  recurrence?: PersonalActivityRecord["recurrence"];
   durationBucket?: PersonalActivityRecord["durationBucket"];
   system?: PersonalActivityRecord["system"];
   activityDate: string;
@@ -87,6 +90,9 @@ function toRecentOwnActivity(activity: PersonalActivityRecord): RecentOwnActivit
     ...(activity.routinePattern === undefined ? {} : { routinePattern: activity.routinePattern }),
     ...(activity.automationCandidate === undefined ? {} : { automationCandidate: activity.automationCandidate }),
     ...(activity.energyStressMarker === undefined ? {} : { energyStressMarker: activity.energyStressMarker }),
+    ...(activity.routineId === undefined ? {} : { routineId: activity.routineId }),
+    ...(activity.routineLabel === undefined ? {} : { routineLabel: activity.routineLabel }),
+    ...(activity.recurrence === undefined ? {} : { recurrence: activity.recurrence }),
     ...(activity.durationBucket === undefined ? {} : { durationBucket: activity.durationBucket }),
     ...(activity.system === undefined ? {} : { system: activity.system }),
     activityDate: activity.activityDate,

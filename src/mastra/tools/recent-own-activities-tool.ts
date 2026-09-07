@@ -6,6 +6,7 @@ import {
   activitySystems,
   automationCandidateTypes,
   energyStressMarkerTypes,
+  activityRecurrenceTypes,
   routinePatternTypes,
   taskCategories,
 } from "../../domain/insights.js";
@@ -19,6 +20,9 @@ export const recentOwnActivitySchema = z.strictObject({
   routinePattern: z.enum(routinePatternTypes).optional(),
   automationCandidate: z.enum(automationCandidateTypes).optional(),
   energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
+  routineId: z.string().min(1).optional(),
+  routineLabel: z.string().min(1).optional(),
+  recurrence: z.enum(activityRecurrenceTypes).optional(),
   durationBucket: z.enum(activityDurationBuckets).optional(),
   system: z.enum(activitySystems).optional(),
   activityDate: z.string(),

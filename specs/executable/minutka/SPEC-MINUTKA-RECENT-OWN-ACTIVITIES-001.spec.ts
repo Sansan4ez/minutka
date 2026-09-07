@@ -39,7 +39,15 @@ describe("SPEC-MINUTKA-RECENT-OWN-ACTIVITIES-001: bounded correction lookup", ()
     const listed = [
       activity({ activityId: "activity_3", recordedAt: "2026-08-24T11:00:00.000Z", automationCandidate: "report_generation" }),
       activity({ activityId: "activity_2", recordedAt: "2026-08-24T11:00:00.000Z", energyStressMarker: "frustration" }),
-      activity({ activityId: "activity_1", recordedAt: "2026-08-23T09:00:00.000Z", durationBucket: "1_2h", system: "spreadsheets" }),
+      activity({
+        activityId: "activity_1",
+        recordedAt: "2026-08-23T09:00:00.000Z",
+        routineId: "routine_weekly_report",
+        routineLabel: "Weekly reports",
+        recurrence: "weekly",
+        durationBucket: "1_2h",
+        system: "spreadsheets",
+      }),
       activity({ activityId: "foreign_employee", employeeId: "employee_b" }),
       activity({ activityId: "foreign_company", companyId: "company_b" }),
       activity({ activityId: "foreign_group", groupId: "group_b" }),
@@ -66,7 +74,15 @@ describe("SPEC-MINUTKA-RECENT-OWN-ACTIVITIES-001: bounded correction lookup", ()
     expect(result.activities).toEqual([
       expect.objectContaining({ handle: "activity_3", revision: 1, activityDate: "2026-08-24", recordedAt: "2026-08-24T11:00:00.000Z", automationCandidate: "report_generation" }),
       expect.objectContaining({ handle: "activity_2", revision: 1, energyStressMarker: "frustration" }),
-      expect.objectContaining({ handle: "activity_1", revision: 1, durationBucket: "1_2h", system: "spreadsheets" }),
+      expect.objectContaining({
+        handle: "activity_1",
+        revision: 1,
+        routineId: "routine_weekly_report",
+        routineLabel: "Weekly reports",
+        recurrence: "weekly",
+        durationBucket: "1_2h",
+        system: "spreadsheets",
+      }),
     ]);
     expect(JSON.stringify(result)).not.toMatch(/employee_|subject_|company_|group_|role_|message_|private/u);
   });

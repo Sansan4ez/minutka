@@ -14,6 +14,7 @@ import type {
   RoutinePatternType,
   TaskCategory,
 } from "../domain/insights.js";
+import { canonicalJson } from "../shared/canonical-json.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 import { PersistenceOutcomeUnknownError } from "./persistence-error.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
@@ -170,5 +171,5 @@ export class CollectActivityService {
 
 /** Unknown commit recovery succeeds only when read-back proves the exact intended record. */
 function samePersonalActivity(left: PersonalActivityRecord, right: PersonalActivityRecord): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonicalJson(left) === canonicalJson(right);
 }

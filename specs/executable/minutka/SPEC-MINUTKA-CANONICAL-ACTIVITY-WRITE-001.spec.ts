@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CollectActivityService } from "../../../src/application/activity-collection.js";
+import { CollectActivityService, type PersonalActivityRecord } from "../../../src/application/activity-collection.js";
 import {
   createInMemoryActivityCollectionState,
   createInMemoryActivityCollectionStore,
@@ -11,6 +11,21 @@ import { PersistenceOutcomeUnknownError } from "../../../src/application/persist
 const cleanupMigrationPath = "migrations/0060_remove_anonymized_activity_contour.sql";
 const evidenceLinkMigrationPath = "migrations/0061_link_activity_source_message_without_insert_order.sql";
 const splitFacetsMigrationPath = "migrations/0073_split_activity_facets.sql";
+
+function reorderObjectKeys(value: PersonalActivityRecord): PersonalActivityRecord {
+  return reorder(value) as PersonalActivityRecord;
+}
+
+function reorder(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reorder);
+  if (value === null || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .reverse()
+      .map(([key, nestedValue]) => [key, reorder(nestedValue)]),
+  );
+}
 
 describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity record", () => {
   it("writes exactly one canonical activity with subject and source-message links", async () => {
@@ -149,7 +164,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
     expect(partialState.activities).toHaveLength(2);
   });
 
-  it("reconciles a committed activity after an unknown persistence outcome without retrying the write", async () => {
+  it("reconciles a committed routine activity with reordered keys after an unknown persistence outcome", async () => {
     const state = createInMemoryActivityCollectionState();
     let writes = 0;
     const service = new CollectActivityService({
@@ -160,7 +175,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       },
       async getActivityById(activityId) {
         const activity = state.activities.find((candidate) => candidate.activityId === activityId);
-        return activity ? structuredClone(activity) : undefined;
+        return activity ? reorderObjectKeys(activity) : undefined;
       },
     }, { now: () => "2026-08-15T22:17:35.000Z" }, () => "activity_recovered");
 
@@ -172,32 +187,32 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       groupId: "group_a",
       roleId: "role_a",
       timezone: "Europe/Moscow",
-      activities: [{ taskCategory: "reporting", system: "spreadsheets" }],
+      activities: [{
+        taskCategory: "reporting",
+        routineId: "routine_weekly_reports",
+        routineLabel: "Weekly reports",
+        recurrence: "weekly",
+        durationBucket: "1_2h",
+        system: "spreadsheets",
+      }],
     })).resolves.toEqual({ status: "completed", savedCount: 1, activityIds: ["activity_recovered"] });
     expect(writes).toBe(1);
     expect(state.activities).toHaveLength(1);
   });
 
-  it("does not treat a different exact-id record as successful reconciliation", async () => {
+  it("does not treat a different routine label as successful reconciliation", async () => {
     let writes = 0;
+    let writtenActivity: PersonalActivityRecord | undefined;
     const service = new CollectActivityService({
-      async saveActivity() {
+      async saveActivity(activity) {
         writes += 1;
+        writtenActivity = structuredClone(activity);
         throw new PersistenceOutcomeUnknownError();
       },
-      async getActivityById(activityId) {
-        return {
-          activityId,
-          employeeId: "employee_a",
-          subjectKey: "subject_employee_a",
-          sourceMessageId: "message_a",
-          companyId: "company_a",
-          groupId: "group_a",
-          roleId: "role_a",
-          taskCategory: "meetings",
-          activityDate: "2026-08-16",
-          recordedAt: "2026-08-15T22:17:35.000Z",
-        };
+      async getActivityById() {
+        return writtenActivity
+          ? { ...writtenActivity, routineLabel: "Monthly reports" }
+          : undefined;
       },
     }, { now: () => "2026-08-15T22:17:35.000Z" }, () => "activity_conflict");
 
@@ -209,7 +224,7 @@ describe("SPEC-MINUTKA-CANONICAL-ACTIVITY-WRITE-001: one subject-aware activity 
       groupId: "group_a",
       roleId: "role_a",
       timezone: "Europe/Moscow",
-      activity: { taskCategory: "reporting" },
+      activity: { routineId: "routine_weekly_reports", routineLabel: "Weekly reports" },
     })).rejects.toBeInstanceOf(PersistenceOutcomeUnknownError);
     expect(writes).toBe(1);
   });
