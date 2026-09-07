@@ -11,6 +11,7 @@ export const COMPANY_REPORT_CONFIDENCE_POLICY = {
   confirmedSubjects: 3,
   confirmedObservations: 5,
   confirmedDates: 3,
+  clientMinimumObservations: 3,
 } as const;
 
 export type PreflightFinding = {
@@ -24,7 +25,7 @@ export type PreflightFinding = {
 };
 
 type PreflightReport = Pick<InternalCompanyEvidenceReport, "routines" | "buckets" | "coverage"> & {
-  client?: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines" | "coverage">;
+  client?: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines" | "firstSteps" | "deepDive" | "coverage">;
 };
 
 const lintRules: Array<{
@@ -77,6 +78,28 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
   const expectedAssessment = coverageAssessment(report.coverage);
   if (report.client !== undefined && report.client.coverage.assessment !== expectedAssessment) {
     findings.push(makeFinding("policy", undefined, "coverage_assessment", report.client.coverage.assessment, "low"));
+  }
+
+  if (report.client !== undefined) {
+    const clientRoutineObservations = new Map<string, number>();
+    for (const routine of [...report.client.topRoutines, ...report.client.frictionRoutines]) {
+      clientRoutineObservations.set(routine.name, routine.evidenceSummary.observations);
+    }
+    for (const name of [...report.client.firstSteps.map((step) => step.routine), ...report.client.deepDive.map((routine) => routine.name)]) {
+      const internalRoutine = report.routines.find((routine) => routine.name === name);
+      if (internalRoutine !== undefined && !clientRoutineObservations.has(name)) clientRoutineObservations.set(name, internalRoutine.observations);
+    }
+    for (const [name, observations] of clientRoutineObservations) {
+      if (observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations) continue;
+      const internalRoutine = report.routines.find((routine) => routine.name === name);
+      findings.push(makeFinding(
+        "policy",
+        internalRoutine === undefined ? undefined : routineIdentity(internalRoutine),
+        "client_minimum_observations",
+        name,
+        "low",
+      ));
+    }
   }
 
   for (const routine of report.routines.slice(0, 10)) {

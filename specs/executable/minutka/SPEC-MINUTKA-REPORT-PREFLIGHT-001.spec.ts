@@ -4,7 +4,7 @@ import {
   preflightFindingId,
   type PreflightFinding,
 } from "../../../src/application/report-preflight.js";
-import type { InternalRoutine } from "../../../src/application/company-reporting.js";
+import type { ClientCompanyReport, InternalRoutine } from "../../../src/application/company-reporting.js";
 
 const baseRoutine = (overrides: Partial<InternalRoutine> = {}): InternalRoutine => ({
   key: { roleId: "role_sales", routineKey: "подготовка отчётов" },
@@ -98,6 +98,28 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-001: deterministic report boundary prefl
   it("keeps rare-role evidence as a group-level hypothesis", () => {
     const routine = baseRoutine({ contributors: 1, observations: 1, activeDates: 1, confidence: "hypothesis" });
     expect(buildPreflightFindings(report([routine]))).not.toContainEqual(expect.objectContaining({ rule: "rare_role" }));
+  });
+
+  it("flags a client routine below the minimum observation threshold", () => {
+    const routine = baseRoutine({ observations: 2, confidence: "signal" });
+    const client = {
+      topRoutines: [{
+        name: routine.name!,
+        scope: "группа",
+        evidenceSummary: { contributors: 1, observations: 2, activeDates: 2, estimatedHours: 1, unsizedObservations: 0 },
+        systems: [],
+        statedRecurrence: {},
+        confidence: "hypothesis" as const,
+      }],
+      frictionRoutines: [],
+      firstSteps: [],
+      deepDive: [],
+      coverage: { assessment: "usable", contributors: 3, activeDates: 3, observations: 5 } as ClientCompanyReport["coverage"],
+    };
+
+    expect(buildPreflightFindings({ ...report([routine]), client })).toEqual([
+      expect.objectContaining({ rule: "client_minimum_observations", severity: "low", excerpt: routine.name }),
+    ]);
   });
 
   it("uses a stable content-addressed id and changes it when the excerpt changes", () => {

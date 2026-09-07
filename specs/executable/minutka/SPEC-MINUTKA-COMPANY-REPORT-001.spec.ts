@@ -230,8 +230,12 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     };
     const rows = [
       activity({ id: "sales-id", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_report", routineLabel: "Отчёт", recurrence: "weekly", taskCategory: "reporting", routinePattern: "manual_reporting", energyStressMarker: "fatigue" }),
+      activity({ id: "sales-id-2", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_report", routineLabel: "Отчёт", date: "2026-08-16" }),
+      activity({ id: "sales-id-3", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_report", routineLabel: "Отчёт", date: "2026-08-17" }),
       activity({ id: "sales-free", subjectKey: "subject_sales", roleId: "role_sales", routineLabel: "Подготовка, писем", taskCategory: "communication" }),
       activity({ id: "logistics-id", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_report", routineLabel: "Отчёт", taskCategory: "reporting" }),
+      activity({ id: "logistics-id-2", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_report", routineLabel: "Отчёт", date: "2026-08-16" }),
+      activity({ id: "logistics-id-3", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_report", routineLabel: "Отчёт", date: "2026-08-17" }),
       activity({ id: "dangling", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", routineLabel: "Свободная работа", taskCategory: "admin" }),
       activity({ id: "unattributed", subjectKey: "subject_sales", roleId: "role_sales", routineId: "removed", workObject: false, taskCategory: "admin" }),
     ];
@@ -274,6 +278,37 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       expect.objectContaining({ taskCategory: "admin", observations: 1 }),
     ]));
     expect(JSON.stringify(first.internal.routines)).not.toContain("provenance");
+  });
+
+  it("keeps named routines with fewer than three observations internal-only", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "directory-threshold",
+      sections: [{
+        roleId: "role_sales",
+        entries: [{ id: "rare", name: "Редкая рутина", description: "Rare", examples: [], quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_one" }] }],
+      }],
+    };
+    const rows = [
+      activity({ id: "rare-1", subjectKey: "subject_one", routineId: "rare", routineLabel: "Редкая рутина", date: "2026-08-15" }),
+      activity({ id: "rare-2", subjectKey: "subject_one", routineId: "rare", routineLabel: "Редкая рутина", date: "2026-08-16" }),
+    ];
+    const result = await service(participants, rows).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    expect(result.internal.routines).toEqual([expect.objectContaining({ name: "Редкая рутина", observations: 2 })]);
+    expect(result.client.topRoutines).toEqual([]);
+    expect(result.client.frictionRoutines).toEqual([]);
+    expect(result.client.firstSteps).toEqual([]);
+    expect(result.client.deepDive).toEqual([]);
+    expect(result.client.cannotConclude).toContain("Рутины с менее чем тремя наблюдениями за цикл не показаны");
+
+    const enough = await service(participants, [
+      ...rows,
+      activity({ id: "rare-3", subjectKey: "subject_one", routineId: "rare", routineLabel: "Редкая рутина", date: "2026-08-17" }),
+    ]).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    expect(enough.client.topRoutines).toEqual([expect.objectContaining({ name: "Редкая рутина" })]);
+    expect(enough.client.deepDive).toEqual([expect.objectContaining({ name: "Редкая рутина" })]);
   });
 
   it("rejects a directory belonging to another company before building the report", async () => {

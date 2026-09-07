@@ -479,7 +479,10 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     ...(coverage.contributors < 2 ? ["Наблюдения внесены одним contributor; межсубъектная повторяемость не проверена"] : []),
     ...(coverage.activeDates < 3 ? ["Наблюдения покрывают меньше трёх рабочих дат"] : []),
   ];
-  const namedRoutines = internal.routines.filter((routine) => routine.name !== undefined);
+  const namedRoutines = internal.routines.filter((routine) =>
+    routine.name !== undefined
+    && routine.observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations,
+  );
   const topRoutines = namedRoutines.slice(0, 10).map((routine) => toClientRoutine(routine, internal));
   const frictionRoutines = namedRoutines
     .filter((routine) => routine.frictionSignals.count + routine.energySignals.count > 0)
@@ -504,6 +507,9 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
   const unsizedShare = coverage.observations === 0 ? 0 : Math.round((coverage.unsizedObservations / coverage.observations) * 100);
   const cannotConclude = [
     ...(coverage.unsizedObservations > 0 ? [`Точные часы: ${unsizedShare} % наблюдений без длительности; часы — порядок величины по самоотчётам`] : []),
+    ...(internal.routines.some((routine) => routine.name !== undefined && routine.observations < COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations)
+      ? ["Рутины с менее чем тремя наблюдениями за цикл не показаны"]
+      : []),
     "Эффект и prerequisites быстрых улучшений требуют обследования процесса (второй этап)",
     ...limitations.map((limitation) => `Ограничение покрытия: ${limitation}`),
   ];

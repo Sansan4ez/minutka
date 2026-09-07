@@ -179,7 +179,7 @@ Markdown summary помогает методологу читать пакет, 
 
 ### 3.1. JSON DTO
 
-Client DTO использует внешние labels и агрегированные evidence summaries. В нём нет поля, через которое можно получить внутреннюю запись участника, raw label или raw evidence. Структура v2 по [RFC инвентаря рутин §2.8](../architecture/rfc-routine-inventory-and-quick-wins.md): семь разделов, quick win из закрытого каталога, deep-dive как мост ко второму этапу.
+Client DTO использует внешние labels и агрегированные evidence summaries. В нём нет поля, через которое можно получить внутреннюю запись участника, raw label или raw evidence. Структура v2 по [RFC инвентаря рутин §2.8](../architecture/rfc-routine-inventory-and-quick-wins.md): семь разделов, quick win из закрытого каталога, deep-dive как мост ко второму этапу. В `topRoutines`, `frictionRoutines`, `firstSteps` и `deepDive` попадают только именованные рутины минимум с тремя наблюдениями за цикл; однократные и двукратные записи сохраняются только во внутреннем справочнике/DTO.
 
 ```json
 {
