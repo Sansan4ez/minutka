@@ -12,7 +12,7 @@ Yes. Level 0 local repair. The original evidence and every revision remain in re
 
 - exact opaque `handle` and positive `expectedRevision` returned by the bounded read;
 - `mode`: `patch` changes supplied facets only; `replace` clears omitted facets and replaces the closed facet set;
-- `correction`: closed facets only; set duration via a current-message `durationRef`; `mode=replace` may omit it to clear duration. No free text/identity.
+- `correction`: closed facets only (`taskCategory`, `routinePattern`, `automationCandidate`, `energyStressMarker`, `routineId`, `routineLabel`, `recurrence`, `durationRef`, `system`); set duration via a current-message `durationRef`; `mode=replace` may omit any facet to clear it. No free text/identity.
 
 Employee, company, group, and the correction source message are bound by the application.
 

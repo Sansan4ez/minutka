@@ -101,13 +101,15 @@ export function createPostgresActivityMutationStore(pool: Pool): ActivityMutatio
           const result = await client.query<ActivityRow>(
             `UPDATE minutka_private.activities activity SET
                task_category=$1, routine_pattern=$2, automation_candidate=$3, energy_stress_marker=$4,
-               duration_bucket=$5, system=$6, revision=$7, last_correction_message_id=$8, updated_at=$9
-             WHERE activity.activity_id=$10 AND activity.employee_id=$11 AND activity.company_id=$12 AND activity.group_id=$13
-               AND activity.recorded_at >= $14::timestamptz AND activity.recorded_at <= $15::timestamptz
-               AND activity.status='active' AND activity.revision=$16
+               duration_bucket=$5, system=$6, routine_id=$7, routine_label=$8, recurrence=$9,
+               revision=$10, last_correction_message_id=$11, updated_at=$12
+             WHERE activity.activity_id=$13 AND activity.employee_id=$14 AND activity.company_id=$15 AND activity.group_id=$16
+               AND activity.recorded_at >= $17::timestamptz AND activity.recorded_at <= $18::timestamptz
+               AND activity.status='active' AND activity.revision=$19
              RETURNING ${activityReturning}`,
             [corrected.taskCategory ?? null, corrected.routinePattern ?? null, corrected.automationCandidate ?? null,
               corrected.energyStressMarker ?? null, corrected.durationBucket ?? null, corrected.system ?? null,
+              corrected.routineId ?? null, corrected.routineLabel ?? null, corrected.recurrence ?? null,
               revision, command.sourceMessageId, command.changedAt, command.handle, command.employeeId,
               command.companyId, command.groupId, command.recordedAfter, command.recordedBefore, command.expectedRevision],
           );
@@ -413,9 +415,18 @@ function applyCommandFacets(target: PersonalActivityRecord, command: ActivityCor
   if (command.routinePattern !== undefined) target.routinePattern = command.routinePattern;
   if (command.automationCandidate !== undefined) target.automationCandidate = command.automationCandidate;
   if (command.energyStressMarker !== undefined) target.energyStressMarker = command.energyStressMarker;
-  if (command.routineId !== undefined) target.routineId = command.routineId;
-  if (command.routineLabel !== undefined) target.routineLabel = command.routineLabel;
-  if (command.recurrence !== undefined) target.recurrence = command.recurrence;
+  if (command.routineId !== undefined) {
+    if (command.routineId === null) delete target.routineId;
+    else target.routineId = command.routineId;
+  }
+  if (command.routineLabel !== undefined) {
+    if (command.routineLabel === null) delete target.routineLabel;
+    else target.routineLabel = command.routineLabel;
+  }
+  if (command.recurrence !== undefined) {
+    if (command.recurrence === null) delete target.recurrence;
+    else target.recurrence = command.recurrence;
+  }
   if (command.durationBucket !== undefined) target.durationBucket = command.durationBucket;
   if (command.system !== undefined) target.system = command.system;
 }

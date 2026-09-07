@@ -108,6 +108,23 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
     expect(state.activities.find(({ activityId }) => activityId === "activity_duplicate")?.revisions).toHaveLength(2);
   });
 
+  it("patches routine fields, explicitly clears routine identity, and records both revision states", async () => {
+    const { state, corrections } = service([activity({ routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly" })]);
+
+    await expect(corrections.correct({ ...scope, sourceMessageId: "message_routine_correction" }, {
+      handle: "activity_a", expectedRevision: 1, mode: "patch",
+      correction: { routineId: null, routineLabel: "Monthly reports", recurrence: "monthly" },
+    })).resolves.toEqual({ status: "completed", handle: "activity_a", revision: 2 });
+
+    expect(state.activities[0]).toMatchObject({ routineLabel: "Monthly reports", recurrence: "monthly", revision: 2 });
+    expect(state.activities[0]).not.toHaveProperty("routineId");
+    expect(state.activities[0]?.revisions).toEqual([
+      expect.objectContaining({ revision: 1, operation: "created", routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly" }),
+      expect.objectContaining({ revision: 2, operation: "corrected", routineLabel: "Monthly reports", recurrence: "monthly" }),
+    ]);
+    expect(state.activities[0]?.revisions?.[1]).not.toHaveProperty("routineId");
+  });
+
   it("patches a named obstacle on one canonical row, retains initial evidence, and replays idempotently", async () => {
     const { state, corrections } = service([activity()]);
     const command = { handle: "activity_a", expectedRevision: 1, mode: "patch" as const, correction: { routinePattern: "waiting_for_input" as const } };
@@ -180,8 +197,8 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
 
   it("supersedes a confirmed duplicate idempotently while current reads and reports exclude it", async () => {
     const { state, corrections } = service([
-      activity({ activityId: "activity_keep", recordedAt: "2026-08-24T09:00:00.000Z" }),
-      activity({ activityId: "activity_duplicate", recordedAt: "2026-08-24T10:00:00.000Z" }),
+      activity({ activityId: "activity_keep", routineId: "routine_keep", routineLabel: "Keep reports", recurrence: "weekly", recordedAt: "2026-08-24T09:00:00.000Z" }),
+      activity({ activityId: "activity_duplicate", routineId: "routine_duplicate", routineLabel: "Duplicate reports", recurrence: "weekly", recordedAt: "2026-08-24T10:00:00.000Z" }),
     ]);
     const input = { handle: "activity_duplicate", expectedRevision: 1, replacementHandle: "activity_keep", replacementExpectedRevision: 1 };
     await corrections.supersede({ ...scope, sourceMessageId: "message_duplicate_confirmed" }, input);
@@ -190,7 +207,13 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
     expect(state.activities).toHaveLength(2);
     expect(state.activities.find(({ activityId }) => activityId === "activity_duplicate")).toMatchObject({
       status: "superseded", supersededByActivityId: "activity_keep", revision: 2,
-      lastCorrectionMessageId: "message_duplicate_confirmed",
+      lastCorrectionMessageId: "message_duplicate_confirmed", routineId: "routine_duplicate", routineLabel: "Duplicate reports", recurrence: "weekly",
+    });
+    expect(state.activities.find(({ activityId }) => activityId === "activity_duplicate")?.revisions?.[1]).toMatchObject({
+      operation: "superseded", routineId: "routine_duplicate", routineLabel: "Duplicate reports", recurrence: "weekly",
+    });
+    expect(state.activities.find(({ activityId }) => activityId === "activity_keep")).toMatchObject({
+      routineId: "routine_keep", routineLabel: "Keep reports", recurrence: "weekly",
     });
     const recent = new RecentOwnActivitiesService(createInMemoryRecentOwnActivityReadStore(state), { now: () => now });
     await expect(recent.read(scope)).resolves.toEqual({ activities: [expect.objectContaining({ handle: "activity_keep" })] });
@@ -237,7 +260,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
 
     await expect(tool.execute?.({
       handle: "activity_a", expectedRevision: 1, mode: "patch",
-      correction: { durationRef: "duration_1" },
+      correction: { durationRef: "duration_1" } as never,
     }, {} as never)).resolves.toEqual({ status: "completed", handle: "activity_a", revision: 2 });
     expect(calls).toEqual([{
       handle: "activity_a", expectedRevision: 1, mode: "patch",
@@ -249,7 +272,7 @@ describe("SPEC-MINUTKA-ACTIVITY-CORRECTION-001: revisioned local activity repair
       return { status: "completed", handle: input.handle, revision: input.expectedRevision + 1 };
     }, new RequestDurationEvidence([]));
     await clearing.execute?.({
-      handle: "activity_a", expectedRevision: 2, mode: "replace", correction: { taskCategory: "meetings" },
+      handle: "activity_a", expectedRevision: 2, mode: "replace", correction: { taskCategory: "meetings" } as never,
     }, {} as never);
     expect(calls.at(-1)).toEqual({
       handle: "activity_a", expectedRevision: 2, mode: "replace", correction: { taskCategory: "meetings" },

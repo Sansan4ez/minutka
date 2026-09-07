@@ -52,6 +52,7 @@ function source() {
         activityId: "activity-a", subjectKey: "subject-a", companyId, groupId, roleId: "role-a",
         taskCategory: "reporting" as const, routinePattern: "context_switching" as const,
         automationCandidate: "data_entry_reduction" as const, energyStressMarker: "frustration" as const,
+        routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly" as const,
         activityDate: "2026-08-18", recordedAt: now,
       }] : [];
     },
@@ -89,6 +90,7 @@ describe("SPEC-MINUTKA-RESEARCH-CORPUS-001: scoped evidence export and evaluatio
     expect(json.corpus.activities).toEqual([expect.objectContaining({
       activityId: "activity-a", routinePattern: "context_switching",
       automationCandidate: "data_entry_reduction", energyStressMarker: "frustration",
+      routineId: "routine_weekly_report", routineLabel: "Weekly reports", recurrence: "weekly",
     })]);
     expect((await service.export({ companyId: "company-a", groupId: "group-a", format: "jsonl" })).content).toContain('"recordType":"evaluation_case"');
     expect((await service.export({ companyId: "company-a", groupId: "group-a", format: "markdown" })).content).toContain("Messages missing trace: 1");

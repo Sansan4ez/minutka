@@ -15,7 +15,11 @@ type ActivityRow = {
   automation_candidate: PersonalActivityRecord["automationCandidate"] | null;
   energy_stress_marker: PersonalActivityRecord["energyStressMarker"] | null;
   duration_bucket: PersonalActivityRecord["durationBucket"] | null;
-  system: PersonalActivityRecord["system"] | null; activity_date: string; recorded_at: Date;
+  system: PersonalActivityRecord["system"] | null;
+  routine_id: PersonalActivityRecord["routineId"] | null;
+  routine_label: PersonalActivityRecord["routineLabel"] | null;
+  recurrence: PersonalActivityRecord["recurrence"] | null;
+  activity_date: string; recorded_at: Date;
   revision: number; status: ActivityStatus; superseded_by_activity_id: string | null;
   last_correction_message_id: string | null; updated_at: Date; revisions: ActivityRevisionRecord[];
 };
@@ -65,7 +69,8 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
           `SELECT activity.activity_id, activity.subject_key, activity.source_message_id, activity.company_id,
                   activity.group_id, activity.role_id, activity.task_category, activity.routine_pattern,
                   activity.automation_candidate, activity.energy_stress_marker, activity.duration_bucket,
-                  activity.system, activity.activity_date::text AS activity_date, activity.recorded_at,
+                  activity.system, activity.routine_id, activity.routine_label, activity.recurrence,
+                  activity.activity_date::text AS activity_date, activity.recorded_at,
                   activity.revision, activity.status, activity.superseded_by_activity_id,
                   activity.last_correction_message_id, activity.updated_at,
                   COALESCE((SELECT json_agg(json_strip_nulls(json_build_object(
@@ -73,7 +78,8 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
                     'sourceMessageId', history.source_message_id, 'taskCategory', history.task_category,
                     'routinePattern', history.routine_pattern, 'automationCandidate', history.automation_candidate,
                     'energyStressMarker', history.energy_stress_marker, 'durationBucket', history.duration_bucket,
-                    'system', history.system, 'status', history.status,
+                    'system', history.system, 'routineId', history.routine_id, 'routineLabel', history.routine_label,
+                    'recurrence', history.recurrence, 'status', history.status,
                     'supersededByActivityId', history.superseded_by_activity_id,
                     'changedAt', ${canonicalActivityRevisionChangedAtSql})) ORDER BY history.revision)
                     FROM minutka_private.activity_revisions history
@@ -92,7 +98,11 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
           ...(row.automation_candidate ? { automationCandidate: row.automation_candidate } : {}),
           ...(row.energy_stress_marker ? { energyStressMarker: row.energy_stress_marker } : {}),
           ...(row.duration_bucket ? { durationBucket: row.duration_bucket } : {}),
-          ...(row.system ? { system: row.system } : {}), activityDate: row.activity_date, recordedAt: row.recorded_at.toISOString(),
+          ...(row.system ? { system: row.system } : {}),
+          ...(row.routine_id ? { routineId: row.routine_id } : {}),
+          ...(row.routine_label ? { routineLabel: row.routine_label } : {}),
+          ...(row.recurrence ? { recurrence: row.recurrence } : {}),
+          activityDate: row.activity_date, recordedAt: row.recorded_at.toISOString(),
           revision: row.revision, status: row.status,
           ...(row.superseded_by_activity_id ? { supersededByActivityId: row.superseded_by_activity_id } : {}),
           ...(row.last_correction_message_id ? { lastCorrectionMessageId: row.last_correction_message_id } : {}),

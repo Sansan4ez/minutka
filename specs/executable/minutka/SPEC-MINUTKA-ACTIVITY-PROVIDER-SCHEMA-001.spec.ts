@@ -135,6 +135,9 @@ describe("SPEC-MINUTKA-ACTIVITY-PROVIDER-SCHEMA-001: provider request boundary",
       "automationCandidate",
       "energyStressMarker",
       "system",
+      "routineId",
+      "routineLabel",
+      "recurrence",
       "durationRef",
     ]);
     expectNullableEnum(properties?.taskCategory, taskCategories);
@@ -159,6 +162,9 @@ describe("SPEC-MINUTKA-ACTIVITY-PROVIDER-SCHEMA-001: provider request boundary",
       automationCandidate: null,
       energyStressMarker: null,
       system: null,
+      routineId: null,
+      routineLabel: null,
+      recurrence: null,
       durationRef: null,
     };
     expect(validateSchema(activityTool!.inputSchema!, { activities: [nullablePayload] })).toBe(true);
@@ -208,6 +214,9 @@ describe("SPEC-MINUTKA-ACTIVITY-PROVIDER-SCHEMA-001: provider request boundary",
       automationCandidate: null,
       energyStressMarker: null,
       system: null,
+      routineId: null,
+      routineLabel: null,
+      recurrence: null,
     };
     expect(validateSchema(collectionSchema!, { activities: [nullableFacets] })).toBe(true);
     expect(validateSchema(correctionSchema!, {

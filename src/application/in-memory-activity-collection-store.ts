@@ -76,6 +76,9 @@ export function createInMemoryOwnActivityReadStore(
           ...(activity.routinePattern === undefined ? {} : { routinePattern: activity.routinePattern }),
           ...(activity.automationCandidate === undefined ? {} : { automationCandidate: activity.automationCandidate }),
           ...(activity.energyStressMarker === undefined ? {} : { energyStressMarker: activity.energyStressMarker }),
+          ...(activity.routineId === undefined ? {} : { routineId: activity.routineId }),
+          ...(activity.routineLabel === undefined ? {} : { routineLabel: activity.routineLabel }),
+          ...(activity.recurrence === undefined ? {} : { recurrence: activity.recurrence }),
           ...(activity.durationBucket === undefined ? {} : { durationBucket: activity.durationBucket }),
           ...(activity.system === undefined ? {} : { system: activity.system }),
           activityDate: activity.activityDate,
@@ -200,18 +203,32 @@ function revisionSnapshot(
 
 function correctedFacets(activity: PersonalActivityRecord, command: ActivityCorrectionCommand): PersonalActivityRecord {
   const base = command.mode === "patch" ? activity : clearFacets(activity);
-  return {
+  const corrected = {
     ...base,
     ...(command.taskCategory === undefined ? {} : { taskCategory: command.taskCategory }),
     ...(command.routinePattern === undefined ? {} : { routinePattern: command.routinePattern }),
     ...(command.automationCandidate === undefined ? {} : { automationCandidate: command.automationCandidate }),
     ...(command.energyStressMarker === undefined ? {} : { energyStressMarker: command.energyStressMarker }),
-    ...(command.routineId === undefined ? {} : { routineId: command.routineId }),
-    ...(command.routineLabel === undefined ? {} : { routineLabel: command.routineLabel }),
-    ...(command.recurrence === undefined ? {} : { recurrence: command.recurrence }),
     ...(command.durationBucket === undefined ? {} : { durationBucket: command.durationBucket }),
     ...(command.system === undefined ? {} : { system: command.system }),
   };
+  applyNullableRoutineFacets(corrected, command);
+  return corrected;
+}
+
+function applyNullableRoutineFacets(target: PersonalActivityRecord, command: ActivityCorrectionCommand): void {
+  if (command.routineId !== undefined) {
+    if (command.routineId === null) delete target.routineId;
+    else target.routineId = command.routineId;
+  }
+  if (command.routineLabel !== undefined) {
+    if (command.routineLabel === null) delete target.routineLabel;
+    else target.routineLabel = command.routineLabel;
+  }
+  if (command.recurrence !== undefined) {
+    if (command.recurrence === null) delete target.recurrence;
+    else target.recurrence = command.recurrence;
+  }
 }
 
 function clearFacets(activity: PersonalActivityRecord): PersonalActivityRecord {

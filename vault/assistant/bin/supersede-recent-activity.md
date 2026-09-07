@@ -21,4 +21,4 @@ Use only after explicit duplicate/replacement confirmation and an unambiguous pa
 
 ## Result
 
-The duplicate remains in research export with `superseded` status, link to the replacement, and revision history, but weekly/cycle summaries and company report count only active rows. Repeating the exact request from the same source message is idempotent.
+The duplicate remains in research export with `superseded` status, link to the replacement, and revision history (including its routine fields), but weekly/cycle summaries and company report count only active rows. Repeating the exact request from the same source message is idempotent; the replacement retains its routine fields unchanged.

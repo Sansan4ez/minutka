@@ -11,9 +11,19 @@ export type DurationEvidenceCandidate = {
   sourceOrder: number;
 };
 
-export type ProviderActivityInput = Omit<CollectActivityInput, "durationBucket"> & { durationRef?: string };
+export type ProviderActivityInput = Omit<CollectActivityInput, "durationBucket" | "routineId" | "routineLabel" | "recurrence"> & {
+  routineId?: string | null;
+  routineLabel?: string | null;
+  recurrence?: CollectActivityInput["recurrence"] | null;
+  durationRef?: string;
+};
 export type ProviderCollectActivitiesInput = { activities: ProviderActivityInput[] };
-export type ProviderActivityCorrection = Omit<CorrectRecentActivityInput["correction"], "durationBucket"> & { durationRef?: string };
+export type ProviderActivityCorrection = Omit<CorrectRecentActivityInput["correction"], "durationBucket" | "routineId" | "routineLabel" | "recurrence"> & {
+  routineId?: string | null;
+  routineLabel?: string | null;
+  recurrence?: CorrectRecentActivityInput["correction"]["recurrence"] | null;
+  durationRef?: string;
+};
 export type ProviderCorrectRecentActivityInput = Omit<CorrectRecentActivityInput, "correction"> & { correction: ProviderActivityCorrection };
 
 const integerDurationPattern = /(?<![\p{L}\p{N}])(?<amount>\d+(?:[.,]\d+)?)[\s\u00a0\u202f-]*(?<unit>минут(?:а|ы|ную|ный|ное)?|мин|час(?:а|ов|овой|овая|овое)?|ч|minutes?|mins?|hours?|hrs?)(?![\p{L}\p{N}])/giu;
@@ -98,9 +108,18 @@ export function createProviderActivitySchemas(candidates: readonly DurationEvide
     energyStressMarker: ReturnType<typeof providerNullable<typeof canonicalShape.energyStressMarker>>;
     system: ReturnType<typeof providerNullable<typeof canonicalShape.system>>;
   };
+  const correctionProviderShape = {
+    ...providerShape,
+    routineId: providerNullable(activityCollectionItemSchema.shape.routineId.unwrap()).optional(),
+    routineLabel: providerNullable(activityCollectionItemSchema.shape.routineLabel.unwrap()).optional(),
+    recurrence: providerNullable(activityCollectionItemSchema.shape.recurrence.unwrap()).optional(),
+  };
   const shapeWithDuration = candidates.length === 0
     ? providerShape
     : { ...providerShape, durationRef: requestDurationRefSchema(candidates) };
+  const correctionShapeWithDuration = candidates.length === 0
+    ? correctionProviderShape
+    : { ...correctionProviderShape, durationRef: requestDurationRefSchema(candidates) };
   type TransportShape = {
     taskCategory: z.ZodOptional<typeof shapeWithDuration.taskCategory>;
     routinePattern: z.ZodOptional<typeof shapeWithDuration.routinePattern>;
@@ -112,7 +131,7 @@ export function createProviderActivitySchemas(candidates: readonly DurationEvide
   const transportShape = shapeWithDuration as unknown as TransportShape;
   return {
     collectionItem: z.strictObject(transportShape),
-    correctionPatch: z.strictObject(transportShape),
+    correctionPatch: z.strictObject(correctionShapeWithDuration),
   };
 }
 
@@ -155,7 +174,7 @@ export class RequestDurationEvidence {
       input: {
         ...input,
         correction: {
-          ...withoutNullValues(providerCorrection),
+          ...withoutNullValuesForCorrection(providerCorrection),
           ...(durationRef === undefined ? {} : { durationBucket: this.byRef.get(durationRef)!.bucket }),
         },
       },
@@ -260,4 +279,12 @@ function withoutNullValues<T extends Record<string, unknown>>(input: T): {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null)) as {
     [Key in keyof T]?: Exclude<T[Key], null>;
   };
+}
+
+function withoutNullValuesForCorrection<T extends Record<string, unknown>>(input: T): T {
+  const result = { ...withoutNullValues(input) } as Record<string, unknown>;
+  for (const key of ["routineId", "routineLabel", "recurrence"] as const) {
+    if (input[key] === null) result[key] = null;
+  }
+  return result as T;
 }

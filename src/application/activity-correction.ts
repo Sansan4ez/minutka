@@ -32,6 +32,9 @@ export type ActivityRevisionRecord = {
 
 export const activityCorrectionPatchSchema = z.strictObject({
   ...activityCollectionItemSchema.shape,
+  routineId: activityCollectionItemSchema.shape.routineId.nullable().optional(),
+  routineLabel: activityCollectionItemSchema.shape.routineLabel.nullable().optional(),
+  recurrence: activityCollectionItemSchema.shape.recurrence.nullable().optional(),
 });
 
 export const correctRecentActivityInputSchema = z.strictObject({

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { collectActivitiesMaximumItems } from "../contracts/minutka-activity.js";
+import { activityRecurrenceValues, collectActivitiesMaximumItems } from "../contracts/minutka-activity.js";
 import {
   activityDurationBuckets,
   activitySystems,
@@ -44,6 +44,9 @@ export const activityTransactionPatchSchema = z.strictObject({
   automationCandidate: z.enum(automationCandidateTypes).optional(),
   energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
   system: z.enum(activitySystems).optional(),
+  routineId: z.string().trim().min(1).max(64).nullable().optional(),
+  routineLabel: z.string().trim().min(3).max(80).nullable().optional(),
+  recurrence: z.enum(activityRecurrenceValues).nullable().optional(),
   durationRef: z.string().trim().min(1).max(64).optional(),
 });
 export type ActivityTransactionPatch = z.infer<typeof activityTransactionPatchSchema>;
@@ -132,6 +135,15 @@ const nullablePatchBase = {
     .nullable(),
   system: z.enum(activitySystems)
     .describe("Generic system or channel explicitly named or unambiguously typed in the current employee message. null when unstated. paper_or_verbal requires explicit paper or verbal evidence; other requires an explicit known outside-taxonomy system type.")
+    .nullable(),
+  routineId: z.string().trim().min(1).max(64)
+    .describe("Routine directory id explicitly supported by the current employee message or existing activity correction evidence. null when unstated or when no directory entry applies.")
+    .nullable(),
+  routineLabel: z.string().trim().min(3).max(80)
+    .describe("Routine label explicitly supported by the current employee message or correction evidence, containing only the work object and action. null when unstated.")
+    .nullable(),
+  recurrence: z.enum(activityRecurrenceValues)
+    .describe("Recurrence explicitly stated by the current employee message or correction evidence. null when unstated.")
     .nullable(),
 };
 
@@ -297,7 +309,7 @@ export function normalizeActivityTransactionTransport(
         handle: input.handle,
         expectedRevision: input.expectedRevision,
         mode: input.correctionMode,
-        correction: withoutNullFacets(input.correction),
+        correction: withoutNullCorrectionFacets(input.correction),
       };
       break;
     case "supersede":
@@ -363,4 +375,9 @@ function providerFailureUsage(error: unknown): ModelTokenUsage | undefined {
 
 function withoutNullFacets(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null));
+}
+
+function withoutNullCorrectionFacets(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== null
+    || key === "routineId" || key === "routineLabel" || key === "recurrence"));
 }

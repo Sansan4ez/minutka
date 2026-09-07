@@ -30,6 +30,9 @@ const nullPatch = {
   automationCandidate: null,
   energyStressMarker: null,
   system: null,
+  routineId: null,
+  routineLabel: null,
+  recurrence: null,
   durationRef: null,
 } as const;
 
@@ -80,7 +83,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
       { success: true, decision: { kind: "none", reason: "no_factual_activity" } },
       { success: true, decision: { kind: "needs_clarification", reason: "activity_status_ambiguous" } },
       { success: true, decision: { kind: "collect", activities: [{ taskCategory: "meetings" }] } },
-      { success: true, decision: { kind: "correct", handle: "activity_1", expectedRevision: 2, mode: "patch", correction: { routinePattern: "waiting_for_input" } } },
+      { success: true, decision: { kind: "correct", handle: "activity_1", expectedRevision: 2, mode: "patch", correction: { routinePattern: "waiting_for_input", routineId: null, routineLabel: null, recurrence: null } } },
       { success: true, decision: { kind: "supersede", handle: "activity_duplicate", expectedRevision: 1, replacementHandle: "activity_keep", replacementExpectedRevision: 3 } },
     ]);
     expect(normalizeActivityTransactionTransport(transport({
