@@ -10,6 +10,10 @@ import {
   type RoutineDirectorySectionProvider,
 } from "../application/routine-directory.js";
 
+function routineDirectoryEntryCount(directory: RoutineDirectory): number {
+  return directory.sections.reduce((count, section) => count + section.entries.length, 0);
+}
+
 export class RoutineDirectoryProviderStartupError extends Error {
   readonly name = "RoutineDirectoryProviderStartupError";
 
@@ -57,7 +61,9 @@ export function loadRoutineDirectoryProvider(
       throw new RoutineDirectoryProviderStartupError("directory_schema_invalid", companyId, error);
     }
     try {
-      directories.set(companyId, loadRoutineDirectory(json, { expectedCompanyId: companyId, tombstoneIds: new Set(tombstones) }));
+      const loadedDirectory = loadRoutineDirectory(json, { expectedCompanyId: companyId, tombstoneIds: new Set(tombstones) });
+      directories.set(companyId, loadedDirectory);
+      options.warn?.(`routine directory loaded: ${JSON.stringify(companyId)}, version ${JSON.stringify(loadedDirectory.version)}, entries ${routineDirectoryEntryCount(loadedDirectory)}`);
     } catch (error) {
       if (error instanceof RoutineDirectoryError) {
         throw new RoutineDirectoryProviderStartupError(error.code, companyId, error);

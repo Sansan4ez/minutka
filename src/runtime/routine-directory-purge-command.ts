@@ -51,6 +51,7 @@ export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (te
     filesDeleted: plan.filesToDelete.length,
     survivingVersion: plan.survivingVersion !== undefined ? 1 : 0,
     tombstones: nextTombstones.length,
+    runtimeRestartRequired: plan.filesToDelete.length > 0,
   })}\n`);
 }
 

@@ -30,8 +30,10 @@ async function fixtureDirectory(files: Array<[string, RoutineDirectory]>): Promi
   return directory;
 }
 
-async function runSubjectPurge(directory: string, subjectKey = "subject_a", group = "group_a", dryRun = false): Promise<void> {
-  await runRoutineDirectoryPurge({ company: "company_a", group, subjectKey, dir: directory, ...(dryRun ? { dryRun: true } : {}) }, () => undefined);
+async function runSubjectPurge(directory: string, subjectKey = "subject_a", group = "group_a", dryRun = false): Promise<string> {
+  let output = "";
+  await runRoutineDirectoryPurge({ company: "company_a", group, subjectKey, dir: directory, ...(dryRun ? { dryRun: true } : {}) }, (text) => { output += text; });
+  return output;
 }
 
 describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", () => {
@@ -39,7 +41,8 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     const directory = await fixtureDirectory([
       ["routine-directory.company_a.1.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
     ]);
-    await runSubjectPurge(directory);
+    const output = await runSubjectPurge(directory);
+    expect(JSON.parse(output)).toMatchObject({ runtimeRestartRequired: true });
     expect(await readdir(directory)).toEqual(["routine-directory.company_a.tombstones.json"]);
     expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).toEqual({ ids: ["a"] });
   });
@@ -143,10 +146,19 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
       ],
     ]);
     const before = await readdir(directory);
-    await runSubjectPurge(directory, "subject_a", "group_a", true);
+    const output = await runSubjectPurge(directory, "subject_a", "group_a", true);
+    expect(JSON.parse(output)).toMatchObject({ runtimeRestartRequired: true });
     expect(await readdir(directory)).toEqual(before);
     await writeFile(join(directory, "routine-directory.company_a.tombstones.json"), "[\"a\"]\n", "utf8");
     expect(() => loadRoutineDirectoryProviderFromDirectory(directory)).toThrowError(expect.objectContaining({ code: "directory_reused_id" }));
+  });
+
+  it("reports that no runtime restart is needed when the purge plan is empty", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.1.json", base("1", [entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }])])],
+    ]);
+    const output = await runSubjectPurge(directory);
+    expect(JSON.parse(output)).toMatchObject({ affectedEntries: 0, filesDeleted: 0, runtimeRestartRequired: false });
   });
 
   it("stores tombstones as ids only and accepts restoration with a new id", async () => {

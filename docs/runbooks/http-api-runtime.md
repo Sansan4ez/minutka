@@ -14,6 +14,8 @@ ROUTINE_DIRECTORY_DIR=/srv/minutka/operator/routine-directories
 
 Если `ROUTINE_DIRECTORY_DIR` не задан, каталог не существует или для компании нет файла, runtime запускается без секции справочника. Activity transaction сохраняет свободный `routineLabel` без `routineId`, а отчёт всё равно строит coverage и time budget; имена рутин в client DTO появляются только после передачи проверенного справочника команде отчёта. Отсутствие файла не является основанием для создания каталога или записи в corpus. Проверку и предложение остатка выполняйте командами [`routine-directory validate`](company-report-export.md#1-проверить-справочник) и [`routine-directory suggest`](company-report-export.md#3-предложить-записи-для-остатка).
 
+Файлы справочника читаются один раз при старте runtime и затем используются из памяти. После purge или замены версии файла нужен обязательный рестарт (`systemctl restart <unit>`). В логе старта проверьте строку `routine directory loaded`, содержащую компанию, версию и число записей; имена записей в неё не попадают.
+
 Справочник и tombstones содержат операторские данные и не должны попадать в репозиторий, corpus, traces, model prompt или client artifact без предусмотренной редактуры.
 
 
