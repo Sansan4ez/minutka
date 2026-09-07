@@ -30,6 +30,7 @@ Scope задаётся точно: либо `--company <company_id>`, либо `
 1. Зафиксируйте операторский тикет с точным scope и основанием, без raw corpus и без списка subject keys.
 2. Загрузите production-переменные PostgreSQL и MinIO.
 3. Не запускайте команду параллельно с обработкой сообщений сотрудников этого scope.
+4. Для subject purge дополнительно сохраните точную пару `(groupId, subjectKey)` и выполните purge справочника рутин после canonical purge, но до пересчёта отчёта (см. ниже).
 
 ## Выполнение
 
@@ -57,6 +58,21 @@ PURGE GROUP <company_id>/<group_id>
 Любой другой ввод завершает команду с `confirmation did not match; nothing was purged` и ничего не удаляет. Пустой scope (нет ни одного participant) завершается с `research_scope_not_found`.
 
 После успеха команда печатает JSON: `scope`, счётчики удалённых записей, `minioObjectVersions` и явный перечень сохранённого.
+
+## Справочник рутин
+
+Справочник — производный артефакт корпуса, поэтому после успешного canonical purge и до пересчёта отчёта очистите его тем же scope. Subject scope требует обеих частей пары `(groupId, subjectKey)`; group scope использует только `groupId`; company scope удаляет все версии компании:
+
+```bash
+npm run routine-directory -- purge \
+  --company <company_id> --group <group_id> --subject-key <subject_key> \
+  --dir <versions_dir> --dry-run
+npm run routine-directory -- purge \
+  --company <company_id> --group <group_id> --subject-key <subject_key> \
+  --dir <versions_dir>
+```
+
+Команда выводит только счётчики. При subject/group purge записи, чья provenance пересекает scope, удаляются целиком вместе со всеми содержащими их версиями; незатронутый остаток записывается в новую версию. Удалённые id попадают в `routine-directory.<company_id>.tombstones.json` без текста и не могут быть переиспользованы. `--dry-run` ничего не меняет. После этого повторно соберите отчёт с очищенным справочником: dangling `routineId` обрабатывается read model рутин, а canonical activities других участников не удаляются.
 
 ## Проверка
 

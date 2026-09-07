@@ -52,6 +52,7 @@ export type RoutineDirectoryErrorCode =
   | "directory_duplicate_id"
   | "directory_unknown_quick_win"
   | "directory_provenance_missing"
+  | "directory_reused_id"
   | "directory_schema_invalid";
 
 export class RoutineDirectoryError extends Error {
@@ -86,9 +87,19 @@ const routineDirectoryStructureSchema = z.strictObject({
 
 type RoutineDirectoryStructure = z.infer<typeof routineDirectoryStructureSchema>;
 
+export type RoutineDirectoryTombstoneIds = ReadonlySet<string>;
+
+export function loadRoutineDirectoryTombstones(json: unknown): string[] {
+  const ids = isRecord(json) && Array.isArray(json.ids) ? json.ids : json;
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || id.trim() === "")) {
+    throw new RoutineDirectoryError("directory_schema_invalid", "routine directory tombstones are invalid");
+  }
+  return [...new Set(ids.map((id) => id.trim()))].sort();
+}
+
 export function loadRoutineDirectory(
   json: unknown,
-  options: { expectedCompanyId: string },
+  options: { expectedCompanyId: string; tombstoneIds?: RoutineDirectoryTombstoneIds },
 ): RoutineDirectory {
   if (isRecord(json) && (!Object.hasOwn(json, "version") || (typeof json.version === "string" && json.version.trim() === ""))) {
     throw new RoutineDirectoryError("directory_version_missing", "routine directory version is required");
@@ -108,6 +119,9 @@ export function loadRoutineDirectory(
 
   for (const section of structure.data.sections) {
     for (const entry of section.entries) {
+      if (options.tombstoneIds?.has(entry.id)) {
+        throw new RoutineDirectoryError("directory_reused_id", `routine directory reuses tombstoned id ${JSON.stringify(entry.id)}`);
+      }
       if (!entry.provenance || entry.provenance.length === 0) {
         throw new RoutineDirectoryError("directory_provenance_missing", `routine directory entry ${JSON.stringify(entry.id)} has no provenance`);
       }

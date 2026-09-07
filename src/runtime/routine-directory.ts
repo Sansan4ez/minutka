@@ -7,6 +7,7 @@ import {
   loadRoutineDirectory,
   routineDirectoryCounts,
 } from "../application/routine-directory.js";
+import { runRoutineDirectoryPurge } from "./routine-directory-purge-command.js";
 import { RoutineDirectorySuggestService } from "../application/routine-directory-suggest.js";
 import { suggestRoutineDirectoryWithAgent } from "../mastra/routine-directory-suggester.js";
 import { ResearchEvidenceReadService } from "../application/research-evidence-read.js";
@@ -40,6 +41,21 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
         if (!(error instanceof RoutineDirectoryError)) throw error;
         write(`${JSON.stringify({ ok: false, code: error.code, message: error.message }, null, 2)}\n`);
       }
+    });
+  program.command("purge")
+    .requiredOption("--company <companyId>")
+    .option("--group <groupId>")
+    .option("--subject-key <subjectKey>")
+    .requiredOption("--dir <versionsDir>")
+    .option("--dry-run")
+    .action(async (options: { company: string; group?: string; subjectKey?: string; dir: string; dryRun?: boolean }) => {
+      await runRoutineDirectoryPurge({
+        company: options.company,
+        ...(options.group === undefined ? {} : { group: options.group }),
+        ...(options.subjectKey === undefined ? {} : { subjectKey: options.subjectKey }),
+        dir: options.dir,
+        dryRun: options.dryRun,
+      }, write);
     });
   program.command("suggest")
     .requiredOption("--company <companyId>")
