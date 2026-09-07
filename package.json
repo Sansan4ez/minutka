@@ -18,6 +18,7 @@
     "research:corpus": "tsx src/runtime/research-corpus.ts",
     "research:scope:purge": "tsx src/runtime/purge-research-scope.ts",
     "tenant:seed": "tsx src/runtime/seed-tenant-reference-directories.ts",
+    "routine-directory": "tsx src/runtime/routine-directory.ts",
     "process:run": "tsx src/runtime/run-scheduled-process.ts",
     "cycle:final-reports": "tsx src/runtime/arm-final-reports.ts",
     "pilot:status": "tsx src/runtime/pilot-status.ts",
