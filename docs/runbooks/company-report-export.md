@@ -18,6 +18,18 @@
 
 Все промежуточные файлы держите в операторском каталоге, не добавляйте их в репозиторий и не передавайте компании.
 
+На production-хосте используйте установленные обёртки от имени `minutka`, загружая тот же `EnvironmentFile`, что и runtime. Не копируйте секреты в shell history:
+
+```bash
+sudo -u minutka bash -c \
+  'set -a; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-company-report "$@"' \
+  company-report build --company company_acme --group group_acme_2026_09 \
+  --directory /srv/minutka/operator/routine-directories/routine-directory.company_acme.json \
+  --out /srv/minutka/operator/reports/company-report.draft.json
+```
+
+Для `validate`/`suggest` аналогично используйте `minutka-routine-directory`; output-файлы остаются в `/srv/minutka/operator/reports/` с режимом `0600` и владельцем `minutka`.
+
 ### 1. Проверить справочник
 
 ```bash

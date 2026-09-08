@@ -395,6 +395,35 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(JSON.stringify(first.internal.routines)).not.toContain("provenance");
   });
 
+  it("does not flag an exposed routine when a same-named routine in another role is below the client threshold", async () => {
+    const participants = [
+      participant("sales", "company_a", "group_a", "role_sales"),
+      participant("logistics", "company_a", "group_a", "role_logistics"),
+    ];
+    const directory = {
+      schemaVersion: "minutka-routine-directory/v1",
+      companyId: "company_a",
+      version: "2",
+      sections: [
+        { roleId: "role_sales", entries: [{ id: "sales_analysis", name: "Анализ договоров", description: "Sales", examples: [], workCategory: "documents_contracts" as const, quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
+        { roleId: "role_logistics", entries: [{ id: "logistics_analysis", name: "Анализ договоров", description: "Logistics", examples: [], workCategory: "documents_contracts" as const, quickWin: "deep_dive" as const, provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
+      ],
+    };
+    const rows = [
+      activity({ id: "sales-1", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_analysis", routineLabel: "Анализ договоров", date: "2026-08-15" }),
+      activity({ id: "sales-2", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_analysis", routineLabel: "Анализ договоров", date: "2026-08-16" }),
+      activity({ id: "sales-3", subjectKey: "subject_sales", roleId: "role_sales", routineId: "sales_analysis", routineLabel: "Анализ договоров", date: "2026-08-17" }),
+      activity({ id: "logistics-1", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_analysis", routineLabel: "Анализ договоров", date: "2026-08-15" }),
+      activity({ id: "logistics-2", subjectKey: "subject_logistics", roleId: "role_logistics", routineId: "logistics_analysis", routineLabel: "Анализ договоров", date: "2026-08-16" }),
+    ];
+
+    const result = await service(participants, rows).buildReport({ companyId: "company_a", groupId: "group_a", directory });
+    expect(result.client.topRoutines).toEqual([expect.objectContaining({ name: "Анализ договоров", evidenceSummary: expect.objectContaining({ observations: 3 }) })]);
+    expect(result.internal.preflightFindings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: "client_minimum_observations" }),
+    ]));
+  });
+
   it("keeps named routines with fewer than three observations internal-only", async () => {
     const participants = [participant("one", "company_a", "group_a", "role_sales")];
     const directory = {

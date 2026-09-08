@@ -54,6 +54,15 @@ buildNpmPackage {
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-pilot-status" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/runtime/pilot-status.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-routine-directory" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/runtime/routine-directory.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-company-report" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/runtime/company-report.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-process-run" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/runtime/run-scheduled-process.ts"
 
     runHook postInstall
   '';

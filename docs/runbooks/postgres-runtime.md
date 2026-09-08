@@ -160,7 +160,13 @@ uncommitted and never expose or reuse its codes.
 The migrator uses a PostgreSQL advisory lock, immutable ordered SQL files, and
 SHA-256 checksums in `minutka_meta.schema_migrations`. Startup checks both DB
 connectivity and that no migrations are pending; it fails before Telegram
-polling starts on failure.
+polling starts on failure. One explicit compatibility exception exists for
+migration `0074`: dev may contain the original checksum
+`9caf17a70a9f008e1a57195dcb986d82a4eb3d7e9062b11586a76914359e4ee0`, while
+production applied the corrected pre-deploy bytes. Both histories converge via
+`0076`; the migrator accepts that exact old checksum without rewriting the
+ledger. Any other checksum mismatch remains fatal, and all later schema changes
+must use a new migration file.
 
 Backup policy and retention periods require explicit pilot approval. Until then,
 use only approved limited pilot data. `minutka_private.consents` is the current

@@ -110,22 +110,22 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
       ));
     }
 
-    const clientRoutineObservations = new Map<string, number>();
-    for (const routine of [...report.client.topRoutines, ...report.client.frictionRoutines]) {
-      clientRoutineObservations.set(routine.name, routine.evidenceSummary.observations);
-    }
-    for (const name of [...report.client.firstSteps.map((step) => step.routine), ...report.client.deepDive.map((routine) => routine.name)]) {
-      const internalRoutine = report.routines.find((routine) => routine.name === name);
-      if (internalRoutine !== undefined && !clientRoutineObservations.has(name)) clientRoutineObservations.set(name, internalRoutine.observations);
-    }
-    for (const [name, observations] of clientRoutineObservations) {
-      if (observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations) continue;
-      const internalRoutine = report.routines.find((routine) => routine.name === name);
+    const exposedRoutines = uniqueClientRoutines([
+      ...report.client.topRoutines,
+      ...report.client.frictionRoutines,
+    ]);
+    for (const clientRoutine of exposedRoutines) {
+      if (clientRoutine.evidenceSummary.observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations) continue;
+      const internalRoutine = report.routines.find((routine) =>
+        routine.name === clientRoutine.name
+        && routine.observations === clientRoutine.evidenceSummary.observations
+        && routine.contributors === clientRoutine.evidenceSummary.contributors
+        && routine.activeDates === clientRoutine.evidenceSummary.activeDates);
       findings.push(makeFinding(
         "policy",
         internalRoutine === undefined ? undefined : routineIdentity(internalRoutine),
         "client_minimum_observations",
-        name,
+        clientRoutine.name,
         "low",
       ));
     }
@@ -157,6 +157,15 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
     || left.rule.localeCompare(right.rule)
     || left.excerpt.localeCompare(right.excerpt),
   );
+}
+
+type ClientRoutineEvidence = Pick<ClientCompanyReport["topRoutines"][number], "name" | "scope" | "evidenceSummary">;
+
+function uniqueClientRoutines(routines: ClientRoutineEvidence[]): ClientRoutineEvidence[] {
+  return [...new Map(routines.map((routine) => [
+    JSON.stringify([routine.name, routine.scope, routine.evidenceSummary]),
+    routine,
+  ])).values()];
 }
 
 export function hashClientReport(client: ClientCompanyReport): string {

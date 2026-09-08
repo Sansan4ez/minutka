@@ -17,6 +17,7 @@ let
     MINIO_PORT = "9000";
     MINIO_USE_SSL = "false";
     MINIO_BUCKET = "minutka";
+    ROUTINE_DIRECTORY_DIR = "/srv/minutka/operator/routine-directories";
 
     ASSISTANT_USAGE_MONTHLY_SOFT_LIMIT_USD = "30";
     ASSISTANT_USAGE_INPUT_USD_PER_MILLION_TOKENS = "5";
@@ -44,6 +45,12 @@ in
       assertion = minutkaSecrets ? environmentFile;
       message = "minutka-secrets.nix must provide the minutka EnvironmentFile.";
     }
+  ];
+
+  systemd.tmpfiles.rules = [
+    "d /srv/minutka/operator 0750 root minutka -"
+    "d /srv/minutka/operator/routine-directories 0750 minutka minutka -"
+    "d /srv/minutka/operator/reports 0750 minutka minutka -"
   ];
 
   systemd.services.minutka = {
