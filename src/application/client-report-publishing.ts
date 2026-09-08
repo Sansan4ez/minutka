@@ -39,10 +39,11 @@ export class ClientReportPublishingService {
     decision: PreflightFindingDecision;
     directory?: unknown;
     findings?: ReportPreflightFindingsFile;
+    recordedBefore?: string;
   }): Promise<{ ok: true }> {
     const scope = normalizeScope(input);
     const findingId = required(input.findingId, "findingId");
-    const report = await this.reporting.buildReport({ companyId: scope.companyId, groupId: scope.groupId, directory: input.directory });
+    const report = await this.reporting.buildReport({ companyId: scope.companyId, groupId: scope.groupId, directory: input.directory, ...(input.recordedBefore === undefined ? {} : { recordedBefore: input.recordedBefore }) });
     const findings = input.findings === undefined ? undefined : reportPreflightFindingsFileSchema.safeParse(input.findings);
     const reportVersion = hashClientReport(report.client);
     const knownFinding = report.internal.preflightFindings.some((finding) => finding.id === findingId)
@@ -70,12 +71,14 @@ export class ClientReportPublishingService {
     groupId: string;
     directory?: unknown;
     findings: ReportPreflightFindingsFile;
+    recordedBefore?: string;
   }): Promise<ClientReportPublishResult> {
     const scope = normalizeScope(input);
     const report = await this.reporting.buildReport({
       companyId: scope.companyId,
       groupId: scope.groupId,
       directory: input.directory,
+      ...(input.recordedBefore === undefined ? {} : { recordedBefore: input.recordedBefore }),
     });
     const reportVersion = hashClientReport(report.client);
     const occurredAt = this.clock.now();

@@ -211,7 +211,7 @@ export class CompanyReportingService {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  async buildReport(input: { companyId: string; groupId: string; directory?: unknown }): Promise<CompanyReportResult> {
+  async buildReport(input: { companyId: string; groupId: string; directory?: unknown; recordedBefore?: string }): Promise<CompanyReportResult> {
     const companyId = input.companyId.trim();
     const groupId = input.groupId.trim();
     if (!companyId) throw new Error("companyId is required");
@@ -223,14 +223,25 @@ export class CompanyReportingService {
     const snapshot = await this.store.loadGroupSnapshot({ companyId, groupId });
     assertExactScope(companyId, groupId, snapshot);
     const subjectKeys = new Set(snapshot.subjects.map((subject) => subject.subjectKey));
-    const activities = snapshot.activities.filter((activity) => subjectKeys.has(activity.subjectKey));
+    const recordedBefore = input.recordedBefore === undefined ? undefined : validInstant(input.recordedBefore, "recordedBefore");
+    const activities = snapshot.activities.filter((activity) =>
+      subjectKeys.has(activity.subjectKey)
+      && (snapshot.reference === undefined
+        || (activity.activityDate >= snapshot.reference.period.start && activity.activityDate <= snapshot.reference.period.end))
+      && (recordedBefore === undefined || activity.recordedAt <= recordedBefore));
     const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory, snapshot.reference);
     return { internal, client: buildClientReport(internal) };
   }
 
-  async exportGroup(input: { companyId: string; groupId: string; directory?: unknown }): Promise<CompanyReportResult> {
+  async exportGroup(input: { companyId: string; groupId: string; directory?: unknown; recordedBefore?: string }): Promise<CompanyReportResult> {
     return this.buildReport(input);
   }
+}
+
+function validInstant(value: string, field: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) throw new Error(`${field} must be a valid timestamp`);
+  return parsed.toISOString();
 }
 
 function buildInternalReport(

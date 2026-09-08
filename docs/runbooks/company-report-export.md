@@ -64,6 +64,14 @@ npm run company-report -- build \
   --out ./operator/company-report.draft.json
 ```
 
+По умолчанию отчёт включает только activities, чья `activityDate` входит в inclusive период группы. Для точного воспроизведения immutable corpus export дополнительно передайте его `manifest.exportedAt`:
+
+```bash
+  --recorded-before 2026-09-04T10:15:59.635Z
+```
+
+Тот же cutoff обязан использоваться во всех последующих `build`, `preflight-llm`, `resolve-finding` и `publish`, иначе hash findings-файла станет stale или отчёт незаметно включит более поздние записи.
+
 Справочник читается этой in-process командой рядом с базой и не передаётся через HTTP. HTTP `GET /v1/admin/companies/:id/report` предназначен только для отчёта без справочника (coverage, time budget и ограничения).
 
 Команда возвращает два DTO:
@@ -105,6 +113,7 @@ npm run company-report -- build \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
+  --recorded-before 2026-09-04T10:15:59.635Z \
   --out ./operator/company-report.v2.json
 
 jq '.internal.preflightFindings' ./operator/company-report.v2.json

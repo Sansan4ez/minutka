@@ -29,6 +29,7 @@ function activity(input: {
   routineId?: string;
   routineLabel?: string;
   recurrence?: PersonalActivityRecord["recurrence"];
+  recordedAt?: string;
 }): PersonalActivityRecord {
   return {
     activityId: input.id,
@@ -49,7 +50,7 @@ function activity(input: {
     ...(input.recurrence === undefined ? {} : { recurrence: input.recurrence }),
     durationBucket: "30_60m",
     activityDate: input.date ?? "2026-08-15",
-    recordedAt: `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
+    recordedAt: input.recordedAt ?? `${input.date ?? "2026-08-15"}T10:00:00.000Z`,
   };
 }
 
@@ -453,6 +454,28 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     ]).buildReport({ companyId: "company_a", groupId: "group_a", directory });
     expect(enough.client.topRoutines).toEqual([expect.objectContaining({ name: "Редкая рутина" })]);
     expect(enough.client.deepDive).toEqual([expect.objectContaining({ name: "Редкая рутина" })]);
+  });
+
+  it("limits the report to the group period and an optional frozen recorded-at cutoff", async () => {
+    const participants = [participant("one", "company_a", "group_a", "role_sales")];
+    const activities = createInMemoryActivityCollectionState();
+    activities.activities.push(
+      activity({ id: "before-period", subjectKey: "subject_one", date: "2026-07-31", recordedAt: "2026-07-31T12:00:00.000Z" }),
+      activity({ id: "included", subjectKey: "subject_one", date: "2026-08-15", recordedAt: "2026-08-15T12:00:00.000Z" }),
+      activity({ id: "after-cutoff", subjectKey: "subject_one", date: "2026-08-15", recordedAt: "2026-08-15T13:00:00.000Z" }),
+      activity({ id: "after-period", subjectKey: "subject_one", date: "2026-09-01", recordedAt: "2026-09-01T12:00:00.000Z" }),
+    );
+    const reporting = new CompanyReportingService(createInMemoryCompanyReportStore({
+      participants,
+      activities,
+      reference: { companyLabel: "Company A", groupLabel: "Group A", period: { start: "2026-08-01", end: "2026-08-31" }, roleLabels: {} },
+    }));
+
+    const live = await reporting.buildReport({ companyId: "company_a", groupId: "group_a" });
+    expect(live.internal.coverage.observations).toBe(2);
+    const frozen = await reporting.buildReport({ companyId: "company_a", groupId: "group_a", recordedBefore: "2026-08-15T12:30:00.000Z" });
+    expect(frozen.internal.coverage.observations).toBe(1);
+    await expect(reporting.buildReport({ companyId: "company_a", groupId: "group_a", recordedBefore: "not-a-date" })).rejects.toThrow("recordedBefore must be a valid timestamp");
   });
 
   it("rejects a directory belonging to another company before building the report", async () => {
