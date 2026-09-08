@@ -60,6 +60,9 @@ buildNpmPackage {
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-company-report" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/runtime/company-report.ts"
+    makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-routine-assignment-replay" \
+      --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
+      --add-flags "$appDir/src/runtime/replay-routine-assignments.ts"
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/minutka-process-run" \
       --add-flags "$appDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$appDir/src/runtime/run-scheduled-process.ts"

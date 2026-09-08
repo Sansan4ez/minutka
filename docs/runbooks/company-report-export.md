@@ -42,7 +42,19 @@ npm run routine-directory -- validate \
 
 В выводе `sections` записывайте в операторские notes счётчики `roleId`, `entries` и `characters` для каждой роли. Секция роли ограничена 40 записями и 12 000 Unicode code points в её extractor-проекции. `directory_section_over_budget` означает, что хотя бы одна секция превышает один из лимитов; runtime отключит только такие секции, но для операторского цикла справочник надо сократить и повторить `validate`. В отчёт можно передавать только справочник, который вернул `ok: true`.
 
-### 2. Собрать первый отчёт
+### 2. При необходимости восстановить reviewed assignments исторического корпуса
+
+Миграция `0078` намеренно не делает semantic backfill. Для activities, собранных до подключения справочника, подготовьте вне git review-pack `minutka-routine-assignment-replay/v1`: exact `activityId`, `roleId`, проверенные `routineId` и `routineLabel`, scope и provenance запуска. Применяйте только методологически проверенные назначения:
+
+```bash
+sudo -u minutka bash -c \
+  'set -a; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-routine-assignment-replay "$@"' \
+  routine-replay --file /srv/minutka/operator/reports/reviewed-routine-assignments.json
+```
+
+Команда атомарно обновляет только exact active rows указанной company/group/role, увеличивает revision и пишет `corrected` в `activity_revisions`. Повтор того же pack идемпотентен; отсутствующая, уже иначе исправленная или cross-scope строка откатывает весь pack. Свободные и неатрибутированные activities не включайте: они честно остаются в `other`.
+
+### 3. Собрать первый отчёт
 
 ```bash
 npm run company-report -- build \
@@ -68,7 +80,7 @@ jq '{schemaVersion: .internal.schemaVersion, directoryVersion: .internal.directo
   ./operator/company-report.draft.json
 ```
 
-### 3. Предложить записи для остатка
+### 4. Предложить записи для остатка
 
 После первого отчёта запустите предложение записей только для свободных labels текущего цикла:
 
@@ -82,7 +94,7 @@ npm run routine-directory -- suggest \
 
 `routine-directory suggest` не изменяет справочник. Он возвращает review-pack с предложениями `attach`, `create` и `free` и опорными фразами. Методолог проверяет предложения, добавляет принятые записи или назначения в операторский JSON, увеличивает `version` на единицу и снова выполняет `validate`. `leave_free` остаётся свободным и не получает клиентского имени.
 
-### 4. Повторно собрать отчёт и проверить preflight
+### 5. Повторно собрать отчёт и проверить preflight
 
 ```bash
 npm run routine-directory -- validate \
@@ -112,7 +124,7 @@ npm run company-report -- preflight-llm \
 
 Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и сохраняет envelope `minutka-report-preflight-findings/v1` с `scope`, `reportVersion` (sha256 текущего client DTO) и детерминированным lint вместе с результатом модели. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
 
-### 5. Решить high-находки
+### 6. Решить high-находки
 
 Методолог читает объединённые `internal.preflightFindings` и `preflight-findings.json`. High-находка не означает автоматическое удаление текста: методолог либо подтверждает безопасный результат, либо исправляет справочник и пересобирает отчёт.
 
@@ -128,7 +140,7 @@ npm run company-report -- resolve-finding \
 
 Для исправленной записи используйте `--decision fixed`. Замечание методолога храните в `methodologistNote` соответствующей записи справочника. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
 
-### 6. Опубликовать client DTO
+### 7. Опубликовать client DTO
 
 ```bash
 npm run company-report -- publish \

@@ -19,6 +19,7 @@
     "research:scope:purge": "tsx src/runtime/purge-research-scope.ts",
     "tenant:seed": "tsx src/runtime/seed-tenant-reference-directories.ts",
     "routine-directory": "tsx src/runtime/routine-directory.ts",
+    "routine-assignments:replay": "tsx src/runtime/replay-routine-assignments.ts",
     "company-report": "tsx src/runtime/company-report.ts",
     "process:run": "tsx src/runtime/run-scheduled-process.ts",
     "cycle:final-reports": "tsx src/runtime/arm-final-reports.ts",
