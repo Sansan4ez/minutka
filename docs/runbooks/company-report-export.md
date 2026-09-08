@@ -21,8 +21,10 @@
 На production-хосте используйте установленные обёртки от имени `minutka`, загружая тот же `EnvironmentFile`, что и runtime. Не копируйте секреты в shell history:
 
 ```bash
-sudo -u minutka bash -c \
-  'set -a; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-company-report "$@"' \
+sudo systemctl show minutka.service -p Environment --value \
+  | tr ' ' '\n' \
+  | sudo -u minutka bash -c \
+    'set -a; while IFS= read -r item; do export "$item"; done; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-company-report "$@"' \
   company-report build --company company_acme --group group_acme_2026_09 \
   --directory /srv/minutka/operator/routine-directories/routine-directory.company_acme.json \
   --out /srv/minutka/operator/reports/company-report.draft.json
@@ -47,8 +49,10 @@ npm run routine-directory -- validate \
 Миграция `0078` намеренно не делает semantic backfill. Для activities, собранных до подключения справочника, подготовьте вне git review-pack `minutka-routine-assignment-replay/v1`: exact `activityId`, `roleId`, проверенные `routineId` и `routineLabel`, scope и provenance запуска. Применяйте только методологически проверенные назначения:
 
 ```bash
-sudo -u minutka bash -c \
-  'set -a; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-routine-assignment-replay "$@"' \
+sudo systemctl show minutka.service -p Environment --value \
+  | tr ' ' '\n' \
+  | sudo -u minutka bash -c \
+    'set -a; while IFS= read -r item; do export "$item"; done; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-routine-assignment-replay "$@"' \
   routine-replay --file /srv/minutka/operator/reports/reviewed-routine-assignments.json
 ```
 

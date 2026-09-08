@@ -30,7 +30,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
     const findings = await new ReportPreflightLlmService(generatorReturning({
       results: [
         { routineKey: routines[0]!.routineKey, verdict: "flag", reason: "Указывает на редкое сочетание роли и территории." },
-        { routineKey: routines[1]!.routineKey, verdict: "ok" },
+        { routineKey: routines[1]!.routineKey, verdict: "ok", reason: "" },
       ],
     }, prompts)).check({ routines: input });
 
@@ -53,7 +53,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
 
   it("returns no findings when every routine is safe", async () => {
     const findings = await new ReportPreflightLlmService(generatorReturning({
-      results: routines.map(({ routineKey }) => ({ routineKey, verdict: "ok" as const })),
+      results: routines.map(({ routineKey }) => ({ routineKey, verdict: "ok" as const, reason: "" })),
     }, [])).check({ routines });
     expect(findings).toEqual([]);
   });
@@ -90,7 +90,7 @@ describe("SPEC-MINUTKA-REPORT-PREFLIGHT-LLM-001: semantic report boundary prefli
         reporting: { async buildReport() { return report as never; } },
         checkLlm: generatorReturning({ results: [
           { routineKey: routines[0]!.routineKey, verdict: "flag", reason: "Редкое сочетание." },
-          { routineKey: routines[1]!.routineKey, verdict: "ok" },
+          { routineKey: routines[1]!.routineKey, verdict: "ok", reason: "" },
         ] }, []),
       }, (text) => writes.push(text));
       expect(JSON.parse(writes[0] ?? "{}")).toEqual(expect.objectContaining({

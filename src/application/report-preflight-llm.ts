@@ -8,10 +8,18 @@ export type ReportPreflightLlmRoutine = {
   variants: string[];
 };
 
-const reportPreflightLlmDecisionSchema = z.discriminatedUnion("verdict", [
-  z.strictObject({ routineKey: z.string().trim().min(1), verdict: z.literal("ok") }),
-  z.strictObject({ routineKey: z.string().trim().min(1), verdict: z.literal("flag"), reason: z.string().trim().min(1).max(500) }),
-]);
+const reportPreflightLlmDecisionSchema = z.strictObject({
+  routineKey: z.string().trim().min(1),
+  verdict: z.enum(["ok", "flag"]),
+  reason: z.string().trim().max(500),
+}).superRefine((result, context) => {
+  if (result.verdict === "flag" && result.reason.length === 0) {
+    context.addIssue({ code: "custom", path: ["reason"], message: "flag requires a reason" });
+  }
+  if (result.verdict === "ok" && result.reason.length !== 0) {
+    context.addIssue({ code: "custom", path: ["reason"], message: "ok requires an empty reason" });
+  }
+});
 
 export const reportPreflightLlmResponseSchema = z.strictObject({
   results: z.array(reportPreflightLlmDecisionSchema),
@@ -62,7 +70,7 @@ export class ReportPreflightLlmService {
 
     const names = new Map(routines.map((routine) => [routine.routineKey, routine.name]));
     return parsed.data.results
-      .filter((result): result is Extract<ReportPreflightLlmResponse["results"][number], { verdict: "flag" }> => result.verdict === "flag")
+      .filter((result) => result.verdict === "flag")
       .map((result) => createPreflightFinding(
         "routine.name",
         result.routineKey,
