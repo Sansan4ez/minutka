@@ -356,6 +356,7 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(process).toContain("corpus signal");
     expect(process).toContain("Quick-win assignments live in the operator file");
     expect(process).toContain("invent no routine, hour, or quick win");
+    expect(process).toContain("Do not expose legacy `taskCategories` or generic `other` facets as types of work");
     expect(process).not.toContain("two or three concrete simplification steps");
     expect(process).toContain("invite them to send it as a separate message after the report");
     expect(process).toContain("The report stays personal");
