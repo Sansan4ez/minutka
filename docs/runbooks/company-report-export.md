@@ -106,6 +106,52 @@ npm run routine-directory -- suggest \
 
 `routine-directory suggest` не изменяет справочник. Он возвращает review-pack с предложениями `attach`, `create` и `free` и опорными фразами. Методолог проверяет предложения, добавляет принятые записи или назначения в операторский JSON, увеличивает `version` на единицу и снова выполняет `validate`. `leave_free` остаётся свободным и не получает клиентского имени.
 
+#### Выпустить новую company-scoped версию справочника
+
+Справочник общий для компании, а не для одной группы: активный файл `routine-directory.<companyId>.json` используется extractor-ом новых сообщений всех групп этой компании и report-командами, которым передан этот путь. Поэтому предложения одного цикла нельзя принимать автоматически. Методолог сначала проверяет каждое изменение в scope исходной роли и компании:
+
+- `attach` означает, что свободная формулировка действительно называет уже существующую рутину; activity assignment выполняется отдельно через reviewed typed replay/correction, а не изменением одного справочника;
+- `create` добавляет новую запись со стабильным новым `id`, предметным `workCategory`, `quickWin` или `deep_dive`, примерами и provenance; новый `id` не должен дублировать или повторно использовать tombstoned id;
+- `free` остаётся без назначения, если evidence неоднозначно;
+- переименование существующей записи сохраняет её `id`; удалённый id заносится в `routine-directory.<companyId>.tombstones.json` и больше не используется;
+- `version` увеличивается ровно на единицу относительно активной версии. Валидатор проверяет формат версии, но сравнение с активным файлом остаётся операторской проверкой.
+
+На production храните immutable versioned copy и отдельный active-файл. Пример выпуска версии `3` поверх активной версии `2`:
+
+```bash
+export COMPANY_ID=company_acme
+export NEXT_VERSION=3
+export DIRECTORY_DIR=/srv/minutka/operator/routine-directories
+export VERSIONED="$DIRECTORY_DIR/routine-directory.$COMPANY_ID.$NEXT_VERSION.json"
+export ACTIVE="$DIRECTORY_DIR/routine-directory.$COMPANY_ID.json"
+
+# Новый reviewed JSON сначала передаётся в домашний каталог оператора,
+# затем устанавливается как immutable versioned copy с production permissions.
+sudo install -o minutka -g minutka -m 0600 \
+  /home/admin/routine-directory.$COMPANY_ID.$NEXT_VERSION.json \
+  "$VERSIONED"
+
+sudo systemctl show minutka.service -p Environment --value \
+  | tr ' ' '\n' \
+  | sudo -u minutka bash -c \
+    'set -a; while IFS= read -r item; do export "$item"; done; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-routine-directory "$@"' \
+  routine-directory validate --company "$COMPANY_ID" --file "$VERSIONED"
+
+# Активировать только после ok:true. install создаёт файл рядом, mv атомарно
+# заменяет active path; работающий runtime продолжает старую in-memory версию
+# до контролируемого restart.
+sudo install -o minutka -g minutka -m 0600 \
+  "$VERSIONED" "$DIRECTORY_DIR/.routine-directory.$COMPANY_ID.next"
+sudo mv -f "$DIRECTORY_DIR/.routine-directory.$COMPANY_ID.next" "$ACTIVE"
+sudo systemctl restart minutka.service
+sudo journalctl -u minutka.service -n 100 --no-pager \
+  | grep 'routine directory loaded'
+```
+
+После рестарта журнал должен показать ожидаемые `companyId`, `version`, число entries и `disabled sections 0`. Затем заново выполните `build → preflight-llm → resolve-finding → publish`: изменение имени, категории или quick-win назначения меняет client DTO и делает прежний findings envelope устаревшим.
+
+Versioned copy предыдущей версии не удаляйте: она нужна для rollback и воспроизводимости старого цикла. Для rollback так же атомарно установите прежний versioned-файл в active path и перезапустите runtime. Уже опубликованный client artifact при этом не переписывается. Если старый отчёт нужно пересобрать побайтно совместимо, передавайте использованную тогда versioned copy и тот же `--recorded-before`, а не текущий active-файл.
+
 ### 5. Повторно собрать отчёт и проверить preflight
 
 ```bash
