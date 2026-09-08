@@ -47,6 +47,8 @@ in
     }
   ];
 
+  environment.systemPackages = [ minutkaPackage ];
+
   systemd.tmpfiles.rules = [
     "d /srv/minutka/operator 0750 root minutka -"
     "d /srv/minutka/operator/routine-directories 0750 minutka minutka -"
