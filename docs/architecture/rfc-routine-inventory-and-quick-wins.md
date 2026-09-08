@@ -306,7 +306,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 | Четыре оси confidence | Не вводим; одна действующая policy |
 | Research-таблицы `process_episodes`, `business_process_*` | Не вводим |
 | Progressive enrichment / process interview / приоритет вопросов | Не вводим; диалог без изменений |
-| Historical backfill `research-corpus-export/v2 → episodes` | Не вводим; `routineLabel` для уже собранных активностей при необходимости проставляет методолог вручную через correction |
+| Historical backfill `research-corpus-export/v2 → episodes` | Не вводим semantic backfill. Для activities, собранных до подключения справочника, `routineId`/`routineLabel` проставляются reviewed batch replay: пакет готовится вне git, проверяется методологом, применяется атомарно и сверяется со справочником названной версии (решение §8.18); единичные правки — через correction |
 
 ## 4. Влияние
 
@@ -317,7 +317,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 - [Родительский RFC](./rfc-minutka-research-corpus-and-reporting.md) §2.10: purge subject/group/company распространяется на справочник рутин и его версии (§2.4).
 - Extractor: misfit `mnt-ddpe` (ответ только про длительность → `repair`, не новая activity) закрыт в серии спайков; prompt version `minutka-activity-transaction/v2`.
 - [Runbook выгрузки отчёта](../runbooks/company-report-export.md): `routine-directory suggest`, in-process `company-report build` с `--directory`, чтение `preflightFindings`, проверка остатка и отчёта; HTTP отдаёт только отчёт без справочника; [end-of-cycle](../runbooks/end-of-cycle.md): личный отчёт называет рутины.
-- Код: `src/contracts/minutka-activity.ts`, `src/application/activity-collection.ts` + correction/revisions, extractor prompt/transport schema, миграция `activities`, `company-reporting.ts` (v2 DTO, routines, time budget, preflight lint), `routine-directory.ts` (справочник: схема, загрузка секции роли в extractor, LLM-предложения по остатку, typed CLI), `quick-wins.ts`, `weekly-/cycle-activity-summary.ts`, манифесты `evening_reflection`/`weekly_summary`/`final_report` и общее activity rule в `vault/assistant/AGENTS.md`, research export (label в activities), executable/persistence specs.
+- Код: `src/contracts/minutka-activity.ts`, `src/application/activity-collection.ts` + correction/revisions, extractor prompt/transport schema, миграция `activities`, `company-reporting.ts` (v2 DTO, routines, time budget, preflight lint), `routine-directory.ts` (справочник: схема, загрузка секции роли в extractor, LLM-предложения по остатку, typed CLI), `routine-assignment-replay.ts` (reviewed replay, §8.18), `quick-wins.ts`, `weekly-/cycle-activity-summary.ts`, манифесты `evening_reflection`/`weekly_summary`/`final_report` и общее activity rule в `vault/assistant/AGENTS.md`, research export (label в activities), executable/persistence specs.
 - Исполняемый план — эпик `mnt-xa71` в `br`; его документационный порядок исполнения закреплён в [runbook выгрузки отчёта](../runbooks/company-report-export.md). RFC задачи реализации не создаёт.
 
 ## 5. Trade-offs
@@ -359,7 +359,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 - **Ложное срабатывание preflight lint.** Находка помечается методологом как проверенная в операторском контуре; текст не меняется, после отметки publish разрешён.
 - **High finding без решения.** Команда публикации отказывает с причиной `unresolved_high_findings`; client DTO остаётся собранным, решение методолога по каждой находке фиксируется в audit (§8.11).
 - **Назначения quick win нет** (нет файла, строка отсутствует или `deep_dive`). Рутина уходит в «Для углублённого обследования»; confidence и evidence не меняются.
-- **Correction/purge.** Report path перечитывает canonical activities на каждом запуске (как сейчас); в БД derived state отсутствует. Purge subject/group удаляет целиком записи справочника с пересекающимся provenance и содержащие их версии/копии, сохраняя незатронутый остаток в очищенной версии; company purge удаляет весь справочник компании. Оставшиеся activities с отсутствующим `routineId` деградируют в свободную рутину при наличии label либо internal unattributed observation без него, по §2.4. Восстановление — только из оставшегося canonical corpus с новым id и проверкой методолога; старые версии и удалённые id не используются. Затем отчёт пересчитывается.
+- **Correction/purge.** Report path перечитывает canonical activities на каждом запуске (как сейчас); в БД derived state отсутствует. Reviewed replay (§8.18) пишет только в активные activities без `routineId`/`routineLabel` и добавляет revision; пакет с неизвестной версией справочника или неизвестным `routineId` отклоняется целиком до записи; повторный запуск идемпотентен. Purge subject/group удаляет целиком записи справочника с пересекающимся provenance и содержащие их версии/копии, сохраняя незатронутый остаток в очищенной версии; company purge удаляет весь справочник компании. Оставшиеся activities с отсутствующим `routineId` деградируют в свободную рутину при наличии label либо internal unattributed observation без него, по §2.4. Восстановление — только из оставшегося canonical corpus с новым id и проверкой методолога; старые версии и удалённые id не используются. Затем отчёт пересчитывается.
 - **Мало данных.** Действующие пороги `sufficientData` и `insufficient` coverage; рутины не называются паттерном при `< 2` повторов.
 
 ## 7. Не-цели и когда пересмотреть
@@ -435,6 +435,10 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 Решение владельца по scope роли и защите карточки (2026-09-07, `mnt-xa71.36`):
 
 17. Если `roleId` рутины есть в справочнике ролей компании, роль всегда является её client scope независимо от числа contributors в роли и рутине. Для рутины одного contributor ≈часы остаются как порядок величины по самоотчёту, `frictionSignals` остаются как факты о работе, а `energySignals` как состояние человека не показываются; confidence не меняется. Для каждой роли с одним contributor в `coverage.limitations` добавляется строка «Роль <label> представлена одним участником; её рутины — самоотчёт одного человека, не оценка». Раскрытие закрепляется в `privacy-v7` для следующей когорты; текущая Green-line использует новое правило без re-consent, потому что `privacy-v6` не обещает скрывать должность и обещает отсутствие персональной оценки.
+
+Решение владельца по ревью серии (2026-09-09, `mnt-xa71.41`):
+
+18. Reviewed batch replay — разрешённый путь проставления `routineId`/`routineLabel` для activities, собранных до подключения справочника. Misfit допущения §3: RFC ожидал редкие ручные корректировки, production Green-line потребовал 295 назначений из 386 activities. Пакет `minutka-routine-assignment-replay/v1` готовится вне git, проверяется методологом, применяется атомарно только к активным activities без routine-полей и сверяется со справочником названной версии до любой записи (`mnt-xa71.42`); semantic backfill без проверенного пакета по-прежнему не вводится, `ActivityCorrectionService` остаётся путём единичных правок.
 
 Открытых вопросов нет.
 

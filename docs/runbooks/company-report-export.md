@@ -46,7 +46,7 @@ npm run routine-directory -- validate \
 
 ### 2. При необходимости восстановить reviewed assignments исторического корпуса
 
-Миграция `0078` намеренно не делает semantic backfill. Для activities, собранных до подключения справочника, подготовьте вне git review-pack `minutka-routine-assignment-replay/v1`: exact `activityId`, `roleId`, проверенные `routineId` и `routineLabel`, scope и provenance запуска. Применяйте только методологически проверенные назначения:
+Миграция `0078` намеренно не делает semantic backfill. Reviewed replay — разрешённый путь по решению [RFC инвентаря рутин §8.18](../architecture/rfc-routine-inventory-and-quick-wins.md#8-решения-оператора-и-открытые-вопросы). Для activities, собранных до подключения справочника, подготовьте вне git review-pack `minutka-routine-assignment-replay/v1`: exact `activityId`, `roleId`, проверенные `routineId` и `routineLabel`, scope и provenance запуска. Применяйте только методологически проверенные назначения:
 
 ```bash
 sudo systemctl show minutka.service -p Environment --value \
