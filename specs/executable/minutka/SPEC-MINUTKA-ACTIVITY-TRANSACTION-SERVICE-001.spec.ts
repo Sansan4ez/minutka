@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CollectActivityService, type PersonalActivityRecord } from "../../../src/application/activity-collection.js";
 import { ActivityCorrectionService } from "../../../src/application/activity-correction.js";
-import type {
-  ActivityTransactionDecision,
-  ActivityTransactionExtractor,
-  ActivityTransactionExtractorInput,
+import {
+  createActivityTransactionExtractor,
+  type ActivityTransactionDecision,
+  type ActivityTransactionExtractor,
+  type ActivityTransactionExtractorInput,
 } from "../../../src/application/activity-transaction-extractor.js";
 import { MAX_DURATION_REFERENCES } from "../../../src/application/activity-duration-evidence.js";
 import { ActivityTransactionService } from "../../../src/application/activity-transaction-service.js";
@@ -16,6 +17,7 @@ import {
 } from "../../../src/application/in-memory-activity-collection-store.js";
 import { PersistenceError, PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 import { RecentOwnActivitiesService } from "../../../src/application/recent-own-activities.js";
+import { buildActivityTransactionPrompt } from "../../../src/mastra/activity-transaction-extractor.js";
 
 const now = "2026-08-26T12:00:00.000Z";
 const request = {
@@ -61,6 +63,7 @@ function harness(
     collection?: Pick<CollectActivityService, "collectBatch">;
     recentRead?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<{ activities: never[] }>;
     corrections?: Pick<ActivityCorrectionService, "correct" | "supersede">;
+    extractor?: ActivityTransactionExtractor;
     routineDirectorySectionProvider?: (companyId: string, roleId: string) => import("../../../src/application/routine-directory.js").RoutineDirectorySection | undefined;
   } = {},
 ) {
@@ -69,7 +72,9 @@ function harness(
   const extractorInputs: ActivityTransactionExtractorInput[] = [];
   const extractor: ActivityTransactionExtractor = async (input) => {
     extractorInputs.push(input);
-    return { status: "completed", decision: typeof decide === "function" ? decide(input) : decide, context };
+    return options.extractor
+      ? options.extractor(input)
+      : { status: "completed", decision: typeof decide === "function" ? decide(input) : decide, context };
   };
   const collection = options.collection ?? new CollectActivityService(
     createInMemoryActivityCollectionStore(state),
@@ -164,7 +169,13 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
     ["уже минут 30", "15_30m"],
   ] as const)("repairs the latest same-day activity for duration-only reply %s instead of collecting", async (currentText, durationBucket) => {
     const rows = [
-      row({ activityId: "activity_latest", recordedAt: "2026-08-26T11:00:00.000Z" }),
+      row({
+        activityId: "activity_latest",
+        recordedAt: "2026-08-26T11:00:00.000Z",
+        routineId: "routine_report",
+        routineLabel: "Weekly reports",
+        recurrence: "weekly",
+      }),
       row({ activityId: "activity_earlier", recordedAt: "2026-08-26T09:00:00.000Z" }),
       row({ activityId: "activity_yesterday", activityDate: "2026-08-25", recordedAt: "2026-08-25T11:30:00.000Z" }),
     ];
@@ -204,10 +215,85 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-SERVICE-001: bounded application tra
     }]);
     expect(state.activities).toHaveLength(3);
     expect(state.activities.find(({ activityId }) => activityId === "activity_latest")).toMatchObject({
+      routineId: "routine_report",
+      routineLabel: "Weekly reports",
+      recurrence: "weekly",
       durationBucket,
       revision: 2,
       lastCorrectionMessageId: request.sourceMessageId,
     });
+  });
+
+  it("keeps routine facts when model transport returns null for a duration-only repair", async () => {
+    const rows = [row({
+      routineId: "routine_report",
+      routineLabel: "Weekly reports",
+      recurrence: "weekly",
+    })];
+    const extractor = createActivityTransactionExtractor(async () => ({
+      object: {
+        kind: "correct",
+        reason: null,
+        activities: [],
+        handle: "activity_a",
+        expectedRevision: 1,
+        correctionMode: "patch",
+        correction: {
+          taskCategory: null,
+          routinePattern: null,
+          automationCandidate: null,
+          energyStressMarker: null,
+          system: null,
+          routineId: null,
+          routineLabel: null,
+          recurrence: null,
+          durationRef: "duration_1",
+        },
+        replacementHandle: null,
+        replacementExpectedRevision: null,
+      },
+    }), buildActivityTransactionPrompt);
+    const { service, state } = harness({ kind: "none", reason: "no_factual_activity" }, { rows, extractor });
+
+    await expect(service.process({ ...request, currentText: "минут 30", mode: "record" }))
+      .resolves.toMatchObject({
+        status: "completed",
+        operation: "correct",
+        handle: "activity_a",
+        revision: 2,
+        extraction: { decision: { correction: { durationRef: "duration_1" } } },
+      });
+    expect(state.activities[0]).toMatchObject({
+      routineId: "routine_report",
+      routineLabel: "Weekly reports",
+      recurrence: "weekly",
+      durationBucket: "15_30m",
+      revision: 2,
+    });
+  });
+
+  it("keeps explicit null clearing on the typed correction path", async () => {
+    const { service, state } = harness({ kind: "none", reason: "no_factual_activity" }, {
+      rows: [row({ routineId: "routine_report", routineLabel: "Weekly reports", recurrence: "weekly" })],
+    });
+
+    await expect(service.process({ ...request, mode: "record" })).resolves.toMatchObject({ status: "no_write" });
+    const corrections = new ActivityCorrectionService(createInMemoryActivityMutationStore(state), { now: () => now });
+    await expect(corrections.correct({
+      employeeId: request.employeeId,
+      companyId: request.companyId,
+      groupId: request.groupId,
+      sourceMessageId: request.sourceMessageId,
+    }, {
+      handle: "activity_a",
+      expectedRevision: 1,
+      mode: "patch",
+      correction: { routineId: null, routineLabel: null, recurrence: null },
+    })).resolves.toEqual({ status: "completed", handle: "activity_a", revision: 2 });
+
+    expect(state.activities[0]).not.toHaveProperty("routineId");
+    expect(state.activities[0]).not.toHaveProperty("routineLabel");
+    expect(state.activities[0]).not.toHaveProperty("recurrence");
   });
 
   it("passes the participant company and role directory section to extraction", async () => {

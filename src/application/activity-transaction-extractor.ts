@@ -64,6 +64,9 @@ export const activityTransactionRecentCandidateSchema = z.strictObject({
   routinePattern: z.enum(routinePatternTypes).optional(),
   automationCandidate: z.enum(automationCandidateTypes).optional(),
   energyStressMarker: z.enum(energyStressMarkerTypes).optional(),
+  routineId: z.string().trim().min(1).max(routineIdMaxLength).optional(),
+  routineLabel: z.string().trim().min(3).max(80).optional(),
+  recurrence: z.enum(activityRecurrenceValues).optional(),
   durationBucket: z.enum(activityDurationBuckets).optional(),
   system: z.enum(activitySystems).optional(),
   activityDate: boundedTimestampSchema,
@@ -149,13 +152,13 @@ const nullablePatchBase = {
     .describe("Generic system or channel explicitly named or unambiguously typed in the current employee message. null when unstated. paper_or_verbal requires explicit paper or verbal evidence; other requires an explicit known outside-taxonomy system type.")
     .nullable(),
   routineId: z.string().trim().min(1).max(routineIdMaxLength)
-    .describe("Routine directory id explicitly supported by the current employee message or existing activity correction evidence. null when unstated or when no directory entry applies.")
+    .describe("Routine directory id explicitly supported by the current employee message or existing activity correction evidence. null when unstated or when no directory entry applies; existing values are kept.")
     .nullable(),
   routineLabel: z.string().trim().min(3).max(80)
-    .describe("Routine label explicitly supported by the current employee message or correction evidence, containing only the work object and action. null when unstated.")
+    .describe("Routine label explicitly supported by the current employee message or correction evidence, containing only the work object and action. null when unstated; existing values are kept.")
     .nullable(),
   recurrence: z.enum(activityRecurrenceValues)
-    .describe("Recurrence explicitly stated by the current employee message or correction evidence. null when unstated.")
+    .describe("Recurrence explicitly stated by the current employee message or correction evidence. null when unstated; existing values are kept.")
     .nullable(),
 };
 
@@ -339,7 +342,7 @@ export function normalizeActivityTransactionTransport(
         handle: input.handle,
         expectedRevision: input.expectedRevision,
         mode: input.correctionMode,
-        correction: withoutNullCorrectionFacets(input.correction),
+        correction: withoutNullFacets(input.correction),
       };
       break;
     case "supersede":
@@ -437,9 +440,4 @@ function providerFailureUsage(error: unknown): ModelTokenUsage | undefined {
 
 function withoutNullFacets(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null));
-}
-
-function withoutNullCorrectionFacets(input: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== null
-    || key === "routineId" || key === "routineLabel" || key === "recurrence"));
 }

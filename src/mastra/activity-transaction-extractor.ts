@@ -20,7 +20,7 @@ import { activityTransactionExtractorAgent } from "./agents/activity-transaction
 import { normalizeMastraUsage } from "./model-usage.js";
 import { activitySystemModelMappingGuide } from "./tools/activity-system-mapping.js";
 
-export const activityTransactionPromptVersion = "minutka-activity-transaction/v4" as const;
+export const activityTransactionPromptVersion = "minutka-activity-transaction/v5" as const;
 
 export const activityTransactionContextBudget = {
   currentTextCharacters: maxChatInputCharacters,

@@ -84,7 +84,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
       { success: true, decision: { kind: "none", reason: "no_factual_activity" } },
       { success: true, decision: { kind: "needs_clarification", reason: "activity_status_ambiguous" } },
       { success: true, decision: { kind: "collect", activities: [{ taskCategory: "meetings" }] } },
-      { success: true, decision: { kind: "correct", handle: "activity_1", expectedRevision: 2, mode: "patch", correction: { routinePattern: "waiting_for_input", routineId: null, routineLabel: null, recurrence: null } } },
+      { success: true, decision: { kind: "correct", handle: "activity_1", expectedRevision: 2, mode: "patch", correction: { routinePattern: "waiting_for_input" } } },
       { success: true, decision: { kind: "supersede", handle: "activity_duplicate", expectedRevision: 1, replacementHandle: "activity_keep", replacementExpectedRevision: 3 } },
     ]);
     expect(normalizeActivityTransactionTransport(transport({
@@ -108,6 +108,9 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(facetProperties?.routinePattern?.anyOf?.[0]?.description).toMatch(/explicit.*repetition alone is not routine evidence/i);
     expect(facetProperties?.automationCandidate?.anyOf?.[0]?.description).toMatch(/explicit.*repeated work.*not by itself automation evidence/i);
     expect(facetProperties?.energyStressMarker?.anyOf?.[0]?.description).toMatch(/explicit.*neutral is never a default/i);
+    for (const facet of ["routineId", "routineLabel", "recurrence"] as const) {
+      expect(facetProperties?.[facet]?.anyOf?.[0]?.description).toMatch(/null when unstated.*existing values are kept/i);
+    }
     const validate = new Ajv2020({ strict: true }).compile(jsonSchema);
     expect(validate(transport({
       kind: "collect",
@@ -205,7 +208,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
-    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v4");
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v5");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({
@@ -247,13 +250,13 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
 
     const traceResult = await createActivityTransactionExtractor(async () => ({
       object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "unknown", routineLabel: "Prepare reports" }] }),
-      trace: { promptVersion: "minutka-activity-transaction/v4", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
+      trace: { promptVersion: "minutka-activity-transaction/v5", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
     }), buildActivityTransactionPrompt)({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection });
     expect(traceResult).toMatchObject({ trace: { diagnostics: ["unknown_routine_id"] }, decision: { activities: [{ taskCategory: "reporting", routineLabel: "Prepare reports" }] } });
 
     const missingLabelTrace = await createActivityTransactionExtractor(async () => ({
       object: transport({ kind: "collect", activities: [{ ...nullPatch, taskCategory: "reporting", routineId: "routine_report" }] }),
-      trace: { promptVersion: "minutka-activity-transaction/v4", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
+      trace: { promptVersion: "minutka-activity-transaction/v5", model: "test", boundedContext: "bounded", modelSteps: [], latencyMs: 1 },
     }), buildActivityTransactionPrompt)({ mode: "record", currentText: "Prepared a report", durationReferences: [], directorySection });
     expect(missingLabelTrace).toMatchObject({
       trace: { diagnostics: ["routine_id_without_label"] },

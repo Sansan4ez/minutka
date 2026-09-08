@@ -439,6 +439,7 @@ Internal DTO `minutka-internal-report/v2` добавляет `routines[]` с `va
 Решение владельца по ревью серии (2026-09-09, `mnt-xa71.41`):
 
 18. Reviewed batch replay — разрешённый путь проставления `routineId`/`routineLabel` для activities, собранных до подключения справочника. Misfit допущения §3: RFC ожидал редкие ручные корректировки, production Green-line потребовал 295 назначений из 386 activities. Пакет `minutka-routine-assignment-replay/v1` готовится вне git, проверяется методологом, применяется атомарно только к активным activities без routine-полей и сверяется со справочником названной версии до любой записи (`mnt-xa71.42`); semantic backfill без проверенного пакета по-прежнему не вводится, `ActivityCorrectionService` остаётся путём единичных правок.
+19. В model transport `null` означает «не сказано» для всех facets и не очищает существующую activity; routine-поля очищаются только явным `null` через typed tool-path либо переписываются целиком через `replace` (`mnt-xa71.40`).
 
 Открытых вопросов нет.
 
