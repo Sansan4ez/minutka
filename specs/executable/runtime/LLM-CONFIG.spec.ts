@@ -3,7 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadDotEnv, readDotEnvValue } from "../../../src/config/env.js";
-import { defaultLlmModel, llmAgentConfig, llmModel, llmModelFromEnv, llmProviderOptions } from "../../../src/config/llm.js";
+import {
+  defaultLlmModel,
+  defaultLlmReasoningEffort,
+  llmAgentConfig,
+  llmModel,
+  llmModelFromEnv,
+  llmProviderOptions,
+  llmReasoningEffort,
+  llmReasoningEffortFromEnv,
+} from "../../../src/config/llm.js";
 import { personalAssistantAgent } from "../../../src/mastra/agents/personal-assistant-agent.js";
 import { onboardingProfileExtractorAgent } from "../../../src/mastra/agents/onboarding-profile-extractor-agent.js";
 import { requestIntegrityAgent } from "../../../src/mastra/agents/request-integrity-agent.js";
@@ -16,8 +25,11 @@ describe("LLM runtime configuration", () => {
     expect(llmModelFromEnv({ LLM_MODEL: "  " })).toBe(defaultLlmModel);
   });
 
-  it("keeps an explicitly supplied environment value authoritative", () => {
+  it("keeps explicitly supplied environment values authoritative", () => {
     expect(llmModelFromEnv({ LLM_MODEL: "openai/from-environment" })).toBe("openai/from-environment");
+    expect(llmReasoningEffortFromEnv({ LLM_REASONING_EFFORT: "medium" })).toBe("medium");
+    expect(llmReasoningEffortFromEnv({ LLM_REASONING_EFFORT: "invalid" })).toBe(defaultLlmReasoningEffort);
+    expect(llmReasoningEffortFromEnv({})).toBe(defaultLlmReasoningEffort);
   });
 
   it("reads the model without importing unrelated .env values", () => {
@@ -83,7 +95,7 @@ describe("LLM runtime configuration", () => {
 
   it("keeps the accepted stateless OpenAI reasoning configuration explicit", async () => {
     expect(llmProviderOptions).toEqual({ openai: {
-      reasoningEffort: "high",
+      reasoningEffort: llmReasoningEffort,
       promptCacheKey: "personal-assistant-v1",
       promptCacheRetention: "24h",
       store: false,

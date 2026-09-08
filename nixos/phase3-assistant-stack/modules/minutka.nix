@@ -3,7 +3,8 @@
 let
   appDir = "${minutkaPackage}/lib/minutka";
   environment = {
-    LLM_MODEL = "openai/nath/gpt-5.6-terra";
+    LLM_MODEL = "openai/nath/gpt-5.6-sol";
+    LLM_REASONING_EFFORT = "medium";
     OPENAI_BASE_URL = "http://127.0.0.1:8317/v1";
     STT_PROVIDER = "openai";
     STT_BASE_URL = "https://openrouter.ai/api/v1";

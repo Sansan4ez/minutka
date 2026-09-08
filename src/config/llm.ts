@@ -1,11 +1,25 @@
 import { readDotEnvValue } from "./env.js";
 
 export const defaultLlmModel = "openai/gpt-5.5";
+export const defaultLlmReasoningEffort = "high";
+
+export type LlmReasoningEffort = "minimal" | "low" | "medium" | "high";
+
+export function llmReasoningEffortFromEnv(env: NodeJS.ProcessEnv): LlmReasoningEffort {
+  const effort = env.LLM_REASONING_EFFORT?.trim();
+  if (effort === "minimal" || effort === "low" || effort === "medium" || effort === "high") return effort;
+  return defaultLlmReasoningEffort;
+}
+
+export const llmReasoningEffort = llmReasoningEffortFromEnv({
+  ...process.env,
+  LLM_REASONING_EFFORT: process.env.LLM_REASONING_EFFORT ?? readDotEnvValue(".env", "LLM_REASONING_EFFORT"),
+});
 
 /** Provider settings shared by every Mastra agent. */
 export const llmProviderOptions = {
   openai: {
-    reasoningEffort: "high",
+    reasoningEffort: llmReasoningEffort,
     // Keep a stable cache namespace across owner turns. The owner-specific
     // prefix itself remains the provider's exact-match cache boundary.
     promptCacheKey: "personal-assistant-v1",
