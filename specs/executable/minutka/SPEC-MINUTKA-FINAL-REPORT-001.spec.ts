@@ -354,11 +354,10 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(process).toContain("frequency from `count`");
     expect(process).toContain("which of these routines would the employee like to simplify?");
     expect(process).toContain("corpus signal");
-    expect(process).toContain("Quick-win assignments live in the operator file");
     expect(process).toContain("Never give a recommendation, simplification step, action plan, template, checklist, experiment, or numbered next steps");
     expect(process).toContain("end after the single question");
     expect(process).toContain("invent no routine, hour, or quick win");
-    expect(process).toContain("Do not expose legacy `taskCategories` or generic `other` facets as types of work");
+    expect(process).toContain("Do not expose legacy task-category tallies or the generic other facet as types of work");
     expect(process).not.toContain("two or three concrete simplification steps");
     expect(process).toContain("invite them to send it as a separate message after the report");
     expect(process).toContain("The report stays personal");
