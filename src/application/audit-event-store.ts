@@ -35,7 +35,8 @@ export type AuditEventType =
   | "employee_data_deleted"
   | "report_preflight_decision"
   | "client_report_published"
-  | "client_report_publish_refused";
+  | "client_report_publish_refused"
+  | "routine_assignment_replay_applied";
 
 export type SafeAuditMetadata = Record<string, string | number | boolean | string[]>;
 
@@ -90,6 +91,7 @@ const allowedMetadataKeys: Record<AuditEventType, readonly string[]> = {
   report_preflight_decision: ["scope", "findingId", "decision", "reportVersion", "reviewer"],
   client_report_published: ["scope", "reportVersion", "reviewer", "llmFindings"],
   client_report_publish_refused: ["scope", "reportVersion", "reason", "findingIds"],
+  routine_assignment_replay_applied: ["scope", "directoryVersion", "corpusExportedAt", "assignments", "applied", "alreadyApplied"],
 };
 
 export const auditEventTypes = Object.keys(allowedMetadataKeys) as AuditEventType[];

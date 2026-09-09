@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
+import { safeAuditMetadata } from "../../application/audit-event-store.js";
 import type {
-  RoutineAssignmentReplayInput,
   RoutineAssignmentReplayResult,
   RoutineAssignmentReplayStore,
 } from "../../application/routine-assignment-replay.js";
@@ -14,7 +15,6 @@ export function createPostgresRoutineAssignmentReplayStore(pool: Pool): RoutineA
         let alreadyApplied = 0;
         for (const assignment of input.assignments) {
           const result = await client.query<{
-            source_message_id: string | null;
             task_category: string | null;
             routine_pattern: string | null;
             automation_candidate: string | null;
@@ -27,14 +27,13 @@ export function createPostgresRoutineAssignmentReplayStore(pool: Pool): RoutineA
             superseded_by_activity_id: string | null;
           }>(
             `UPDATE minutka_private.activities
-             SET routine_id=$1, routine_label=$2, revision=revision+1,
-                 last_correction_message_id=$3, updated_at=now()
-             WHERE activity_id=$4 AND company_id=$5 AND group_id=$6 AND role_id=$7
+             SET routine_id=$1, routine_label=$2, revision=revision+1, updated_at=now()
+             WHERE activity_id=$3 AND company_id=$4 AND group_id=$5 AND role_id=$6
                AND status='active' AND routine_id IS NULL AND routine_label IS NULL
-             RETURNING source_message_id, task_category, routine_pattern, automation_candidate,
+             RETURNING task_category, routine_pattern, automation_candidate,
                        energy_stress_marker, duration_bucket, system, recurrence, revision, status,
                        superseded_by_activity_id`,
-            [assignment.routineId, assignment.routineLabel, replaySource(input), assignment.activityId,
+            [assignment.routineId, assignment.routineLabel, assignment.activityId,
               input.companyId, input.groupId, assignment.roleId],
           );
           const current = result.rows[0];
@@ -56,25 +55,38 @@ export function createPostgresRoutineAssignmentReplayStore(pool: Pool): RoutineA
               (activity_id, revision, operation, source_message_id, task_category, routine_pattern,
                automation_candidate, energy_stress_marker, duration_bucket, system, routine_id,
                routine_label, recurrence, status, superseded_by_activity_id, changed_at)
-             VALUES ($1,$2,'corrected',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())`,
-            [assignment.activityId, current.revision, current.source_message_id, current.task_category,
+             VALUES ($1,$2,'corrected',NULL,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())`,
+            [assignment.activityId, current.revision, current.task_category,
               current.routine_pattern, current.automation_candidate, current.energy_stress_marker,
               current.duration_bucket, current.system, assignment.routineId, assignment.routineLabel,
               current.recurrence, current.status, current.superseded_by_activity_id],
           );
           applied += 1;
         }
-        return {
+        const replayResult = {
           status: applied === 0 ? "already_applied" : "applied",
           assignments: input.assignments.length,
           applied,
           alreadyApplied,
         } satisfies RoutineAssignmentReplayResult;
+        await client.query(
+          `INSERT INTO minutka_audit.events(event_id, request_id, event_type, metadata, occurred_at)
+           VALUES ($1,$2,'routine_assignment_replay_applied',$3::jsonb,now())`,
+          [
+            `evt_${randomUUID()}`,
+            `req_routine_assignment_replay_${randomUUID()}`,
+            JSON.stringify(safeAuditMetadata("routine_assignment_replay_applied", {
+              scope: `${input.companyId}/${input.groupId}`,
+              directoryVersion: input.source.directoryVersion,
+              corpusExportedAt: input.source.corpusExportedAt,
+              assignments: replayResult.assignments,
+              applied: replayResult.applied,
+              alreadyApplied: replayResult.alreadyApplied,
+            })),
+          ],
+        );
+        return replayResult;
       });
     },
   };
-}
-
-function replaySource(input: RoutineAssignmentReplayInput): string {
-  return `operator_replay:${input.source.corpusExportedAt}`;
 }

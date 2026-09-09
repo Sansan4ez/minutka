@@ -53,10 +53,12 @@ sudo systemctl show minutka.service -p Environment --value \
   | tr ' ' '\n' \
   | sudo -u minutka bash -c \
     'set -a; while IFS= read -r item; do export "$item"; done; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-routine-assignment-replay "$@"' \
-  routine-replay --file /srv/minutka/operator/reports/reviewed-routine-assignments.json
+  routine-replay \
+    --file /srv/minutka/operator/reports/reviewed-routine-assignments.json \
+    --directory /srv/minutka/operator/routine-directory.company_acme.json
 ```
 
-Команда атомарно обновляет только exact active rows указанной company/group/role, увеличивает revision и пишет `corrected` в `activity_revisions`. Повтор того же pack идемпотентен; отсутствующая, уже иначе исправленная или cross-scope строка откатывает весь pack. Свободные и неатрибутированные activities не включайте: они честно остаются в `other`.
+`--directory` обязателен: команда до начала транзакции сверяет версию pack, каждую роль и каждый `routineId` с этим справочником (включая tombstones из его каталога). Затем она атомарно обновляет только exact active rows указанной company/group/role, увеличивает revision, пишет message-free `corrected` в `activity_revisions` и content-free audit-событие запуска со счётчиками. Повтор того же pack идемпотентен; отсутствующая, уже иначе исправленная или cross-scope строка откатывает весь pack. Свободные и неатрибутированные activities не включайте: они честно остаются в `other`.
 
 ### 3. Собрать первый отчёт
 

@@ -58,6 +58,7 @@ import { ResearchScopePurgeService } from "../../src/application/research-scope-
 import { createPostgresPilotStatusStore } from "../../src/infrastructure/postgres/postgres-pilot-status-store.js";
 import { PilotStatusService } from "../../src/application/pilot-status.js";
 import { renderPilotStatusHtml } from "../../src/application/pilot-status-html.js";
+import { createPostgresRoutineAssignmentReplayStore } from "../../src/infrastructure/postgres/postgres-routine-assignment-replay-store.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -404,6 +405,58 @@ describe("PostgreSQL storage contracts", () => {
       activity_date: "2026-08-16",
     });
     expect((await pool.query("SELECT to_regclass('minutka_reporting.anonymized_activities') AS table_name")).rows[0]?.table_name).toBeNull();
+  });
+
+  it("atomically replays reviewed routine assignments without inventing message ids and records audit counts", async () => {
+    const companyId = "company_routine_replay";
+    const groupId = "group_routine_replay";
+    const roleId = "role_routine_replay";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Routine Replay Co') ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ($1, $2, 'Replay group', daterange('2026-09-01', '2026-10-01', '[)')) ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.roles (id, company_id, name) VALUES ($1, $2, 'Replay role') ON CONFLICT (id) DO NOTHING`,
+      [roleId, companyId],
+    );
+    await issueProfileReadyParticipant(pool, "employee_routine_replay", "invite_routine_replay", { companyId, groupId, roleId });
+    const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant("employee_routine_replay");
+    if (!participant) throw new Error("routine replay participant missing");
+    await createPostgresActivityCollectionStore(pool).saveActivity({
+      activityId: "activity_routine_replay", employeeId: "employee_routine_replay", subjectKey: participant.subjectKey,
+      sourceMessageId: "message_real_before_replay", companyId, groupId, roleId, taskCategory: "reporting",
+      activityDate: "2026-09-04", recordedAt: "2026-09-04T10:15:59.635Z",
+    });
+    const replay = createPostgresRoutineAssignmentReplayStore(pool);
+    const replayInput = {
+      schemaVersion: "minutka-routine-assignment-replay/v1" as const,
+      companyId, groupId,
+      source: { corpusExportedAt: "2026-09-05T10:15:59.635Z", directoryVersion: "2", reviewedBy: "methodologist" },
+      assignments: [{ activityId: "activity_routine_replay", roleId, routineId: "routine_report", routineLabel: "Подготовка отчёта" }],
+    };
+    await expect(replay.replay(replayInput)).resolves.toEqual({ status: "applied", assignments: 1, applied: 1, alreadyApplied: 0 });
+    await expect(replay.replay(replayInput)).resolves.toEqual({ status: "already_applied", assignments: 1, applied: 0, alreadyApplied: 1 });
+
+    expect((await pool.query(
+      `SELECT routine_id, routine_label, last_correction_message_id FROM minutka_private.activities WHERE activity_id='activity_routine_replay'`,
+    )).rows).toEqual([{ routine_id: "routine_report", routine_label: "Подготовка отчёта", last_correction_message_id: null }]);
+    expect((await pool.query(
+      `SELECT source_message_id FROM minutka_private.activity_revisions WHERE activity_id='activity_routine_replay' AND operation='corrected'`,
+    )).rows).toEqual([{ source_message_id: null }]);
+    const corpus = await createPostgresResearchCorpusSource(pool).listActivities({ companyId, groupId });
+    expect(corpus[0]).not.toHaveProperty("lastCorrectionMessageId");
+    expect(JSON.stringify(corpus)).not.toContain("operator_replay:");
+    expect((await pool.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM minutka_audit.events WHERE event_type='routine_assignment_replay_applied' AND metadata->>'scope'=$1 ORDER BY occurred_at`,
+      [`${companyId}/${groupId}`],
+    )).rows.map(({ metadata }) => metadata)).toEqual([
+      expect.objectContaining({ assignments: 1, applied: 1, alreadyApplied: 0, directoryVersion: "2" }),
+      expect.objectContaining({ assignments: 1, applied: 0, alreadyApplied: 1, directoryVersion: "2" }),
+    ]);
   });
 
   it("exposes split facet columns and removes the legacy obstacle pair", async () => {
