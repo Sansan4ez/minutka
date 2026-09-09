@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -254,7 +254,7 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
       (text) => { output += text; },
       { ROUTINE_DIRECTORY_DIR: directory },
     );
-    expect(JSON.parse(output)).toMatchObject({ affectedEntries: 1, filesDeleted: 2, runtimeRestartRequired: true });
+    expect(JSON.parse(output)).toMatchObject({ affectedEntries: 1, filesDeleted: 1, runtimeRestartRequired: true });
     expect((await readdir(directory)).sort()).toEqual([
       "routine-directory.company_a.2.json",
       "routine-directory.company_a.json",
@@ -279,6 +279,108 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     await expect(runRoutineDirectoryPurge({ company: "company_a" }, () => undefined, { ROUTINE_DIRECTORY_DIR: "  " }))
       .rejects.toMatchObject({ code: "directory_dir_not_configured" });
     expect(await readdir(directory)).toEqual(before);
+  });
+
+  it("scans historical copies without rejecting ids that were already tombstoned", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("2", [
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+        entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+      ])],
+      ["routine-directory.company_a.1.json", base("1", [
+        entry("old", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+      ])],
+    ]);
+    await writeFile(join(directory, "routine-directory.company_a.tombstones.json"), JSON.stringify({ ids: ["old"] }), "utf8");
+
+    const output = await runSubjectPurge(directory);
+
+    expect(JSON.parse(output)).toMatchObject({ affectedEntries: 1, filesDeleted: 1, tombstones: 2 });
+    expect(await readdir(directory)).not.toContain("routine-directory.company_a.1.json");
+    expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).toEqual({ ids: ["a", "old"] });
+  });
+
+  it("writes tombstones before derived files and completes after a failed first attempt", async () => {
+    const active = base("2", [
+      entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+      entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+    ]);
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", active],
+      ["routine-directory.company_a.2.json", active],
+    ]);
+    let writes = 0;
+    await expect(runRoutineDirectoryPurge(
+      { company: "company_a", group: "group_a", subjectKey: "subject_a", dir: directory },
+      () => undefined,
+      {},
+      {
+        async writeJson(path, value) {
+          writes += 1;
+          if (writes === 2) throw new Error("simulated write failure");
+          await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+        },
+        async unlink(path) { await unlink(path); },
+      },
+    )).rejects.toThrow("simulated write failure");
+    expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).toEqual({ ids: ["a"] });
+    expect(await readdir(directory)).toContain("routine-directory.company_a.2.json");
+
+    await runSubjectPurge(directory);
+
+    const surviving = JSON.parse(await readFile(join(directory, "routine-directory.company_a.json"), "utf8")) as RoutineDirectory;
+    expect(surviving.sections[0]?.entries.map(({ id }) => id)).toEqual(["b"]);
+    expect(await readdir(directory)).not.toContain("routine-directory.company_a.2.json");
+  });
+
+  it("uses the active file as current even when a higher saved version exists", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("2", [
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+        entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+      ])],
+      ["routine-directory.company_a.3.json", base("3", [
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+        entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+        entry("c", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+      ])],
+    ]);
+
+    const output = await runSubjectPurge(directory);
+
+    expect(JSON.parse(output)).toMatchObject({ activeFileFallback: 0 });
+    const active = JSON.parse(await readFile(join(directory, "routine-directory.company_a.json"), "utf8")) as RoutineDirectory;
+    expect(active.version).toBe("4");
+    expect(active.sections[0]?.entries.map(({ id }) => id)).toEqual(["b"]);
+  });
+
+  it("deletes an unreadable company copy but fails closed for a narrower scope", async () => {
+    const companyDirectory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+    ]);
+    await writeFile(join(companyDirectory, "routine-directory.company_a.broken.json"), "not-json\n", "utf8");
+    let output = "";
+    await runRoutineDirectoryPurge({ company: "company_a", dir: companyDirectory }, (text) => { output += text; });
+    expect(JSON.parse(output)).toMatchObject({ unparsedFilesDeleted: 1, filesDeleted: 2 });
+    expect(await readdir(companyDirectory)).toEqual(["routine-directory.company_a.tombstones.json"]);
+
+    const subjectDirectory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+    ]);
+    await writeFile(join(subjectDirectory, "routine-directory.company_a.broken.json"), "not-json\n", "utf8");
+    await expect(runSubjectPurge(subjectDirectory)).rejects.toThrow(/broken\.json.*fix or delete this copy.*retry/u);
+  });
+
+  it("reports max-version fallback when the active file is absent", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.9.json", base("9", [
+        entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+        entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+      ])],
+    ]);
+    const output = await runSubjectPurge(directory);
+    expect(JSON.parse(output)).toMatchObject({ activeFileFallback: 1 });
   });
 
   it("rejects a tombstone file containing non-ids", async () => {

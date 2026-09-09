@@ -9,11 +9,18 @@ import {
 
 export function readRoutineDirectoryFile(
   path: string,
-  options: { expectedCompanyId: string; requireWorkCategories?: boolean },
+  options: {
+    expectedCompanyId: string;
+    requireWorkCategories?: boolean;
+    tombstones?: "enforce" | "ignore";
+  },
 ): RoutineDirectory {
-  const tombstoneIds = readTombstones(dirname(path), options.expectedCompanyId);
+  const { tombstones = "enforce", ...loadOptions } = options;
+  const tombstoneIds = tombstones === "enforce"
+    ? new Set(readTombstones(dirname(path), options.expectedCompanyId))
+    : undefined;
   const json = readJson(path, "routine directory JSON is invalid");
-  return loadRoutineDirectory(json, { ...options, tombstoneIds: new Set(tombstoneIds) });
+  return loadRoutineDirectory(json, { ...loadOptions, tombstoneIds });
 }
 
 export function readTombstones(directory: string, companyId: string): string[] {

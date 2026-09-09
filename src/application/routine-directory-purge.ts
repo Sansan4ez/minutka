@@ -28,6 +28,7 @@ export type RoutineDirectoryPurgePlan = {
 export function planDirectoryPurge(input: {
   files: readonly RoutineDirectoryFile[];
   scope: RoutineDirectoryPurgeScope;
+  currentFile?: RoutineDirectoryFile;
 }): RoutineDirectoryPurgePlan {
   const files = [...input.files].sort(compareFiles);
   const affectedEntryIds = new Set<string>();
@@ -51,11 +52,13 @@ export function planDirectoryPurge(input: {
     }
   }
 
-  const filesToDelete = files
-    .filter((file) => entries(file.directory).some(({ id }) => affectedEntryIds.has(id)))
+  const affectedFiles = files
+    .filter((file) => entries(file.directory).some(({ id }) => affectedEntryIds.has(id)));
+  const current = input.currentFile ?? files.at(-1);
+  const filesToDelete = affectedFiles
+    .filter(({ path }) => input.currentFile === undefined || path !== current?.path)
     .map(({ path }) => path)
     .sort();
-  const current = files.at(-1);
   const currentHasAffectedEntries = current !== undefined
     && entries(current.directory).some(({ id }) => affectedEntryIds.has(id));
 
@@ -65,7 +68,10 @@ export function planDirectoryPurge(input: {
 
   const survivingEntries = entries(current.directory).filter(({ id }) => !affectedEntryIds.has(id));
   if (survivingEntries.length === 0) {
-    return { affectedEntryIds: [...affectedEntryIds].sort(), filesToDelete };
+    return {
+      affectedEntryIds: [...affectedEntryIds].sort(),
+      filesToDelete: [...filesToDelete, current.path].sort(),
+    };
   }
 
   const version = nextDirectoryVersion(current.directory.version, new Set(files.map(({ directory }) => directory.version)));
