@@ -20,7 +20,7 @@ Extractor-секция одной роли ограничена 40 запися�
 
 Справочник и tombstones содержат операторские данные и не должны попадать в репозиторий, corpus, traces, model prompt или client artifact без предусмотренной редактуры.
 
-Production NixOS-модуль создаёт `/srv/minutka/operator/routine-directories` и задаёт этот путь в `ROUTINE_DIRECTORY_DIR`. Файл размещает оператор через временный файл и `sudo install -o minutka -g minutka -m 0600`; после атомарной замены активного файла перезапустите `minutka.service`. Установленные production-команды называются `minutka-routine-directory`, `minutka-company-report` и `minutka-process-run`; они должны запускаться от пользователя `minutka` с `/run/secrets/rendered/minutka.env`, а не с копией production-секретов.
+Production NixOS-модуль создаёт `/srv/minutka/operator/routine-directories` и задаёт этот путь в `ROUTINE_DIRECTORY_DIR`. Файл размещает оператор через временный файл и `sudo install -o minutka -g minutka -m 0600`; после атомарной замены активного файла перезапустите `minutka.service`. Установленные production-команды называются `minutka-routine-directory`, `minutka-company-report` и `minutka-process-run`; они должны запускаться от пользователя `minutka` с `/run/secrets/rendered/minutka.env`, а не с копией production-секретов. Для `minutka-process-run` on-demand запуск `final_report` на production допускается только для реальной доставки; репетиции текста личного отчёта выполняются только на изолированном клоне БД, потому что ход сохраняется в личной истории сотрудника.
 
 
 ## Start

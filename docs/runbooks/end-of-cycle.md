@@ -94,4 +94,4 @@ SEND FINAL REPORT company_acme/group_acme_2026_09
 3. После подтверждения `armed` равно `eligible`, `failed` равно нулю.
 4. `dbq "SELECT process_id, one_shot, time_of_day, timezone, enabled FROM minutka_private.process_schedules WHERE user_id = $1" '["<employeeId>"]'` показывает одну строку `final_report` с `one_shot = true`.
 5. После срабатывания есть запись `minutka_private.schedule_fires` с `process_id = final_report` и статусом `succeeded`, а сотрудник получил сообщение в Telegram.
-6. Содержание можно проверить отдельно, без доставки: `npm run process:run -- --employee <employeeId> --process final_report` ([runbook](scheduled-process-on-demand.md)).
+6. Текст личного отчёта репетируется только на изолированном клоне БД (тот же паттерн, что reviewed replay назначений рутин). On-demand запуск `final_report` на production выполняется только для реальной доставки, потому что ход сохраняется в личной истории сотрудника ([runbook](scheduled-process-on-demand.md)).
