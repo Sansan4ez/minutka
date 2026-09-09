@@ -2,7 +2,7 @@
 
 ## Статус
 
-**accepted template v2 (2026-09-07); принят 2026-08-18 как v1.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. Клиентский контракт v2 — «Карта повторяющихся операций и быстрых улучшений» по [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) §2.8: рутины из проверенного справочника, бюджет времени, quick wins из закрытого каталога, deep-dive вопросы; без `expectedEffect`, `prerequisites`, `risks` и 30/60/90. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет и публикует клиентский артефакт.
+**accepted template v2 (2026-09-07; `firstSteps.scope` добавлен 2026-09-09); принят 2026-08-18 как v1.** Документ задаёт Markdown- и JSON-контракты для ручного первого цикла. Клиентский контракт v2 — «Карта повторяющихся операций и быстрых улучшений» по [RFC инвентаря рутин и быстрых побед](../architecture/rfc-routine-inventory-and-quick-wins.md) §2.8: рутины из проверенного справочника, бюджет времени, quick wins из закрытого каталога, deep-dive вопросы; без `expectedEffect`, `prerequisites`, `risks` и 30/60/90. `CompanyReportingService` формирует subject-aware internal DTO и отдельный client DTO; методолог по-прежнему вручную проверяет и публикует клиентский артефакт.
 
 > **Статус реализации.** Runtime отдаёт `minutka-client-report.v2`; это единственный активный клиентский контракт. Операторский порядок выполняется in-process командой `npm run company-report`: `validate → build → suggest → повторный build → preflight → resolve-finding → publish`. HTTP используется только для отчёта без справочника; операторский справочник не передаётся через API. Подробности — в [runbook выгрузки отчёта](../runbooks/company-report-export.md).
 
@@ -249,8 +249,8 @@ Client DTO использует внешние labels и агрегирован�
     }
   ],
   "firstSteps": [
-    { "routine": "уточнение условий закупок", "firstStep": "Договориться о сроке ответа на уточнение", "effort": "hours", "whoCanDo": "employee" },
-    { "routine": "обработка заявок в CRM", "firstStep": "Собрать список полей, которые переносятся вручную из заявки в CRM", "effort": "days", "whoCanDo": "internal_it" }
+    { "routine": "уточнение условий закупок", "scope": "группа", "firstStep": "Договориться о сроке ответа на уточнение", "effort": "hours", "whoCanDo": "employee" },
+    { "routine": "обработка заявок в CRM", "scope": "продажи", "firstStep": "Собрать список полей, которые переносятся вручную из заявки в CRM", "effort": "days", "whoCanDo": "internal_it" }
   ],
   "deepDive": [
     { "name": "обзвон клиентской воронки", "scope": "продажи", "question": "Какие звонки можно заменить письменным касанием, а какие требуют разговора", "reason": "Сложная задача: решение зависит от шагов процесса, которых первый этап не видит" }
@@ -321,7 +321,7 @@ _или_
 - **Быстрое улучшение / первый шаг:** …
 
 ## 5. С чего начать на следующей неделе
-1. <routine> — <firstStep> — <effort> — <whoCanDo>
+1. <routine> (<scope>) — <firstStep> — <effort> — <whoCanDo>
 2. …
 
 ## 6. Для углублённого обследования

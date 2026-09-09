@@ -321,7 +321,7 @@ const clientCompanyReportSchema = z.strictObject({
   timeBudget: z.array(z.strictObject({ workCategory: z.enum(workCategories), label: z.string().min(1), estimatedHours: z.number().nonnegative(), share: z.number().min(0).max(1), contributors: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative() })),
   topRoutines: z.array(clientRoutineSchema).max(10),
   frictionRoutines: z.array(clientFrictionRoutineSchema).max(5),
-  firstSteps: z.array(z.strictObject({ routine: z.string().min(1), firstStep: z.string().min(1), effort: z.enum(["hours", "days", "weeks"]), whoCanDo: z.enum(["employee", "internal_it", "with_algoritm"]) })).max(3),
+  firstSteps: z.array(z.strictObject({ routine: z.string().min(1), scope: z.string().min(1), firstStep: z.string().min(1), effort: z.enum(["hours", "days", "weeks"]), whoCanDo: z.enum(["employee", "internal_it", "with_algoritm"]) })).max(3),
   deepDive: z.array(z.strictObject({ name: z.string().min(1), scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1) })),
   cannotConclude: z.array(z.string()),
 });

@@ -327,8 +327,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       companyId: "company_a",
       version: "1",
       sections: [
-        { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "documents_contracts", quickWin: "report_template", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
-        { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "logistics_operations", quickWin: "deep_dive", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
+        { roleId: "role_sales", entries: [{ id: "sales_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "documents_contracts", quickWin: "api_integration", provenance: [{ groupId: "group_a", subjectKey: "subject_sales" }] }] },
+        { roleId: "role_logistics", entries: [{ id: "logistics_report", name: "Подготовка отчётов", description: "Reports", examples: ["Prepare reports"], workCategory: "logistics_operations", quickWin: "checklist", provenance: [{ groupId: "group_a", subjectKey: "subject_logistics" }] }] },
       ],
     };
     const rows = [
@@ -354,8 +354,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(first).toEqual(second);
     expect(first.internal.directoryVersion).toBe("1");
     expect(first.internal.routines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: { roleId: "role_sales", routineId: "sales_report" }, name: "Подготовка отчётов", quickWin: "report_template", statedRecurrence: { weekly: 1 }, frictionSignals: { count: 1, byValue: { manual_reporting: 1 } }, energySignals: { count: 1, byValue: { fatigue: 1 } } }),
-      expect.objectContaining({ key: { roleId: "role_logistics", routineId: "logistics_report" }, name: "Подготовка отчётов", quickWin: "deep_dive" }),
+      expect.objectContaining({ key: { roleId: "role_sales", routineId: "sales_report" }, name: "Подготовка отчётов", quickWin: "api_integration", statedRecurrence: { weekly: 1 }, frictionSignals: { count: 1, byValue: { manual_reporting: 1 } }, energySignals: { count: 1, byValue: { fatigue: 1 } } }),
+      expect.objectContaining({ key: { roleId: "role_logistics", routineId: "logistics_report" }, name: "Подготовка отчётов", quickWin: "checklist" }),
       expect.objectContaining({ key: { roleId: "role_sales", routineKey: "свободная работа" } }),
       expect.objectContaining({ key: { roleId: "role_sales", routineKey: "подготовка писем" } }),
     ]));
@@ -375,7 +375,8 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       },
     });
     expect(first.client.topRoutines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", quickWin: expect.objectContaining({ id: "report_template" }) }),
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", quickWin: expect.objectContaining({ id: "api_integration" }) }),
+      expect.objectContaining({ name: "Подготовка отчётов", scope: "Логистика", quickWin: expect.objectContaining({ id: "checklist" }) }),
     ]));
     expect(Object.keys(first.client.topRoutines.find((routine) => routine.quickWin !== undefined)!.quickWin!)).toEqual([
       "id", "title", "whatChanges", "effort", "whoCanDo", "humanInTheLoop", "firstStep",
@@ -383,10 +384,12 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(first.client.frictionRoutines).toEqual([
       expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", signals: { manual_reporting: 1 } }),
     ]);
-    expect(first.client.deepDive).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Подготовка отчётов", scope: "Логистика" }),
-    ]));
-    expect(first.client.firstSteps).toHaveLength(1);
+    expect(first.client.deepDive).toEqual([]);
+    expect(first.client.firstSteps).toEqual([
+      expect.objectContaining({ routine: "Подготовка отчётов", scope: "Логистика", effort: "hours" }),
+      expect.objectContaining({ routine: "Подготовка отчётов", scope: "Продажи", effort: "weeks" }),
+    ]);
+    expect(first.client.firstSteps).toHaveLength(2);
     expect(JSON.stringify(first.client)).not.toMatch(/subjectKey|routineKey|variants|evidenceRefs|routineLabel|mostFrequentLabel|roleId/);
     expect(first.internal.coverage.unattributedObservations).toMatchObject({ count: 1 });
     expect(first.internal.timeBudget).toEqual(expect.arrayContaining([

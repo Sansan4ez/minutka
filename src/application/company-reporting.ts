@@ -200,7 +200,7 @@ export type ClientCompanyReport = {
   timeBudget: ClientTimeBudgetEntry[];
   topRoutines: ClientRoutine[];
   frictionRoutines: ClientFrictionRoutine[];
-  firstSteps: Array<{ routine: string; firstStep: string; effort: "hours" | "days" | "weeks"; whoCanDo: string }>;
+  firstSteps: Array<{ routine: string; scope: string; firstStep: string; effort: "hours" | "days" | "weeks"; whoCanDo: string }>;
   deepDive: Array<{ name: string; scope: string; question: string; reason: string }>;
   cannotConclude: string[];
 };
@@ -515,9 +515,9 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     .map((routine) => toClientFrictionRoutine(routine, internal));
   const firstSteps = uniqueBy(
     [...topRoutines, ...frictionRoutines]
-      .flatMap((routine) => routine.quickWin === undefined ? [] : [{ routine: routine.name, firstStep: routine.quickWin.firstStep, effort: routine.quickWin.effort, whoCanDo: routine.quickWin.whoCanDo }])
-      .sort((left, right) => effortRank(left.effort) - effortRank(right.effort) || left.routine.localeCompare(right.routine)),
-    (step) => step.routine,
+      .flatMap((routine) => routine.quickWin === undefined ? [] : [{ routine: routine.name, scope: routine.scope, firstStep: routine.quickWin.firstStep, effort: routine.quickWin.effort, whoCanDo: routine.quickWin.whoCanDo }])
+      .sort((left, right) => effortRank(left.effort) - effortRank(right.effort) || left.routine.localeCompare(right.routine) || left.scope.localeCompare(right.scope)),
+    (step) => JSON.stringify([step.routine, step.scope]),
   ).slice(0, 3);
   const deepDive = namedRoutines
     .filter((routine) => routine.quickWin === undefined || routine.quickWin === "deep_dive")
@@ -683,4 +683,12 @@ function groupBy<T>(records: T[], key: (record: T) => string): Map<string, T[]> 
   return grouped;
 }
 function uniqueSorted<T extends string>(values: T[]): T[] { return [...new Set(values)].sort(); }
-function uniqueBy<T>(values: T[], key: (value: T) => string): T[] { return [...new Map(values.map((value) => [key(value), value])).values()]; }
+function uniqueBy<T>(values: T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const valueKey = key(value);
+    if (seen.has(valueKey)) return false;
+    seen.add(valueKey);
+    return true;
+  });
+}
