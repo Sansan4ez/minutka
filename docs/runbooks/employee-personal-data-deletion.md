@@ -52,13 +52,6 @@ DELETE <employee_id>
 
 Любой другой ввод завершает команду без удаления. После успеха команда печатает JSON со счётчиками удалённых записей и версий MinIO, а также явным перечнем сохранённого.
 
-## Проверка
-
-1. Убедитесь, что `deleted.participants` равен `1`, а `oldInviteRevoked` равен `true`.
-2. Проверьте отсутствие subject в `minutka_research.traces`, `minutka_research.evaluation_cases`, canonical messages и activities; `preserved.anonymousDeletionAudit` должен быть `true`, а `preserved.deliveredClientArtifacts` — `not_recalled`.
-3. Попытка открыть старый invite должна вернуть `invite_not_found`.
-4. Если client report ещё не передан, повторно сформируйте его и зафиксируйте recompute. Если передан — не обещайте автоматический отзыв/пересылку.
-
 Если удаление MinIO завершилось, а удаление PostgreSQL упало, устраните причину и повторите ту же команду: профиль ещё существует, а повторное удаление уже отсутствующих объектов безопасно. Если PostgreSQL завершился успешно, очистите справочник рутин до пересчёта отчёта:
 
 ```bash
@@ -70,4 +63,36 @@ npm run routine-directory -- purge \
 
 Команда работает в каталоге `$ROUTINE_DIRECTORY_DIR` — том же, который читает runtime (см. [`http-api-runtime.md`](./http-api-runtime.md)): это каталог с активным файлом `routine-directory.<company_id>.json`, версиями `routine-directory.<company_id>.<version>.json` и tombstones; отдельного каталога версий нет. Без `ROUTINE_DIRECTORY_DIR` команда отказывает с `directory_dir_not_configured` и ничего не трогает; `--dir <path>` переопределяет каталог только для копии справочника.
 
-Это удаляет целиком записи, чья provenance пересекает точную пару, включая записи в сохранённых старых версиях — заранее удалять эти копии не нужно. Если команда называет нечитаемую копию, исправьте или удалите именно этот повреждённый файл и повторите purge. Команда сохраняет незатронутый остаток в новой версии и добавляет удалённые id в tombstones. Если purge удалил хотя бы один файл, его JSON содержит `runtimeRestartRequired: true`: **обязательно перезапустите runtime** (например, `systemctl restart <unit>` — см. [`http-api-runtime.md`](./http-api-runtime.md)) и убедитесь в логе старта, что загружена очищенная версия. Purge не считается завершённым до рестарта; при пустом плане выводит `runtimeRestartRequired: false`. После этого отчёт пересчитывается по очищенному справочнику; activities других сотрудников не удаляются. Новый доступ создаётся только новым инвайтом.
+Это удаляет целиком записи, чья provenance пересекает точную пару, включая записи в сохранённых старых версиях — заранее удалять эти копии не нужно. Если команда называет нечитаемую копию, исправьте или удалите именно этот повреждённый файл и повторите purge. Команда сохраняет незатронутый остаток в новой версии и добавляет удалённые id в tombstones. Если purge удалил хотя бы один файл, его JSON содержит `runtimeRestartRequired: true`: **обязательно перезапустите runtime** (например, `systemctl restart <unit>` — см. [`http-api-runtime.md`](./http-api-runtime.md)) и убедитесь в логе старта, что загружена очищенная версия. Purge не считается завершённым до рестарта; при пустом плане выводит `runtimeRestartRequired: false`.
+
+## Операторские артефакты scope
+
+После purge справочника найдите операторские output-файлы группы по обязательному суффиксу `<companyId>.<groupId>`:
+
+```bash
+sudo ls -la /srv/minutka/operator/reports/*<company_id>.<group_id>*
+sudo find /srv/minutka/operator/reports -maxdepth 1 -type f \
+  -name '*<company_id>.<group_id>*' -delete
+```
+
+Так удаляются все review-pack `routine-directory-suggestions`, internal drafts `company-report`, `preflight-findings` и локальный `client-report` группы. Subject key в именах и содержимом отдельных файлов не выделяется, поэтому после subject purge безопасна только пересборка всего group scope. Уже переданный компании client artifact остаётся `not_recalled` — удаление локального файла не отзывает переданную копию; не обещайте автоматический отзыв или замену.
+
+Проверьте, что вне единственного разрешённого каталога справочника нет транзитных или сохранённых копий компании, и удалите всё найденное:
+
+```bash
+sudo find / -name 'routine-directory.<company_id>*' \
+  -not -path "$ROUTINE_DIRECTORY_DIR/*" -print
+# Для каждого найденного файла после проверки scope:
+sudo shred -u <found_path> || sudo rm -f <found_path>
+```
+
+## Проверка
+
+1. Убедитесь, что `deleted.participants` равен `1`, а `oldInviteRevoked` равен `true`.
+2. Проверьте отсутствие subject в `minutka_research.traces`, `minutka_research.evaluation_cases`, canonical messages и activities; `preserved.anonymousDeletionAudit` должен быть `true`, а `preserved.deliveredClientArtifacts` — `not_recalled`.
+3. Попытка открыть старый invite должна вернуть `invite_not_found`.
+4. Убедитесь, что runtime перезапущен после purge справочника и загрузил очищенную версию.
+5. Убедитесь, что операторские артефакты scope вне каталога справочника отсутствуют.
+6. Если client report ещё не передан, повторно сформируйте его и зафиксируйте recompute. Если передан — не обещайте автоматический отзыв/пересылку.
+
+После этого отчёт пересчитывается по очищенному справочнику; activities других сотрудников не удаляются. Новый доступ создаётся только новым инвайтом.

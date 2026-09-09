@@ -16,7 +16,7 @@
 6. Исправить или подтвердить high-находки через `resolve-finding`.
 7. Передать компании только результат `publish`.
 
-Все промежуточные файлы держите в операторском каталоге, не добавляйте их в репозиторий и не передавайте компании.
+Все промежуточные файлы держите в операторском каталоге, не добавляйте их в репозиторий и не передавайте компании. Имена всех output-файлов включают `<companyId>.<groupId>`, чтобы при purge удалить весь scope по разделу «Операторские артефакты scope» в [`research-scope-purge`](./research-scope-purge.md#операторские-артефакты-scope) или [`employee-personal-data-deletion`](./employee-personal-data-deletion.md#операторские-артефакты-scope).
 
 На production-хосте используйте установленные обёртки от имени `minutka`, загружая тот же `EnvironmentFile`, что и runtime. Не копируйте секреты в shell history:
 
@@ -27,7 +27,7 @@ sudo systemctl show minutka.service -p Environment --value \
     'set -a; while IFS= read -r item; do export "$item"; done; . /run/secrets/rendered/minutka.env; set +a; exec /run/current-system/sw/bin/minutka-company-report "$@"' \
   company-report build --company company_acme --group group_acme_2026_09 \
   --directory /srv/minutka/operator/routine-directories/routine-directory.company_acme.json \
-  --out /srv/minutka/operator/reports/company-report.draft.json
+  --out /srv/minutka/operator/reports/company-report.company_acme.group_acme_2026_09.draft.json
 ```
 
 Для `validate`/`suggest` аналогично используйте `minutka-routine-directory`; output-файлы остаются в `/srv/minutka/operator/reports/` с режимом `0600` и владельцем `minutka`.
@@ -67,7 +67,7 @@ npm run company-report -- build \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
-  --out ./operator/company-report.draft.json
+  --out ./operator/company-report.company_acme.group_acme_2026_09.draft.json
 ```
 
 По умолчанию отчёт включает только activities, чья `activityDate` входит в inclusive период группы. Для точного воспроизведения immutable corpus export дополнительно передайте его `manifest.exportedAt`:
@@ -91,7 +91,7 @@ npm run company-report -- build \
 
 ```bash
 jq '{schemaVersion: .internal.schemaVersion, directoryVersion: .internal.directoryVersion, routines: (.internal.routines | length), preflightFindings: .internal.preflightFindings}' \
-  ./operator/company-report.draft.json
+  ./operator/company-report.company_acme.group_acme_2026_09.draft.json
 ```
 
 ### 4. Предложить записи для остатка
@@ -103,7 +103,7 @@ npm run routine-directory -- suggest \
   --company company_acme \
   --group group_acme_2026_09 \
   --file ./operator/routine-directory.company_acme.json \
-  --out ./operator/routine-directory-suggestions.group_acme_2026_09.json
+  --out ./operator/routine-directory-suggestions.company_acme.group_acme_2026_09.json
 ```
 
 `routine-directory suggest` не изменяет справочник. Он возвращает review-pack с предложениями `attach`, `create` и `free` и опорными фразами. Методолог проверяет предложения, добавляет принятые записи или назначения в операторский JSON, увеличивает `version` на единицу и снова выполняет `validate`. `leave_free` остаётся свободным и не получает клиентского имени.
@@ -129,9 +129,12 @@ export ACTIVE="$DIRECTORY_DIR/routine-directory.$COMPANY_ID.json"
 
 # Новый reviewed JSON сначала передаётся в домашний каталог оператора,
 # затем устанавливается как immutable versioned copy с production permissions.
+# Единственное место хранения справочника и его версий — $ROUTINE_DIRECTORY_DIR.
 sudo install -o minutka -g minutka -m 0600 \
   /home/admin/routine-directory.$COMPANY_ID.$NEXT_VERSION.json \
   "$VERSIONED"
+shred -u /home/admin/routine-directory.$COMPANY_ID.$NEXT_VERSION.json \
+  || rm -f /home/admin/routine-directory.$COMPANY_ID.$NEXT_VERSION.json
 
 sudo systemctl show minutka.service -p Environment --value \
   | tr ' ' '\n' \
@@ -150,7 +153,7 @@ sudo journalctl -u minutka.service -n 100 --no-pager \
   | grep 'routine directory loaded'
 ```
 
-После рестарта журнал должен показать ожидаемые `companyId`, `version`, число entries и `disabled sections 0`. Затем заново выполните `build → preflight-llm → resolve-finding → publish`: изменение имени, категории или quick-win назначения меняет client DTO и делает прежний findings envelope устаревшим.
+После рестарта журнал должен показать ожидаемые `companyId`, `version`, число entries и `disabled sections 0`. Единственное место хранения справочника и его версий — `$ROUTINE_DIRECTORY_DIR`; исходная транзитная копия после `install` не сохраняется. Затем заново выполните `build → preflight-llm → resolve-finding → publish`: изменение имени, категории или quick-win назначения меняет client DTO и делает прежний findings envelope устаревшим.
 
 Versioned copy предыдущей версии не удаляйте: она нужна для rollback и воспроизводимости старого цикла. Для rollback так же атомарно установите прежний versioned-файл в active path и перезапустите runtime. Уже опубликованный client artifact при этом не переписывается. Если старый отчёт нужно пересобрать побайтно совместимо, передавайте использованную тогда versioned copy и тот же `--recorded-before`, а не текущий active-файл.
 
@@ -166,9 +169,9 @@ npm run company-report -- build \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
   --recorded-before 2026-09-04T10:15:59.635Z \
-  --out ./operator/company-report.v2.json
+  --out ./operator/company-report.company_acme.group_acme_2026_09.draft.json
 
-jq '.internal.preflightFindings' ./operator/company-report.v2.json
+jq '.internal.preflightFindings' ./operator/company-report.company_acme.group_acme_2026_09.draft.json
 ```
 
 `internal` v2 содержит `timeBudget`, `routines` и `preflightFindings`. У каждой routine проверьте каноническое имя, `scope`, evidence summary, stated recurrence, systems, confidence, quick win или deep-dive. Не переносите в client DTO `routineKey`, варианты labels, subject keys или evidence refs.
@@ -180,14 +183,14 @@ npm run company-report -- preflight-llm \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
-  --out ./operator/preflight-findings.json
+  --out ./operator/preflight-findings.company_acme.group_acme_2026_09.json
 ```
 
 Команда пересобирает internal DTO из canonical activities, передаёт модели только имена и варианты рутин и сохраняет envelope `minutka-report-preflight-findings/v1` с `scope`, `reportVersion` (sha256 текущего client DTO) и детерминированным lint вместе с результатом модели. Ответ модели содержит только `ok` или `flag`; при `flag` сохраняется причина, исходное имя не переписывается. `subjectKey`, сообщения и `evidenceRefs` в prompt не передаются. Невалидный ответ или ошибка провайдера прерывают команду до записи результата.
 
 ### 6. Решить high-находки
 
-Методолог читает объединённые `internal.preflightFindings` и `preflight-findings.json`. High-находка не означает автоматическое удаление текста: методолог либо подтверждает безопасный результат, либо исправляет справочник и пересобирает отчёт.
+Методолог читает объединённые `internal.preflightFindings` и `preflight-findings.<companyId>.<groupId>.json`. High-находка не означает автоматическое удаление текста: методолог либо подтверждает безопасный результат, либо исправляет справочник и пересобирает отчёт.
 
 ```bash
 npm run company-report -- resolve-finding \
@@ -196,10 +199,10 @@ npm run company-report -- resolve-finding \
   --directory ./operator/routine-directory.company_acme.json \
   --finding <finding-id> \
   --decision verified \
-  --findings ./operator/preflight-findings.json
+  --findings ./operator/preflight-findings.company_acme.group_acme_2026_09.json
 ```
 
-Для исправленной записи используйте `--decision fixed`. Замечание методолога храните в `methodologistNote` соответствующей записи справочника. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
+Для исправленной записи используйте `--decision fixed`. Замечание методолога храните в `methodologistNote` соответствующей записи справочника. Для детерминированной находки файл можно не передавать; для LLM-находки передайте тот же `preflight-findings.<companyId>.<groupId>.json`. После изменения справочника снова пройдите шаги `validate`, `build` и preflight: решение относится к hash конкретного client DTO.
 
 ### 7. Опубликовать client DTO
 
@@ -208,11 +211,11 @@ npm run company-report -- publish \
   --company company_acme \
   --group group_acme_2026_09 \
   --directory ./operator/routine-directory.company_acme.json \
-  --findings ./operator/preflight-findings.json \
-  --out ./operator/client-report.json
+  --findings ./operator/preflight-findings.company_acme.group_acme_2026_09.json \
+  --out ./operator/client-report.company_acme.group_acme_2026_09.json
 ```
 
-Команда заново пересчитывает report без передачи справочника через транспорт и требует envelope findings-файла с тем же `scope` и `reportVersion`. Отсутствующий или невалидный файл даёт `missing_findings`, чужой или устаревший hash — `stale_findings`; артефакт не создаётся. Затем findings объединяются с текущим lint и проверяются решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.json` находится единственный артефакт, который можно передать компании.
+Команда заново пересчитывает report без передачи справочника через транспорт и требует envelope findings-файла с тем же `scope` и `reportVersion`. Отсутствующий или невалидный файл даёт `missing_findings`, чужой или устаревший hash — `stale_findings`; артефакт не создаётся. Затем findings объединяются с текущим lint и проверяются решения методолога. Нерешённая high-находка даёт `unresolved_high_findings`, не создаёт client-файл и пишет в audit только scope, finding ids, причину и hash DTO. Medium и low находки publish не блокируют. При `ok: true` в `client-report.<companyId>.<groupId>.json` находится единственный артефакт, который можно передать компании.
 
 ## Confidence policy
 
