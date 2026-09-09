@@ -377,6 +377,9 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(first.client.topRoutines).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", quickWin: expect.objectContaining({ id: "report_template" }) }),
     ]));
+    expect(Object.keys(first.client.topRoutines.find((routine) => routine.quickWin !== undefined)!.quickWin!)).toEqual([
+      "id", "title", "whatChanges", "effort", "whoCanDo", "humanInTheLoop", "firstStep",
+    ]);
     expect(first.client.frictionRoutines).toEqual([
       expect.objectContaining({ name: "Подготовка отчётов", scope: "Продажи", signals: { manual_reporting: 1 } }),
     ]);
@@ -392,6 +395,9 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       expect.objectContaining({ workCategory: "other", observations: 3 }),
     ]));
     expect(first.internal.timeBudget.reduce((sum, entry) => sum + entry.observations, 0)).toBe(first.internal.coverage.observations);
+    expect(Object.keys(first.client.timeBudget[0]!)).toEqual([
+      "workCategory", "label", "estimatedHours", "share", "contributors", "observations", "unsizedObservations",
+    ]);
     expect(JSON.stringify(first.client.timeBudget)).not.toMatch(/taskCategory|focus_work|reporting|meetings|admin/);
     expect(JSON.stringify(first.internal.routines)).not.toContain("provenance");
   });

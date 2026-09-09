@@ -1,7 +1,7 @@
 import type { PersonalActivityRecord } from "./activity-collection.js";
 import type { ActivityDurationBucket, ActivityRecurrence, ActivitySystem, AutomationCandidateType, EnergyStressMarkerType, RoutinePatternType, TaskCategory } from "../domain/insights.js";
 import { loadRoutineDirectory, type RoutineDirectory, type RoutineDirectoryEntry } from "./routine-directory.js";
-import { findQuickWin, type QuickWinId } from "./quick-wins.js";
+import { findQuickWin, type QuickWin, type QuickWinId } from "./quick-wins.js";
 import { routineKey, tally } from "./own-activity-window.js";
 import { buildPreflightFindings, confidenceForCounts, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 import { workCategoryLabels, type WorkCategory } from "../domain/work-categories.js";
@@ -146,7 +146,7 @@ export type ClientRoutineEvidenceSummary = {
   unsizedObservations: number;
 };
 
-export type ClientQuickWin = NonNullable<ReturnType<typeof findQuickWin>>;
+export type ClientQuickWin = Pick<QuickWin, "id" | "title" | "whatChanges" | "effort" | "whoCanDo" | "humanInTheLoop" | "firstStep">;
 
 export type ClientRoutine = {
   name: string;
@@ -170,6 +170,16 @@ export type ClientFrictionRoutine = {
   deepDive?: true;
 };
 
+export type ClientTimeBudgetEntry = {
+  workCategory: WorkCategory;
+  label: string;
+  estimatedHours: number;
+  share: number;
+  contributors: number;
+  observations: number;
+  unsizedObservations: number;
+};
+
 export type ClientCompanyReport = {
   schemaVersion: "minutka-client-report.v2";
   title: string;
@@ -187,7 +197,7 @@ export type ClientCompanyReport = {
     coveredRoles: string[];
     limitations: string[];
   };
-  timeBudget: InternalTimeBudgetEntry[];
+  timeBudget: ClientTimeBudgetEntry[];
   topRoutines: ClientRoutine[];
   frictionRoutines: ClientFrictionRoutine[];
   firstSteps: Array<{ routine: string; firstStep: string; effort: "hours" | "days" | "weeks"; whoCanDo: string }>;
@@ -548,13 +558,37 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
       coveredRoles,
       limitations,
     },
-    timeBudget: internal.timeBudget,
+    timeBudget: toClientTimeBudget(internal.timeBudget),
     topRoutines,
     frictionRoutines,
     firstSteps,
     deepDive,
     cannotConclude: uniqueBy(cannotConclude, (item) => item),
   };
+}
+
+function toClientQuickWin(quickWin: QuickWin): ClientQuickWin {
+  return {
+    id: quickWin.id,
+    title: quickWin.title,
+    whatChanges: quickWin.whatChanges,
+    effort: quickWin.effort,
+    whoCanDo: quickWin.whoCanDo,
+    humanInTheLoop: quickWin.humanInTheLoop,
+    firstStep: quickWin.firstStep,
+  };
+}
+
+function toClientTimeBudget(timeBudget: readonly InternalTimeBudgetEntry[]): ClientTimeBudgetEntry[] {
+  return timeBudget.map((entry) => ({
+    workCategory: entry.workCategory,
+    label: entry.label,
+    estimatedHours: entry.estimatedHours,
+    share: entry.share,
+    contributors: entry.contributors,
+    observations: entry.observations,
+    unsizedObservations: entry.unsizedObservations,
+  }));
 }
 
 function toClientRoutine(routine: InternalRoutine, internal: InternalCompanyEvidenceReport): ClientRoutine {
@@ -566,7 +600,7 @@ function toClientRoutine(routine: InternalRoutine, internal: InternalCompanyEvid
     systems: routine.systems.map(systemLabel),
     statedRecurrence: routine.statedRecurrence,
     confidence: routine.confidence,
-    ...(quickWin === undefined ? { deepDive: true as const, question: routineQuestion(routine) } : { quickWin }),
+    ...(quickWin === undefined ? { deepDive: true as const, question: routineQuestion(routine) } : { quickWin: toClientQuickWin(quickWin) }),
   };
 }
 
@@ -578,7 +612,7 @@ function toClientFrictionRoutine(routine: InternalRoutine, internal: InternalCom
     signals: clientSignals(routine),
     evidenceSummary: routineEvidenceSummary(routine),
     confidence: routine.confidence,
-    ...(quickWin === undefined ? { deepDive: true as const } : { quickWin }),
+    ...(quickWin === undefined ? { deepDive: true as const } : { quickWin: toClientQuickWin(quickWin) }),
   };
 }
 

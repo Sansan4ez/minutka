@@ -18,6 +18,7 @@ import { buildActivityTransactionPrompt } from "../../../src/mastra/activity-tra
 import { planDirectoryPurge } from "../../../src/application/routine-directory-purge.js";
 import { runRoutineDirectoryPurge } from "../../../src/runtime/routine-directory-purge-command.js";
 import { loadRoutineDirectoryProviderFromDirectory } from "../../../src/infrastructure/routine-directory-provider.js";
+import { companyReportResponseSchema } from "../../../src/contracts/minutka-api.js";
 
 const directory = {
   schemaVersion: "minutka-routine-directory/v1",
@@ -90,7 +91,7 @@ function createHarness() {
   ];
   const reporting = new CompanyReportingService(
     createInMemoryCompanyReportStore({ participants, activities: state }),
-    clock.now,
+    () => clock.current,
   );
   const world = createInMemoryWorld(clock.now);
   const audit = createInMemoryAuditEventStore(world);
@@ -183,8 +184,10 @@ describe("SPEC-MINUTKA-ROUTINE-INVENTORY-GATE-001: end-to-end routine inventory 
     expect(unnamed).toMatchObject({ severity: "high", field: "policy" });
     expect(report.internal.preflightFindings).toContainEqual(expect.objectContaining({ id: unnamed?.id }));
     expect(report.client.schemaVersion).toBe("minutka-client-report.v2");
+    const parsedReport = companyReportResponseSchema.safeParse(report);
+    expect(parsedReport.success, parsedReport.success ? undefined : parsedReport.error.message).toBe(true);
     const clientJson = JSON.stringify(report.client);
-    for (const forbidden of ["subject_a", "subject_b", "employee_a", "employee_b", "routineId", "routineKey", "routineLabel", "variants", "evidenceRefs", "sourceMessageId"]) {
+    for (const forbidden of ["subject_a", "subject_b", "employee_a", "employee_b", "routineId", "routineKey", "routineLabel", "variants", "evidenceRefs", "sourceMessageId", "typicalFor"]) {
       expect(clientJson).not.toContain(forbidden);
     }
 
