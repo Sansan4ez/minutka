@@ -139,7 +139,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     })]);
     expect(result.client.coverage).toMatchObject({
       coveredRoles: ["Продажи"],
-      limitations: expect.arrayContaining(["Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка"]),
+      limitations: expect.arrayContaining(["Роль Продажи представлена одним участником; её повторяющиеся операции — самоотчёт одного человека, не оценка"]),
     });
     expect(result.internal.preflightFindings.filter(({ rule }) => rule === "single_contributor_energy")).toEqual([]);
   });
@@ -176,7 +176,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
       signals: { manual_reporting: 1, fatigue: 1, frustration: 1 },
     })]);
     expect(result.client.coverage.coveredRoles).toEqual(["Продажи"]);
-    expect(result.client.coverage.limitations).not.toContain("Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка");
+    expect(result.client.coverage.limitations).not.toContain("Роль Продажи представлена одним участником; её повторяющиеся операции — самоотчёт одного человека, не оценка");
   });
 
   it("omits a single-contributor routine with energy only from friction routines", async () => {
@@ -362,15 +362,15 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(first.internal.routines).toHaveLength(4);
     expect(first.client).toMatchObject({
       schemaVersion: "minutka-client-report.v2",
-      title: "Карта рутин и быстрых улучшений",
+      title: "Карта повторяющихся операций и быстрых улучшений",
       companyLabel: "Компания ACME",
       groupLabel: "Пилотная группа",
       period: { start: "2026-08-01", end: "2026-08-31" },
       coverage: {
         coveredRoles: ["Логистика", "Продажи"],
         limitations: expect.arrayContaining([
-          "Роль Логистика представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
-          "Роль Продажи представлена одним участником; её рутины — самоотчёт одного человека, не оценка",
+          "Роль Логистика представлена одним участником; её повторяющиеся операции — самоотчёт одного человека, не оценка",
+          "Роль Продажи представлена одним участником; её повторяющиеся операции — самоотчёт одного человека, не оценка",
         ]),
       },
     });
@@ -446,7 +446,7 @@ describe("SPEC-MINUTKA-COMPANY-REPORT-001: canonical subject-aware reporting", (
     expect(result.client.frictionRoutines).toEqual([]);
     expect(result.client.firstSteps).toEqual([]);
     expect(result.client.deepDive).toEqual([]);
-    expect(result.client.cannotConclude).toContain("Рутины с менее чем тремя наблюдениями за цикл не показаны");
+    expect(result.client.cannotConclude).toContain("Повторяющиеся операции с менее чем тремя наблюдениями за цикл не показаны");
 
     const enough = await service(participants, [
       ...rows,

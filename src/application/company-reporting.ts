@@ -486,11 +486,11 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     .map(([roleId]) => roleLabels[roleId])
     .filter((role): role is string => role !== undefined)
     .sort()
-    .map((role) => `Роль ${role} представлена одним участником; её рутины — самоотчёт одного человека, не оценка`);
+    .map((role) => `Роль ${role} представлена одним участником; её повторяющиеся операции — самоотчёт одного человека, не оценка`);
   const limitations = [
     ...(coverage.contributors < 2 ? ["Наблюдения внесены одним contributor; межсубъектная повторяемость не проверена"] : []),
     ...(coverage.activeDates < 3 ? ["Наблюдения покрывают меньше трёх рабочих дат"] : []),
-    ...(coverage.unattributedObservations.count > 0 ? ["Часть времени не удалось предметно связать с проверенной рутиной; она показана как остаток «Другое / не удалось классифицировать»"] : []),
+    ...(coverage.unattributedObservations.count > 0 ? ["Часть времени не удалось связать с записями справочника повторяющихся операций: сотрудник описал работу, но она не совпала ни с одной проверенной операцией (разовые задачи, работа вне справочника, нераспознанные формулировки). Это время показано остатком «Другое / не удалось классифицировать» и по предметным категориям не распределено"] : []),
     ...singleContributorRoleLimitations,
   ];
   const namedRoutines = internal.routines.filter((routine) =>
@@ -516,13 +516,13 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
       name: routine.name!,
       scope: routineScope(routine, internal),
       question: routineQuestion(routine),
-      reason: routine.quickWin === "deep_dive" ? "Запись справочника требует углублённого обследования" : "Для этой рутины пока не назначено быстрое улучшение",
+      reason: routine.quickWin === "deep_dive" ? "Запись справочника требует углублённого обследования" : "Для этой операции пока не назначено быстрое улучшение",
     }));
   const unsizedShare = coverage.observations === 0 ? 0 : Math.round((coverage.unsizedObservations / coverage.observations) * 100);
   const cannotConclude = [
     ...(coverage.unsizedObservations > 0 ? [`Точные часы: ${unsizedShare} % наблюдений без длительности; часы — порядок величины по самоотчётам`] : []),
     ...(internal.routines.some((routine) => routine.name !== undefined && routine.observations < COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations)
-      ? ["Рутины с менее чем тремя наблюдениями за цикл не показаны"]
+      ? ["Повторяющиеся операции с менее чем тремя наблюдениями за цикл не показаны"]
       : []),
     "Эффект и prerequisites быстрых улучшений требуют обследования процесса (второй этап)",
     ...limitations.map((limitation) => `Ограничение покрытия: ${limitation}`),
@@ -533,7 +533,7 @@ function buildClientReport(internal: InternalCompanyEvidenceReport): ClientCompa
     .sort();
   return {
     schemaVersion: "minutka-client-report.v2",
-    title: "Карта рутин и быстрых улучшений",
+    title: "Карта повторяющихся операций и быстрых улучшений",
     companyLabel: internal.reference?.companyLabel ?? internal.companyId,
     groupLabel: internal.reference?.groupLabel ?? internal.groupId,
     period: internal.period,
@@ -605,7 +605,7 @@ function routineScope(routine: InternalRoutine, internal: InternalCompanyEvidenc
 }
 
 function routineQuestion(routine: InternalRoutine): string {
-  return `Как устроена рутина «${routine.name}» и какую её часть можно упростить без потери контроля?`;
+  return `Как устроена операция «${routine.name}» и какую её часть можно упростить без потери контроля?`;
 }
 
 function effortRank(effort: "hours" | "days" | "weeks"): number {
