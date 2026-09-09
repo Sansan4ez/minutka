@@ -19,18 +19,23 @@ import { createInMemoryIdeaStore } from "../../../src/application/in-memory-idea
 import { createInMemoryInsightStore } from "../../../src/application/in-memory-insight-store.js";
 import { createInMemoryProfileStore } from "../../../src/application/in-memory-profile-store.js";
 import { createInMemoryScheduleStore } from "../../../src/application/in-memory-schedule-store.js";
+import { createInMemoryTenantDirectoryStore } from "../../../src/application/in-memory-tenant-directory-store.js";
+import type { TrainingGroupPeriod } from "../../../src/application/tenant-directory-store.js";
 import { createInMemoryWorld } from "../../../src/application/in-memory-world.js";
 import { createIngestionService } from "../../../src/application/ingestion-service.js";
 import { createRuntimeProjectionBuilder } from "../../../src/application/runtime-projections/runtime-projection-builder.js";
 import { ownerManagedScheduledProcessIds } from "../../../src/domain/assistant-process.js";
 import { runArmFinalReportsCommand } from "../../../src/runtime/arm-final-reports-command.js";
 
-// Last day of the two-week cycle; the window covers the previous 13 days too.
+// Last day of the group cycle 2026-08-15..2026-08-28, so the fourteen-day
+// fallback and the group period cover the same days unless a test says otherwise.
 const lastCycleDay = "2026-08-28T14:00:00.000Z";
+const groupPeriod: TrainingGroupPeriod = { start: "2026-08-15", end: "2026-08-28" };
 
-function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
+function harness(runner: ConstructorParameters<typeof AssistantService>[0], options: { period?: TrainingGroupPeriod } = {}) {
   const clock = { now: () => lastCycleDay };
   const world = createInMemoryWorld(clock.now);
+  world.tenantDirectories.groups = [{ id: "group_a", companyId: "company_a", ...(options.period === undefined ? {} : { period: options.period }) }];
   for (const employeeId of ["employee_a", "employee_b"]) {
     world.participants.push({
       employeeId, companyId: "company_a", groupId: "group_a", subjectKey: `subject_${employeeId}`,
@@ -68,6 +73,7 @@ function harness(runner: ConstructorParameters<typeof AssistantService>[0]) {
     }),
     collectActivities: (command) => activities.collectBatch(command),
     readCycleActivities: (input) => cycle.summarize(input),
+    groupPeriods: createInMemoryTenantDirectoryStore(world.tenantDirectories),
     requestIntegrityGuard: async () => ({ status: "allowed" }),
     clock,
   });
@@ -119,7 +125,49 @@ function twoWeekCycle(employeeId = "employee_a") {
 }
 
 describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week cycle", () => {
-  it("counts only the employee's own activities inside the fourteen local days", async () => {
+  it("counts the employee's own activities of the group period, as the company report does", async () => {
+    const { state, cycle } = harness(async () => "unused");
+    state.activities.push(
+      // The day before a nineteen-day cycle stays out; the fifth day of that
+      // cycle is inside it although a fourteen-day window would drop it.
+      record({ employeeId: "employee_a", activityDate: "2026-08-09", taskCategory: "coordination" }),
+      record({ employeeId: "employee_a", activityDate: "2026-08-12", taskCategory: "coordination" }),
+      ...twoWeekCycle(),
+      record({ employeeId: "employee_b", activityDate: "2026-08-26", taskCategory: "coordination" }),
+    );
+    const longCycle = { start: "2026-08-10", end: "2026-08-28" };
+
+    const summary = await cycle.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow", period: longCycle });
+    expect(summary).toMatchObject({ fromDate: "2026-08-10", toDate: "2026-08-28", activityCount: 7, activeDates: 7, sufficientData: true });
+    expect(summary.taskCategories).toEqual(expect.arrayContaining([{ value: "reporting", count: 5 }, { value: "coordination", count: 1 }]));
+    // A cycle shorter than two weeks counts only its own days; the sufficiency
+    // thresholds do not shrink with it.
+    await expect(cycle.summarize({ employeeId: "employee_a", timezone: "Europe/Moscow", period: { start: "2026-08-20", end: "2026-08-28" } })).resolves.toMatchObject({
+      fromDate: "2026-08-20", toDate: "2026-08-28", activityCount: 4, activeDates: 4, sufficientData: false,
+    });
+    // Another participant of the same group still sees only their own rows.
+    await expect(cycle.summarize({ employeeId: "employee_b", timezone: "Europe/Moscow", period: longCycle })).resolves.toMatchObject({
+      activityCount: 1, taskCategories: [{ value: "coordination", count: 1 }],
+    });
+  });
+
+  it("keeps the cycle days fixed whether the report runs after the cycle or before it ends", async () => {
+    const state = createInMemoryActivityCollectionState();
+    state.activities.push(...twoWeekCycle(), record({ employeeId: "employee_a", activityDate: "2026-08-30", taskCategory: "meetings" }));
+    const reads = createInMemoryOwnActivityReadStore(state);
+    // Four days after the cycle: the late activity stays out and the first cycle day stays in.
+    await expect(new CycleActivitySummaryService(reads, { now: () => "2026-09-01T14:00:00.000Z" })
+      .summarize({ employeeId: "employee_a", timezone: "Europe/Moscow", period: groupPeriod })).resolves.toMatchObject({
+      fromDate: "2026-08-15", toDate: "2026-08-28", activityCount: 6, activeDates: 6,
+    });
+    // Before the cycle ends: today closes the window; the start is still the cycle start.
+    await expect(new CycleActivitySummaryService(reads, { now: () => "2026-08-25T14:00:00.000Z" })
+      .summarize({ employeeId: "employee_a", timezone: "Europe/Moscow", period: groupPeriod })).resolves.toMatchObject({
+      fromDate: "2026-08-15", toDate: "2026-08-25", activityCount: 4, activeDates: 4,
+    });
+  });
+
+  it("falls back to the last fourteen local days only for a participant without a group period", async () => {
     const { state, cycle } = harness(async () => "unused");
     state.activities.push(
       // The day before the cycle: outside the horizon and outside the report.
@@ -230,14 +278,19 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(JSON.stringify(summary)).not.toContain("evidenceRefs");
   });
 
-  it("answers the final touch from the typed read and records nothing", async () => {
+  it("answers the final touch from the typed read over the participant's group period and records nothing", async () => {
     let seen: Awaited<ReturnType<CycleActivitySummaryService["summarize"]>> | undefined;
     const { service, state, world } = harness(async (_input, context) => {
       context.markProcessUsed("final_report");
       seen = await context.readCycleActivities();
       return `За две недели повторялось: ${seen.confirmedPatterns.taskCategories.join(", ")}. Шаг: соберите отчёт по шаблону.`;
-    });
-    state.activities.push(...twoWeekCycle(), record({ employeeId: "employee_b", activityDate: "2026-08-26", taskCategory: "coordination" }));
+    }, { period: { start: "2026-08-10", end: "2026-08-28" } });
+    state.activities.push(
+      ...twoWeekCycle(),
+      // Inside the group's nineteen-day cycle, outside a fourteen-day window.
+      record({ employeeId: "employee_a", activityDate: "2026-08-12", taskCategory: "coordination" }),
+      record({ employeeId: "employee_b", activityDate: "2026-08-26", taskCategory: "coordination" }),
+    );
     const activitiesBefore = state.activities.length;
 
     const result = await service.chat({
@@ -246,7 +299,8 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
 
     expect(result.selectedProcessIds).toEqual(["core", "final_report"]);
     expect(result.effect).toBe("none");
-    expect(seen).toMatchObject({ activityCount: 6, sufficientData: true });
+    // The period comes from the participant's tenant binding, not from the run date.
+    expect(seen).toMatchObject({ fromDate: "2026-08-10", toDate: "2026-08-28", activityCount: 7, sufficientData: true });
     expect(result.response).toContain("reporting");
     // Neither the corpus nor the personal profile changes because of the report.
     expect(state.activities).toHaveLength(activitiesBefore);
@@ -345,12 +399,16 @@ describe("SPEC-MINUTKA-FINAL-REPORT-001: final personal report of the two-week c
     expect(runbook).toContain("Личный отчёт не входит в артефакт компании");
     expect(runbook).toContain("удаление обезличенного среза компании его не затрагивает");
     expect(runbook).toContain("данных за цикл мало");
+    expect(runbook).toContain("Дата запуска не влияет на выборку");
+    expect(runbook).toContain("Период группы в production совпадает");
     const skillsMap = readFileSync("docs/product/skills-map.md", "utf8");
     expect(skillsMap).toContain("final_report");
     expect(skillsMap).toContain("readCycleActivities");
+    expect(skillsMap).toContain("за период учебной группы");
     const process = readFileSync("vault/assistant/processes/final_report.md", "utf8");
     expect(process).toContain("read-only");
     expect(process).toContain("routines[]");
+    expect(process).toContain("fromDate–toDate");
     expect(process).toContain("frequency from `count`");
     expect(process).toContain("which of these routines would the employee like to simplify?");
     expect(process).toContain("corpus signal");

@@ -272,6 +272,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       supersedeRecentActivity: ({ employeeId, companyId, groupId, sourceMessageId, ...input }) => activityCorrections.supersede({ employeeId, companyId, groupId, sourceMessageId }, input),
       readWeeklyActivities: (input) => weeklyActivitySummary.summarize(input),
       readCycleActivities: (input) => cycleActivitySummary.summarize(input),
+      groupPeriods: stores.tenantDirectoryStore,
       projectLabels,
       taskStore,
       taskMutations,

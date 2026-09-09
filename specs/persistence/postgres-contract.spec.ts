@@ -11,6 +11,7 @@ import { createPostgresConsentAcceptanceStore } from "../../src/infrastructure/p
 import { createPostgresTelegramInviteRedemptionStore } from "../../src/infrastructure/postgres/postgres-telegram-invite-redemption-store.js";
 import { createPostgresTelegramSessionStore } from "../../src/infrastructure/postgres/postgres-telegram-session-store.js";
 import { createPostgresOnboardingDraftStore } from "../../src/infrastructure/postgres/postgres-onboarding-draft-store.js";
+import { createPostgresTenantDirectoryStore } from "../../src/infrastructure/postgres/postgres-tenant-directory-store.js";
 import { Readable } from "node:stream";
 import { readFileSync } from "node:fs";
 import { ArtifactOwnerQuotaExceededError } from "../../src/application/artifact-capacity.js";
@@ -669,6 +670,18 @@ describe("PostgreSQL storage contracts", () => {
       },
     });
 
+    // With the group period the report counts the cycle days, not the run date.
+    await expect(new CycleActivitySummaryService(reads, lastCycleDay)
+      .summarize({ employeeId: "own_window_a", timezone: "Etc/UTC", period: { start: "2026-08-17", end: "2026-08-24" } })).resolves.toMatchObject({
+      fromDate: "2026-08-17",
+      toDate: "2026-08-24",
+      activityCount: 4,
+      activeDates: 4,
+      // Four activities over a short cycle: the sufficiency thresholds do not shrink with the period.
+      sufficientData: false,
+      routines: [],
+    });
+
     // The other owner's single day is neither borrowed nor leaked.
     await expect(new CycleActivitySummaryService(reads, lastCycleDay)
       .summarize({ employeeId: "own_window_b", timezone: "Etc/UTC" })).resolves.toMatchObject({
@@ -679,6 +692,28 @@ describe("PostgreSQL storage contracts", () => {
     // The window read carries no research identifier toward the personal report.
     expect(JSON.stringify(await reads.listOwnActivities({ employeeId: "own_window_a", fromDate: "2026-08-15", toDate: "2026-08-28" })))
       .not.toMatch(/subject|activityId|sourceMessageId/u);
+  });
+
+  it("reads the training group's cycle as the same inclusive dates the company report exposes", async () => {
+    const companyId = "company_group_period";
+    const groupId = "group_group_period";
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.companies (id, name) VALUES ($1, 'Group Period Co') ON CONFLICT (id) DO NOTHING`,
+      [companyId],
+    );
+    await migrationPool.query(
+      `INSERT INTO minutka_reference.training_groups (id, company_id, name, period)
+       VALUES ($1, $2, 'Green cycle', daterange('2026-08-19', '2026-09-05', '[)'))
+       ON CONFLICT (id) DO NOTHING`,
+      [groupId, companyId],
+    );
+    const directory = createPostgresTenantDirectoryStore(pool);
+
+    // The exclusive daterange upper bound becomes the inclusive final cycle day.
+    await expect(directory.getGroupPeriod({ companyId, groupId })).resolves.toEqual({ start: "2026-08-19", end: "2026-09-04" });
+    // The period is readable only through the group's own company binding.
+    await expect(directory.getGroupPeriod({ companyId: "company_persistence_default", groupId })).resolves.toBeUndefined();
+    await expect(directory.getGroupPeriod({ companyId, groupId: "group_missing" })).resolves.toBeUndefined();
   });
 
   it("persists metadata-only usage and aggregates it by owner and month", async () => {

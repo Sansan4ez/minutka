@@ -2,16 +2,16 @@
 
 ## Purpose
 
-Return the authenticated employee's own structured activities of the last fourteen local days as counts, so the final personal report rests on the cycle that actually happened.
+Return the authenticated employee's own structured activities of the programme cycle as counts — the training group's period as inclusive local dates, cut at today while the cycle is still running — so the final personal report rests on the same cycle the company report counts.
 
 ## Inputs
 
-None. The employee and their timezone are bound by `AssistantService` outside model input; the window is derived from the application clock.
+None. The employee, their timezone, and the group period are bound by `AssistantService` outside model input; the run date never selects the cycle. A participant without a directory group falls back to the last fourteen local days ending today.
 
 ## Output
 
-Counted closed-dictionary tallies for the cycle: task categories, routine patterns, automation candidates, energy/stress markers, duration buckets, and systems, plus `activityCount`, `activeDates`, `sufficientData`, `patternMinimumCount`, and `confirmedPatterns` — the values the application confirmed as repeated. It also returns `routines` grouped from this employee's own labelled activities; only routines repeated at least `patternMinimumCount` times are included, with the employee's `label`, `count`, `activeDates`, and optional `statedRecurrence`. It carries no hours, routine id, subject key, activity id, evidence refs, or other participant's data.
+Counted closed-dictionary tallies for the cycle: task categories, routine patterns, automation candidates, energy/stress markers, duration buckets, and systems, plus `fromDate`/`toDate` (the counted cycle days, which the report may name), `activityCount`, `activeDates`, `sufficientData`, `patternMinimumCount`, and `confirmedPatterns` — the values the application confirmed as repeated. It also returns `routines` grouped from this employee's own labelled activities; only routines repeated at least `patternMinimumCount` times are included, with the employee's `label`, `count`, `activeDates`, and optional `statedRecurrence`. It carries no hours, routine id, subject key, activity id, evidence refs, or other participant's data.
 
 ## Boundary
 
-Read-only and owner-scoped. It reads the employee's own canonical activities only — never another employee's rows, never a group or company aggregate, and never the prepared client report. Only a value listed in `confirmedPatterns` may be called a pattern; a false `sufficientData` means the cycle is too thin to describe two weeks, and the report must say so rather than fill the gap.
+Read-only and owner-scoped. It reads the employee's own canonical activities only — never another employee's rows, never a group or company aggregate, and never the prepared client report. Only a value listed in `confirmedPatterns` may be called a pattern; a false `sufficientData` means the cycle is too thin to describe, and the report must say so rather than fill the gap.

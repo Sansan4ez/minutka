@@ -1,7 +1,7 @@
-import type { CompanyRole, TenantDirectoryStore } from "./tenant-directory-store.js";
+import type { CompanyRole, TenantDirectoryStore, TrainingGroupPeriod } from "./tenant-directory-store.js";
 
 export type InMemoryTenantDirectories = {
-  groups: Array<{ id: string; companyId: string }>;
+  groups: Array<{ id: string; companyId: string; period?: TrainingGroupPeriod }>;
   roles: CompanyRole[];
 };
 
@@ -11,6 +11,9 @@ export function createInMemoryTenantDirectoryStore(
   return {
     async groupBelongsToCompany({ companyId, groupId }) {
       return directories.groups.some((group) => group.id === groupId && group.companyId === companyId);
+    },
+    async getGroupPeriod({ companyId, groupId }) {
+      return directories.groups.find((group) => group.id === groupId && group.companyId === companyId)?.period;
     },
     async listRoles(companyId) {
       return directories.roles

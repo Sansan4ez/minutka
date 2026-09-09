@@ -3,6 +3,7 @@ import { mapPostgresError } from "../../application/persistence-error.js";
 import type { Pool } from "pg";
 
 type RoleRow = { id: string; company_id: string; name: string };
+type PeriodRow = { period_start: string | null; period_end: string | null };
 
 export function createPostgresTenantDirectoryStore(pool: Pool): TenantDirectoryStore {
   return {
@@ -13,6 +14,21 @@ export function createPostgresTenantDirectoryStore(pool: Pool): TenantDirectoryS
           [companyId, groupId],
         );
         return result.rowCount === 1;
+      } catch (error) {
+        throw mapPostgresError(error);
+      }
+    },
+    async getGroupPeriod({ companyId, groupId }) {
+      try {
+        const result = await pool.query<PeriodRow>(
+          // daterange upper bounds are exclusive; the personal report counts the
+          // same inclusive final day as the company report.
+          `SELECT lower(period)::text AS period_start, (upper(period) - 1)::text AS period_end
+           FROM minutka_reference.training_groups WHERE company_id = $1 AND id = $2`,
+          [companyId, groupId],
+        );
+        const row = result.rows[0];
+        return row?.period_start && row.period_end ? { start: row.period_start, end: row.period_end } : undefined;
       } catch (error) {
         throw mapPostgresError(error);
       }

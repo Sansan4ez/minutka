@@ -48,7 +48,7 @@ export const cycleActivitySummarySchema = z.strictObject({
 export function createReadCycleActivitiesTool(readCycleActivities: () => Promise<CycleActivitySummary>) {
   return createTool({
     id: readCycleActivitiesToolName,
-    description: "Read counted structured activities the authenticated employee reported over the last fourteen days. Counts come from the application, not from the model: name only what this result contains, call a pattern only what confirmedPatterns lists, and when sufficientData is false say the cycle is too thin instead of describing a pattern.",
+    description: "Read counted structured activities the authenticated employee reported over the programme cycle: the training group's period as inclusive dates, cut at today while the cycle is still running (fromDate and toDate name the counted days and may be quoted). Counts come from the application, not from the model: name only what this result contains, call a pattern only what confirmedPatterns lists, and when sufficientData is false say the cycle is too thin instead of describing a pattern.",
     strict: true,
     inputSchema: z.strictObject({}),
     outputSchema: cycleActivitySummarySchema,

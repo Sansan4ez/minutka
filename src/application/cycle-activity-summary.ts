@@ -17,11 +17,13 @@ import {
   type PersonalRoutineSummary,
 } from "./own-activity-window.js";
 import { systemClock, type Clock } from "./runtime-primitives.js";
+import type { TrainingGroupPeriod } from "./tenant-directory-store.js";
 
 /**
- * Inclusive local-date horizon of the final personal report — the two-week
- * programme cycle. The operator runs the report at the end of the cycle, so the
- * window is anchored on the employee's today instead of the group period row.
+ * Fallback inclusive local-date horizon of the final personal report — the
+ * nominal two-week programme cycle. It applies only when the participant's
+ * group carries no period; otherwise the report counts the group period, the
+ * same inclusive dates the company report filters activities by.
  */
 export const cycleSummaryWindowDays = 14;
 
@@ -41,6 +43,13 @@ export type CycleConfirmedPatterns = {
   automationCandidates: AutomationCandidateType[];
   energyStressMarkers: EnergyStressMarkerType[];
   systems: ActivitySystem[];
+};
+
+export type CycleActivitySummaryInput = {
+  employeeId: string;
+  timezone: string;
+  /** The group's cycle; absent only for a participant without a directory group. */
+  period?: TrainingGroupPeriod;
 };
 
 export type CycleActivitySummary = {
@@ -73,11 +82,11 @@ export class CycleActivitySummaryService {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  async summarize(input: { employeeId: string; timezone: string }): Promise<CycleActivitySummary> {
+  async summarize(input: CycleActivitySummaryInput): Promise<CycleActivitySummary> {
     const employeeId = input.employeeId.trim();
     if (!employeeId) throw new Error("employeeId is required");
-    const toDate = calendarDateInIanaTimezone(this.clock.now(), input.timezone);
-    const fromDate = shiftCalendarDate(toDate, 1 - cycleSummaryWindowDays);
+    const today = calendarDateInIanaTimezone(this.clock.now(), input.timezone);
+    const { fromDate, toDate } = cycleWindow(today, input.period);
     const window = { employeeId, fromDate, toDate };
     const activities = ownActivitiesInWindow(await this.store.listOwnActivities(window), window);
     const activeDates = new Set(activities.map((activity) => activity.activityDate)).size;
@@ -113,6 +122,17 @@ export class CycleActivitySummaryService {
       },
     };
   }
+}
+
+/**
+ * The personal report counts the group period as inclusive local dates, cut at
+ * the employee's today when the report runs before the cycle ends, so the run
+ * date never changes which cycle days are counted. Without a period the window
+ * is the last fourteen local days ending today.
+ */
+export function cycleWindow(today: string, period?: TrainingGroupPeriod): { fromDate: string; toDate: string } {
+  if (period === undefined) return { fromDate: shiftCalendarDate(today, 1 - cycleSummaryWindowDays), toDate: today };
+  return { fromDate: period.start, toDate: period.end < today ? period.end : today };
 }
 
 function repeated<Value extends string>(tallies: ActivityTally<Value>[]): Value[] {

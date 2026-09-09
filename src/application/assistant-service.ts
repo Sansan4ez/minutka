@@ -52,7 +52,8 @@ import type { CollectActivitiesResult } from "./activity-collection.js";
 import type { ActivityTransactionMode } from "./activity-transaction-extractor.js";
 import type { ActivityTransactionServiceResult } from "./activity-transaction-service.js";
 import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
-import type { CycleActivitySummary } from "./cycle-activity-summary.js";
+import type { CycleActivitySummary, CycleActivitySummaryInput } from "./cycle-activity-summary.js";
+import type { TenantDirectoryStore } from "./tenant-directory-store.js";
 import type { RecentOwnActivitiesResult } from "./recent-own-activities.js";
 import type {
   ActivityMutationResult,
@@ -176,7 +177,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; processCurrentActivityTurn?: (input: { employeeId: string; companyId: string; groupId: string; subjectKey: string; sourceMessageId: string; roleId: string; timezone: string; currentText: string; signal?: AbortSignal; mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult>; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: { employeeId: string; timezone: string }) => Promise<CycleActivitySummary>; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; processCurrentActivityTurn?: (input: { employeeId: string; companyId: string; groupId: string; subjectKey: string; sourceMessageId: string; roleId: string; timezone: string; currentText: string; signal?: AbortSignal; mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult>; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: CycleActivitySummaryInput) => Promise<CycleActivitySummary>; groupPeriods?: Pick<TenantDirectoryStore, "getGroupPeriod">; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -667,13 +668,19 @@ export class AssistantService {
       observedExecutionTrace.push({ kind: "tool", toolName: "readWeeklyActivities" });
       return summary;
     };
-    // Read-only: the final report counts the same own activities over the whole
-    // cycle and never widens the window beyond the employee's own rows.
+    // Read-only: the final report counts the employee's own activities over the
+    // group's cycle — the same period the company report filters by — and never
+    // widens the window beyond the employee's own rows. The period comes from the
+    // participant's tenant binding, never from model input.
     const readCycleActivities = async () => {
       if (!this.deps.readCycleActivities) throw new Error("cycle activity summary is not configured");
       const timezone = profile?.timezone;
       if (!timezone) throw new PersistenceError("profile_not_found");
-      const summary = await this.deps.readCycleActivities({ employeeId: userId, timezone });
+      const participant = await this.deps.participantStore?.getParticipant(userId);
+      const period = participant && this.deps.groupPeriods
+        ? await this.deps.groupPeriods.getGroupPeriod({ companyId: participant.companyId, groupId: participant.groupId })
+        : undefined;
+      const summary = await this.deps.readCycleActivities({ employeeId: userId, timezone, ...(period === undefined ? {} : { period }) });
       observedExecutionTrace.push({ kind: "tool", toolName: "readCycleActivities" });
       return summary;
     };
