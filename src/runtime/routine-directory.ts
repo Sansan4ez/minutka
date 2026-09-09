@@ -53,14 +53,14 @@ export async function runRoutineDirectoryCommand(argv: string[], write: (text: s
     .requiredOption("--company <companyId>")
     .option("--group <groupId>")
     .option("--subject-key <subjectKey>")
-    .requiredOption("--dir <versionsDir>")
+    .option("--dir <path>", "routine directory dir; defaults to ROUTINE_DIRECTORY_DIR")
     .option("--dry-run")
-    .action(async (options: { company: string; group?: string; subjectKey?: string; dir: string; dryRun?: boolean }) => {
+    .action(async (options: { company: string; group?: string; subjectKey?: string; dir?: string; dryRun?: boolean }) => {
       await runRoutineDirectoryPurge({
         company: options.company,
         ...(options.group === undefined ? {} : { group: options.group }),
         ...(options.subjectKey === undefined ? {} : { subjectKey: options.subjectKey }),
-        dir: options.dir,
+        ...(options.dir === undefined ? {} : { dir: options.dir }),
         dryRun: options.dryRun,
       }, write);
     });

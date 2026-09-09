@@ -239,6 +239,48 @@ describe("SPEC-MINUTKA-ROUTINE-DIRECTORY-PURGE-001: routine directory purge", ()
     expect(JSON.parse(output)).toMatchObject({ ok: true, version: "1", entries: 1 });
   });
 
+  it("purges the active file, versions and tombstones in ROUTINE_DIRECTORY_DIR when --dir is omitted", async () => {
+    const shared = base("1", [
+      entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }]),
+      entry("b", [{ groupId: "group_a", subjectKey: "subject_b" }]),
+    ]);
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", shared],
+      ["routine-directory.company_a.1.json", shared],
+    ]);
+    let output = "";
+    await runRoutineDirectoryPurge(
+      { company: "company_a", group: "group_a", subjectKey: "subject_a" },
+      (text) => { output += text; },
+      { ROUTINE_DIRECTORY_DIR: directory },
+    );
+    expect(JSON.parse(output)).toMatchObject({ affectedEntries: 1, filesDeleted: 2, runtimeRestartRequired: true });
+    expect((await readdir(directory)).sort()).toEqual([
+      "routine-directory.company_a.2.json",
+      "routine-directory.company_a.json",
+      "routine-directory.company_a.tombstones.json",
+    ]);
+    const active = JSON.parse(await readFile(join(directory, "routine-directory.company_a.json"), "utf8")) as RoutineDirectory;
+    expect(active.version).toBe("2");
+    expect(active.sections[0]?.entries.map(({ id }) => id)).toEqual(["b"]);
+    expect(JSON.parse(await readFile(join(directory, "routine-directory.company_a.tombstones.json"), "utf8"))).toEqual({ ids: ["a"] });
+    const loaded = loadRoutineDirectoryProviderFromDirectory(directory).directories.get("company_a");
+    expect(loaded?.version).toBe("2");
+    expect(loaded?.sections.flatMap(({ entries }) => entries.map(({ id }) => id))).toEqual(["b"]);
+  });
+
+  it("refuses to purge without --dir when ROUTINE_DIRECTORY_DIR is not configured", async () => {
+    const directory = await fixtureDirectory([
+      ["routine-directory.company_a.json", base("1", [entry("a", [{ groupId: "group_a", subjectKey: "subject_a" }])])],
+    ]);
+    const before = await readdir(directory);
+    await expect(runRoutineDirectoryPurge({ company: "company_a" }, () => undefined, {}))
+      .rejects.toMatchObject({ name: "RoutineDirectoryError", code: "directory_dir_not_configured" });
+    await expect(runRoutineDirectoryPurge({ company: "company_a" }, () => undefined, { ROUTINE_DIRECTORY_DIR: "  " }))
+      .rejects.toMatchObject({ code: "directory_dir_not_configured" });
+    expect(await readdir(directory)).toEqual(before);
+  });
+
   it("rejects a tombstone file containing non-ids", async () => {
     const directory = await mkdtemp(join(tmpdir(), "minutka-routine-purge-"));
     await writeFile(join(directory, "routine-directory.company_a.tombstones.json"), JSON.stringify([{ id: "a" }]), "utf8");

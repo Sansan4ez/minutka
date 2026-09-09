@@ -73,7 +73,8 @@ export type RoutineDirectoryErrorCode =
   | "directory_work_category_missing"
   | "directory_provenance_missing"
   | "directory_reused_id"
-  | "directory_schema_invalid";
+  | "directory_schema_invalid"
+  | "directory_dir_not_configured";
 
 export class RoutineDirectoryError extends Error {
   readonly name = "RoutineDirectoryError";

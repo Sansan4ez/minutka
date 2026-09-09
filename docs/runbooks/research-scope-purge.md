@@ -65,12 +65,12 @@ PURGE GROUP <company_id>/<group_id>
 
 ```bash
 npm run routine-directory -- purge \
-  --company <company_id> --group <group_id> --subject-key <subject_key> \
-  --dir <versions_dir> --dry-run
+  --company <company_id> --group <group_id> --subject-key <subject_key> --dry-run
 npm run routine-directory -- purge \
-  --company <company_id> --group <group_id> --subject-key <subject_key> \
-  --dir <versions_dir>
+  --company <company_id> --group <group_id> --subject-key <subject_key>
 ```
+
+Команда работает в каталоге `$ROUTINE_DIRECTORY_DIR` — том же, который читает runtime (см. [`http-api-runtime.md`](./http-api-runtime.md)): это каталог с активным файлом `routine-directory.<company_id>.json`, версиями `routine-directory.<company_id>.<version>.json` и tombstones; отдельного каталога версий нет. Без `ROUTINE_DIRECTORY_DIR` команда отказывает с `directory_dir_not_configured` и ничего не трогает; `--dir <path>` переопределяет каталог только для копии справочника.
 
 Команда выводит только счётчики. При subject/group purge записи, чья provenance пересекает scope, удаляются целиком вместе со всеми содержащими их версиями; незатронутый остаток записывается в новую версию. Удалённые id попадают в `routine-directory.<company_id>.tombstones.json` без текста и не могут быть переиспользованы. `--dry-run` ничего не меняет. После этого **обязательно перезапустите runtime** (например, `systemctl restart <unit>` — см. [`http-api-runtime.md`](./http-api-runtime.md)) и убедитесь в логе старта, что загружена очищенная версия справочника. Вывод purge содержит `runtimeRestartRequired: true`, если были удалены файлы; purge не считается завершённым до рестарта. При `--dry-run` этот флаг также показывает обязательный шаг заранее. После рестарта повторно соберите отчёт с очищенным справочником: dangling `routineId` обрабатывается read model рутин, а canonical activities других участников не удаляются.
 

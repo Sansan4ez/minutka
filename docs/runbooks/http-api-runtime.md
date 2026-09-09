@@ -4,7 +4,7 @@
 
 ## Справочник рутин
 
-Для activity extractor и отчёта v2 оператор может подключить каталог `routine-directory.<company>.json` через отдельный каталог файлов:
+Для activity extractor и отчёта v2 оператор может подключить справочник `routine-directory.<company>.json` через один каталог файлов; в нём лежат активный файл, версии и tombstones, и с ним же работает `routine-directory purge`:
 
 ```dotenv
 ROUTINE_DIRECTORY_DIR=/srv/minutka/operator/routine-directories

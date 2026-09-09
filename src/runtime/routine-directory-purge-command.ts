@@ -1,6 +1,7 @@
 import { readdir, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { RoutineDirectory } from "../application/routine-directory.js";
+import { RoutineDirectoryError, type RoutineDirectory } from "../application/routine-directory.js";
+import { routineDirectoryRuntimeConfigFromEnv } from "../config/routine-directory.js";
 import { readRoutineDirectoryFile, readTombstones } from "../infrastructure/routine-directory-files.js";
 import {
   planDirectoryPurge,
@@ -13,15 +14,20 @@ type PurgeOptions = {
   company: string;
   group?: string;
   subjectKey?: string;
-  dir: string;
+  /** Overrides ROUTINE_DIRECTORY_DIR; the active file, versions and tombstones share this one directory. */
+  dir?: string;
   dryRun?: boolean;
 };
 
-export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (text: string) => void): Promise<void> {
+export async function runRoutineDirectoryPurge(
+  options: PurgeOptions,
+  write: (text: string) => void,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
   if (options.subjectKey !== undefined && options.group === undefined) {
     throw new Error("--subject-key requires --group");
   }
-  const directoryPath = resolve(options.dir);
+  const directoryPath = resolve(resolveDirectoryDir(options.dir, env));
   const tombstonePath = join(directoryPath, `routine-directory.${options.company}.tombstones.json`);
   const tombstoneIds = readTombstones(directoryPath, options.company);
   const files = await readDirectoryFiles(directoryPath, options.company);
@@ -51,6 +57,14 @@ export async function runRoutineDirectoryPurge(options: PurgeOptions, write: (te
     tombstones: nextTombstones.length,
     runtimeRestartRequired: plan.filesToDelete.length > 0,
   })}\n`);
+}
+
+function resolveDirectoryDir(dir: string | undefined, env: NodeJS.ProcessEnv): string {
+  const configured = dir?.trim() || routineDirectoryRuntimeConfigFromEnv(env).directory;
+  if (!configured) {
+    throw new RoutineDirectoryError("directory_dir_not_configured", "routine directory dir is not configured: pass --dir or set ROUTINE_DIRECTORY_DIR");
+  }
+  return configured;
 }
 
 async function readDirectoryFiles(
