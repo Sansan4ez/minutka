@@ -1,10 +1,10 @@
 { lib, pkgs, minutkaSecrets, ... }:
 
 let
-  version = "7.2.110";
+  version = "8.0.9";
   source = pkgs.fetchurl {
     url = "https://github.com/router-for-me/CLIProxyAPI/releases/download/v${version}/CLIProxyAPI_${version}_linux_amd64.tar.gz";
-    hash = "sha256-ZVBDhmEa9yLCsQOm9/uzjv0tGCJlgAigN5fnbk9r9zg=";
+    hash = "sha256-Pi/DcDd8iV0+K0ZlzPapi60WXble9sY9bJQ/tMr+Y/I=";
   };
   package = pkgs.runCommand "cliproxyapi-${version}" {
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];
