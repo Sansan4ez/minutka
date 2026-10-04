@@ -8,6 +8,7 @@ Related:
 
 - [RFC исследовательского корпуса и клиентской карты автоматизации](./rfc-minutka-research-corpus-and-reporting.md) — родительский; границы corpus/client и confidence policy не меняются
 - [RFC ежедневного ритма](./rfc-minutka-daily-rhythm.md) — два касания в день, не больше
+- [RFC: ретроспектива рабочего эпизода и доказательные рекомендации](./rfc-routine-ontology-and-targeted-clarification.md) — принят; задаёт group opt-in для нового процесса и требования к evidence-backed рекомендациям. Действующее поведение меняется только после реализации и включения группы
 - [RFC планки качества пилота](./rfc-pilot-quality-bar.md)
 - [Продуктовый baseline](../product/Final_Description.md), [бриф](../product/agent-minutka-brief.md)
 - [Шаблоны evidence pack и клиентской карты](../product/evidence-pack-and-client-report-template.md)
