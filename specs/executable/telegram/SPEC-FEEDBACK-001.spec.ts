@@ -581,7 +581,7 @@ describe("SPEC-FEEDBACK-001: Telegram feedback and text chat MVP flow", () => {
     const previous = telegram.sentMessages()[0]!;
     telegram.clear();
     const scheduled = await spec.cli.json<{ messageId: string; response: string }>([
-      "employee", "chat", "--employee", testEmployee.employeeId, "--thread", testEmployee.threadId, "--text", "Запланированный фокус",
+      "employee", "chat", "--employee", testEmployee.employeeId, "--thread", testEmployee.employeeId, "--text", "Запланированный фокус",
     ]);
     await telegram.deliverProactive({
       chatId: "chat_proactive",

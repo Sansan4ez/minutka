@@ -7,7 +7,10 @@ import type { OnboardingDraft } from "./onboarding-types.js";
 import type { ThreadSummary } from "./thread-summary-store.js";
 import type { InMemoryTenantDirectories } from "./in-memory-tenant-directory-store.js";
 
+import type { TurnMetadata } from "./retrospective-event-store.js";
+
 export type ChatMessage = {
+  metadata?: TurnMetadata | null;
   id: string;
   employeeId: string;
   subjectKey: string;

@@ -64,7 +64,7 @@ function assistant(input: {
     researchTraceVersions: input.traces ? { promptVersion: "prompt/v1", processVersion: "process/v1", taxonomyVersion: "taxonomy/v1", model: "test" } : undefined,
     auditEventStore: createInMemoryAuditEventStore(input.world),
     clock,
-    idGenerator: createDeterministicIdGenerator(),
+    idGenerator: { ...createDeterministicIdGenerator(), messageId: () => `msg_${++input.world.counters.message}` },
   });
 }
 

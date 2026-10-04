@@ -60,6 +60,9 @@ import { PilotStatusService } from "../../src/application/pilot-status.js";
 import { renderPilotStatusHtml } from "../../src/application/pilot-status-html.js";
 import { createPostgresRoutineAssignmentReplayStore } from "../../src/infrastructure/postgres/postgres-routine-assignment-replay-store.js";
 
+import { retrospectiveMetadataFixture } from "../executable/support/retrospective-metadata-fixture.js";
+import { conversationTurnOrigin } from "../../src/application/conversation-store.js";
+
 const url = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
 if (!url || !migrationUrl) {
@@ -119,6 +122,41 @@ describe("PostgreSQL storage contracts", () => {
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
+  });
+
+  it("SPEC-RETRO-METADATA-01/02/03/04 persists atomic metadata, replay, delivery and legacy isolation", async () => {
+    const employeeId = "retro_metadata_owner";
+    await issueProfileReadyParticipant(pool, employeeId, "retro_metadata_invite");
+    const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId);
+    const { turn: input, scope, event } = retrospectiveMetadataFixture(employeeId, participant!.subjectKey, participant!.companyId, participant!.groupId);
+    const store = createPostgresConversationStore(pool);
+    await store.appendTurn(input);
+    const restarted = createPostgresConversationStore(pool);
+    expect(await restarted.getTurnByMessageId({ ...scope, messageId: input.messageId })).toEqual(input);
+    expect(await restarted.getRecentTurns({ ...scope, limit: 1 })).toEqual([input]);
+    expect(await restarted.getTurnsBeforeRecent({ ...scope, recentLimit: 0, limit: 1 })).toEqual([input]);
+    expect(await restarted.readEvents({ scope, limit: 10, period: { start: input.timestamp, end: input.timestamp } })).toEqual(input.retrospectiveEvents);
+    await restarted.appendTurn(input);
+    await expect(restarted.appendTurn({ ...input, agentResponse: "changed" })).rejects.toMatchObject({ code: "persistence_conflict" });
+    const delivery = { ...event, eventId: "retro_delivery", ordinal: 2, action: { type: "response_delivery" as const, responseMessageId: "response", status: "delivered" as const, localDate: "2026-08-26" } };
+    await restarted.appendDeliveryEvents({ scope, sourceMessageId: input.messageId, events: [delivery] });
+    await restarted.appendDeliveryEvents({ scope, sourceMessageId: input.messageId, events: [delivery] });
+    await restarted.appendTurn(input);
+    expect(await restarted.readEvents({ scope, limit: 10 })).toEqual([...input.retrospectiveEvents!, delivery]);
+    expect(await restarted.readEvents({ scope: { ...scope, companyId: "other" }, limit: 10 })).toEqual([]);
+    expect(await restarted.getTurnByMessageId({ ...scope, employeeId: "other", messageId: input.messageId })).toBeUndefined();
+    // Database constraint fails after thread upsert: transaction must roll back both writes.
+    await migrationPool.query(`ALTER TABLE minutka_private.messages ADD CONSTRAINT retro_failure_fixture CHECK (message_id <> 'retro_failure')`);
+    try {
+      await expect(store.appendTurn({ ...input, messageId: "retro_failure", threadId: "retro_failed_thread", retrospectiveEvents: input.retrospectiveEvents!.map((e) => ({ ...e, sourceMessageId: "retro_failure", threadId: "retro_failed_thread" })) })).rejects.toMatchObject({ code: "persistence_conflict" });
+      expect((await pool.query(`SELECT * FROM minutka_private.threads WHERE employee_id=$1 AND thread_id='retro_failed_thread'`, [employeeId])).rowCount).toBe(0);
+      expect(await store.getTurnByMessageId({ ...scope, threadId: "retro_failed_thread", messageId: "retro_failure" })).toBeUndefined();
+    } finally {
+      await migrationPool.query(`ALTER TABLE minutka_private.messages DROP CONSTRAINT retro_failure_fixture`);
+    }
+    const { origin: _, retrospectiveEvents: __, ...legacy } = { ...input, messageId: "retro_legacy" };
+    await store.appendTurn(legacy);
+    expect(conversationTurnOrigin((await restarted.getTurnByMessageId({ ...scope, messageId: legacy.messageId }))!)).toBe("unknown");
   });
 
   it("persists participant touches and scopes participant inventory by company and group", async () => {

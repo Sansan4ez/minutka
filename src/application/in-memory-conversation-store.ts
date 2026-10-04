@@ -1,10 +1,28 @@
 import type { InMemoryWorld } from "./in-memory-world.js";
 import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
 
-export function createInMemoryConversationStore(world: InMemoryWorld): ConversationStore {
+import { isDeepStrictEqual } from "node:util";
+import { PersistenceError } from "./persistence-error.js";
+import { metadataFor, mergeDeliveryEvents, selectEvents, validateEvents, type RetrospectiveEventStore } from "./retrospective-event-store.js";
+
+export function createInMemoryConversationStore(world: InMemoryWorld): ConversationStore & RetrospectiveEventStore {
   return {
     async appendTurn(turn) {
+      const metadata = metadataFor(turn);
+      validateEvents(turn, turn.retrospectiveEvents ?? []);
+      const existing = world.messages.find((message) => message.id === turn.messageId);
+      if (existing) {
+        if (!isDeepStrictEqual(toTurn(existing), turn)) throw new PersistenceError("persistence_conflict");
+        return;
+      }
+      for (const event of turn.retrospectiveEvents ?? []) {
+        const owner = world.participants.find((participant) => participant.employeeId === turn.employeeId);
+        if (!owner || owner.companyId !== event.companyId || owner.groupId !== event.groupId || owner.subjectKey !== event.subjectKey) {
+          throw new PersistenceError("persistence_conflict");
+        }
+      }
       world.messages.push({
+        metadata,
         id: turn.messageId,
         employeeId: turn.employeeId,
         subjectKey: turn.subjectKey,
@@ -13,6 +31,18 @@ export function createInMemoryConversationStore(world: InMemoryWorld): Conversat
         response: turn.agentResponse,
         timestamp: turn.timestamp,
       });
+    },
+
+    async readEvents(request) {
+      return selectEvents(world.messages.filter((message) => message.employeeId === request.scope.employeeId && message.threadId === request.scope.threadId)
+        .flatMap((message) => [...(message.metadata?.retrospectiveEvents ?? []), ...(message.metadata?.deliveryEvents ?? [])]), request);
+    },
+
+    async appendDeliveryEvents(request) {
+      const message = world.messages.find((candidate) => candidate.id === request.sourceMessageId
+        && candidate.employeeId === request.scope.employeeId && candidate.threadId === request.scope.threadId);
+      if (!message) throw new PersistenceError("message_not_found");
+      message.metadata = mergeDeliveryEvents(toTurn(message), message.metadata ?? null, request.scope, request.events);
     },
 
     async getRecentTurns(input) {
@@ -65,5 +95,7 @@ function toTurn(message: InMemoryWorld["messages"][number]): ConversationTurn {
     userText: message.text,
     agentResponse: message.response,
     timestamp: message.timestamp,
+    ...(message.metadata?.origin === undefined ? {} : { origin: message.metadata.origin }),
+    ...(message.metadata?.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: structuredClone(message.metadata.retrospectiveEvents) }),
   };
 }

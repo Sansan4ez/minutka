@@ -100,7 +100,11 @@ export function createInMemoryRuntime(input: {
     onboardingContextMaterializer: createOnboardingContextMaterializer({ documentStore, ingestionService }),
     defaultScheduleProvisioner: new DefaultScheduleProvisioner(scheduleStore, clock),
     clock,
-    idGenerator: createDeterministicIdGenerator(),
+    idGenerator: {
+      ...createDeterministicIdGenerator(),
+      // Several transports can share one spec world; canonical message IDs must too.
+      messageId: () => `msg_${++world.counters.message}`,
+    },
     ...deps,
   } as MinutkaServiceDeps);
   return { service, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
