@@ -5,7 +5,11 @@ import { normalizeIanaTimezone } from "../shared/iana-timezone.js";
 import type { Clock } from "./runtime-primitives.js";
 import type { ScheduleStore } from "./schedule-store.js";
 
-type ScheduledFireContext = Omit<ScheduleFire, "kind" | "processId" | "reminderText">;
+import type { RetrospectiveTouchContext, ScheduledTouchPolicy } from "./retrospective-touch-policy.js";
+
+type ScheduledFireContext = Omit<ScheduleFire, "kind" | "processId" | "reminderText"> & {
+  retrospectiveTouch?: RetrospectiveTouchContext;
+};
 export type ScheduledActionFire = ScheduledFireContext & (
   | { kind: "process"; processId: AssistantScheduledProcessId }
   | { kind: "reminder"; text: string }
@@ -21,6 +25,7 @@ export class SchedulerService {
     private readonly clock: Clock,
     private readonly runScheduledProcess?: ScheduledProcessRunner,
     private readonly operationalLogger: SchedulerOperationalLogger = logSchedulerFailure,
+    private readonly touchPolicy?: ScheduledTouchPolicy,
   ) {}
 
   async saveDailySchedule(userId: string, input: {
@@ -72,7 +77,11 @@ export class SchedulerService {
         await runner({ ...context, kind: "reminder", text: fire.reminderText });
       } else {
         if (!fire.processId || !isAssistantScheduledProcessId(fire.processId)) throw new UnsupportedScheduledProcessError();
-        await runner({ ...context, kind: "process", processId: fire.processId });
+        const action: ScheduledActionFire = { ...context, kind: "process", processId: fire.processId };
+        const decision = await this.touchPolicy?.(action);
+        if (decision?.action !== "suppress") {
+          await runner({ ...action, ...(decision?.context ? { retrospectiveTouch: decision.context } : {}) });
+        }
       }
       if (fire.oneShot) await this.disableSchedule(fire);
       await this.store.completeFire(fire.userId, {
