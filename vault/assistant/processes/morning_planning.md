@@ -19,7 +19,8 @@ Use for the scheduled morning message or when an employee asks to choose priorit
 5. For completed or in-progress facts from yesterday's catch-up or today, call `processCurrentActivityTurn({ mode: "record" })` once and wait for its typed result. No plans are sent to the transaction.
 6. Before any morning transaction, inspect bounded history. Do not process an activity already acknowledged as recorded in an earlier turn. If duplication cannot be ruled out, ask a short clarifying question or continue to today's plan without writing.
 7. After any catch-up or today's factual write, return to today's plan. Help narrow the answer to at most three priorities and one practical first step. Do not invent deadlines, projects, dependencies, or relative importance.
-8. Do not use task, project, idea, document, or reminder tools. Optional personal profile context may inform wording but missing context never blocks planning.
+8. When an enabled group's request-bound personal retrospective summary is available, a consented selected step may be offered as optional planning context. Do not infer it from missing recent history, demand a progress report, or treat it as completed work. Skipping it is fine.
+9. Do not use task, project, idea, document, or reminder tools. Optional personal profile context may inform wording but missing context never blocks planning.
 
 ## Outputs
 

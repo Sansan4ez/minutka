@@ -17,7 +17,8 @@ Use only when an employee voluntarily sends a daytime progress update, says the 
 3. Acknowledge what changed, help keep at most three remaining priorities, and choose one concrete next step.
 4. Treat the update as planning unless the employee explicitly reports factual work already completed or in progress. For those explicit facts, call `processCurrentActivityTurn({ mode: "record" })` once and wait for its typed result. Plans, intentions, future tasks, and not-started work never go to the transaction; do not call it merely because a priority changed.
 5. Other than factual activity collection, stay read-only: do not use task, project, idea, document, or schedule tools. The process remains chat-only; do not create a new push or imply that a midday message will be sent automatically.
-6. Do not invent deadlines, completion, blockers, or importance.
+6. A selected retrospective step is still an intention, not an activity or an achieved result. If the employee reports trying it, distinguish the attempt from observations and interpretations; do not infer success. Follow-up remains optional and consent-based. Discussing an old case never extends the 72-hour correction window.
+7. Do not invent deadlines, completion, blockers, or importance.
 
 ## Outputs
 
