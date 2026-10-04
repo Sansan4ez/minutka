@@ -45,6 +45,7 @@ import type { GroupUsageReportingService } from "./group-usage-reporting.js";
 
 /** Product runtime dependencies while legacy identity/onboarding remains an internal collaborator. */
 export type PersonalAssistantRuntimeInput = {
+  workRetrospectivePolicies?: import("./work-retrospective-policy.js").WorkRetrospectivePolicyStore;
   assistantAgentRunner: import("./assistant-service.js").AssistantAgentRunner;
   env: NodeJS.ProcessEnv;
   deps?: Omit<MinutkaServiceDeps, "profileStore" | "conversationStore" | "insightStore" | "feedbackStore" | "auditEventStore" | "clock" | "idGenerator">;

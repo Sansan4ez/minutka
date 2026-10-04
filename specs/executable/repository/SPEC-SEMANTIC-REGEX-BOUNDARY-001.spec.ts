@@ -145,7 +145,13 @@ function isAllowedFormalParser(path: string, functionName: string | undefined): 
 }
 
 function isStaticActiveTools(node: ts.PropertyAssignment): boolean {
-  if (!ts.isArrayLiteralExpression(node.initializer) || node.initializer.elements.length !== 1) return false;
+  if (!ts.isArrayLiteralExpression(node.initializer)) return false;
+  // Group opt-in is trusted application policy, not semantic routing on text.
+  // Permit only this exact typed capability gate alongside the static catalog.
+  if (node.initializer.elements.length === 2) {
+    const gate = node.initializer.elements[1]?.getText();
+    if (gate !== "...(context.workRetrospective ? workRetrospectiveToolNames : [])") return false;
+  } else if (node.initializer.elements.length !== 1) return false;
   const [element] = node.initializer.elements;
   return Boolean(element && ts.isSpreadElement(element) && ts.isIdentifier(element.expression) && element.expression.text === "assistantActiveToolNames");
 }

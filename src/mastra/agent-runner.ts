@@ -7,6 +7,7 @@ import { createReadWeeklyActivitiesTool, readWeeklyActivitiesToolName } from "./
 import { createReadCycleActivitiesTool, readCycleActivitiesToolName } from "./tools/cycle-activity-tool.js";
 import { createProcessCurrentActivityTurnTool, processCurrentActivityTurnToolName } from "./tools/process-current-activity-turn-tool.js";
 import { createUpdatePersonalContextTool, updatePersonalContextToolName } from "./tools/profile-context-tool.js";
+import { createWorkRetrospectiveTools, workRetrospectiveToolNames } from "./tools/work-retrospective-tools.js";
 import { llmModel } from "../config/llm.js";
 
 /**
@@ -61,6 +62,7 @@ type AssistantMastraAgent = Pick<Agent, "generate">;
 
 export function createAssistantToolsets(context: AssistantAgentContext) {
   return {
+    ...(context.workRetrospective ? { retrospective: createWorkRetrospectiveTools(context.workRetrospective) } : {}),
     schedules: createScheduleTools(context.schedules),
     activities: {
       processCurrentActivityTurn: createProcessCurrentActivityTurnTool(context.processCurrentActivityTurn),
@@ -82,7 +84,7 @@ export function createAssistantAgentRunner(agent: MastraAgentLike | AssistantMas
       // `activeTools` is applied after all toolsets are resolved, so ambient
       // agent-level tools remain unavailable while every request-scoped typed
       // capability is visible to the agent-led semantic decision plane.
-      activeTools: [...assistantActiveToolNames],
+      activeTools: [...assistantActiveToolNames, ...(context.workRetrospective ? workRetrospectiveToolNames : [])],
       maxSteps: 4,
       ...(signal ? { abortSignal: signal } : {}),
     });

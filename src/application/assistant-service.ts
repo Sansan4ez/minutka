@@ -69,9 +69,13 @@ import {
   type ResearchTraceStore,
 } from "./research-trace-store.js";
 
+import { createWorkRetrospectiveRequest, type RetrospectiveRuntimeDependencies, type WorkRetrospectiveCapabilities } from "./work-retrospective-request.js";
+import type { ActivityTransactionTrustedRequest } from "./activity-transaction-service.js";
+
 export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
 export type AssistantAgentContext = {
   systemContext: string;
+  workRetrospective?: WorkRetrospectiveCapabilities;
   personalContext: AssistantContextProjection;
   profileAndHistory: ChatProcSnapshot;
   records: AssistantRecordsProjection;
@@ -177,7 +181,7 @@ export class AssistantService {
 
   constructor(
     private readonly agentRunner: AssistantServiceRunner,
-    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; processCurrentActivityTurn?: (input: { employeeId: string; companyId: string; groupId: string; subjectKey: string; sourceMessageId: string; roleId: string; timezone: string; currentText: string; signal?: AbortSignal; mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult>; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: CycleActivitySummaryInput) => Promise<CycleActivitySummary>; groupPeriods?: Pick<TenantDirectoryStore, "getGroupPeriod">; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
+    private readonly deps: { documentStore: DocumentStore; conversationStore: ConversationStore; ingestionService: Pick<IngestionService, "saveContextDocument" | "captureIdea">; requestIntegrityGuard: RequestIntegrityGuard; ideaStore?: IdeaStore; ideaAppends?: Pick<IdeaAppendService, "append">; ideaDeletions?: Pick<IdeaDeletionService, "search" | "propose" | "undo">; contextDocuments?: Pick<ContextDocumentService, "createNote" | "proposeUpdate" | "proposeMove" | "proposeDelete">; scheduleManagement?: Pick<ScheduleManagementService, "listSchedules" | "saveDailySchedule" | "disableSchedule">; workRetrospective?: RetrospectiveRuntimeDependencies; processCurrentActivityTurn?: (input: ActivityTransactionTrustedRequest & { mode: ActivityTransactionMode }) => Promise<ActivityTransactionServiceResult>; collectActivities?: (input: { employeeId: string; subjectKey: string; sourceMessageId: string; companyId: string; groupId: string; roleId: string; timezone: string; activities: CollectActivitiesInput["activities"] }) => Promise<CollectActivitiesResult>; readRecentOwnActivities?: (input: { employeeId: string; companyId: string; groupId: string }) => Promise<RecentOwnActivitiesResult>; correctRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & CorrectRecentActivityInput) => Promise<ActivityMutationResult>; supersedeRecentActivity?: (input: { employeeId: string; companyId: string; groupId: string; sourceMessageId: string } & SupersedeRecentActivityInput) => Promise<ActivityMutationResult>; readWeeklyActivities?: (input: { employeeId: string; timezone: string }) => Promise<WeeklyActivitySummary>; readCycleActivities?: (input: CycleActivitySummaryInput) => Promise<CycleActivitySummary>; groupPeriods?: Pick<TenantDirectoryStore, "getGroupPeriod">; projectLabels?: ProjectLabelService; taskStore?: TaskReader; taskMutations?: Pick<TaskMutationConfirmationService, "propose"> & Partial<Pick<TaskMutationConfirmationService, "autoApply" | "undo">>; ideaToTask?: Pick<IdeaToTaskService, "propose">; auditEventStore?: AuditEventStore; usageStore?: UsageStore; usageCostPolicy?: UsageCostPolicy; researchTraceStore?: ResearchTraceStore; researchTraceVersions?: { promptVersion: string; processVersion: string; taxonomyVersion: string; model: string }; participantStore: Pick<ProfileStore, "getParticipant" | "recordParticipantTouch"> & Partial<Pick<ProfileStore, "getProfile" | "updatePersonalContext">>; chatProjectionBuilder?: Pick<RuntimeProjectionBuilder, "buildChatProc">; threadCompactionService?: Pick<ThreadCompactionService, "compact">; clock?: Clock; idGenerator?: IdGenerator; agentInstructions?: string; contextBudget?: ContextBudgetConfig; contextPriorities?: ContextPriorityManifest; operationalLogger?: AssistantOperationalLogger; applicationTimeoutMs?: number; recoveryReserveMs?: number },
   ) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.idGenerator ?? randomIdGenerator;
@@ -353,6 +357,10 @@ export class AssistantService {
       await saveDeniedOrFailedTrace({ status: "failed", context: "context_projection", error });
       throw error;
     }
+    const retrospectiveScope = { employeeId: userId, companyId: participant.companyId, groupId: participant.groupId, subjectKey: participant.subjectKey, threadId };
+    const retrospective = this.deps.workRetrospective ? await createWorkRetrospectiveRequest({
+      scope: retrospectiveScope, messageId, now: this.clock.now(), localDate: ownerToday, dependencies: this.deps.workRetrospective,
+    }) : undefined;
     type PendingActionSlot =
       | { sequence: number; kind: "task"; pending: PendingTaskMutation; title?: string; persistence: "attempted" | "persisted" }
       | { sequence: number; kind: "idea"; record: PendingIdeaDeletion; idea: Parameters<typeof pendingIdeaDeletionAction>[1] }
@@ -574,9 +582,15 @@ export class AssistantService {
         roleId,
         timezone,
         currentText: text,
+        ...(retrospective?.enabled ? { retrospectiveScope } : {}),
         signal: applicationSignal,
         mode,
       });
+      const bindFacts = (outcome: ActivityTransactionServiceResult): void => {
+        if ((outcome.status === "completed" || outcome.status === "partial") && outcome.operation === "collect") retrospective?.bindCollectedActivities(outcome.activityIds);
+        if (outcome.status === "linked") for (const part of outcome.outcomes) bindFacts(part);
+      };
+      bindFacts(result);
       observedExecutionTrace.push({ kind: "tool", toolName: "processCurrentActivityTurn" });
       const transactionUsage = result.extraction?.usage;
       if (transactionUsage) {
@@ -740,7 +754,8 @@ export class AssistantService {
       profileAndHistory,
       records,
       source,
-      systemContext: systemContextBudget.text,
+      systemContext: systemContextBudget.text + (retrospective?.enabled ? `\nWork retrospective is enabled for this group. Semantic handoff: use work_retrospective for a concrete work episode, after saving facts through processCurrentActivityTurn. Bound durable context: ${retrospective.context}` : ""),
+      ...(retrospective?.enabled ? { workRetrospective: { read: async () => retrospective.context, update: retrospective.update } } : {}),
       captureIdea,
       documents,
       contextDocuments,
@@ -811,7 +826,7 @@ export class AssistantService {
             personalContext: reducedPersonalContext,
             profileAndHistory: reducedProfileAndHistory,
             records: reducedRecords,
-            systemContext: reduced.text,
+            systemContext: reduced.text + (retrospective?.enabled ? `\nBound work retrospective context: ${retrospective.context}` : ""),
           }, applicationSignal));
           if (traceAttempts.length === 0) traceAttempts.push(researchTraceAttempt(1, systemContextBudget.text, undefined, error, "main_agent"));
           response = retryRun.text;
@@ -918,7 +933,7 @@ export class AssistantService {
     }) : false) || activityTransactionUsageOverSoftLimit;
     if (usageWarning) response = appendUsageSoftLimitWarning(response);
     try {
-      const appendTurn = this.deps.conversationStore.appendTurn({
+      const turn = {
         messageId,
         // The existing application history store uses employeeId as its neutral
         // owner key. AssistantService maps its trusted userId only at this seam.
@@ -928,7 +943,15 @@ export class AssistantService {
         userText: text,
         agentResponse: response,
         timestamp: this.clock.now(),
-      });
+        origin: requiredProcessId ? "scheduled" as const : "employee" as const,
+      };
+      const retrospectiveResult = await retrospective?.save(turn);
+      if (retrospectiveResult && !("value" in retrospectiveResult)) {
+        response = "Не удалось сохранить разбор рабочего эпизода. Сохранённые факты остаются; продолжение и напоминание не запланированы.";
+        turn.agentResponse = response;
+      }
+      const appendTurn = retrospectiveResult && "value" in retrospectiveResult
+        ? Promise.resolve() : this.deps.conversationStore.appendTurn(turn);
       await boundedRecovery(appendTurn, computeRecoveryRemainingMs(chatStartedAt, this.deps.applicationTimeoutMs, this.deps.recoveryReserveMs));
     } catch (error) {
       if (!attemptedTaskProposal && !persistedTaskProposal && !isRecoveryTimeoutError(error)) throw error;

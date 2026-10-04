@@ -286,8 +286,11 @@ export class ActivityTransactionService {
       if (claim.status === "existing") return claim.outcome ?? unknown();
       const episodes = await this.deps.retrospective.readEpisodes({ scope, limit: 100 });
       if (!("value" in episodes)) {
-        const failure: ActivityTransactionServiceResult = { status: "failed", phase: "read", code: "persistence_error" };
-        await store.complete(key, failure); return failure;
+        // Episode availability must not prevent saving the employee's factual
+        // account. Fall back without linked targets; never guess a correction.
+        const { retrospectiveScope: _scope, ...unlinked } = input;
+        const fallback = await this.processUnlinked(unlinked);
+        await store.complete(key, fallback); return fallback;
       }
       const pending = episodes.value.filter((episode) => episode.employeeId === scope.employeeId && episode.companyId === scope.companyId && episode.groupId === scope.groupId && episode.subjectKey === scope.subjectKey && episode.threadId === scope.threadId && episode.status === "active" && episode.pendingQuestion && episode.questionBudget.localDate === calendarDateInIanaTimezone(this.clock.now(), input.timezone) && Date.parse(this.clock.now()) < Date.parse(episode.period.end));
       const episode = pending.length === 1 ? pending[0] : undefined;

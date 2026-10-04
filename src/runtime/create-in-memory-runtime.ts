@@ -25,6 +25,18 @@ import { createInMemoryScheduleStore } from "../application/in-memory-schedule-s
 import { DefaultScheduleProvisioner } from "../application/default-schedules.js";
 import type { ScheduleStore } from "../application/schedule-store.js";
 
+import { ActivityTransactionService } from "../application/activity-transaction-service.js";
+import type { ActivityTransactionExtractor } from "../application/activity-transaction-extractor.js";
+import { CollectActivityService } from "../application/activity-collection.js";
+import { ActivityCorrectionService } from "../application/activity-correction.js";
+import { RecentOwnActivitiesService } from "../application/recent-own-activities.js";
+import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryActivityMutationStore, createInMemoryRecentOwnActivityReadStore } from "../application/in-memory-activity-collection-store.js";
+import { createInMemoryLinkedActivityTransactionStore } from "../application/linked-activity-transaction-store.js";
+import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
+import { createInMemoryWorkRetrospectiveStore } from "../application/in-memory-work-retrospective-store.js";
+import { InMemoryWorkRetrospectivePolicyStore, type WorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
+
 export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v6.html";
 const executableSpecPrivacyNotice = createPrivacyExplanation(executableSpecPrivacyPolicyUrl);
 export const executableSpecPrivacyExplanation = executableSpecPrivacyNotice.short;
@@ -32,6 +44,7 @@ export const executableSpecFullPrivacyExplanation = executableSpecPrivacyNotice.
 
 export type InMemoryRuntime = {
   service: MinutkaService;
+  assistantChat?: AssistantService;
   world: InMemoryWorld;
   documentStore: DocumentStore;
   telegramSessionStore: InMemoryTelegramSessionStore;
@@ -42,6 +55,10 @@ export type InMemoryRuntime = {
 /** Executable-spec composition only. Production must use createPostgresRuntime. */
 export function createInMemoryRuntime(input: {
   agentRunner: AgentRunner;
+  assistantAgentRunner?: AssistantAgentRunner;
+  activityExtractor?: ActivityTransactionExtractor;
+  assistantDeps?: Partial<ConstructorParameters<typeof AssistantService>[1]>;
+  workRetrospectivePolicies?: WorkRetrospectivePolicyStore;
   world?: InMemoryWorld;
   deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingContextMaterializer" | "onboardingExtractionTimeoutMs" | "usageRecorder"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
@@ -107,5 +124,21 @@ export function createInMemoryRuntime(input: {
     },
     ...deps,
   } as MinutkaServiceDeps);
-  return { service, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
+  const conversationStore = createInMemoryConversationStore(world);
+  const retrospective = createWorkRetrospectiveService(createInMemoryWorkRetrospectiveStore(conversationStore), conversationStore);
+  const activities = createInMemoryActivityCollectionState();
+  const activityTransaction = input.activityExtractor ? new ActivityTransactionService({
+    extractor: input.activityExtractor, retrospective, linkedTransactions: createInMemoryLinkedActivityTransactionStore(), clock,
+    collection: new CollectActivityService(createInMemoryActivityCollectionStore(activities), clock),
+    corrections: new ActivityCorrectionService(createInMemoryActivityMutationStore(activities), clock),
+    recentActivities: new RecentOwnActivitiesService(createInMemoryRecentOwnActivityReadStore(activities), clock),
+  }) : undefined;
+  const assistantChat = input.assistantAgentRunner ? new AssistantService(input.assistantAgentRunner, {
+    documentStore, conversationStore, ingestionService, participantStore: profileStore,
+    requestIntegrityGuard: async () => ({ status: "allowed" }), clock,
+    ...(activityTransaction ? { processCurrentActivityTurn: (command: Parameters<ActivityTransactionService["process"]>[0]) => activityTransaction.process(command) } : {}),
+    ...input.assistantDeps,
+    workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore() },
+  }) : undefined;
+  return { service, assistantChat, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }
