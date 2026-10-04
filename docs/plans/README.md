@@ -1,8 +1,8 @@
 # Планирование «Минутки»
 
-Исполнение ведётся в **beads** (`br` — issue-трекер, `bv` — dependency-aware триаж). Данные проекта хранятся в `.beads/` и синхронизируются в tracked-файл `.beads/issues.jsonl`. Эта папка содержит только README и шаблон: отдельные фазовые планы и ручной `TODO.md` не являются источником истины.
+Исполнение ведётся в **beads** (`br` — issue-трекер, `bv` — dependency-aware триаж). Данные проекта хранятся в `.beads/` и синхронизируются в tracked-файл `.beads/issues.jsonl`. Эта папка содержит только README и шаблоны: отдельные фазовые планы и ручной `TODO.md` не являются источником истины.
 
-Правила формата — [../CONVENTIONS.md](../CONVENTIONS.md), шаблон черновика эпика — [_plan-template.md](./_plan-template.md).
+Правила формата — [../CONVENTIONS.md](../CONVENTIONS.md), шаблон черновика эпика — [_plan-template.md](./_plan-template.md), самодостаточная спека исполняемой задачи с примером — [_task-template.md](./_task-template.md).
 
 ## Как смотреть актуальный план
 
@@ -28,7 +28,10 @@ br show <mnt-id>                 # scope, Design и Acceptance Criteria
 - Новая поставка = epic: `br create -t epic --title "..."`.
 - Конкретные шаги = executable children (`task`, `bug`, `feature`, `chore`, `docs`) с `--parent <epic-id>`.
 - Зависимости отражают порядок разблокировки: `br dep add <issue> <depends-on>`.
-- Описание содержит `## Design` и `## Acceptance Criteria`; у эпика — `## Success Criteria`.
+- Исполняемая задача оформляется по `_task-template.md`: `## Intent`, `## Design`, `## Non-goals`, `## Non-scope`, `## Acceptance Criteria`.
+- Intent ≤1200 символов; весь `description` ≤6000, включая пробелы, Markdown и код (условное среднее 1 токен ≈4 символа). Лимит не распространяется на контейнер-эпик.
+- Контекст, misfit, необходимые фрагменты файлов с путями/символами/ревизиями уже включены; ссылки не заменяют требования. Сценарии — конкретные входы/выходы и эффекты, NFR — измеримые условия проверки. Не помещается — декомпозируем.
+- У эпика — цель, `## Design`, границы и `## Success Criteria`. До claim проверяем контракт готовности из CONVENTIONS; одного зелёного `br lint` недостаточно.
 - После реализации задача закрывается, выполняется `br sync --flush-only`, а изменение `.beads/issues.jsonl` входит в тот же атомарный коммит.
 
 Актуальный порядок всегда вычисляется из графа `br`/`bv`; статические таблицы эпиков в документации не поддерживаются.
@@ -38,4 +41,5 @@ br show <mnt-id>                 # scope, Design и Acceptance Criteria
 | Файл | Назначение |
 |---|---|
 | [_plan-template.md](./_plan-template.md) | Шаблон черновика для наполнения epic в `br` |
+| [_task-template.md](./_task-template.md) | Спека исполняемой задачи, заполненный пример и readiness-чеклист |
 | [README.md](./README.md) | Правила навигации по трекеру «Минутки» |
