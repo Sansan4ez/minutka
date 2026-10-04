@@ -221,6 +221,14 @@ ssh-keyscan -H 169.58.201.159 >> ~/.ssh/known_hosts
 пользователя `minutka-offsite-backup`, root-owned script и systemd
 oneshot/timer; существующий `pull-personal-assistant-backups` не меняется.
 
+Каталог lock-файла `/run/minutka-offsite-backup` создаётся самим systemd перед
+каждым запуском через `RuntimeDirectory=minutka-offsite-backup` с правами `0750`
+и владельцем service user. `RuntimeDirectoryPreserve=yes` сохраняет каталог
+между запусками; после reboot systemd создаст его заново. Однократное создание
+через `systemd-tmpfiles --create -` в installer недостаточно: `/run` очищается
+при reboot, а отсутствующий путь в `ReadWritePaths` приводит к `226/NAMESPACE`
+ещё до запуска script.
+
 Проверить fingerprint private key перед установкой:
 
 ```bash

@@ -82,10 +82,6 @@ install -m 0644 -o root -g root \
   "$source_dir/pull-minutka-backups.timer" \
   /etc/systemd/system/pull-minutka-backups.timer
 
-systemd-tmpfiles --create - <<EOF
-D /run/minutka-offsite-backup 0750 $backup_user $backup_group -
-EOF
-
 systemctl daemon-reload
 systemd-analyze verify \
   /etc/systemd/system/pull-minutka-backups.service \
