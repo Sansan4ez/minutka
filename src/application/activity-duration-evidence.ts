@@ -28,6 +28,7 @@ export type ProviderCorrectRecentActivityInput = Omit<CorrectRecentActivityInput
 
 const integerDurationPattern = /(?<![\p{L}\p{N}])(?<amount>\d+(?:[.,]\d+)?)[\s\u00a0\u202f-]*(?<unit>минут(?:а|ы|ную|ный|ное)?|мин|час(?:а|ов|овой|овая|овое)?|ч|minutes?|mins?|hours?|hrs?)(?![\p{L}\p{N}])/giu;
 const reversedIntegerDurationPattern = /(?<![\p{L}\p{N}])(?<unit>минут(?:а|ы)?|мин|час(?:а|ов)?|ч|minutes?|mins?|hours?|hrs?)[\s\u00a0\u202f-]*(?<amount>\d+(?:[.,]\d+)?)(?![\p{L}\p{N}])/giu;
+const singleHourPattern = /(?<![\p{L}\p{N}])час(?![\p{L}\p{N}]|\s+\d)/giu;
 const halfHourPattern = /(?<![\p{L}\p{N}])(?:полчаса|half[\s\u00a0\u202f-]*an?[\s\u00a0\u202f-]*hour)(?![\p{L}\p{N}])/giu;
 const oneAndHalfHourPattern = /(?<![\p{L}\p{N}])(?:полтора|полторы)\s*час(?:а|ов)?(?![\p{L}\p{N}])/giu;
 const durationOnlyResiduePattern = /^(?:(?:уже|всего|примерно|приблизительно|около|где[\s-]*то|почти|заняло|занимало|получилось|это|ещ[её]|about|around|approximately|roughly|already|just|took|and|и)\s*)*$/iu;
@@ -52,6 +53,10 @@ function resolveDurationMatches(text: string): { matches: DurationMatch[]; durat
   collectMatches(halfHourPattern, text, () => ({ minutes: 30, unit: "hours" }), directMatches);
   collectMatches(oneAndHalfHourPattern, text, () => ({ minutes: 90, unit: "hours" }), directMatches);
   collectMatches(integerDurationPattern, text, numericDuration, directMatches);
+  const singleHours: DurationMatch[] = [];
+  collectMatches(singleHourPattern, text, () => ({ minutes: 60, unit: "hours" }), singleHours);
+  // Numeric/compound expressions take precedence over the bare one-hour word.
+  directMatches.push(...singleHours.filter((match) => !directMatches.some((existing) => match.index >= existing.index && match.end <= existing.end)));
 
   const reversedMatches: DurationMatch[] = [];
   collectMatches(reversedIntegerDurationPattern, text, numericDuration, reversedMatches);

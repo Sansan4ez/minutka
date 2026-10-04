@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { retrospectiveQuestionSchema, workRetrospectiveEpisodeSchema } from "./work-retrospective-store.js";
+
 import { activityRecurrenceValues, collectActivitiesMaximumItems, routineIdMaxLength } from "../contracts/minutka-activity.js";
 import type { RoutineDirectorySection } from "./routine-directory.js";
 import {
@@ -11,6 +13,11 @@ import {
 } from "../domain/insights.js";
 import { MAX_DURATION_REFERENCES } from "./activity-duration-evidence.js";
 import type { ModelTokenUsage } from "./usage-store.js";
+
+export const linkedActivityContextSchema = z.strictObject({
+  question: retrospectiveQuestionSchema,
+  boundTarget: workRetrospectiveEpisodeSchema.pick({ episodeId: true, revision: true, activityRefs: true, statements: true }).extend({ sourceRefs: retrospectiveQuestionSchema.shape.target.shape.sourceRefs }),
+});
 
 export const activityTransactionModes = ["record", "repair"] as const;
 export type ActivityTransactionMode = typeof activityTransactionModes[number];
@@ -88,6 +95,7 @@ const activityTransactionInputBase = {
   currentText: z.string().trim().min(1),
   durationReferences: z.array(durationReferenceSchema).max(MAX_DURATION_REFERENCES),
   directorySection: routineDirectorySectionSchema.optional(),
+  linkedContext: linkedActivityContextSchema.optional(),
   signal: z.custom<AbortSignal>().optional(),
 };
 
@@ -106,6 +114,14 @@ export const activityTransactionExtractorInputSchema = z.discriminatedUnion("mod
 export type ActivityTransactionExtractorInput = z.infer<typeof activityTransactionExtractorInputSchema>;
 
 export const activityTransactionDecisionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("linked"),
+    handle: boundedHandleSchema,
+    expectedRevision: z.number().int().min(1),
+    mode: z.literal("patch"),
+    correction: nonEmptyActivityTransactionPatchSchema,
+    activities: z.array(nonEmptyActivityTransactionPatchSchema).max(collectActivitiesMaximumItems),
+  }),
   z.strictObject({
     kind: z.literal("none"),
     reason: z.literal("no_factual_activity"),
@@ -174,7 +190,7 @@ export function createActivityTransactionTransportSchema(durationRefs: readonly 
     : z.enum(uniqueRefs as [string, ...string[]]).nullable();
   const patch = z.strictObject({ ...nullablePatchBase, durationRef });
   return z.strictObject({
-    kind: z.enum(["none", "needs_clarification", "collect", "correct", "supersede"]),
+    kind: z.enum(["none", "needs_clarification", "collect", "correct", "supersede", "linked"]),
     reason: z.enum(["no_factual_activity", ...activityTransactionClarificationReasons]).nullable(),
     activities: z.array(patch).max(collectActivitiesMaximumItems),
     handle: boundedHandleSchema.nullable(),
@@ -333,12 +349,14 @@ export function normalizeActivityTransactionTransport(
         || input.correction !== null || input.replacementHandle !== null || input.replacementExpectedRevision !== null) return { success: false };
       candidate = { kind: "collect", activities: input.activities.map(withoutNullFacets) };
       break;
+    case "linked":
     case "correct":
-      if (input.reason !== null || input.activities.length !== 0 || input.handle === null
+      if (input.reason !== null || (input.kind === "correct" && input.activities.length !== 0) || input.handle === null
         || input.expectedRevision === null || input.correctionMode === null || input.correction === null
         || input.replacementHandle !== null || input.replacementExpectedRevision !== null) return { success: false };
       candidate = {
-        kind: "correct",
+        kind: input.kind,
+        ...(input.kind === "linked" ? { activities: input.activities.map(withoutNullFacets) } : {}),
         handle: input.handle,
         expectedRevision: input.expectedRevision,
         mode: input.correctionMode,
@@ -389,8 +407,8 @@ function normalizeRoutineIds(
   };
   return {
     ...value,
-    ...(value.kind === "collect" && Array.isArray(value.activities) ? { activities: value.activities.map((patch) => normalizePatch(patch, "collect")) } : {}),
-    ...(value.kind === "correct" && value.correction !== null && value.correction !== undefined ? { correction: normalizePatch(value.correction, "correct") } : {}),
+    ...((value.kind === "collect" || value.kind === "linked") && Array.isArray(value.activities) ? { activities: value.activities.map((patch) => normalizePatch(patch, "collect")) } : {}),
+    ...((value.kind === "correct" || value.kind === "linked") && value.correction !== null && value.correction !== undefined ? { correction: normalizePatch(value.correction, "correct") } : {}),
   };
 }
 
@@ -398,6 +416,9 @@ function decisionFitsExtractorInput(
   input: ActivityTransactionExtractorInput,
   decision: ActivityTransactionDecision,
 ): boolean {
+  if (decision.kind === "linked" || (decision.kind === "correct" && input.linkedContext)) {
+    return !!input.linkedContext && input.linkedContext.boundTarget.activityRefs.some((ref) => ref.activityId === decision.handle && ref.revision === decision.expectedRevision);
+  }
   if (input.mode === "record") {
     return decision.kind === "none"
       || decision.kind === "collect"

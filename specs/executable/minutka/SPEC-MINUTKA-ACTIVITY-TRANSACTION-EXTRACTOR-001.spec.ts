@@ -208,7 +208,7 @@ describe("SPEC-MINUTKA-ACTIVITY-TRANSACTION-EXTRACTOR-001: strict bounded transa
     expect(built.context.staticRulesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.staticRulesCharacters);
     expect(built.context.recentCandidatesCharacters).toBeLessThanOrEqual(activityTransactionContextBudget.recentCandidatesCharacters);
     expect(built.context.promptCharacters).toBeGreaterThan(built.context.currentTextCharacters);
-    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v5");
+    expect(activityTransactionPromptVersion).toBe("minutka-activity-transaction/v6");
     expect(() => buildActivityTransactionPrompt({ ...input, recentCandidates: Array.from({ length: 6 }, (_, index) => recent(`activity_${index}`)) }))
       .toThrow(/recent activity candidates|Too big|too many/i);
     expect(activityTransactionExtractorInputSchema.safeParse({

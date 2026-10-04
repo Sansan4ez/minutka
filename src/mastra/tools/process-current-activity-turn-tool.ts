@@ -12,6 +12,7 @@ const processCurrentActivityTurnInputSchema = z.strictObject({
 });
 
 export type ProcessCurrentActivityTurnResult =
+  | { status: "linked"; outcomes: ProcessCurrentActivityTurnResult[] }
   | { status: "no_write"; reason: "no_factual_activity" }
   | { status: "needs_clarification"; reason: "activity_status_ambiguous" | "correction_target_ambiguous" | "duplicate_pair_ambiguous" | "repair_target_not_found" }
   | { status: "completed"; operation: "collect"; savedCount: number }
@@ -31,7 +32,7 @@ export function createProcessCurrentActivityTurnTool(
 ) {
   return createTool({
     id: processCurrentActivityTurnToolName,
-    description: "Process factual work from the current authenticated employee turn. Use mode=record for completed or in-progress work, including repeated real work. Use mode=repair for an explicit correction/clarification, including a duration-only answer about the latest activity from the same day, or an explicitly confirmed duplicate. A duration-only answer never creates a new activity. Do not call for plans, intentions, future work, weekly/cycle reads, or a scheduled invitation without a fresh employee account. The application binds the current text and all authority; wait for this typed result before saying anything was recorded, corrected, or removed from summaries.",
+    description: "Process factual work from the current authenticated employee turn. Use mode=record for completed or in-progress work, including repeated real work. Use mode=repair for an explicit correction/clarification, including a duration-only answer about the latest activity from the same day, or an explicitly confirmed duplicate. A duration-only answer never creates a new activity. Do not call for plans, intentions, future work, weekly/cycle reads, or a scheduled invitation without a fresh employee account. When an application-bound pending question is present, the same call can clarify the original activity and save new factual work, with separate outcomes and without duplicating the original time. The application binds the current text and all authority; wait for this typed result before saying anything was recorded, corrected, or removed from summaries.",
     strict: true,
     inputSchema: processCurrentActivityTurnInputSchema,
     mcp: { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
@@ -41,6 +42,8 @@ export function createProcessCurrentActivityTurnTool(
 
 function compactActivityTransactionResult(result: ActivityTransactionServiceResult): ProcessCurrentActivityTurnResult {
   switch (result.status) {
+    case "linked":
+      return { status: "linked", outcomes: result.outcomes.map(compactActivityTransactionResult) };
     case "no_write":
       return { status: "no_write", reason: result.reason };
     case "needs_clarification":

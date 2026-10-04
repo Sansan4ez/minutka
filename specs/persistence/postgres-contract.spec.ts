@@ -124,6 +124,26 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("SPEC-RETRO-TRANSACTION durable reservations, restart outcomes and purge", async () => {
+    const { createPostgresLinkedActivityTransactionStore } = await import("../../src/infrastructure/postgres/postgres-linked-activity-transaction-store.js");
+    const employeeId = "retro_transaction_owner";
+    await issueProfileReadyParticipant(pool, employeeId, "retro_transaction_invite");
+    const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId);
+    const { turn, scope } = retrospectiveMetadataFixture(employeeId, participant!.subjectKey, participant!.companyId, participant!.groupId);
+    await createPostgresConversationStore(pool).appendTurn(turn);
+    const key = { ...scope, sourceMessageId: turn.messageId, ordinal: 0 };
+    const store = createPostgresLinkedActivityTransactionStore(pool);
+    expect(await store.claim(key)).toEqual({ status: "claimed" });
+    const restarted = createPostgresLinkedActivityTransactionStore(pool);
+    expect(await restarted.claim(key)).toEqual({ status: "existing" });
+    const outcome = { status: "failed" as const, phase: "write" as const, code: "persistence_conflict" as const };
+    await store.complete(key, outcome);
+    expect(await restarted.claim(key)).toEqual({ status: "existing", outcome });
+    expect(await store.claim({ ...key, ordinal: 1 })).toEqual({ status: "claimed" });
+    await pool.query("DELETE FROM minutka_private.participants WHERE employee_id=$1", [employeeId]);
+    expect((await pool.query("SELECT ordinal FROM minutka_private.linked_activity_transactions WHERE employee_id=$1", [employeeId])).rows).toEqual([]);
+  });
+
   it("SPEC-RETRO-EPISODE persistence rebuild survives projection deletion and restart", async () => {
     const { createPostgresWorkRetrospectiveStore } = await import("../../src/infrastructure/postgres/postgres-work-retrospective-store.js");
     const employeeId = "retro_projection_owner";
