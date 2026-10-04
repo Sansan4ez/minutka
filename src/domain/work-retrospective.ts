@@ -81,7 +81,7 @@ export type WorkRetrospectiveEventAction =
   | { type: "episode_updated"; episode: WorkRetrospectiveEpisode }
   | { type: "episode_status_changed"; status: WorkRetrospectiveEpisode["status"] }
   | { type: "question_generated"; question: RetrospectiveQuestion }
-  | { type: "question_closed"; questionId: string; reason: "answered" | "topic_changed" | "declined" | "new_day" | "cycle_ended" | "policy_disabled" }
+  | { type: "question_closed"; questionId: string; reason: "answered" | "topic_changed" | "declined" | "new_day" | "cycle_ended" | "policy_disabled"; localDate?: string }
   | { type: "follow_up_consent_changed"; consent: RetrospectiveConsent }
   | { type: "weekly_session_started"; sessionId: string; consent: RetrospectiveConsent }
   | { type: "response_delivery"; responseMessageId: string; questionId?: string; status: "delivered" | "failed"; localDate: string; sessionId?: string };

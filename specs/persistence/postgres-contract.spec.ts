@@ -124,6 +124,26 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("SPEC-RETRO-EPISODE persistence rebuild survives projection deletion and restart", async () => {
+    const { createPostgresWorkRetrospectiveStore } = await import("../../src/infrastructure/postgres/postgres-work-retrospective-store.js");
+    const employeeId = "retro_projection_owner";
+    await issueProfileReadyParticipant(pool, employeeId, "retro_projection_invite");
+    const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId);
+    const { turn: input, scope } = retrospectiveMetadataFixture(employeeId, participant!.subjectKey, participant!.companyId, participant!.groupId);
+    const selected: import("../../src/domain/work-retrospective.js").WorkRetrospectiveEvent = { ...input.retrospectiveEvents![0]!, sourceMessageId: "projection_message", action: { type: "episode_selected", episode: { ...scope, episodeId: "episode_a", period: { start: input.timestamp, end: "2026-09-09T12:00:00.000Z" }, methodVersion: "v1", messageRefs: [{ messageId: "projection_message" }], activityRefs: [], statements: { actions: [], value: [], future: [], indicators: [] }, status: "active", revision: 0, questionBudget: { localDate: "2026-08-26", dailyDelivered: 0 } } } };
+    const command = { scope, episodeId: selected.episodeId, expectedRevision: 0, events: [selected], turn: { ...input, messageId: "projection_message", retrospectiveEvents: [selected] } };
+    const store = createPostgresWorkRetrospectiveStore(pool);
+    expect(await store.appendTurnWithEvents(command)).toMatchObject({ status: "applied" });
+    const first = await store.rebuild(command);
+    expect(first).toMatchObject({ status: "applied" });
+    await pool.query("DELETE FROM minutka_private.retrospective_episodes WHERE employee_id=$1", [employeeId]);
+    const restarted = createPostgresWorkRetrospectiveStore(pool);
+    expect(await restarted.readEpisode(command)).toEqual(first);
+    expect(await restarted.appendTurnWithEvents(command)).toMatchObject({ status: "replayed" });
+    expect(await restarted.readEpisode({ scope: { ...scope, employeeId: "other" }, episodeId: selected.episodeId })).toEqual({ status: "not_found" });
+    expect(await restarted.appendTurnWithEvents({ ...command, expectedRevision: 0, events: [{ ...selected, sourceMessageId: "new", eventId: "new", action: { type: "episode_status_changed", status: "declined" } }] })).toEqual({ status: "stale" });
+  });
+
   it("SPEC-RETRO-METADATA-01/02/03/04 persists atomic metadata, replay, delivery and legacy isolation", async () => {
     const employeeId = "retro_metadata_owner";
     await issueProfileReadyParticipant(pool, employeeId, "retro_metadata_invite");
