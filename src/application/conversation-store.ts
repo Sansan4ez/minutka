@@ -1,3 +1,5 @@
+import type { ConversationTurnOrigin, WorkRetrospectiveEvent } from "../domain/work-retrospective.js";
+
 export type ConversationTurn = {
   messageId: string;
   employeeId: string;
@@ -7,7 +9,15 @@ export type ConversationTurn = {
   userText: string;
   agentResponse: string;
   timestamp: string;
+  /** Application/transport supplied. Missing legacy provenance means unknown, never employee. */
+  origin?: ConversationTurnOrigin;
+  /** Canonical events persisted atomically with this turn; delivery is a separate event. */
+  retrospectiveEvents?: WorkRetrospectiveEvent[];
 };
+
+export function conversationTurnOrigin(turn: ConversationTurn): ConversationTurnOrigin {
+  return turn.origin ?? "unknown";
+}
 
 /** Canonical application conversation history. */
 export type ConversationStore = {
