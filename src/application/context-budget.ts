@@ -97,11 +97,11 @@ export const guaranteedContextSourceIds = [
 
 /** Canonical request-context limits. Character counts are Unicode code points. */
 export const defaultContextBudget: ContextBudgetConfig = {
-  total: 110_000,
+  total: 118_000,
   responseReserve: 8_000,
   sources: [
     { id: "base_instructions", priority: 1, ceiling: 2_000 },
-    { id: "agent_manual", priority: 2, ceiling: 45_000 },
+    { id: "agent_manual", priority: 2, ceiling: 53_000 },
     { id: "profile", priority: 3, ceiling: 4_000 },
     { id: "context", priority: 4, ceiling: 24_000 },
     { id: "context_index", priority: 5, ceiling: 6_000 },

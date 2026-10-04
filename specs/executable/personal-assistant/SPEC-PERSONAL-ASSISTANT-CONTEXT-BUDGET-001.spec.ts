@@ -66,7 +66,8 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * request-local explicit-duration reference rules. mnt-wy5.18 repins the
  * repaired profile-confirmation sentence boundary.
  */
-const pinnedAgentManualCharacters = 37_507;
+// mnt-hf3h.5: accepted four-stage chat-only manual and gated evening handoff.
+const pinnedAgentManualCharacters = 44_773;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service
@@ -97,7 +98,7 @@ const projection = {
 
 describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context budget", () => {
   it("keeps the documented defaults as the single source for legacy limit exports", () => {
-    expect(defaultContextBudget.total).toBe(110_000);
+    expect(defaultContextBudget.total).toBe(118_000);
     expect(defaultContextBudget.sources.map(({ id }) => id)).toEqual([
       "base_instructions", "agent_manual", "profile", "context", "context_index", "records", "inbox", "thread_summary", "history", "actions",
     ]);
@@ -315,7 +316,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
 
   it("parses environment overrides and fails fast on invalid or contradictory values", () => {
     expect(contextBudgetConfigFromEnv({
-      ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "90000",
+      ASSISTANT_CONTEXT_TOTAL_CHARACTERS: "98000",
       ASSISTANT_CONTEXT_RESPONSE_RESERVE_CHARACTERS: "9000",
       ASSISTANT_CONTEXT_SOURCE_CONTEXT_CHARACTERS: "17000",
       ASSISTANT_CONTEXT_DOCUMENT_CHARACTERS: "5000",
@@ -326,7 +327,7 @@ describe("SPEC-PERSONAL-ASSISTANT-CONTEXT-BUDGET-001: unified request context bu
       ASSISTANT_DOCUMENT_MAXIMUM_BYTES: "300000",
       ASSISTANT_DOCUMENT_TURN_SCAN_BYTES: "3000000",
     })).toMatchObject({
-      total: 90_000,
+      total: 98_000,
       responseReserve: 9_000,
       projectionLimits: { contextDocumentCharacters: 5_000, threadCompactionTurns: 8, threadCompactionFieldCharacters: 1_500 },
       documentTools: { readMaximumCharacters: 9_000, turnReadCharacters: 49_000, maximumDocumentBytes: 300_000, turnScanBytes: 3_000_000 },

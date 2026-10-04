@@ -74,6 +74,16 @@
       ]
     },
     {
+      "id": "work_retrospective",
+      "path": "vault/assistant/processes/work_retrospective.md",
+      "appliesTo": ["chat"],
+      "dependencies": [
+        "docs/architecture/rfc-routine-ontology-and-targeted-clarification.md",
+        "src/domain/work-retrospective.ts",
+        "src/application/work-retrospective-store.ts"
+      ]
+    },
+    {
       "id": "weekly_summary",
       "path": "vault/assistant/processes/weekly_summary.md",
       "appliesTo": [

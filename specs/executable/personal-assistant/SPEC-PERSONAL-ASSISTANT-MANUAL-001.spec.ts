@@ -202,6 +202,7 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
       "vault/assistant/processes/personal_context_review.md",
       "vault/assistant/processes/consent_and_privacy.md",
       "vault/assistant/processes/evening_reflection.md",
+      "vault/assistant/processes/work_retrospective.md",
       "vault/assistant/processes/weekly_summary.md",
       "vault/assistant/processes/final_report.md",
     ]);
