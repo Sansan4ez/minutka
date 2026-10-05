@@ -89,6 +89,7 @@ export class PersonalAssistantService {
     private readonly contextDocuments?: Pick<ContextDocumentService, "confirm" | "reject" | "listVersions" | "restoreVersion">,
     private readonly companyReporting?: Pick<CompanyReportingService, "exportGroup">,
     private readonly groupUsageReporting?: Pick<GroupUsageReportingService, "getMonthly">,
+    private readonly responseDelivery?: ReturnType<typeof import("./retrospective-delivery.js").createRetrospectiveDelivery>,
   ) {}
 
   issueInvite(input: IssueInviteInput): Promise<IssueInviteResult> { return this.identityService.issueInvite(input); }
@@ -119,6 +120,16 @@ export class PersonalAssistantService {
   getPersonalContext(input: GetPersonalContextInput) { return this.identityService.getPersonalContext(input); }
   updatePersonalContext(input: UpdatePersonalContextInput) { return this.identityService.updatePersonalContext(input); }
   chat(input: AssistantChatInput): Promise<AssistantChatResult> { return this.conversationService.chat(input); }
+
+  recordResponseDelivery(input: import("./retrospective-delivery.js").ResponseDeliveryReceipt) {
+    if (!this.responseDelivery) throw new Error("response delivery is not configured");
+    return this.responseDelivery.record(input);
+  }
+
+  readResponseDeliveries(input: { scope: import("../domain/work-retrospective.js").RetrospectiveScope; localDate: string }) {
+    if (!this.responseDelivery) throw new Error("response delivery is not configured");
+    return this.responseDelivery.readDeliveries(input);
+  }
 
   resetConversation(input: { userId: string }): Promise<{ threadId: string }> {
     if (!this.conversationThreads) throw new Error("conversation thread reset is not configured");

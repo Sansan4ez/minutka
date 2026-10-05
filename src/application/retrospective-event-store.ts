@@ -14,13 +14,17 @@ export type RetrospectiveEventStore = {
 export type TurnMetadata = {
   version: 1;
   origin?: ConversationTurn["origin"];
+  retrospectiveDeliveryScope?: ConversationTurn["retrospectiveDeliveryScope"];
+  scheduledProvenance?: ConversationTurn["scheduledProvenance"];
   retrospectiveEvents?: WorkRetrospectiveEvent[];
   deliveryEvents?: WorkRetrospectiveEvent[];
 };
 export function metadataFor(turn: ConversationTurn): TurnMetadata | null {
   if (turn.origin === undefined && turn.retrospectiveEvents === undefined) return null;
   return sanitizeRetrospectiveMetadata({ version: 1, ...(turn.origin === undefined ? {} : { origin: turn.origin }),
-    ...(turn.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: turn.retrospectiveEvents }) });
+    ...(turn.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: turn.retrospectiveEvents }),
+    ...(turn.retrospectiveDeliveryScope ? { retrospectiveDeliveryScope: turn.retrospectiveDeliveryScope } : {}),
+    ...(turn.scheduledProvenance ? { scheduledProvenance: turn.scheduledProvenance } : {}) });
 }
 /** Sanitize text values recursively, without altering JSON syntax or recording raw text in audit. */
 export function sanitizeRetrospectiveMetadata<T>(value: T): T {
@@ -55,14 +59,23 @@ export function mergeDeliveryEvents(turn: ConversationTurn, metadata: TurnMetada
   const delivery = metadata?.deliveryEvents ?? [];
   validateEvents(turn, [...initial, ...delivery]);
   validateEvents(turn, events);
-  if (!initial.length || !initial.every((event) => sameScope(event, scope))
+  const scheduledReceipt = turn.origin === "scheduled" && metadata?.scheduledProvenance
+    && metadata.retrospectiveDeliveryScope && sameScope(metadata.retrospectiveDeliveryScope, scope);
+  if ((!initial.length && !scheduledReceipt) || !initial.every((event) => sameScope(event, scope))
     || !events.every((event) => sameScope(event, scope) && event.action.type === "response_delivery"
-      && initial.some((source) => source.episodeId === event.episodeId))) {
+      && event.action.responseMessageId === turn.messageId
+      && isDeepStrictEqual(event.action.scheduled, metadata?.scheduledProvenance)
+      && (!event.action.questionId || initial.some((source) => source.action.type === "question_generated"
+        && source.episodeId === event.episodeId && source.action.question.questionId === (event.action.type === "response_delivery" ? event.action.questionId : undefined)))
+      && (initial.some((source) => source.episodeId === event.episodeId)
+        || (scheduledReceipt && event.action.type === "response_delivery" && !event.action.questionId)))) {
     throw new PersistenceError("persistence_conflict");
   }
   const merged = [...delivery];
   for (const event of events) {
-    const existing = [...initial, ...merged].find((candidate) => candidate.ordinal === event.ordinal || candidate.eventId === event.eventId);
+    const existing = [...initial, ...merged].find((candidate) => candidate.ordinal === event.ordinal || candidate.eventId === event.eventId
+      || (candidate.action.type === "response_delivery" && event.action.type === "response_delivery"
+        && candidate.action.responseMessageId === event.action.responseMessageId && candidate.action.questionId === event.action.questionId));
     if (existing) {
       if (!isDeepStrictEqual(existing, event)) throw new PersistenceError("persistence_conflict");
     } else merged.push(structuredClone(event));

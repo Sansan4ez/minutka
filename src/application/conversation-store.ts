@@ -13,6 +13,8 @@ export type ConversationTurn = {
   origin?: ConversationTurnOrigin;
   /** Canonical events persisted atomically with this turn; delivery is a separate event. */
   retrospectiveEvents?: WorkRetrospectiveEvent[];
+  retrospectiveDeliveryScope?: import("../domain/work-retrospective.js").RetrospectiveScope;
+  scheduledProvenance?: import("./retrospective-delivery.js").ScheduledDeliveryProvenance;
 };
 
 export function conversationTurnOrigin(turn: ConversationTurn): ConversationTurnOrigin {

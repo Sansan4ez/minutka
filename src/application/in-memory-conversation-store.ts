@@ -96,6 +96,8 @@ function toTurn(message: InMemoryWorld["messages"][number]): ConversationTurn {
     agentResponse: message.response,
     timestamp: message.timestamp,
     ...(message.metadata?.origin === undefined ? {} : { origin: message.metadata.origin }),
+    ...(message.metadata?.retrospectiveDeliveryScope ? { retrospectiveDeliveryScope: structuredClone(message.metadata.retrospectiveDeliveryScope) } : {}),
+    ...(message.metadata?.scheduledProvenance ? { scheduledProvenance: structuredClone(message.metadata.scheduledProvenance) } : {}),
     ...(message.metadata?.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: structuredClone(message.metadata.retrospectiveEvents) }),
   };
 }

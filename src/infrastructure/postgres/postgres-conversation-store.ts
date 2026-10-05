@@ -25,6 +25,8 @@ const turn = (row: Row): ConversationTurn => ({
   agentResponse: row.agent_response,
   timestamp: row.created_at.toISOString(),
   ...(row.metadata?.origin === undefined ? {} : { origin: row.metadata.origin }),
+  ...(row.metadata?.retrospectiveDeliveryScope ? { retrospectiveDeliveryScope: row.metadata.retrospectiveDeliveryScope } : {}),
+  ...(row.metadata?.scheduledProvenance ? { scheduledProvenance: row.metadata.scheduledProvenance } : {}),
   ...(row.metadata?.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: row.metadata.retrospectiveEvents }),
 });
 

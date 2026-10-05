@@ -472,7 +472,7 @@ export async function deliverTelegramMessage(replyPort: TelegramReplyPort, chatI
   for (const chunk of chunks) await replyPort.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
 }
 
-export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; pendingActionGroupStore?: PendingActionGroupStore; replyPort: TelegramReplyPort; privacyExplanation: string; fullPrivacyExplanation?: string; now?: () => string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
+export function createTelegramShell(deps: { recordResponseDelivery?: (receipt: import("../application/retrospective-delivery.js").ResponseDeliveryReceipt) => Promise<import("../application/retrospective-delivery.js").ResponseDeliveryOutcome>; client: ServiceMinutkaClient; sessionStore: TelegramSessionStore; pendingActionGroupStore?: PendingActionGroupStore; replyPort: TelegramReplyPort; privacyExplanation: string; fullPrivacyExplanation?: string; now?: () => string; artifactIntake?: TelegramArtifactIntake; fileGateway?: TelegramFileGateway; artifactMaximumBytes?: number; speechToText?: SpeechToTextPort; voiceFileGateway?: TelegramVoiceFileGateway; voiceProcessingTimeoutMs?: number }) {
   const { client, sessionStore, artifactIntake, fileGateway, speechToText, voiceFileGateway } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const pendingActionGroupStore = deps.pendingActionGroupStore ?? createInMemoryPendingActionGroupStore();
@@ -692,7 +692,7 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
     if (grouped) await pendingActionGroupStore.cancel(employeeId, groupId!);
     return omittedActions.length ? "shown_cancelled" : "cancelled";
   }
-  async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
+  async function sendChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<boolean> {
     const pendingActions = chat.pendingActions ?? [];
     if (!chat.response.trim()) throw new Error("Agent returned an empty response");
     const feedbackMessageId = chat.messageId;
@@ -702,12 +702,27 @@ export function createTelegramShell(deps: { client: ServiceMinutkaClient; sessio
       const delivery = await sendTaskProposal(chatId, { ...chat, pendingActions }, employeeId);
       if (delivery === "cancelled") await replyPort.sendMessage(chatId, taskProposalCancelledMessage);
       else if (delivery === "shown_cancelled") await replyPort.sendMessage(chatId, "Не удалось доставить показанные предложения. Они отменены; остальные предложения не отклонены и останутся доступными до истечения срока.");
-      return;
+      return delivery === "delivered";
     }
     if (activePendingActions.has(chatId) || await pendingActionGroupStore.getLatestDelivered(employeeId)) await sendMarkdown(chatId, chat.response);
     else {
       await removeActiveReplyMarkup(chatId);
       await sendMarkdown(chatId, chat.response, feedbackMarkup ? { replyMarkup: feedbackMarkup } : undefined);
+    }
+    return true;
+  }
+  async function deliverChatResult(chatId: string, chat: Omit<TelegramChatDeliveryResult, "pendingActions"> & { pendingActions?: AssistantPendingAction[] }, employeeId: string): Promise<void> {
+    let status: "delivered" | "failed" = "failed";
+    try { status = await sendChatResult(chatId, chat, employeeId) ? "delivered" : "failed"; }
+    finally {
+      if (chat.messageId && deps.recordResponseDelivery) {
+        try {
+          const session = await sessionStore.getDeliveryByEmployee(employeeId);
+          if (!session || session.chatId !== chatId) throw new Error("Delivery owner binding unavailable");
+          const outcome = await deps.recordResponseDelivery({ employeeId, threadId: session.threadId, messageId: chat.messageId, status });
+          if (outcome.status !== "applied" && outcome.status !== "replayed") logShellError("response receipt", new Error("DeliveryReceiptError"));
+        } catch { logShellError("response receipt", new Error("DeliveryReceiptError")); }
+      }
     }
   }
   async function textDecisionAction(employeeId: string, pending: ActivePendingAction, decision: TextConfirmationDecision): Promise<TaskMutationDecisionResult | IdeaDeletionDecisionResult | ContextDocumentDecisionResult> {

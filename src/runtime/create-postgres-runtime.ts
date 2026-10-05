@@ -1,3 +1,4 @@
+import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
 import { createPostgresWorkRetrospectiveStore } from "../infrastructure/postgres/postgres-work-retrospective-store.js";
 import { createPostgresLinkedActivityTransactionStore } from "../infrastructure/postgres/postgres-linked-activity-transaction-store.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
@@ -250,7 +251,9 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ownActivityReadStore = createPostgresOwnActivityReadStore(pool);
     const recentOwnActivities = new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), systemClock);
     const activityCorrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), systemClock);
-    const retrospective = createWorkRetrospectiveService(createPostgresWorkRetrospectiveStore(pool), stores.conversationStore);
+    const retrospectiveStore = createPostgresWorkRetrospectiveStore(pool);
+    const retrospective = createWorkRetrospectiveService(retrospectiveStore, stores.conversationStore);
+    const responseDelivery = createRetrospectiveDelivery({ canonical: stores.conversationStore, episodes: retrospectiveStore, profiles: stores.profileStore });
     const activityTransaction = new ActivityTransactionService({
       retrospective,
       linkedTransactions: createPostgresLinkedActivityTransactionStore(pool),
@@ -310,7 +313,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
     const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
     const groupUsageReporting = new GroupUsageReportingService(usageStore, usageCostPolicy);
-    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting);
+    const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting, responseDelivery);
     const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({
       assistant,
       telegramSessionStore,

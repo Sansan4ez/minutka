@@ -72,7 +72,7 @@ import {
 import { createWorkRetrospectiveRequest, type RetrospectiveRuntimeDependencies, type WorkRetrospectiveCapabilities } from "./work-retrospective-request.js";
 import type { ActivityTransactionTrustedRequest } from "./activity-transaction-service.js";
 
-export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; signal?: AbortSignal };
+export type AssistantChatInput = { userId: string; threadId: string; text: string; source?: IdeaSource; inputModality?: "text" | "voice"; responseChannel?: ResponseChannel; requiredProcessId?: AssistantDiagnosticProcessId; scheduledProvenance?: import("./retrospective-delivery.js").ScheduledDeliveryProvenance; signal?: AbortSignal };
 export type AssistantAgentContext = {
   systemContext: string;
   workRetrospective?: WorkRetrospectiveCapabilities;
@@ -944,6 +944,8 @@ export class AssistantService {
         agentResponse: response,
         timestamp: this.clock.now(),
         origin: requiredProcessId ? "scheduled" as const : "employee" as const,
+        ...(requiredProcessId ? { scheduledProvenance: input.scheduledProvenance ?? { processId: requiredProcessId },
+          ...(retrospective?.historicalAvailable ? { retrospectiveDeliveryScope: retrospectiveScope } : {}) } : {}),
       };
       const retrospectiveResult = await retrospective?.save(turn);
       if (retrospectiveResult && !("value" in retrospectiveResult)) {

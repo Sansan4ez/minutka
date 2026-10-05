@@ -33,6 +33,7 @@ import { RecentOwnActivitiesService } from "../application/recent-own-activities
 import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryActivityMutationStore, createInMemoryRecentOwnActivityReadStore } from "../application/in-memory-activity-collection-store.js";
 import { createInMemoryLinkedActivityTransactionStore } from "../application/linked-activity-transaction-store.js";
 import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
 import { createInMemoryWorkRetrospectiveStore } from "../application/in-memory-work-retrospective-store.js";
 import { createDirectoryWorkRetrospectivePolicyStore, type WorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
@@ -45,6 +46,7 @@ export const executableSpecFullPrivacyExplanation = executableSpecPrivacyNotice.
 export type InMemoryRuntime = {
   service: MinutkaService;
   assistantChat?: AssistantService;
+  responseDelivery: ReturnType<typeof createRetrospectiveDelivery>;
   world: InMemoryWorld;
   documentStore: DocumentStore;
   telegramSessionStore: InMemoryTelegramSessionStore;
@@ -125,7 +127,9 @@ export function createInMemoryRuntime(input: {
     ...deps,
   } as MinutkaServiceDeps);
   const conversationStore = createInMemoryConversationStore(world);
-  const retrospective = createWorkRetrospectiveService(createInMemoryWorkRetrospectiveStore(conversationStore), conversationStore);
+  const retrospectiveStore = createInMemoryWorkRetrospectiveStore(conversationStore);
+  const retrospective = createWorkRetrospectiveService(retrospectiveStore, conversationStore);
+  const responseDelivery = createRetrospectiveDelivery({ canonical: conversationStore, episodes: retrospectiveStore, profiles: profileStore, now: () => clock.now() });
   const activities = createInMemoryActivityCollectionState();
   const activityTransaction = input.activityExtractor ? new ActivityTransactionService({
     extractor: input.activityExtractor, retrospective, linkedTransactions: createInMemoryLinkedActivityTransactionStore(), clock,
@@ -140,5 +144,5 @@ export function createInMemoryRuntime(input: {
     ...input.assistantDeps,
     workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: profileStore, directory: createInMemoryTenantDirectoryStore(world.tenantDirectories) }) },
   }) : undefined;
-  return { service, assistantChat, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
+  return { service, assistantChat, responseDelivery, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }
