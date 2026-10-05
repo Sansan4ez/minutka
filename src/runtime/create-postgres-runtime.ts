@@ -1,7 +1,7 @@
 import { createPostgresWorkRetrospectiveStore } from "../infrastructure/postgres/postgres-work-retrospective-store.js";
 import { createPostgresLinkedActivityTransactionStore } from "../infrastructure/postgres/postgres-linked-activity-transaction-store.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
-import { InMemoryWorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
+import { createDirectoryWorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
 import { AssistantService } from "../application/assistant-service.js";
 import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
@@ -272,7 +272,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
-      workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore() },
+      workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: stores.profileStore, directory: stores.tenantDirectoryStore }) },
       processCurrentActivityTurn: (command) => activityTransaction.process(command),
       collectActivities: (command) => activityCollection.collectBatch(command),
       readRecentOwnActivities: (input) => recentOwnActivities.read(input),

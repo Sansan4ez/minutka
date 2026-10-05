@@ -102,6 +102,22 @@ export function normalizeIanaTimezone(value: string): string | undefined {
   }
 }
 
+/** First instant of a local calendar date, including IANA offset transitions.
+ * Binary search avoids assuming that a local day is 24 hours long. */
+export function startOfCalendarDateInIanaTimezone(date: string, timezone: string): string {
+  const anchor = Date.parse(`${date}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(anchor)
+    || new Date(anchor).toISOString().slice(0, 10) !== date) throw new Error("invalid calendar date");
+  let low = anchor - 48 * 60 * 60 * 1000;
+  let high = anchor + 48 * 60 * 60 * 1000;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (calendarDateInIanaTimezone(new Date(mid).toISOString(), timezone) < date) low = mid + 1;
+    else high = mid;
+  }
+  return new Date(low).toISOString();
+}
+
 /** Converts an instant to an ISO calendar date in a validated IANA timezone. */
 export function calendarDateInIanaTimezone(instant: string, timezone: string): string {
   const normalizedTimezone = normalizeIanaTimezone(timezone);

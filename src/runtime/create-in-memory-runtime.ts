@@ -35,7 +35,7 @@ import { createInMemoryLinkedActivityTransactionStore } from "../application/lin
 import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
 import { createInMemoryWorkRetrospectiveStore } from "../application/in-memory-work-retrospective-store.js";
-import { InMemoryWorkRetrospectivePolicyStore, type WorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
+import { createDirectoryWorkRetrospectivePolicyStore, type WorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
 
 export const executableSpecPrivacyPolicyUrl = "https://privacy.example.test/privacy-v6.html";
 const executableSpecPrivacyNotice = createPrivacyExplanation(executableSpecPrivacyPolicyUrl);
@@ -138,7 +138,7 @@ export function createInMemoryRuntime(input: {
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock,
     ...(activityTransaction ? { processCurrentActivityTurn: (command: Parameters<ActivityTransactionService["process"]>[0]) => activityTransaction.process(command) } : {}),
     ...input.assistantDeps,
-    workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore() },
+    workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: profileStore, directory: createInMemoryTenantDirectoryStore(world.tenantDirectories) }) },
   }) : undefined;
   return { service, assistantChat, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }

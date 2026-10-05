@@ -27,6 +27,7 @@ export async function createWorkRetrospectiveRequest(input: {
 }) {
   const { scope, messageId, now, localDate, dependencies } = input;
   const policy = await resolveWorkRetrospectivePolicy(dependencies.policies, scope, now);
+  const availability = await dependencies.policies.availability?.(scope);
   const read = await dependencies.service.readEpisodes({ scope, limit: 100 });
   let episode = "value" in read ? read.value.find((value) => value.status === "active") : undefined;
   const events: WorkRetrospectiveEvent[] = [];
@@ -37,12 +38,14 @@ export async function createWorkRetrospectiveRequest(input: {
   };
   if (episode?.pendingQuestion && (!policy.enabled || episode.questionBudget.localDate !== localDate || now >= episode.period.end)) {
     add({ type: "question_closed", questionId: episode.pendingQuestion.questionId,
-      reason: !policy.enabled ? "policy_disabled" : now >= episode.period.end ? "cycle_ended" : "new_day", localDate });
+      reason: now >= episode.period.end ? "cycle_ended" : !policy.enabled ? "policy_disabled" : "new_day", localDate });
   }
   const enabled = policy.enabled && "value" in read;
-  const context = await dependencies.service.readContext({ scope, enabled, now, localDate });
+  const context = await dependencies.service.readContext({ scope, enabled: !!policy.policy && "value" in read, now, localDate });
   return {
     enabled,
+    availability,
+    historicalAvailable: !!policy.policy && "value" in read,
     bindCollectedActivities(ids: string[]) { for (const activityId of ids) if (!activityRefs.some((ref) => ref.activityId === activityId)) activityRefs.push({ activityId, revision: 1 }); },
     context: "value" in context ? context.value : "{}",
     async update(raw: RetrospectiveUpdate) {

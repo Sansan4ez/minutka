@@ -755,7 +755,7 @@ export class AssistantService {
       records,
       source,
       systemContext: systemContextBudget.text + (retrospective?.enabled ? `\nWork retrospective is enabled for this group. Semantic handoff: use work_retrospective for a concrete work episode, after saving facts through processCurrentActivityTurn. Bound durable context: ${retrospective.context}` : ""),
-      ...(retrospective?.enabled ? { workRetrospective: { read: async () => retrospective.context, update: retrospective.update } } : {}),
+      ...(retrospective?.historicalAvailable ? { workRetrospective: { read: async () => retrospective.context, update: retrospective.update } } : {}),
       captureIdea,
       documents,
       contextDocuments,

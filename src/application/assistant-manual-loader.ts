@@ -19,6 +19,11 @@ const registrySchema = z.strictObject({
   })),
 });
 
+export const activeProcessIds = [
+  "core", "morning_planning", "midday_adjustment", "personal_context_review",
+  "consent_and_privacy", "evening_reflection", "work_retrospective", "weekly_summary", "final_report",
+] as const satisfies readonly AssistantProcessId[];
+
 export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}): string {
   const repoRoot = findRepoRoot(input.repoRoot ?? process.cwd());
   const registryPath = safeRepoPath(repoRoot, "vault/assistant/processes/registry.json");
@@ -26,17 +31,6 @@ export function loadAssistantAgentInstructions(input: { repoRoot?: string } = {}
   const duplicate = registry.processes.find((process, index) => registry.processes.findIndex(({ id }) => id === process.id) !== index);
   if (duplicate) throw new Error(`duplicate assistant process id: ${duplicate.id}`);
   const catalogIds = [registry.core.id, ...registry.processes.map(({ id }) => id)];
-  const activeProcessIds = [
-    "core",
-    "morning_planning",
-    "midday_adjustment",
-    "personal_context_review",
-    "consent_and_privacy",
-    "evening_reflection",
-    "work_retrospective",
-    "weekly_summary",
-    "final_report",
-  ] as const satisfies readonly AssistantProcessId[];
   if (catalogIds.join("\n") !== activeProcessIds.join("\n")) {
     throw new Error(`assistant process catalog drift: expected ${activeProcessIds.join(", ")}; received ${catalogIds.join(", ")}`);
   }
