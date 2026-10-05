@@ -41,6 +41,12 @@ Default rhythm содержит ровно два scheduled process по раб�
 
 Третьего **ежедневного** default schedule нет. Недельный чекпойнт `weekly_summary` (пятница, `17:00`, `mnt-cycle-completion-4gd.3`) имеет другую периодичность, не входит в ежедневный ритм и не является дневным push: он подводит итог уже собранных активностей и подчиняется тем же owner-scoped typed use-cases расписания. Финальный отчёт цикла `final_report` (`mnt-cycle-completion-4gd.4`) default-расписания не имеет вовсе: разовое касание ставит оператор на группу в конце цикла ([runbook](../runbooks/end-of-cycle.md)), и в личных настройках сотрудника оно не показывается.
 
+### Связанный handoff ретроспективы
+
+Текущий [retrospective RFC](./rfc-routine-ontology-and-targeted-clarification.md) и [runbook полного цикла](../runbooks/work-retrospective-cycle.md) добавляют chat-only `work_retrospective`, не третий daily schedule. Вечер сначала сохраняет все факты, затем передаёт добровольно выбранный эпизод без второй анкеты; утро/день могут использовать согласованный шаг, не записывая план как activity. Weekly/cycle typed reads дополнительно дают owner-bound read-only retrospective за полный период группы, также после его конца. Это не отменяет семь локальных дней factual weekly summary и не расширяет 72h factual correction window.
+
+Daily — максимум четыре дополнительных доставленных вопроса; weekly — до восьми лишь после свежего явного согласия сотрудника вместо дневного бюджета. Scheduled invitation не есть consent. Отказ/лимит не блокируют факты. Weekly/final заменяют evening invitation того же локального дня **только после успешной canonical доставки**; отключённое/недоставленное/ещё не доставленное касание вечер не подавляет. Уже открытый разбор не вытесняется. Owner-scoped enabled/time/days и timezone сохраняются; отдельного group policy state нет, новые приглашения ограничены периодом группы.
+
 ### 2.2. Утро: `morning_planning`
 
 Утренний процесс:
@@ -168,7 +174,7 @@ Delivery rate ниже `95%` запускает разбор доставки и
 - [карту возможностей](../product/skills-map.md);
 - runbooks scheduled process и пилотного прогона.
 
-До реализации текущая карта возможностей продолжает описывать фактический `morning_activity_collection`; RFC описывает принятое целевое решение и не выдаёт его за уже работающую capability.
+Ежедневный ритм реализован; текущая карта возможностей описывает `morning_planning`. Retrospective composition/persistence подтверждены `.26`, но live готовность требует единственного review/integration gate и private manifest; зелёные fixtures не доказывают эффект двух недель.
 
 Пункт 5 открытых вопросов superseded [RFC мультитенантного контура](./rfc-minutka-tenancy-and-reporting.md) закрывается этим решением: вечерний процесс нужен и становится основным producer фактических structured activities.
 

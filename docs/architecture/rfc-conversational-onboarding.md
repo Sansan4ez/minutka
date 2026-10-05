@@ -7,6 +7,8 @@
 
 **Implemented (фаза 2 «Онбординг, consent, профиль»; обновлено 2026-08-19).** Живой онбординг ограничен четырьмя вопросами: должность, обращение, стиль общения и часовой пояс, затем явное подтверждение. `typicalTasks`, `aiLevel` и `programGoal` не являются шагами формы: это опциональный личный контекст, который агент сохраняет позже из обычного разговора через employee-scoped typed use case без допроса и без блокировки первого полезного касания. `completeOnboarding()` остаётся прямым структурированным HTTP/CLI finalizer и может принять те же опциональные поля для совместимости автоматизации.
 
+Для текущей методики [work-retrospective-cycle](../runbooks/work-retrospective-cycle.md) onboarding не расширяется questionnaire о рутинах: сотрудник получает прямую пользу от короткого разбора одного случая, добровольно выбирает шаг/индикатор и может отказаться без потери фактов. Согласие на privacy и свежее явное согласие на weekly углубление различны; scheduled приглашение не даёт weekly consent. Канонический текст берётся из зарегистрированного [consent_and_privacy](../../vault/assistant/processes/consent_and_privacy.md): доверенная исследовательская команда имеет full tenant-scoped corpus/traces доступ для analysis, prompt/taxonomy improvement и evaluation, компания получает только checked client artifact. Личный final не передаётся компании, но его canonical conversation доступен исследованию; training исключён. Active privacy version и re-consent не меняются этой документационной синхронизацией.
+
 Текст ниже сохраняет провенанс первоначального extractor-дизайна. В части обязательных полей, порядка вопросов и примеров анкеты он superseded решением о четырёхшаговом онбординге и последующем conversational collection.
 
 Related documents:
