@@ -189,6 +189,15 @@ function normalizeInput(scope: ResearchEvidenceScope, input: RecommendationInput
   // Sanitization happens before model invocation as well as persistence.
   return JSON.parse(sanitizeResearchText(JSON.stringify({ ...input, episodes: [...episodes.values()] }))) as RecommendationInput;
 }
+/** Read-only publish validation: no generation, review mutation or new version. */
+export function currentCheckedRecommendations(scope: ResearchEvidenceScope, artifact: RecommendationArtifact, current: RecommendationInput): RecommendationCandidate[] {
+  recommendationArtifactSchema.parse(artifact);
+  if (!sameScope(scope, artifact.scope)) throw new Error("cross_scope_artifact");
+  const input = normalizeInput(scope, current);
+  if (artifact.episodeRefs.some((ref) => !input.episodes.some((e) => e.subjectKey === ref.subjectKey && e.threadId === ref.threadId && e.episodeId === ref.episodeId && e.revision === ref.revision))) return [];
+  return artifact.candidates.filter((candidate) => candidate.status === "checked" && !!candidate.review && complete(candidate) && supported(candidate, input));
+}
+
 function complete(p: RecommendationProposal): boolean {
   return p.disposition === "recommendation" && p.facts.length > 0 && !!p.known.method && !!p.known.criterion && !!p.change && !!p.humanControl && !!p.firstTest && !!p.expectedSign && !!p.stopCondition;
 }

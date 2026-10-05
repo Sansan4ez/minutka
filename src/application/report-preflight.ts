@@ -47,7 +47,7 @@ export const reportPreflightFindingsFileSchema = z.strictObject({
 export type ReportPreflightFindingsFile = z.infer<typeof reportPreflightFindingsFileSchema>;
 
 type PreflightReport = Pick<InternalCompanyEvidenceReport, "routines" | "buckets" | "coverage"> & {
-  client?: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines" | "firstSteps" | "deepDive" | "coverage">;
+  client?: Pick<ClientCompanyReport, "topRoutines" | "frictionRoutines" | "firstSteps" | "deepDive" | "coverage" | "recommendations">;
 };
 
 const lintRules: Array<{
@@ -95,6 +95,12 @@ export function buildPreflightFindings(report: PreflightReport): PreflightFindin
   }
 
   if (report.client !== undefined) {
+    for (const [index, recommendation] of (report.client.recommendations ?? []).entries()) {
+      for (const value of [recommendation.routine, recommendation.change, recommendation.firstTest, recommendation.expectedSign, recommendation.humanControl, recommendation.stopCondition, ...recommendation.limitations]) {
+        const match = lintText(value);
+        if (match) findings.push(makeFinding("policy", `recommendation:${index}`, match.rule, match.excerpt, "high"));
+      }
+    }
     for (const clientRoutine of report.client.frictionRoutines) {
       if (clientRoutine.evidenceSummary.contributors !== 1) continue;
       const exposedEnergySignal = Object.keys(clientRoutine.signals)

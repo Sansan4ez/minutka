@@ -54,13 +54,16 @@ export async function runCompanyReportCommand(
         ...(options.recordedBefore === undefined ? {} : { recordedBefore: options.recordedBefore }),
       });
       const llmFindings = await new ReportPreflightLlmService(dependencies.checkLlm).check({
-        routines: report.internal.routines
+        routines: [...report.internal.routines
           .filter((routine): routine is typeof routine & { name: string } => routine.name !== undefined)
           .map((routine) => ({
             routineKey: "routineKey" in routine.key ? routine.key.routineKey : routine.key.routineId,
             name: routine.name,
             variants: routine.variants,
-          })),
+          })), ...(report.client.recommendations ?? []).map((recommendation, index) => ({
+            routineKey: `recommendation:${index}`, name: recommendation.routine,
+            variants: [recommendation.change, recommendation.firstTest, recommendation.expectedSign, recommendation.humanControl, recommendation.stopCondition, ...recommendation.limitations],
+          }))],
       });
       const findings = [...report.internal.preflightFindings, ...llmFindings];
       const output = `${JSON.stringify({
@@ -84,11 +87,11 @@ export async function runCompanyReportCommand(
       });
     program.command("publish")
       .requiredOption("--company <companyId>").requiredOption("--group <groupId>")
-      .option("--directory <path>").option("--recorded-before <timestamp>").requiredOption("--findings <path>").requiredOption("--out <path>")
-      .action(async (options: { company: string; group: string; directory?: string; recordedBefore?: string; findings: string; out: string }) => {
+      .option("--directory <path>").option("--recorded-before <timestamp>").requiredOption("--findings <path>").requiredOption("--out <path>").option("--operator-publish", "Explicit operator acceptance of the current v3 report")
+      .action(async (options: { company: string; group: string; directory?: string; recordedBefore?: string; findings: string; out: string; operatorPublish?: boolean }) => {
         const directory = options.directory === undefined ? undefined : readRoutineDirectoryFile(resolve(options.directory), { expectedCompanyId: options.company, requireWorkCategories: true });
         const findings = JSON.parse(await readFile(resolve(options.findings), "utf8")) as never;
-        const result = await dependencies.publishing!.publishClientReport({ companyId: options.company, groupId: options.group, ...(directory === undefined ? {} : { directory }), findings, ...(options.recordedBefore === undefined ? {} : { recordedBefore: options.recordedBefore }) });
+        const result = await dependencies.publishing!.publishClientReport({ companyId: options.company, groupId: options.group, ...(directory === undefined ? {} : { directory }), findings, ...(options.operatorPublish ? { operatorDecision: "publish" as const } : {}), ...(options.recordedBefore === undefined ? {} : { recordedBefore: options.recordedBefore }) });
         if (result.ok) await writeFile(resolve(options.out), `${JSON.stringify(result.client, null, 2)}\n`, "utf8");
         write(`${JSON.stringify(result)}\n`);
       });

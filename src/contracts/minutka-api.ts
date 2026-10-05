@@ -314,7 +314,7 @@ const clientFrictionRoutineSchema = z.strictObject({
   name: z.string().min(1), scope: z.string().min(1), signals: z.record(z.string(), z.number().int().nonnegative()), evidenceSummary: clientRoutineEvidenceSummarySchema,
   confidence: companyReportConfidenceSchema, quickWin: clientQuickWinSchema.optional(), deepDive: z.literal(true).optional(),
 });
-const clientCompanyReportSchema = z.strictObject({
+const clientCompanyReportV2Schema = z.strictObject({
   schemaVersion: z.literal("minutka-client-report.v2"), title: z.string().min(1), companyLabel: z.string().min(1), groupLabel: z.string().min(1),
   period: z.strictObject({ start: z.string().min(1), end: z.string().min(1) }),
   coverage: z.strictObject({ assessment: z.enum(["insufficient", "usable_with_limits", "usable"]), invitedParticipants: z.number().int().nonnegative(), contributors: z.number().int().nonnegative(), activeDates: z.number().int().nonnegative(), observations: z.number().int().nonnegative(), unsizedObservations: z.number().int().nonnegative(), unattributedObservations: z.number().int().nonnegative(), coveredRoles: z.array(z.string()), limitations: z.array(z.string()) }),
@@ -325,10 +325,14 @@ const clientCompanyReportSchema = z.strictObject({
   deepDive: z.array(z.strictObject({ name: z.string().min(1), scope: z.string().min(1), question: z.string().min(1), reason: z.string().min(1) })),
   cannotConclude: z.array(z.string()),
 });
+const clientCompanyReportSchema = z.discriminatedUnion("schemaVersion", [clientCompanyReportV2Schema, clientCompanyReportV2Schema.extend({
+  schemaVersion: z.literal("minutka-client-report.v3"), recommendationVersion: z.string().regex(/^[a-f0-9]{64}$/),
+  recommendations: z.array(z.strictObject({ routine: z.string().min(1), change: z.string().min(1), firstTest: z.string().min(1), expectedSign: z.string().min(1), limitations: z.array(z.string()), humanControl: z.string().min(1), stopCondition: z.string().min(1) })),
+})]);
 export const companyReportResponseSchema = z.strictObject({ internal: internalCompanyReportSchema, client: clientCompanyReportSchema });
 
 export const publishClientReportResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({ ok: z.literal(false), reason: z.enum(["missing_findings", "stale_findings"]), findingIds: z.array(z.string().min(1)).optional() }),
+  z.strictObject({ ok: z.literal(false), reason: z.enum(["missing_findings", "stale_findings", "operator_decision_required"]), findingIds: z.array(z.string().min(1)).optional() }),
   z.strictObject({ ok: z.literal(false), reason: z.literal("unresolved_high_findings"), findingIds: z.array(z.string().min(1)) }),
   z.strictObject({ ok: z.literal(true), client: clientCompanyReportSchema, reportVersion: z.string().length(64) }),
 ]);

@@ -6,7 +6,7 @@ import { randomIdGenerator, systemClock, type Clock, type IdGenerator } from "./
 export type PreflightFindingDecision = "verified" | "fixed";
 export type ClientReportPublishRefused = {
   ok: false;
-  reason: "missing_findings" | "stale_findings" | "unresolved_high_findings";
+  reason: "missing_findings" | "stale_findings" | "unresolved_high_findings" | "operator_decision_required";
   findingIds?: string[];
 };
 export class ClientReportFindingError extends Error {
@@ -60,7 +60,7 @@ export class ClientReportPublishingService {
         findingId,
         decision: input.decision,
         reportVersion,
-        reviewer: this.reviewer,
+        reviewer: report.client.schemaVersion === "minutka-client-report.v3" ? "operator" : this.reviewer,
       },
     });
     return { ok: true };
@@ -71,6 +71,7 @@ export class ClientReportPublishingService {
     groupId: string;
     directory?: unknown;
     findings: ReportPreflightFindingsFile;
+    operatorDecision?: "publish";
     recordedBefore?: string;
   }): Promise<ClientReportPublishResult> {
     const scope = normalizeScope(input);
@@ -82,6 +83,9 @@ export class ClientReportPublishingService {
     });
     const reportVersion = hashClientReport(report.client);
     const occurredAt = this.clock.now();
+    if (report.client.schemaVersion === "minutka-client-report.v3" && input.operatorDecision !== "publish") {
+      return this.refuse(scope.scope, reportVersion, occurredAt, "operator_decision_required");
+    }
     const parsedFindings = reportPreflightFindingsFileSchema.safeParse(input.findings);
     if (!parsedFindings.success) return this.refuse(scope.scope, reportVersion, occurredAt, "missing_findings");
     const findingsFile = parsedFindings.data;
@@ -95,6 +99,7 @@ export class ClientReportPublishingService {
       decisions
         .filter((event) => event.metadata.decision === "verified" || event.metadata.decision === "fixed")
         .filter((event) => event.metadata.reportVersion === reportVersion)
+        .filter((event) => report.client.schemaVersion !== "minutka-client-report.v3" || event.metadata.reviewer === "operator")
         .map((event) => String(event.metadata.findingId ?? "")),
     );
     const unresolved = highFindings.filter((finding) => !resolved.has(finding.id)).map((finding) => finding.id);
@@ -121,7 +126,7 @@ export class ClientReportPublishingService {
       metadata: {
         scope: scope.scope,
         reportVersion,
-        reviewer: this.reviewer,
+        reviewer: report.client.schemaVersion === "minutka-client-report.v3" ? "operator" : this.reviewer,
         llmFindings: findingsFile.findings.some((finding) => finding.rule === "llm_identifying_detail") ? "applied" : "none",
       },
     });

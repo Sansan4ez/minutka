@@ -6,6 +6,10 @@ import { routineKey, tally } from "./own-activity-window.js";
 import { buildPreflightFindings, confidenceForCounts, COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 import { workCategoryLabels, type WorkCategory } from "../domain/work-categories.js";
 
+import { createHash } from "node:crypto";
+import { currentCheckedRecommendations, type RecommendationArtifact, type RecommendationResearchRead } from "./retrospective-recommendations.js";
+import type { WorkRetrospectivePolicyStore } from "./work-retrospective-policy.js";
+
 export { COMPANY_REPORT_CONFIDENCE_POLICY } from "./report-preflight.js";
 
 export const durationBucketHours: Record<ActivityDurationBucket, number> = {
@@ -181,7 +185,10 @@ export type ClientTimeBudgetEntry = {
 };
 
 export type ClientCompanyReport = {
-  schemaVersion: "minutka-client-report.v2";
+  schemaVersion: "minutka-client-report.v2" | "minutka-client-report.v3";
+  /** Opaque canonical candidate-version digest; never contains research identities. */
+  recommendationVersion?: string;
+  recommendations?: Array<{ routine: string; firstTest: string; expectedSign: string; limitations: string[]; humanControl: string; stopCondition: string; change: string }>;
   title: string;
   companyLabel: string;
   groupLabel: string;
@@ -219,6 +226,12 @@ export class CompanyReportingService {
   constructor(
     private readonly store: CompanyReportStore,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly retrospective?: {
+      policies: WorkRetrospectivePolicyStore;
+      /** Latest durable version, selected by trusted application code, not by the agent. */
+      readLatest(scope: { companyId: string; groupId: string }): Promise<RecommendationArtifact | undefined>;
+      research: RecommendationResearchRead;
+    },
   ) {}
 
   async buildReport(input: { companyId: string; groupId: string; directory?: unknown; recordedBefore?: string }): Promise<CompanyReportResult> {
@@ -240,7 +253,46 @@ export class CompanyReportingService {
         || (activity.activityDate >= snapshot.reference.period.start && activity.activityDate <= snapshot.reference.period.end))
       && (recordedBefore === undefined || activity.recordedAt <= recordedBefore));
     const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory, snapshot.reference);
-    return { internal, client: buildClientReport(internal) };
+    const client = buildClientReport(internal);
+    const scope = { companyId, groupId };
+    const policy = await this.retrospective?.policies.read(scope);
+    // Reporting remains available after the live cycle closes; opt-in is scoped, not clock-dependent.
+    if (policy?.enabled && policy.companyId === companyId && policy.groupId === groupId && this.retrospective) {
+      const artifact = await this.retrospective.readLatest(scope);
+      const current = artifact === undefined ? undefined : await this.retrospective.research.read(scope);
+      const checked = artifact === undefined || current === undefined ? [] : currentCheckedRecommendations(scope, artifact, current);
+      client.schemaVersion = "minutka-client-report.v3";
+      client.recommendationVersion = createHash("sha256").update(JSON.stringify(artifact ?? null)).digest("hex");
+      // Strip generic quick wins everywhere on the new path, including nested routines.
+      client.firstSteps = [];
+      for (const routine of [...client.topRoutines, ...client.frictionRoutines]) {
+        delete routine.quickWin;
+        routine.deepDive = true;
+      }
+      client.deepDive = internal.routines.filter((routine) => routine.name !== undefined && routine.observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations).map((routine) => ({
+        name: routine.name!, scope: routineScope(routine, internal), question: routineQuestion(routine), reason: "Требуются актуальные проверенные основания и операторское решение",
+      }));
+      client.recommendations = checked.sort((a, b) => a.candidateId.localeCompare(b.candidateId)).flatMap((candidate) => {
+        // Only aggregate routine labels already eligible for the client boundary may name a recommendation.
+        const refs = [...candidate.operation.refs, ...candidate.opportunity.refs, ...candidate.facts.flatMap((fact) => fact.refs)];
+        const episodes = current!.episodes.filter((episode) => refs.some((ref) => ref.subjectKey === episode.subjectKey && ref.episodeId === episode.episodeId && ref.threadId === episode.threadId));
+        const routine = internal.routines.find((entry) => entry.name !== undefined
+          && entry.observations >= COMPANY_REPORT_CONFIDENCE_POLICY.clientMinimumObservations
+          && entry.contributors >= COMPANY_REPORT_CONFIDENCE_POLICY.signalSubjects
+          && episodes.length > 0
+          && episodes.every((episode) => episode.activityRefs.some((activity) => entry.evidenceRefs.some((ref) => ref.subjectKey === episode.subjectKey && ref.id === activity.activityId))));
+        if (!routine?.name) return [];
+        const clientTexts = [candidate.change!, candidate.firstTest!, candidate.expectedSign!, candidate.humanControl!, candidate.stopCondition!, ...candidate.unknowns];
+        const privateMarkers = [...artifact!.contributors, ...refs.map((ref) => ref.quote), candidate.review!.operatorId];
+        if (clientTexts.some((value) => privateMarkers.some((marker) => marker.length > 0 && value.includes(marker)))) return [];
+        return [{ routine: routine.name, change: candidate.change!, firstTest: candidate.firstTest!, expectedSign: candidate.expectedSign!,
+          limitations: [...candidate.unknowns], humanControl: candidate.humanControl!, stopCondition: candidate.stopCondition! }];
+      });
+      const recommended = new Set(client.recommendations.map((recommendation) => recommendation.routine));
+      client.deepDive = client.deepDive.filter((entry) => !recommended.has(entry.name));
+      internal.preflightFindings = buildPreflightFindings({ ...internal, client });
+    }
+    return { internal, client };
   }
 
   async exportGroup(input: { companyId: string; groupId: string; directory?: unknown; recordedBefore?: string }): Promise<CompanyReportResult> {
