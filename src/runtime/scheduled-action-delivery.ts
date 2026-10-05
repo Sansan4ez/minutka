@@ -20,6 +20,9 @@ export function createTelegramScheduledActionRunner(input: {
       userId: fire.userId,
       threadId: delivery.threadId,
       processId: fire.processId,
+      scheduleId: fire.scheduleId,
+      scheduledFor: fire.scheduledFor,
+      retrospectiveTouch: fire.retrospectiveTouch,
     });
     await input.telegramShell.deliverProactive(delivery.chatId, result, fire.userId);
   };

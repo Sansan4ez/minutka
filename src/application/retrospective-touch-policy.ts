@@ -46,8 +46,13 @@ export function createRetrospectiveTouchPolicy(dependencies: {
     const owner = await dependencies.resolveOwner(fire);
     if (!owner || owner.scope.employeeId !== fire.userId) return { action: "run" };
     const now = dependencies.now();
-    const policy = await resolveWorkRetrospectivePolicy(dependencies.policies, owner.scope, now);
-    if (!policy.enabled) return { action: "run" };
+    // Production availability is directory-derived; legacy policies remain fixture DI.
+    const availability = dependencies.policies.availability
+      ? await dependencies.policies.availability(owner.scope) : undefined;
+    if (dependencies.policies.availability) {
+      if (!availability || availability.companyId !== owner.scope.companyId || availability.groupId !== owner.scope.groupId
+        || now < availability.period.start || now >= availability.period.end) return { action: "run" };
+    } else if (!(await resolveWorkRetrospectivePolicy(dependencies.policies, owner.scope, now)).enabled) return { action: "run" };
     const localDate = retrospectiveLocalDate(now, owner.timezone);
     const deliveries = (await dependencies.readDeliveries({ scope: owner.scope, localDate })).filter(({ event }) =>
       sameScope(event, owner.scope) && event.action.type === "response_delivery"

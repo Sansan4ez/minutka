@@ -24,6 +24,7 @@ export type RetrospectiveRuntimeDependencies = {
 export async function createWorkRetrospectiveRequest(input: {
   scope: RetrospectiveScope; messageId: string; now: string; localDate: string;
   dependencies: RetrospectiveRuntimeDependencies;
+  scheduled?: import("./retrospective-delivery.js").ScheduledDeliveryProvenance;
 }) {
   const { scope, messageId, now, localDate, dependencies } = input;
   const policy = await resolveWorkRetrospectivePolicy(dependencies.policies, scope, now);
@@ -47,12 +48,17 @@ export async function createWorkRetrospectiveRequest(input: {
     availability,
     historicalAvailable: !!policy.policy && "value" in read,
     bindCollectedActivities(ids: string[]) { for (const activityId of ids) if (!activityRefs.some((ref) => ref.activityId === activityId)) activityRefs.push({ activityId, revision: 1 }); },
+    scheduled: input.scheduled,
     context: "value" in context ? context.value : "{}",
     async update(raw: RetrospectiveUpdate) {
       const parsed = retrospectiveUpdateSchema.safeParse(raw);
       if (!enabled || !policy.enabled) return { status: "forbidden" as const };
       if (!parsed.success || events.some((event) => event.action.type === "question_generated")) return { status: "failed" as const, code: "validation_error" as const };
       const command = parsed.data;
+      // A scheduled invitation cannot replace an employee's unanswered question.
+      // Statements and factual collection remain available on this same request.
+      if (input.scheduled?.retrospectiveTouch?.preservePendingQuestion && episode?.pendingQuestion
+        && (command.question || command.closeReason)) return { status: "forbidden" as const };
       if (!Object.keys(command).length) return { status: "failed" as const, code: "validation_error" as const };
       if (!episode) {
         episode = { ...scope, episodeId: randomUUID(), period: policy.policy.period, methodVersion: policy.policy.methodVersion,
@@ -87,6 +93,7 @@ export async function createWorkRetrospectiveRequest(input: {
   };
 }
 export type WorkRetrospectiveCapabilities = {
+  scheduled?: import("./retrospective-delivery.js").ScheduledDeliveryProvenance;
   read(): Promise<string>;
   update(input: RetrospectiveUpdate): Promise<unknown>;
 };

@@ -1,3 +1,4 @@
+import { createRuntimeRetrospectiveTouchPolicy } from "./retrospective-scheduling.js";
 import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
 import { createPostgresWorkRetrospectiveStore } from "../infrastructure/postgres/postgres-work-retrospective-store.js";
 import { createPostgresLinkedActivityTransactionStore } from "../infrastructure/postgres/postgres-linked-activity-transaction-store.js";
@@ -266,6 +267,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const weeklyActivitySummary = new WeeklyActivitySummaryService(ownActivityReadStore, systemClock);
     const cycleActivitySummary = new CycleActivitySummaryService(ownActivityReadStore, systemClock);
     const researchTraceStore = createPostgresResearchTraceStore(pool);
+    const retrospectivePolicies = input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: stores.profileStore, directory: stores.tenantDirectoryStore });
     const assistantChat = new AssistantService(input.assistantAgentRunner, {
       documentStore,
       conversationStore: stores.conversationStore,
@@ -275,7 +277,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
-      workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: stores.profileStore, directory: stores.tenantDirectoryStore }) },
+      workRetrospective: { service: retrospective, policies: retrospectivePolicies },
       processCurrentActivityTurn: (command) => activityTransaction.process(command),
       collectActivities: (command) => activityCollection.collectBatch(command),
       readRecentOwnActivities: (input) => recentOwnActivities.read(input),
@@ -318,7 +320,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       assistant,
       telegramSessionStore,
       telegramShell: input.telegramShell,
-    }));
+    }), undefined, createRuntimeRetrospectiveTouchPolicy({ profiles: stores.profileStore, sessions: telegramSessionStore,
+      policies: retrospectivePolicies, episodes: retrospective, delivery: responseDelivery, now: () => systemClock.now() }));
     const telegramShell = input.telegramShell;
     const engagementReminders = telegramShell
       ? new EngagementReminderSweep(

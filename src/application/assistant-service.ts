@@ -360,6 +360,7 @@ export class AssistantService {
     const retrospectiveScope = { employeeId: userId, companyId: participant.companyId, groupId: participant.groupId, subjectKey: participant.subjectKey, threadId };
     const retrospective = this.deps.workRetrospective ? await createWorkRetrospectiveRequest({
       scope: retrospectiveScope, messageId, now: this.clock.now(), localDate: ownerToday, dependencies: this.deps.workRetrospective,
+      scheduled: input.scheduledProvenance,
     }) : undefined;
     type PendingActionSlot =
       | { sequence: number; kind: "task"; pending: PendingTaskMutation; title?: string; persistence: "attempted" | "persisted" }
@@ -755,7 +756,7 @@ export class AssistantService {
       records,
       source,
       systemContext: systemContextBudget.text + (retrospective?.enabled ? `\nWork retrospective is enabled for this group. Semantic handoff: use work_retrospective for a concrete work episode, after saving facts through processCurrentActivityTurn. Bound durable context: ${retrospective.context}` : ""),
-      ...(retrospective?.historicalAvailable ? { workRetrospective: { read: async () => retrospective.context, update: retrospective.update } } : {}),
+      ...(retrospective?.historicalAvailable ? { workRetrospective: { read: async () => retrospective.context, update: retrospective.update, scheduled: retrospective.scheduled } } : {}),
       captureIdea,
       documents,
       contextDocuments,

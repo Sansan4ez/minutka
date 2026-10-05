@@ -7,7 +7,7 @@ import type { WorkRetrospectiveStore } from "./work-retrospective-store.js";
 import type { RetrospectiveScope, WorkRetrospectiveEvent } from "../domain/work-retrospective.js";
 import { calendarDateInIanaTimezone } from "../shared/iana-timezone.js";
 
-export type ScheduledDeliveryProvenance = { processId: string; scheduleId?: string; scheduledFor?: string };
+export type ScheduledDeliveryProvenance = { processId: string; scheduleId?: string; scheduledFor?: string; retrospectiveTouch?: import("./retrospective-touch-policy.js").RetrospectiveTouchContext };
 export type ResponseDeliveryReceipt = { employeeId: string; threadId: string; messageId: string; status: "delivered" | "failed" };
 export type ResponseDeliveryOutcome = { status: "applied" | "replayed" | "forbidden" | "not_found" } | { status: "failed"; code: "persistence_error" };
 

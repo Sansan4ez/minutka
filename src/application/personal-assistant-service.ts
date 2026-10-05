@@ -151,13 +151,14 @@ export class PersonalAssistantService {
     return this.schedules.disableSchedule(userId, scheduleId);
   }
 
-  runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantScheduledProcessId }): Promise<AssistantChatResult> {
+  runScheduledProcess(input: { userId: string; threadId: string; processId: AssistantScheduledProcessId; scheduleId?: string; scheduledFor?: string; retrospectiveTouch?: import("./retrospective-touch-policy.js").RetrospectiveTouchContext }): Promise<AssistantChatResult> {
     return this.conversationService.chat({
       userId: input.userId,
       threadId: input.threadId,
       text: scheduledProcessPrompt(input.processId),
       responseChannel: "telegram",
       requiredProcessId: input.processId,
+      scheduledProvenance: { processId: input.processId, scheduleId: input.scheduleId, scheduledFor: input.scheduledFor, retrospectiveTouch: input.retrospectiveTouch },
     });
   }
 

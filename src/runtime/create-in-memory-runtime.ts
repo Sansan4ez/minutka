@@ -33,6 +33,7 @@ import { RecentOwnActivitiesService } from "../application/recent-own-activities
 import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryActivityMutationStore, createInMemoryRecentOwnActivityReadStore } from "../application/in-memory-activity-collection-store.js";
 import { createInMemoryLinkedActivityTransactionStore } from "../application/linked-activity-transaction-store.js";
 import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
+import { createRuntimeRetrospectiveTouchPolicy } from "./retrospective-scheduling.js";
 import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
 import { createInMemoryWorkRetrospectiveStore } from "../application/in-memory-work-retrospective-store.js";
@@ -47,6 +48,7 @@ export type InMemoryRuntime = {
   service: MinutkaService;
   assistantChat?: AssistantService;
   responseDelivery: ReturnType<typeof createRetrospectiveDelivery>;
+  touchPolicy: ReturnType<typeof createRuntimeRetrospectiveTouchPolicy>;
   world: InMemoryWorld;
   documentStore: DocumentStore;
   telegramSessionStore: InMemoryTelegramSessionStore;
@@ -137,12 +139,15 @@ export function createInMemoryRuntime(input: {
     corrections: new ActivityCorrectionService(createInMemoryActivityMutationStore(activities), clock),
     recentActivities: new RecentOwnActivitiesService(createInMemoryRecentOwnActivityReadStore(activities), clock),
   }) : undefined;
+  const retrospectivePolicies = input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: profileStore, directory: createInMemoryTenantDirectoryStore(world.tenantDirectories) });
+  const touchPolicy = createRuntimeRetrospectiveTouchPolicy({ profiles: profileStore, sessions: sessionStore,
+    policies: retrospectivePolicies, episodes: retrospective, delivery: responseDelivery, now: () => clock.now() });
   const assistantChat = input.assistantAgentRunner ? new AssistantService(input.assistantAgentRunner, {
     documentStore, conversationStore, ingestionService, participantStore: profileStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock,
     ...(activityTransaction ? { processCurrentActivityTurn: (command: Parameters<ActivityTransactionService["process"]>[0]) => activityTransaction.process(command) } : {}),
     ...input.assistantDeps,
-    workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? createDirectoryWorkRetrospectivePolicyStore({ profiles: profileStore, directory: createInMemoryTenantDirectoryStore(world.tenantDirectories) }) },
+    workRetrospective: { service: retrospective, policies: retrospectivePolicies },
   }) : undefined;
-  return { service, assistantChat, responseDelivery, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
+  return { service, assistantChat, responseDelivery, touchPolicy, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }
