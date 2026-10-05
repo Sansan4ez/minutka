@@ -66,8 +66,9 @@ import { maxChatInputCharacters } from "../../../src/shared/chat-limits.js";
  * request-local explicit-duration reference rules. mnt-wy5.18 repins the
  * repaired profile-confirmation sentence boundary.
  */
-// mnt-hf3h.5: accepted four-stage chat-only manual and gated evening handoff.
-const pinnedAgentManualCharacters = 44_773;
+// mnt-hf3h.26: compact retrospective/session rules retain the existing ceiling
+// and >=6800 worst-case headroom; no cost budget increase.
+const pinnedAgentManualCharacters = 45_945;
 
 /**
  * The startup check fails closed: a manual above its ceiling stops the service

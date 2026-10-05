@@ -121,5 +121,11 @@ export async function runCompanyReportCommand(
         write(`${JSON.stringify(result)}\n`);
       });
   }
-  await program.parseAsync(argv, { from: "user" });
+  try {
+    await program.parseAsync(argv, { from: "user" });
+  } catch (error) {
+    // exitOverride keeps commands testable; successful help is not a CLI failure.
+    if (error instanceof Error && "code" in error && error.code === "commander.helpDisplayed") return;
+    throw error;
+  }
 }

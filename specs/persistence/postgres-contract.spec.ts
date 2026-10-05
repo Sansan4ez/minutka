@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPostgresPool } from "../../src/infrastructure/postgres/postgres-pool.js";
-import { migratePostgres } from "../../src/infrastructure/postgres/postgres-migrator.js";
+import { migratePostgres, migrationStatus } from "../../src/infrastructure/postgres/postgres-migrator.js";
 import { createPostgresProfileStore } from "../../src/infrastructure/postgres/postgres-profile-store.js";
 import { createPostgresConversationStore } from "../../src/infrastructure/postgres/postgres-conversation-store.js";
 import { createPostgresThreadSummaryStore } from "../../src/infrastructure/postgres/postgres-thread-summary-store.js";
@@ -69,6 +69,17 @@ if (!url || !migrationUrl) {
   throw new Error("TEST_DATABASE_URL and TEST_MIGRATION_DATABASE_URL are required for specs:persistence");
 }
 
+// This suite deletes canonical data. Refuse unsafe identities before constructing pools.
+function databaseIdentity(value: string): string {
+  const parsed = new URL(value);
+  return JSON.stringify([parsed.hostname, parsed.port || "5432", parsed.pathname]);
+}
+if (databaseIdentity(url) !== databaseIdentity(migrationUrl)
+  || !new URL(url).pathname.toLowerCase().includes("test")
+  || [process.env.DATABASE_URL, process.env.MIGRATION_DATABASE_URL].some(value => value && databaseIdentity(value) === databaseIdentity(url))) {
+  throw new Error("Persistence verification requires one explicitly test-named database distinct from production");
+}
+
 const config = {
   databaseUrl: url,
   ssl: false as const,
@@ -115,6 +126,9 @@ describe("PostgreSQL storage contracts", () => {
     // Schema ownership stays with the migrator. The runtime role is tested only
     // against an already-migrated database, exactly as it runs in production.
     await migratePostgres(migrationPool);
+    const migrations = await migrationStatus(migrationPool);
+    expect(migrations.pending).toEqual([]);
+    for (const version of ["0081", "0082", "0083", "0084"]) expect(migrations.applied).toContain(version);
     await pool.query("DELETE FROM minutka_audit.events; DELETE FROM minutka_research.traces; DELETE FROM minutka_private.participants");
     await migrationPool.query("INSERT INTO minutka_reference.companies (id, name) VALUES ('company_persistence_default', 'Persistence Default Co') ON CONFLICT (id) DO NOTHING");
     await migrationPool.query("INSERT INTO minutka_reference.training_groups (id, company_id, name, period) VALUES ('group_persistence_default', 'company_persistence_default', 'Pilot', daterange('2026-07-01', '2027-01-01', '[)')) ON CONFLICT (id) DO NOTHING");
@@ -122,6 +136,19 @@ describe("PostgreSQL storage contracts", () => {
   });
   afterAll(async () => {
     await Promise.all([pool.end(), migrationPool.end()]);
+  });
+
+  it("SPEC-RETRO-COMPOSITION-E2E-05 operator preview is read-only on migrated TEST storage", async () => {
+    const { runResearchScopePurgeCommand } = await import("../../src/runtime/research-scope-purge-command.js");
+    await issueProfileReadyParticipant(pool, "preview_test_owner", "preview_test_invite");
+    const service = new ResearchScopePurgeService(createPostgresResearchScopePurgeStore(pool), { async deleteByEmployee() { throw new Error("preview must not delete objects"); } });
+    const before = (await pool.query("SELECT count(*)::int AS count FROM minutka_private.participants")).rows;
+    let output = "";
+    await runResearchScopePurgeCommand(["--company", "company_persistence_default", "--group", "group_persistence_default", "--preview"], {
+      service, async readConfirmation() { throw new Error("preview must not confirm"); }, write(text) { output += text; },
+    });
+    expect(JSON.parse(output)).toMatchObject({ scope: { companyId: "company_persistence_default", groupId: "group_persistence_default" } });
+    expect((await pool.query("SELECT count(*)::int AS count FROM minutka_private.participants")).rows).toEqual(before);
   });
 
   it("SPEC-RETRO-LIFECYCLE research owners are durable without fake participants; employee cascade remains", async () => {
@@ -166,15 +193,32 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, employeeId, "retro_projection_invite");
     const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId);
     const { turn: input, scope } = retrospectiveMetadataFixture(employeeId, participant!.subjectKey, participant!.companyId, participant!.groupId);
-    const selected: import("../../src/domain/work-retrospective.js").WorkRetrospectiveEvent = { ...input.retrospectiveEvents![0]!, sourceMessageId: "projection_message", action: { type: "episode_selected", episode: { ...scope, episodeId: "episode_a", period: { start: input.timestamp, end: "2026-09-09T12:00:00.000Z" }, methodVersion: "v1", messageRefs: [{ messageId: "projection_message" }], activityRefs: [], statements: { actions: [], value: [], future: [], indicators: [] }, status: "active", revision: 0, questionBudget: { localDate: "2026-08-26", dailyDelivered: 0 } } } };
-    const command = { scope, episodeId: selected.episodeId, expectedRevision: 0, events: [selected], turn: { ...input, messageId: "projection_message", retrospectiveEvents: [selected] } };
+    const collection = new CollectActivityService(createPostgresActivityCollectionStore(pool), { now: () => input.timestamp }, () => "projection_activity");
+    await collection.collectBatch({ employeeId, companyId: scope.companyId, groupId: scope.groupId, subjectKey: scope.subjectKey, roleId: "role_persistence_default", sourceMessageId: "projection_message", timezone: "Etc/UTC", activities: [{ routineLabel: "Подготовил отчёт", durationBucket: "15_30m" }] });
+    const selected: import("../../src/domain/work-retrospective.js").WorkRetrospectiveEvent = { ...input.retrospectiveEvents![0]!, sourceMessageId: "projection_message", action: { type: "episode_selected", episode: { ...scope, episodeId: "episode_a", period: { start: input.timestamp, end: "2026-09-09T12:00:00.000Z" }, methodVersion: "v1", messageRefs: [{ messageId: "projection_message" }], activityRefs: [{ activityId: "projection_activity", revision: 1 }], statements: { actions: [], value: [], future: [], indicators: [] }, status: "active", revision: 0, questionBudget: { localDate: "2026-08-26", dailyDelivered: 0 } } } };
+    const question: import("../../src/domain/work-retrospective.js").WorkRetrospectiveEvent = { ...selected, eventId: "projection_question", ordinal: 2, expectedRevision: 2, action: { type: "question_generated", question: { questionId: "projection_q", text: "Что изменилось?", sourceTurn: { messageId: "projection_message" }, target: { episodeId: "episode_a", revision: 2, stage: "actions", sourceRefs: [{ type: "message", messageId: "projection_message" }] } } } };
+    const session: import("../../src/domain/work-retrospective.js").WorkRetrospectiveEvent = { ...selected, eventId: "projection_session", ordinal: 1, expectedRevision: 1, action: { type: "weekly_session_started", sessionId: "projection_week", consent: { granted: true, sourceRef: { messageId: "projection_message" } }, localDate: "2026-08-26", weekKey: "2026-08-24" } };
+    const command = { scope, episodeId: selected.episodeId, expectedRevision: 0, events: [selected, session, question], turn: { ...input, messageId: "projection_message", retrospectiveEvents: [selected, session, question] } };
     const store = createPostgresWorkRetrospectiveStore(pool);
     expect(await store.appendTurnWithEvents(command)).toMatchObject({ status: "applied" });
     const first = await store.rebuild(command);
     expect(first).toMatchObject({ status: "applied" });
+    const { createRetrospectiveDelivery } = await import("../../src/application/retrospective-delivery.js");
+    const receipt = createRetrospectiveDelivery({ canonical: createPostgresConversationStore(pool), episodes: store, profiles: createPostgresProfileStore(pool, config.inviteCodePepper), now: () => input.timestamp });
+    const delivered = { employeeId, threadId: scope.threadId, messageId: "projection_message", status: "delivered" as const };
+    expect(await receipt.record(delivered)).toMatchObject({ status: "applied" });
+    const counted = await store.readEpisode(command);
+    expect(counted).toMatchObject({ status: "applied", value: { pendingQuestion: { questionId: "projection_q" }, questionBudget: { weeklySession: { sessionId: "projection_week", delivered: 1 } } } });
     await pool.query("DELETE FROM minutka_private.retrospective_episodes WHERE employee_id=$1", [employeeId]);
     const restarted = createPostgresWorkRetrospectiveStore(pool);
-    expect(await restarted.readEpisode(command)).toEqual(first);
+    expect(await restarted.readEpisode(command)).toEqual(counted);
+    const restartedDelivery = createRetrospectiveDelivery({ canonical: createPostgresConversationStore(pool), episodes: restarted, profiles: createPostgresProfileStore(pool, config.inviteCodePepper), now: () => input.timestamp });
+    expect(await restartedDelivery.record(delivered)).toMatchObject({ status: "replayed" });
+    expect(await restarted.readEpisode(command)).toEqual(counted);
+    await new ActivityCorrectionService(createPostgresActivityMutationStore(pool), { now: () => "2026-08-26T13:00:00.000Z" }).correct({ employeeId, companyId: scope.companyId, groupId: scope.groupId, sourceMessageId: "projection_correction" }, { handle: "projection_activity", expectedRevision: 1, mode: "patch", correction: { routineLabel: "Уточнённый отчёт" } });
+    expect(await createPostgresActivityCollectionStore(pool).getActivityById!("projection_activity")).toMatchObject({ revision: 2, durationBucket: "15_30m" });
+    // Durable provenance retains revision 1; recompute must not treat it as current evidence.
+    expect(await restarted.readEpisode(command)).toMatchObject({ value: { activityRefs: [{ activityId: "projection_activity", revision: 1 }] } });
     expect(await restarted.appendTurnWithEvents(command)).toMatchObject({ status: "replayed" });
     expect(await restarted.readEpisode({ scope: { ...scope, employeeId: "other" }, episodeId: selected.episodeId })).toEqual({ status: "not_found" });
     expect(await restarted.appendTurnWithEvents({ ...command, expectedRevision: 0, events: [{ ...selected, sourceMessageId: "new", eventId: "new", action: { type: "episode_status_changed", status: "declined" } }] })).toEqual({ status: "stale" });

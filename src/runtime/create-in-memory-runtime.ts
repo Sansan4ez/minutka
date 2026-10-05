@@ -66,6 +66,10 @@ export function createInMemoryRuntime(input: {
   assistantDeps?: Partial<ConstructorParameters<typeof AssistantService>[1]>;
   workRetrospectivePolicies?: WorkRetrospectivePolicyStore;
   world?: InMemoryWorld;
+  /** Infrastructure state can outlive a composition, mirroring durable adapters. */
+  activityState?: ReturnType<typeof createInMemoryActivityCollectionState>;
+  telegramSessionStore?: InMemoryTelegramSessionStore;
+  scheduleStore?: ScheduleStore;
   deps?: Pick<MinutkaServiceDeps, "auditEventStore" | "contextBuilder" | "agentManualRouter" | "manual" | "onboardingProfileExtractor" | "onboardingContextMaterializer" | "onboardingExtractionTimeoutMs" | "usageRecorder"> & {
     conversationDecisionRouter?: ConversationDecisionRouter;
     insightExtractor?: InsightExtractor;
@@ -73,7 +77,7 @@ export function createInMemoryRuntime(input: {
 }): InMemoryRuntime {
   const world = input.world ?? createInMemoryWorld();
   const deps = input.deps ?? {};
-  const sessionStore = createInMemoryTelegramSessionStore();
+  const sessionStore = input.telegramSessionStore ?? createInMemoryTelegramSessionStore();
   const clock = { now: () => world.now() };
   const pendingActionGroupStore = createInMemoryPendingActionGroupStore(clock);
   const documentStore = createInMemoryDocumentStore(clock);
@@ -90,7 +94,7 @@ export function createInMemoryRuntime(input: {
     },
   });
   const auditEventStore = createInMemoryAuditEventStore(world);
-  const scheduleStore = createInMemoryScheduleStore(clock);
+  const scheduleStore = input.scheduleStore ?? createInMemoryScheduleStore(clock);
   const consentAcceptanceStore: ConsentAcceptanceStore = {
     async accept({ consent, auditEvent, telegramIdentity }) {
       const result = await profileStore.acceptConsent(consent);
@@ -134,7 +138,7 @@ export function createInMemoryRuntime(input: {
   const retrospectiveStore = createInMemoryWorkRetrospectiveStore(conversationStore);
   const retrospective = createWorkRetrospectiveService(retrospectiveStore, conversationStore);
   const responseDelivery = createRetrospectiveDelivery({ canonical: conversationStore, episodes: retrospectiveStore, profiles: profileStore, now: () => clock.now() });
-  const activities = createInMemoryActivityCollectionState();
+  const activities = input.activityState ?? createInMemoryActivityCollectionState();
   const activityTransaction = input.activityExtractor ? new ActivityTransactionService({
     extractor: input.activityExtractor, retrospective, linkedTransactions: createInMemoryLinkedActivityTransactionStore(), clock,
     collection: new CollectActivityService(createInMemoryActivityCollectionStore(activities), clock),

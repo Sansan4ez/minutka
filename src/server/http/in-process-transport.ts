@@ -72,11 +72,11 @@ export class InProcessServiceMinutkaTransport implements ServiceMinutkaTransport
   constructor(private readonly application: InProcessApplication, private readonly principal: AuthenticatedPrincipal, private readonly scopedEmployeeId?: string) {}
   private employeeId(): string { service(this.principal); if (!this.scopedEmployeeId) throw new Error("service employee scope is required"); return this.scopedEmployeeId; }
   redeemTelegramInvite(input: RedeemTelegramInviteRequest) { service(this.principal); return this.application.redeemTelegramInvite(input); }
-  chat(input: ServiceChatRequest) {
+  async chat(input: ServiceChatRequest) {
     const ownerId = this.employeeId();
-    return this.application instanceof PersonalAssistantService
-      ? this.application.chat({ ...input, userId: ownerId })
-      : this.application.chat({ ...input, employeeId: ownerId });
+    if (!(this.application instanceof PersonalAssistantService)) return this.application.chat({ ...input, employeeId: ownerId });
+    const { messageId, response, selectedProcessIds, pendingActions, effect } = await this.application.chat({ ...input, userId: ownerId });
+    return { messageId, response, selectedProcessIds, pendingActions, effect };
   }
   recordPrivacyExplanationShown() { return this.application.recordPrivacyExplanationShown({ employeeId: this.employeeId() }); }
   acceptConsent(input: AcceptConsentRequest) { return this.application.acceptConsent({ ...input, employeeId: this.employeeId() }); }

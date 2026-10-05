@@ -115,9 +115,11 @@ describe("SPEC-PERSONAL-ASSISTANT-MANUAL-001: assistant process registry", () =>
     for (const { manifest } of registry.personalAssistant) {
       expect(readFileSync(`vault/assistant/bin/${manifest}`, "utf8")).toContain("## Purpose");
     }
+    // Camel-case update fields are not tools; only known contract fields are exempt.
+    const updateFields = new Set(["weeklyConsent", "followUpConsent"]);
     for (const match of processFiles.matchAll(/`([a-z][A-Za-z0-9]+)`/g)) {
       const referencedId = match[1]!;
-      if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId)) expect(registeredIds).toContain(referencedId);
+      if (/^[a-z]+[A-Z][A-Za-z0-9]*$/.test(referencedId) && !updateFields.has(referencedId)) expect(registeredIds).toContain(referencedId);
     }
     const binReadme = readFileSync("vault/assistant/bin/README.md", "utf8");
     expect(binReadme).toContain(
