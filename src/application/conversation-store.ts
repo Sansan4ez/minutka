@@ -24,6 +24,8 @@ export function conversationTurnOrigin(turn: ConversationTurn): ConversationTurn
 /** Canonical application conversation history. */
 export type ConversationStore = {
   appendTurn(turn: ConversationTurn): Promise<void>;
+  /** Complete durable thread inventory for one trusted owner and subject. */
+  listOwnerThreads(input: { employeeId: string; subjectKey: string }): Promise<string[]>;
   getRecentTurns(input: {
     employeeId: string;
     threadId: string;

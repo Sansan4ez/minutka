@@ -7,6 +7,9 @@ import { metadataFor, mergeDeliveryEvents, selectEvents, validateEvents, type Re
 
 export function createInMemoryConversationStore(world: InMemoryWorld): ConversationStore & RetrospectiveEventStore {
   return {
+    async listOwnerThreads(input) {
+      return [...new Set(world.messages.filter(message => message.employeeId === input.employeeId && message.subjectKey === input.subjectKey).map(message => message.threadId))].sort();
+    },
     async appendTurn(turn) {
       const metadata = metadataFor(turn);
       validateEvents(turn, turn.retrospectiveEvents ?? []);

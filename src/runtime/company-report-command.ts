@@ -2,6 +2,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { stdout } from "node:process";
 import { Command } from "commander";
+import { z } from "zod";
+import type { RetrospectiveRecommendationService } from "../application/retrospective-recommendations.js";
 import { CompanyReportingService } from "../application/company-reporting.js";
 import { ReportPreflightLlmService } from "../application/report-preflight-llm.js";
 import type { ReportPreflightLlmGenerator } from "../application/report-preflight-llm.js";
@@ -12,6 +14,7 @@ import type { ClientReportPublishingService } from "../application/client-report
 export type CompanyReportPreflightDependencies = {
   reporting: Pick<CompanyReportingService, "buildReport">;
   checkLlm: ReportPreflightLlmGenerator;
+  recommendations?: Pick<RetrospectiveRecommendationService, "build" | "read" | "check" | "recompute" | "save">;
   publishing?: Pick<ClientReportPublishingService, "resolvePreflightFinding" | "publishClientReport">;
 };
 
@@ -21,6 +24,28 @@ export async function runCompanyReportCommand(
   write: (text: string) => void = (text) => stdout.write(text),
 ): Promise<void> {
   const program = new Command().name("company-report").exitOverride();
+  if (dependencies.recommendations) {
+    const recommendations = dependencies.recommendations;
+    for (const name of ["prepare-recommendations", "check-recommendations", "recompute-recommendations"] as const) {
+      const command = program.command(name).requiredOption("--company <companyId>").requiredOption("--group <groupId>");
+      if (name !== "prepare-recommendations") command.requiredOption("--artifact <artifactId>");
+      if (name === "check-recommendations") command.requiredOption("--decisions <path>");
+      command.action(async (options: { company: string; group: string; artifact?: string; decisions?: string }) => {
+        const scope = { companyId: options.company, groupId: options.group };
+        try {
+          const previous = name === "prepare-recommendations" ? undefined : await recommendations.read(scope, options.artifact!);
+          if (previous && previous.status !== "applied") { write(`${JSON.stringify(previous)}\n`); return; }
+          const result = name === "prepare-recommendations" ? await recommendations.build(scope)
+            : name === "recompute-recommendations" ? await recommendations.recompute(scope, (previous as Extract<NonNullable<typeof previous>, { status: "applied" }>).value)
+            : await recommendations.check(scope, (previous as Extract<NonNullable<typeof previous>, { status: "applied" }>).value,
+              z.strictObject({ operatorId: z.string().trim().min(1), decisions: z.record(z.string().min(1), z.enum(["checked", "rejected"])) }).parse(JSON.parse(await readFile(resolve(options.decisions!), "utf8"))));
+          if (result.status !== "applied") { write(`${JSON.stringify(result)}\n`); return; }
+          const saved = await recommendations.save(scope, result.value);
+          write(`${JSON.stringify(saved.status === "applied" ? { status: "applied", artifactId: result.value.artifactId, version: result.value.version } : saved)}\n`);
+        } catch { write(`${JSON.stringify({ status: "failed", code: "validation_error" })}\n`); }
+      });
+    }
+  }
   program.command("build")
     .requiredOption("--company <companyId>")
     .requiredOption("--group <groupId>")

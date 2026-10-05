@@ -32,6 +32,13 @@ const turn = (row: Row): ConversationTurn => ({
 
 export function createPostgresConversationStore(pool: Pool): ConversationStore & RetrospectiveEventStore {
   return {
+    async listOwnerThreads(input) {
+      const result = await pool.query<{ thread_id: string }>(
+        `SELECT DISTINCT thread_id FROM minutka_private.messages WHERE employee_id=$1 AND subject_key=$2 ORDER BY thread_id`,
+        [input.employeeId, input.subjectKey],
+      );
+      return result.rows.map(row => row.thread_id);
+    },
     async appendTurn(input) {
       validateEvents(input, input.retrospectiveEvents ?? []);
       const metadata = metadataFor(input);

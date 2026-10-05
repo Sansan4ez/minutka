@@ -187,6 +187,21 @@ export class RetrospectiveRecommendationService {
       }) } };
     } catch { return { status: "failed", code: "storage_error" }; }
   }
+  /** Latest active own version; malformed durable data blocks rather than falling back to older approval. */
+  async readLatest(scope: ResearchEvidenceScope): Promise<RecommendationOutcome<RecommendationArtifact>> {
+    try {
+      const refs = await this.deps.artifacts.list(recommendationArtifactOwner(scope), { status: "active" });
+      const values: RecommendationArtifact[] = [];
+      for (const ref of refs) {
+        if (ref.source.kind !== "generated" || ref.source.generatorId !== recommendationArtifactSchemaVersion) continue;
+        const result = await this.read(scope, ref.artifactId);
+        if (result.status !== "applied") return result;
+        values.push(result.value);
+      }
+      values.sort((a, b) => b.version - a.version || b.createdAt.localeCompare(a.createdAt) || b.artifactId.localeCompare(a.artifactId));
+      return values[0] ? { status: "applied", value: values[0] } : { status: "not_found" };
+    } catch { return { status: "failed", code: "storage_error" }; }
+  }
   private id(): string { return (this.deps.id ?? randomUUID)(); }
   private now(): string { return (this.deps.clock ?? systemClock).now(); }
 }

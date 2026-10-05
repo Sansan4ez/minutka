@@ -1,4 +1,5 @@
 import { stdout } from "node:process";
+import { createRetrospectiveReporting } from "./retrospective-reporting.js";
 import { loadDotEnv } from "../config/env.js";
 import { CompanyReportingService } from "../application/company-reporting.js";
 import { createPostgresCompanyReportStore } from "../infrastructure/postgres/postgres-company-report-store.js";
@@ -17,8 +18,11 @@ try {
   const status = await migrationStatus(pool);
   if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
   const reporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
+  const recommendations = process.argv.slice(2).some(argument => ["prepare-recommendations", "check-recommendations", "recompute-recommendations"].includes(argument))
+    ? createRetrospectiveReporting(pool, process.env).service : undefined;
   await runCompanyReportCommand(process.argv.slice(2), {
     reporting,
+    recommendations,
     checkLlm: checkReportPreflightWithAgent,
     publishing: new ClientReportPublishingService(reporting, createPostgresAuditEventStore(pool), systemClock, randomIdGenerator),
   }, (text) => stdout.write(text));
