@@ -1,7 +1,7 @@
 import { createPostgresWorkRetrospectiveStore } from "../infrastructure/postgres/postgres-work-retrospective-store.js";
 import { createPostgresLinkedActivityTransactionStore } from "../infrastructure/postgres/postgres-linked-activity-transaction-store.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
-import { InMemoryWorkRetrospectivePolicyStore } from "../application/work-retrospective-policy.js";
+import { createPostgresWorkRetrospectivePolicyStore } from "../infrastructure/postgres/postgres-work-retrospective-policy-store.js";
 import { AssistantService } from "../application/assistant-service.js";
 import { contextBudgetConfigFromEnv } from "../application/context-budget.js";
 import { PersonalAssistantService, type PersonalAssistantRuntimeInput } from "../application/personal-assistant-service.js";
@@ -250,7 +250,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
     const ownActivityReadStore = createPostgresOwnActivityReadStore(pool);
     const recentOwnActivities = new RecentOwnActivitiesService(createPostgresRecentOwnActivityReadStore(pool), systemClock);
     const activityCorrections = new ActivityCorrectionService(createPostgresActivityMutationStore(pool), systemClock);
-    const retrospective = createWorkRetrospectiveService(createPostgresWorkRetrospectiveStore(pool), stores.conversationStore);
+    const retrospectivePolicies = input.workRetrospectivePolicies ?? createPostgresWorkRetrospectivePolicyStore(pool);
+    const retrospective = createWorkRetrospectiveService(createPostgresWorkRetrospectiveStore(pool), stores.conversationStore, retrospectivePolicies);
     const activityTransaction = new ActivityTransactionService({
       retrospective,
       linkedTransactions: createPostgresLinkedActivityTransactionStore(pool),
@@ -272,7 +273,7 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       ideaDeletions,
       contextDocuments,
       scheduleManagement,
-      workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore() },
+      workRetrospective: { service: retrospective, policies: retrospectivePolicies },
       processCurrentActivityTurn: (command) => activityTransaction.process(command),
       collectActivities: (command) => activityCollection.collectBatch(command),
       readRecentOwnActivities: (input) => recentOwnActivities.read(input),

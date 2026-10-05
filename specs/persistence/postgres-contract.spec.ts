@@ -124,6 +124,29 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("SPEC-RETRO-POLICY-03/06 durable policy round-trip and scoped lifecycle purge", async () => {
+    const { createPostgresWorkRetrospectivePolicyStore } = await import("../../src/infrastructure/postgres/postgres-work-retrospective-policy-store.js");
+    const { WorkRetrospectivePolicyManagement } = await import("../../src/application/work-retrospective-policy-management.js");
+    const { createPostgresTenantDirectoryStore } = await import("../../src/infrastructure/postgres/postgres-tenant-directory-store.js");
+    const store = createPostgresWorkRetrospectivePolicyStore(pool);
+    const scope = { companyId: "company_persistence_default", groupId: "group_persistence_default" };
+    const management = new WorkRetrospectivePolicyManagement(store, createPostgresTenantDirectoryStore(pool), { now: () => now });
+    const input = { ...scope, action: "enable" as const, start: "2026-07-01T00:00:00+03:00", end: "2026-07-19T00:00:00+03:00", methodVersion: "v1" };
+    await management.confirm(input, `ENABLE RETROSPECTIVE ${scope.companyId}/${scope.groupId}`);
+    expect(await createPostgresWorkRetrospectivePolicyStore(pool).read(scope)).toMatchObject({ enabled: true, period: { start: input.start, end: input.end }, methodVersion: "v1" });
+    await management.confirm({ ...scope, action: "disable" }, `DISABLE RETROSPECTIVE ${scope.companyId}/${scope.groupId}`);
+    await management.confirm(input, `ENABLE RETROSPECTIVE ${scope.companyId}/${scope.groupId}`);
+    expect(await createPostgresWorkRetrospectivePolicyStore(pool).read(scope)).toMatchObject({ enabled: true, invalidatedAt: now });
+    const { createPostgresRetrospectiveLifecycle } = await import("../../src/infrastructure/postgres/postgres-retrospective-lifecycle.js");
+    const lifecycle = createPostgresRetrospectiveLifecycle(pool, {} as import("minio").Client, "unused");
+    // No artifacts exist at this point; no object storage calls are needed.
+    expect(await lifecycle.preview(scope)).toMatchObject({ retrospectivePolicies: 1 });
+    await lifecycle.purge({ ...scope, subjectKey: "00000000-0000-4000-8000-000000000099" });
+    expect(await store.read(scope)).toBeDefined();
+    await lifecycle.purge(scope);
+    expect(await store.read(scope)).toBeUndefined();
+  });
+
   it("SPEC-RETRO-LIFECYCLE research owners are durable without fake participants; employee cascade remains", async () => {
     const { recommendationArtifactOwner } = await import("../../src/application/retrospective-recommendations.js");
     const owner = recommendationArtifactOwner({ companyId: "company_persistence_default", groupId: "group_persistence_default" });

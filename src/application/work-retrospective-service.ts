@@ -1,3 +1,4 @@
+import type { WorkRetrospectivePolicyStore } from "./work-retrospective-policy.js";
 import { isDeepStrictEqual } from "node:util";
 import { sanitizeRetrospectiveMetadata } from "./retrospective-event-store.js";
 import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
@@ -107,16 +108,45 @@ export function validateRetrospectiveCommand(command: RetrospectiveCommand, even
 }
 
 /** No synthetic turns: callers bind commands to the actual employee/agent response. */
-export function createWorkRetrospectiveService(store: WorkRetrospectiveStore, conversations: ConversationStore): WorkRetrospectiveUseCases & { readContext(request: { scope: import("../domain/work-retrospective.js").RetrospectiveScope; localDate: string; now: string; enabled: boolean }): Promise<RetrospectiveOutcome<string>>; applyTurn(command: RetrospectiveCommand, turn: ConversationTurn): Promise<RetrospectiveOutcome<WorkRetrospectiveEpisode>> } {
+export function createWorkRetrospectiveService(store: WorkRetrospectiveStore, conversations: ConversationStore, policies?: WorkRetrospectivePolicyStore): WorkRetrospectiveUseCases & { readInvalidatedQuestion(request: { scope: import("../domain/work-retrospective.js").RetrospectiveScope; episodeId: string }): Promise<string | undefined>; readContext(request: { scope: import("../domain/work-retrospective.js").RetrospectiveScope; localDate: string; now: string; enabled: boolean }): Promise<RetrospectiveOutcome<string>>; applyTurn(command: RetrospectiveCommand, turn: ConversationTurn): Promise<RetrospectiveOutcome<WorkRetrospectiveEpisode>> } {
+  const visibleEpisode = async (episode: WorkRetrospectiveEpisode) => {
+    const policy = await policies?.read(episode);
+    if (!episode.pendingQuestion || !policy?.invalidatedAt) return episode;
+    const events = await store.readEvents({ scope: episode, episodeId: episode.episodeId, limit: 100 });
+    const generated = "value" in events ? events.value.find(e => e.action.type === "question_generated" && e.action.question.questionId === episode.pendingQuestion!.questionId) : undefined;
+    if (!generated || Date.parse(generated.timestamp) <= Date.parse(policy.invalidatedAt)) {
+      const visible = structuredClone(episode);
+      delete visible.pendingQuestion;
+      return visible;
+    }
+    return episode;
+  };
+  const readEpisodes: WorkRetrospectiveUseCases["readEpisodes"] = async request => {
+    const result = await store.readEpisodes(request);
+    return "value" in result ? { ...result, value: await Promise.all(result.value.map(visibleEpisode)) } : result;
+  };
   const applyTurn = async (command: RetrospectiveCommand, turn: ConversationTurn): Promise<RetrospectiveOutcome<WorkRetrospectiveEpisode>> => {
+    const policy = await policies?.read(command.scope);
+    if (policies && command.events.some(e => e.action.type !== "question_closed" || e.action.reason !== "policy_disabled")
+      && (!policy?.enabled || command.events.some(e => policy.invalidatedAt && Date.parse(e.timestamp) <= Date.parse(policy.invalidatedAt)))) return { status: "stale" };
+    const current = await store.readEpisode(command);
+    if ("value" in current && current.value.pendingQuestion && !(await visibleEpisode(current.value)).pendingQuestion
+      && !command.events.some(e => e.action.type === "question_closed" && e.action.reason === "policy_disabled")) return { status: "stale" };
     const result = await store.appendTurnWithEvents({ ...command, turn });
     if (!("value" in result)) return result;
     const projection = await store.rebuild(command);
     return projection.status === "applied" ? { ...projection, status: result.status } : projection;
   };
-  return { readEpisode: store.readEpisode, readEpisodes: store.readEpisodes, applyTurn,
+  return { async readInvalidatedQuestion(request) {
+      const result = await store.readEpisode(request);
+      if (!("value" in result) || !result.value.pendingQuestion) return undefined;
+      return (await visibleEpisode(result.value)).pendingQuestion ? undefined : result.value.pendingQuestion.questionId;
+    }, async readEpisode(request) {
+      const result = await store.readEpisode(request);
+      return "value" in result ? { ...result, value: await visibleEpisode(result.value) } : result;
+    }, readEpisodes, applyTurn,
     async readContext(request) {
-      const result = await store.readEpisodes({ scope: request.scope, limit: 100 });
+      const result = await readEpisodes({ scope: request.scope, limit: 100 });
       if (!("value" in result)) return result;
       const visible = result.value.map((value) => {
         const episode = structuredClone(value);

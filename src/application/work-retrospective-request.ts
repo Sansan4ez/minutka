@@ -35,6 +35,8 @@ export async function createWorkRetrospectiveRequest(input: {
     events.push({ ...scope, eventId: randomUUID(), episodeId: episode!.episodeId, sourceMessageId: messageId,
       ordinal: events.length, version: 1, expectedRevision: episode!.revision + events.length, timestamp: now, action });
   };
+  const invalidatedQuestion = episode ? await dependencies.service.readInvalidatedQuestion({ scope, episodeId: episode.episodeId }) : undefined;
+  if (invalidatedQuestion) add({ type: "question_closed", questionId: invalidatedQuestion, reason: "policy_disabled" });
   if (episode?.pendingQuestion && (!policy.enabled || episode.questionBudget.localDate !== localDate || now >= episode.period.end)) {
     add({ type: "question_closed", questionId: episode.pendingQuestion.questionId,
       reason: !policy.enabled ? "policy_disabled" : now >= episode.period.end ? "cycle_ended" : "new_day", localDate });

@@ -125,7 +125,8 @@ export function createInMemoryRuntime(input: {
     ...deps,
   } as MinutkaServiceDeps);
   const conversationStore = createInMemoryConversationStore(world);
-  const retrospective = createWorkRetrospectiveService(createInMemoryWorkRetrospectiveStore(conversationStore), conversationStore);
+  const retrospectivePolicies = input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore();
+  const retrospective = createWorkRetrospectiveService(createInMemoryWorkRetrospectiveStore(conversationStore), conversationStore, retrospectivePolicies);
   const activities = createInMemoryActivityCollectionState();
   const activityTransaction = input.activityExtractor ? new ActivityTransactionService({
     extractor: input.activityExtractor, retrospective, linkedTransactions: createInMemoryLinkedActivityTransactionStore(), clock,
@@ -138,7 +139,7 @@ export function createInMemoryRuntime(input: {
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock,
     ...(activityTransaction ? { processCurrentActivityTurn: (command: Parameters<ActivityTransactionService["process"]>[0]) => activityTransaction.process(command) } : {}),
     ...input.assistantDeps,
-    workRetrospective: { service: retrospective, policies: input.workRetrospectivePolicies ?? new InMemoryWorkRetrospectivePolicyStore() },
+    workRetrospective: { service: retrospective, policies: retrospectivePolicies },
   }) : undefined;
   return { service, assistantChat, world, documentStore, telegramSessionStore: sessionStore, pendingActionGroupStore, scheduleStore };
 }

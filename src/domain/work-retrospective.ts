@@ -67,6 +67,8 @@ export type WorkRetrospectiveEpisode = RetrospectiveScope & {
   questionBudget: RetrospectiveQuestionBudget;
 };
 export type WorkRetrospectivePolicy = {
+  /** Durable disable watermark: questions generated at/before this instant are invalid. */
+  invalidatedAt?: string;
   companyId: string;
   groupId: string;
   enabled: boolean;

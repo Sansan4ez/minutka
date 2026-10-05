@@ -19,7 +19,7 @@ const statement = z.strictObject({
   sourceRefs: sources,
 });
 const consent = z.strictObject({ granted: z.boolean(), sourceRef: messageRef });
-const period = z.strictObject({ start: z.iso.datetime(), end: z.iso.datetime() })
+const period = z.strictObject({ start: z.iso.datetime({ offset: true }), end: z.iso.datetime({ offset: true }) })
   .refine((value) => Date.parse(value.start) <= Date.parse(value.end), "Period end precedes start");
 export const retrospectiveQuestionSchema = z.strictObject({
   questionId: id, text: id, sourceTurn: messageRef,
@@ -50,6 +50,7 @@ export const workRetrospectiveEpisodeSchema = z.strictObject({
 });
 export const workRetrospectivePolicySchema = z.strictObject({
   companyId: id, groupId: id, enabled: z.boolean(), period, methodVersion: id,
+  invalidatedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 export type RetrospectiveOutcome<T> =
