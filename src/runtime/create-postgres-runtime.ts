@@ -1,3 +1,4 @@
+import { createRetrospectiveReporting } from "./retrospective-reporting.js";
 import { createRuntimeRetrospectiveTouchPolicy } from "./retrospective-scheduling.js";
 import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
 import { createPostgresWorkRetrospectiveStore } from "../infrastructure/postgres/postgres-work-retrospective-store.js";
@@ -313,7 +314,8 @@ export async function createPostgresRuntime(input: PersonalAssistantRuntimeInput
       recoveryReserveMs: productionAssistantTimeoutBudgets.recoveryReserveMs,
     });
     const conversationThreads = new ConversationThreadService(telegramSessionStore, { clock: systemClock });
-    const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
+    const recommendationReporting = createRetrospectiveReporting(pool, input.env ?? process.env);
+    const companyReporting = new CompanyReportingService(createPostgresCompanyReportStore(pool), undefined, recommendationReporting.reporting);
     const groupUsageReporting = new GroupUsageReportingService(usageStore, usageCostPolicy);
     const assistant = new PersonalAssistantService(identityService, assistantChat, artifactStore, taskMutations, conversationThreads, ideaDeletions, scheduleManagement, usageStore, contextDocuments, companyReporting, groupUsageReporting, responseDelivery);
     const scheduler = new SchedulerService(scheduleStore, systemClock, createTelegramScheduledActionRunner({

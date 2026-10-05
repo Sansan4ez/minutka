@@ -17,9 +17,9 @@ const pool = createPostgresPool(postgresConfigFromEnv(process.env));
 try {
   const status = await migrationStatus(pool);
   if (status.pending.length) throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
-  const reporting = new CompanyReportingService(createPostgresCompanyReportStore(pool));
-  const recommendations = process.argv.slice(2).some(argument => ["prepare-recommendations", "check-recommendations", "recompute-recommendations"].includes(argument))
-    ? createRetrospectiveReporting(pool, process.env).service : undefined;
+  const retrospective = createRetrospectiveReporting(pool, process.env);
+  const reporting = new CompanyReportingService(createPostgresCompanyReportStore(pool), undefined, retrospective.reporting);
+  const recommendations = retrospective.service;
   await runCompanyReportCommand(process.argv.slice(2), {
     reporting,
     recommendations,

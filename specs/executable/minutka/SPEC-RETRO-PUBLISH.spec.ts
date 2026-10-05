@@ -8,7 +8,7 @@ import { createInMemoryAuditEventStore } from "../../../src/application/in-memor
 import { createDeterministicIdGenerator } from "../../../src/application/runtime-primitives.js";
 const scope = { companyId: "company_a", groupId: "group_a" };
 const now = "2026-08-26T12:00:00.000Z";
-function setup(enabled = true) {
+export function setup(enabled = true) {
   const subjects = ["private_subject_a", "private_subject_b"];
   const activities = Array.from({ length: 6 }, (_, i) => ({ ...scope, subjectKey: subjects[i % 2]!, activityId: `a${i}`, roleId: "role_a", activityDate: `2026-08-${24 + Math.floor(i / 2)}`, recordedAt: now, durationBucket: "15_30m" as const, routineLabel: "Перенос полей", routineId: "transfer", revision: 1, status: "active" as const }));
   const input: RecommendationInput = { scope, evidence: { activities, messages: subjects.map((subjectKey, i) => ({ subjectKey, messageId: `m${i}`, userText: "private quote", agentResponse: "private obligation", timestamp: now })) }, episodes: subjects.map((subjectKey, i) => ({ ...scope, subjectKey, threadId: "private_thread", episodeId: `e${i}`, revision: 1, methodVersion: "v1", period: { start: now, end: now }, status: "completed", messageRefs: [{ messageId: `m${i}` }], activityRefs: [{ activityId: `a${i}`, revision: 1 }], statements: { actions: [{ statementId: "s", text: "private quote", kind: "employee_fact", sourceRefs: [{ type: "message", messageId: `m${i}` }, { type: "activity", activityId: `a${i}`, revision: 1 }] }], value: [], future: [], indicators: [] }, questionBudget: { localDate: "2026-08-26", dailyDelivered: 0 } })) };
@@ -21,7 +21,7 @@ function setup(enabled = true) {
   const world = createInMemoryWorld(() => now);
   const publishing = new ClientReportPublishingService(reporting, createInMemoryAuditEventStore(world), { now: () => now }, createDeterministicIdGenerator());
   const file = async (): Promise<ReportPreflightFindingsFile> => ({ schemaVersion: "minutka-report-preflight-findings/v1", scope: "company_a/group_a", reportVersion: hashClientReport((await reporting.buildReport(scope)).client), findings: [] });
-  return { reporting, publishing, artifact, input, file, world };
+  return { reporting, publishing, artifact, input, file, world, service, snapshot, directory };
 }
 describe("Retrospective client publication", () => {
   it("SPEC-RETRO-PUBLISH-01: deterministic checked v3 without generation", async () => {

@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
-import { RetrospectiveRecommendationService, createRecommendationResearchRead, type RecommendationGenerator } from "../application/retrospective-recommendations.js";
+import { activeProcessIds } from "../application/assistant-manual-loader.js";
+import type { CompanyReportSnapshot } from "../application/company-reporting.js";
+import { createPostgresTenantDirectoryStore } from "../infrastructure/postgres/postgres-tenant-directory-store.js";
+import { RetrospectiveRecommendationService, createRecommendationResearchRead, type RecommendationGenerator, type RecommendationResearchRead } from "../application/retrospective-recommendations.js";
 import { createRecommendationParticipants } from "../application/recommendation-participants.js";
 import { ResearchEvidenceReadService } from "../application/research-evidence-read.js";
 import { createWorkRetrospectiveService } from "../application/work-retrospective-service.js";
@@ -41,5 +44,30 @@ export function createRetrospectiveReporting(pool: Pool, env: NodeJS.ProcessEnv)
     } },
     async loadContent(url) { const response = await fetch(url); if (!response.ok) throw new Error("content_read_failed"); return response.text(); },
   });
-  return { research, service, readLatest: service.readLatest.bind(service) };
+  const directory = createPostgresTenantDirectoryStore(pool);
+  const reporting = composeRecommendationReporting({ research, service, directory });
+  return { research, service, readLatest: service.readLatest.bind(service), reporting };
+}
+
+/** Infrastructure seam shared by both production report entrypoints; generation is never requested. */
+export function composeRecommendationReporting(input: {
+  research: RecommendationResearchRead;
+  service: Pick<RetrospectiveRecommendationService, "readLatest">;
+  directory: { getGroupPeriod(scope: { companyId: string; groupId: string }): Promise<{ start: string; end: string } | undefined> };
+  processIds?: readonly string[];
+}) {
+  return {
+    research: input.research,
+    async eligible(scope: { companyId: string; groupId: string }, reference: CompanyReportSnapshot["reference"]) {
+      if (!(input.processIds ?? activeProcessIds).includes("work_retrospective") || !reference) return false;
+      const period = await input.directory.getGroupPeriod(scope);
+      return !!period && period.start === reference.period.start && period.end === reference.period.end;
+    },
+    async readLatest(scope: { companyId: string; groupId: string }) {
+      const result = await input.service.readLatest(scope);
+      if (result.status === "not_found") return undefined;
+      if (result.status !== "applied") throw new Error("recommendations_read_blocked");
+      return result.value;
+    },
+  };
 }

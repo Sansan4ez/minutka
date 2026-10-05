@@ -227,7 +227,8 @@ export class CompanyReportingService {
     private readonly store: CompanyReportStore,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly retrospective?: {
-      policies: WorkRetrospectivePolicyStore;
+      policies?: WorkRetrospectivePolicyStore;
+      eligible?(scope: { companyId: string; groupId: string }, period: CompanyReportSnapshot["reference"]): Promise<boolean>;
       /** Latest durable version, selected by trusted application code, not by the agent. */
       readLatest(scope: { companyId: string; groupId: string }): Promise<RecommendationArtifact | undefined>;
       research: RecommendationResearchRead;
@@ -255,9 +256,14 @@ export class CompanyReportingService {
     const internal = buildInternalReport(companyId, groupId, snapshot.invitedParticipants, snapshot.subjects.length, activities, this.now(), directory, snapshot.reference);
     const client = buildClientReport(internal);
     const scope = { companyId, groupId };
-    const policy = await this.retrospective?.policies.read(scope);
-    // Reporting remains available after the live cycle closes; opt-in is scoped, not clock-dependent.
-    if (policy?.enabled && policy.companyId === companyId && policy.groupId === groupId && this.retrospective) {
+    const policy = await this.retrospective?.policies?.read(scope);
+    // Production eligibility uses process availability and the exact directory period, not live time.
+    const eligible = this.retrospective?.eligible
+      ? await this.retrospective.eligible(scope, snapshot.reference)
+      : policy?.enabled && policy.companyId === companyId && policy.groupId === groupId;
+    if (eligible && this.retrospective) {
+      // Current episode/evidence reads cannot reconstruct historical revisions. Never mix them into a frozen report.
+      if (recordedBefore !== undefined) throw new Error("recommendations_snapshot_incompatible");
       const artifact = await this.retrospective.readLatest(scope);
       const current = artifact === undefined ? undefined : await this.retrospective.research.read(scope);
       const checked = artifact === undefined || current === undefined ? [] : currentCheckedRecommendations(scope, artifact, current);
