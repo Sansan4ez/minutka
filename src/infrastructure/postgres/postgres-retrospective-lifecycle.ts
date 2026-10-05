@@ -1,4 +1,3 @@
-import { createPostgresWorkRetrospectivePolicyStore } from "./postgres-work-retrospective-policy-store.js";
 import type { Pool } from "pg";
 import type { Client } from "minio";
 import type { RetrospectiveLifecycle } from "../../application/retrospective-lifecycle.js";
@@ -43,8 +42,7 @@ export function createPostgresRetrospectiveLifecycle(pool: Pool, client: Client,
       const predicate = "company_id=$1 AND ($2::text IS NULL OR group_id=$2) AND ($3::uuid IS NULL OR subject_key=$3)";
       const episodes = await pool.query<{ count: string }>(`SELECT count(*) FROM minutka_private.retrospective_episodes WHERE ${predicate}`, params);
       const events = await pool.query<{ count: string }>(`SELECT COALESCE(sum(jsonb_array_length(COALESCE(m.metadata->'retrospectiveEvents','[]'::jsonb)) + jsonb_array_length(COALESCE(m.metadata->'deliveryEvents','[]'::jsonb))),0) AS count FROM minutka_private.messages m JOIN minutka_private.participants p USING(employee_id) WHERE p.company_id=$1 AND ($2::text IS NULL OR p.group_id=$2) AND ($3::uuid IS NULL OR p.subject_key=$3)`, params);
-      const policies = scope.subjectKey ? undefined : await pool.query<{ count: string }>("SELECT count(*) FROM minutka_private.retrospective_policies WHERE company_id=$1 AND ($2::text IS NULL OR group_id=$2)", [scope.companyId, scope.groupId ?? null]);
-      return { recommendationVersions: artifacts.length, retrospectiveEpisodes: Number(episodes.rows[0]!.count), retrospectiveEvents: Number(events.rows[0]!.count), retrospectivePolicies: Number(policies?.rows[0]?.count ?? 0) };
+      return { recommendationVersions: artifacts.length, retrospectiveEpisodes: Number(episodes.rows[0]!.count), retrospectiveEvents: Number(events.rows[0]!.count), retrospectivePolicies: 0 };
     },
     async purge(scope) {
       const artifacts = await enumerate(scope);
@@ -66,7 +64,6 @@ export function createPostgresRetrospectiveLifecycle(pool: Pool, client: Client,
         await pool.query("DELETE FROM minutka_private.artifacts WHERE user_id=$1 AND content_digest=$2", [artifact.owner, artifact.digest]);
         await pool.query("DELETE FROM minutka_private.artifact_contents WHERE user_id=$1 AND content_digest=$2", [artifact.owner, artifact.digest]);
       }
-      if (!scope.subjectKey) await createPostgresWorkRetrospectivePolicyStore(pool).purge(scope);
       return { deletedObjectVersions };
     },
   };

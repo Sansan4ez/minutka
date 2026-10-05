@@ -5,10 +5,6 @@ export type RetrospectivePolicyRequest = { companyId: string; groupId: string };
 export type WorkRetrospectivePolicyStore = {
   read(request: RetrospectivePolicyRequest): Promise<WorkRetrospectivePolicy | undefined>;
 };
-export type MutableWorkRetrospectivePolicyStore = WorkRetrospectivePolicyStore & {
-  write(policy: WorkRetrospectivePolicy): Promise<void>;
-  purge(scope: { companyId: string; groupId?: string }): Promise<number>;
-};
 export type ResolvedRetrospectivePolicy =
   | { enabled: false }
   | { enabled: true; policy: WorkRetrospectivePolicy };
@@ -30,7 +26,7 @@ export async function resolveWorkRetrospectivePolicy(
   return { enabled: true, policy };
 }
 
-/** Mutable offline adapter; mutations belong to operator use-cases only. */
+/** Offline adapter for policy fixtures; runtime wiring is deliberately absent. */
 export class InMemoryWorkRetrospectivePolicyStore implements WorkRetrospectivePolicyStore {
   private readonly policies = new Map<string, WorkRetrospectivePolicy>();
   constructor(policies: WorkRetrospectivePolicy[] = []) {
@@ -38,10 +34,6 @@ export class InMemoryWorkRetrospectivePolicyStore implements WorkRetrospectivePo
       const parsed = workRetrospectivePolicySchema.parse(policy);
       this.policies.set(JSON.stringify([parsed.companyId, parsed.groupId]), parsed);
     }
-  }
-  async write(policy: WorkRetrospectivePolicy): Promise<void> {
-    const parsed = workRetrospectivePolicySchema.parse(policy);
-    this.policies.set(JSON.stringify([parsed.companyId, parsed.groupId]), structuredClone(parsed));
   }
   /** Operator lifecycle operation; never exposed as an agent action. */
   async purge(scope: { companyId: string; groupId?: string }): Promise<number> {

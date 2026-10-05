@@ -22,7 +22,6 @@
     "routine-assignments:replay": "tsx src/runtime/replay-routine-assignments.ts",
     "company-report": "tsx src/runtime/company-report.ts",
     "process:run": "tsx src/runtime/run-scheduled-process.ts",
-    "retrospective:policy": "tsx src/runtime/work-retrospective-policy.ts",
     "cycle:final-reports": "tsx src/runtime/arm-final-reports.ts",
     "pilot:status": "tsx src/runtime/pilot-status.ts",
     "specs:persistence": "node -e \"if (!process.env.TEST_DATABASE_URL || !process.env.TEST_MIGRATION_DATABASE_URL) { console.error('TEST_DATABASE_URL and TEST_MIGRATION_DATABASE_URL are required for specs:persistence'); process.exit(1) }\" && vitest run specs/persistence --exclude='.direnv/**'",
