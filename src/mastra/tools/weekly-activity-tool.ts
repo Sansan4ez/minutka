@@ -8,6 +8,7 @@ import {
   routinePatternTypes,
   taskCategories,
 } from "../../domain/insights.js";
+import { personalRetrospectiveProjectionSchema } from "../../application/retrospective-summary.js";
 import type { WeeklyActivitySummary } from "../../application/weekly-activity-summary.js";
 
 export const readWeeklyActivitiesToolName = "readWeeklyActivities" as const;
@@ -22,6 +23,7 @@ const routineSchema = z.strictObject({
 });
 
 export const weeklyActivitySummarySchema = z.strictObject({
+  retrospective: personalRetrospectiveProjectionSchema.optional(),
   fromDate: z.string(),
   toDate: z.string(),
   activityCount: z.number().int().min(0),

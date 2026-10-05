@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ConversationTurn } from "./conversation-store.js";
 import type { RetrospectiveScope, WorkRetrospectiveEvent } from "../domain/work-retrospective.js";
-import { createWorkRetrospectiveService } from "./work-retrospective-service.js";
+import { retrospectiveWeekKey, createWorkRetrospectiveService } from "./work-retrospective-service.js";
 import { resolveWorkRetrospectivePolicy, type WorkRetrospectivePolicyStore } from "./work-retrospective-policy.js";
 
 export const retrospectiveUpdateSchema = z.strictObject({
   question: z.strictObject({ text: z.string().trim().min(1).max(2000), stage: z.enum(["actions", "value", "future", "indicators"]) }).optional(),
   closeReason: z.enum(["answered", "topic_changed", "declined"]).optional(),
   followUpConsent: z.boolean().optional(),
+  weeklyConsent: z.boolean().optional(),
   statement: z.strictObject({ text: z.string().trim().min(1).max(1000), stage: z.enum(["actions", "value", "future", "indicators"]), kind: z.enum(["employee_fact", "employee_interpretation", "intention", "agent_hypothesis"]) }).optional(),
   selectedStep: z.string().trim().min(1).max(1000).optional(),
   indicator: z.strictObject({ sign: z.string().min(1).max(500), meaning: z.string().min(1).max(500), reaction: z.string().min(1).max(500) }).optional(),
@@ -24,6 +25,7 @@ export type RetrospectiveRuntimeDependencies = {
 export async function createWorkRetrospectiveRequest(input: {
   scope: RetrospectiveScope; messageId: string; now: string; localDate: string;
   dependencies: RetrospectiveRuntimeDependencies;
+  origin?: import("../domain/work-retrospective.js").ConversationTurnOrigin;
   scheduled?: import("./retrospective-delivery.js").ScheduledDeliveryProvenance;
 }) {
   const { scope, messageId, now, localDate, dependencies } = input;
@@ -41,6 +43,7 @@ export async function createWorkRetrospectiveRequest(input: {
     add({ type: "question_closed", questionId: episode.pendingQuestion.questionId,
       reason: now >= episode.period.end ? "cycle_ended" : !policy.enabled ? "policy_disabled" : "new_day", localDate });
   }
+  if (policy.enabled && episode && episode.questionBudget.localDate !== localDate && !events.length) add({ type: "question_closed", questionId: episode.pendingQuestion?.questionId ?? "day-boundary", reason: "new_day", localDate });
   const enabled = policy.enabled && "value" in read;
   const context = await dependencies.service.readContext({ scope, enabled: !!policy.policy && "value" in read, now, localDate });
   return {
@@ -55,6 +58,9 @@ export async function createWorkRetrospectiveRequest(input: {
       if (!enabled || !policy.enabled) return { status: "forbidden" as const };
       if (!parsed.success || events.some((event) => event.action.type === "question_generated")) return { status: "failed" as const, code: "validation_error" as const };
       const command = parsed.data;
+      if (command.weeklyConsent !== undefined && (input.origin !== "employee" || input.scheduled)) return { status: "forbidden" as const };
+      if (command.weeklyConsent === true && "value" in read && read.value.some((value) => value.questionBudget.weeklySession?.weekKey === retrospectiveWeekKey(localDate))) return { status: "forbidden" as const };
+      if (command.weeklyConsent === false || command.closeReason === "declined") command.question = undefined;
       // A scheduled invitation cannot replace an employee's unanswered question.
       // Statements and factual collection remain available on this same request.
       if (input.scheduled?.retrospectiveTouch?.preservePendingQuestion && episode?.pendingQuestion
@@ -78,6 +84,8 @@ export async function createWorkRetrospectiveRequest(input: {
         episode = updated;
       }
       if (command.closeReason && episode.pendingQuestion) add({ type: "question_closed", questionId: episode.pendingQuestion.questionId, reason: command.closeReason });
+      if (command.weeklyConsent === true) add({ type: "weekly_session_started", sessionId: randomUUID(), consent: { granted: true, sourceRef: { messageId } }, localDate, weekKey: retrospectiveWeekKey(localDate) });
+      if (command.weeklyConsent === false || command.closeReason === "declined") add({ type: "weekly_session_closed" });
       if (command.followUpConsent !== undefined) add({ type: "follow_up_consent_changed", consent: { granted: command.followUpConsent, sourceRef: { messageId } } });
       if (command.question) add({ type: "question_generated", question: { questionId: randomUUID(), text: command.question.text,
         sourceTurn: { messageId }, target: { episodeId: episode.episodeId, revision: episode.revision + events.length,

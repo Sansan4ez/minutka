@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ProfileStore } from "./profile-store.js";
 import type { RetrospectiveCanonicalStore } from "./work-retrospective-service.js";
-import { projectRetrospectiveEvents } from "./work-retrospective-service.js";
+import { activeWeeklySession, projectRetrospectiveEvents } from "./work-retrospective-service.js";
 import { sameScope } from "./retrospective-event-store.js";
 import type { WorkRetrospectiveStore } from "./work-retrospective-store.js";
 import type { RetrospectiveScope, WorkRetrospectiveEvent } from "../domain/work-retrospective.js";
@@ -62,15 +62,15 @@ export function createRetrospectiveDelivery(input: {
         const delivery: WorkRetrospectiveEvent[] = sources.map((source) => {
           const episode = episodes.find((value) => value.episodeId === source?.episodeId);
           const questionId = source?.action.type === "question_generated" ? source.action.question.questionId : undefined;
-          const generatedEpisode = source ? projectRetrospectiveEvents(events.slice(0, events.findIndex((event) => event.eventId === source.eventId) + 1))
-            .find((value) => value.episodeId === source.episodeId) : undefined;
+          const generatedSession = source ? projectRetrospectiveEvents(events.slice(0, events.findIndex((event) => event.eventId === source.eventId) + 1))
+            .map((value) => activeWeeklySession(value, localDate)).find(Boolean) : undefined;
           const episodeId = source?.episodeId ?? `delivery:${turn.messageId}`;
           return { ...scope, version: 1, timestamp, sourceMessageId: turn.messageId, episodeId, ordinal: ordinal++,
             eventId: createHash("sha256").update(JSON.stringify([scope, turn.messageId, questionId ?? null])).digest("hex"),
             expectedRevision: episode?.revision ?? 0,
             action: { type: "response_delivery", responseMessageId: turn.messageId, status: receipt.status, localDate,
               ...(questionId ? { questionId } : {}),
-              ...(generatedEpisode?.questionBudget.weeklySession ? { sessionId: generatedEpisode.questionBudget.weeklySession.sessionId } : {}),
+              ...(generatedSession ? { sessionId: generatedSession.sessionId } : {}),
               ...(scheduled ? { scheduled } : {}) } };
         });
         await input.canonical.appendDeliveryEvents({ scope, sourceMessageId: turn.messageId, events: delivery });

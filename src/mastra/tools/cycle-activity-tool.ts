@@ -8,6 +8,7 @@ import {
   routinePatternTypes,
   taskCategories,
 } from "../../domain/insights.js";
+import { personalRetrospectiveProjectionSchema } from "../../application/retrospective-summary.js";
 import type { CycleActivitySummary } from "../../application/cycle-activity-summary.js";
 
 export const readCycleActivitiesToolName = "readCycleActivities" as const;
@@ -22,6 +23,7 @@ const routineSchema = z.strictObject({
 });
 
 export const cycleActivitySummarySchema = z.strictObject({
+  retrospective: personalRetrospectiveProjectionSchema.optional(),
   fromDate: z.string(),
   toDate: z.string(),
   activityCount: z.number().int().min(0),

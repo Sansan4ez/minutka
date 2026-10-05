@@ -69,6 +69,7 @@ import {
   type ResearchTraceStore,
 } from "./research-trace-store.js";
 
+import { RetrospectiveSummaryService } from "./retrospective-summary.js";
 import { createWorkRetrospectiveRequest, type RetrospectiveRuntimeDependencies, type WorkRetrospectiveCapabilities } from "./work-retrospective-request.js";
 import type { ActivityTransactionTrustedRequest } from "./activity-transaction-service.js";
 
@@ -360,7 +361,7 @@ export class AssistantService {
     const retrospectiveScope = { employeeId: userId, companyId: participant.companyId, groupId: participant.groupId, subjectKey: participant.subjectKey, threadId };
     const retrospective = this.deps.workRetrospective ? await createWorkRetrospectiveRequest({
       scope: retrospectiveScope, messageId, now: this.clock.now(), localDate: ownerToday, dependencies: this.deps.workRetrospective,
-      scheduled: input.scheduledProvenance,
+      scheduled: input.scheduledProvenance, origin: requiredProcessId ? "scheduled" : "employee",
     }) : undefined;
     type PendingActionSlot =
       | { sequence: number; kind: "task"; pending: PendingTaskMutation; title?: string; persistence: "attempted" | "persisted" }
@@ -675,13 +676,23 @@ export class AssistantService {
     };
     // Read-only: the weekly checkpoint counts what the employee already
     // reported and never widens the window beyond their own activities.
+    const withRetrospective = async <T extends WeeklyActivitySummary | CycleActivitySummary>(facts: T): Promise<T> => {
+      if (!this.deps.workRetrospective || !retrospective?.historicalAvailable || !this.deps.groupPeriods) return facts;
+      const period = await this.deps.groupPeriods.getGroupPeriod({ companyId: participant.companyId, groupId: participant.groupId });
+      if (!period) return facts;
+      const nextDate = new Date(Date.parse(`${period.end}T00:00:00.000Z`) + 86400000).toISOString().slice(0, 10);
+      const result = await new RetrospectiveSummaryService(this.deps.workRetrospective.service).summarize({ scope: retrospectiveScope,
+        period: retrospective.availability?.period ?? { start: `${period.start}T00:00:00.000Z`, end: `${nextDate}T00:00:00.000Z` } }, async () => facts);
+      if (!("value" in result)) throw new PersistenceError("persistence_unavailable");
+      return { ...facts, retrospective: { episodePeriod: result.value.episodePeriod, episodes: result.value.episodes } };
+    };
     const readWeeklyActivities = async () => {
       if (!this.deps.readWeeklyActivities) throw new Error("weekly activity summary is not configured");
       const timezone = profile?.timezone;
       if (!timezone) throw new PersistenceError("profile_not_found");
       const summary = await this.deps.readWeeklyActivities({ employeeId: userId, timezone });
       observedExecutionTrace.push({ kind: "tool", toolName: "readWeeklyActivities" });
-      return summary;
+      return withRetrospective(summary);
     };
     // Read-only: the final report counts the employee's own activities over the
     // group's cycle — the same period the company report filters by — and never
@@ -697,7 +708,7 @@ export class AssistantService {
         : undefined;
       const summary = await this.deps.readCycleActivities({ employeeId: userId, timezone, ...(period === undefined ? {} : { period }) });
       observedExecutionTrace.push({ kind: "tool", toolName: "readCycleActivities" });
-      return summary;
+      return withRetrospective(summary);
     };
     const updatePersonalContext = async (patch: PersonalContextPatch, options: { replaceTypicalTasks?: boolean } = {}) => {
       if (!this.deps.participantStore.updatePersonalContext) throw new Error("personal profile context update is not configured");

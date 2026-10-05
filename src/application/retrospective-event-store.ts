@@ -50,6 +50,7 @@ export function validateEvents(turn: ConversationTurn, events: WorkRetrospective
       || (first && !sameScope(first, event)) || keys.has(event.ordinal) || ids.has(event.eventId)) {
       throw new PersistenceError("persistence_conflict");
     }
+    if (event.action.type === "weekly_session_started" && (turn.origin !== "employee" || event.action.consent.sourceRef.messageId !== turn.messageId)) throw new PersistenceError("persistence_conflict");
     keys.add(event.ordinal); ids.add(event.eventId);
   }
 }

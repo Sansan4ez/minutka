@@ -4,6 +4,20 @@ import type { WeeklyActivitySummary } from "./weekly-activity-summary.js";
 import type { CycleActivitySummary } from "./cycle-activity-summary.js";
 import type { RetrospectiveOutcome, WorkRetrospectiveUseCases } from "./work-retrospective-store.js";
 
+import { z } from "zod";
+import { workRetrospectiveEpisodeSchema } from "./work-retrospective-store.js";
+const statements = workRetrospectiveEpisodeSchema.shape.statements.shape.actions;
+export const personalRetrospectiveProjectionSchema = z.strictObject({
+  episodePeriod: workRetrospectiveEpisodeSchema.shape.period,
+  episodes: z.array(z.strictObject({
+    period: workRetrospectiveEpisodeSchema.shape.period,
+    confirmed: statements, tried: statements, observations: statements,
+    interpretations: statements, hypotheses: statements, intentions: statements,
+    followUp: z.strictObject({ step: workRetrospectiveEpisodeSchema.shape.selectedStep.unwrap(), indicator: workRetrospectiveEpisodeSchema.shape.indicator, question: z.string() }).optional(),
+  })),
+});
+export type PersonalRetrospectiveProjection = z.infer<typeof personalRetrospectiveProjectionSchema>;
+
 export type RetrospectiveSummaryInput = {
   /** Bound by the application, never supplied by the model. */
   scope: RetrospectiveScope;

@@ -45,7 +45,7 @@ export const workRetrospectiveEpisodeSchema = z.strictObject({
   pendingQuestion: retrospectiveQuestionSchema.optional(),
   questionBudget: z.strictObject({
     localDate: z.iso.date(), dailyDelivered: revision,
-    weeklySession: z.strictObject({ sessionId: id, consent, delivered: revision }).optional(),
+    weeklySession: z.strictObject({ sessionId: id, consent, delivered: revision, localDate: z.iso.date().optional(), weekKey: z.iso.date().optional(), closed: z.boolean().optional() }).optional(),
   }),
 });
 export const workRetrospectivePolicySchema = z.strictObject({

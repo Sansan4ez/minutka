@@ -53,6 +53,7 @@ export type CycleActivitySummaryInput = {
 };
 
 export type CycleActivitySummary = {
+  retrospective?: import("./retrospective-summary.js").PersonalRetrospectiveProjection;
   fromDate: string;
   toDate: string;
   activityCount: number;

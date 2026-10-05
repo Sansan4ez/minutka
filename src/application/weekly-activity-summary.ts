@@ -28,6 +28,7 @@ export const weeklySummaryWindowDays = 7;
 export const weeklySummarySufficiency = { activities: 3, activeDates: 2 } as const;
 
 export type WeeklyActivitySummary = {
+  retrospective?: import("./retrospective-summary.js").PersonalRetrospectiveProjection;
   fromDate: string;
   toDate: string;
   activityCount: number;

@@ -5,8 +5,18 @@ import { sameScope, type RetrospectiveEventStore } from "./retrospective-event-s
 import { retrospectiveQuestionSchema, workRetrospectiveEpisodeSchema, type RetrospectiveCommand, type RetrospectiveOutcome, type WorkRetrospectiveStore, type WorkRetrospectiveUseCases } from "./work-retrospective-store.js";
 import { retrospectiveContextMaxCharacters, retrospectiveDailyQuestionLimit, retrospectiveWeeklyQuestionLimit, type WorkRetrospectiveEpisode, type WorkRetrospectiveEvent } from "../domain/work-retrospective.js";
 
+export function retrospectiveWeekKey(localDate: string): string {
+  const date = new Date(`${localDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+  return date.toISOString().slice(0, 10);
+}
+export function activeWeeklySession(episode: WorkRetrospectiveEpisode, localDate: string) {
+  const session = episode.questionBudget.weeklySession;
+  return session?.consent.granted && !session.closed && (!session.localDate || session.localDate === localDate) ? session : undefined;
+}
+
 export function buildRetrospectiveContext(episode: WorkRetrospectiveEpisode): RetrospectiveOutcome<string> {
-  const required = { episodeId: episode.episodeId, revision: episode.revision, question: episode.pendingQuestion, activityRefs: episode.activityRefs };
+  const required = { episodeId: episode.episodeId, revision: episode.revision, question: episode.pendingQuestion, activityRefs: episode.activityRefs, questionBudget: episode.questionBudget };
   const minimum = JSON.stringify(required);
   if (minimum.length > retrospectiveContextMaxCharacters) return { status: "failed", code: "context_budget_error" };
   const full = JSON.stringify({ ...required, statements: episode.statements, selectedStep: episode.selectedStep, indicator: episode.indicator });
@@ -23,7 +33,7 @@ export function projectRetrospectiveEvents(events: WorkRetrospectiveEvent[]): Wo
     if (action.type === "episode_selected" || action.type === "episode_updated") {
       const previous = episode;
       episode = sanitizeRetrospectiveMetadata(action.episode);
-      if (previous) { episode.questionBudget = previous.questionBudget; episode.pendingQuestion = previous.pendingQuestion; }
+      if (previous) { episode.questionBudget = previous.questionBudget; episode.pendingQuestion = previous.pendingQuestion; episode.followUpConsent = previous.followUpConsent; }
       episodes.set(event.episodeId, episode);
     }
     if (!episode) continue;
@@ -41,7 +51,11 @@ export function projectRetrospectiveEvents(events: WorkRetrospectiveEvent[]): Wo
         if (action.reason === "declined") episode.status = "declined";
         break;
       case "follow_up_consent_changed": episode.followUpConsent = structuredClone(action.consent); break;
-      case "weekly_session_started": episode.questionBudget.weeklySession = { sessionId: action.sessionId, consent: structuredClone(action.consent), delivered: 0 }; break;
+      case "weekly_session_started": episode.questionBudget.weeklySession = { sessionId: action.sessionId, consent: structuredClone(action.consent), delivered: 0, localDate: action.localDate, weekKey: action.weekKey }; break;
+      case "weekly_session_closed":
+        for (const other of episodes.values()) if (other.questionBudget.weeklySession) other.questionBudget.weeklySession.closed = true;
+        delete episode.pendingQuestion;
+        break;
       case "response_delivery": {
         const key = `${event.episodeId}:${action.questionId}`;
         if (action.status === "delivered" && action.questionId && !delivered.has(key)) {
@@ -49,7 +63,7 @@ export function projectRetrospectiveEvents(events: WorkRetrospectiveEvent[]): Wo
           for (const other of episodes.values()) {
             if (other.questionBudget.localDate !== action.localDate) { other.questionBudget.localDate = action.localDate; other.questionBudget.dailyDelivered = 0; delete other.pendingQuestion; }
           }
-          const session = episode.questionBudget.weeklySession;
+          const session = [...episodes.values()].map((value) => activeWeeklySession(value, action.localDate)).find((value) => value?.sessionId === action.sessionId);
           if (session?.consent.granted && session.sessionId === action.sessionId) session.delivered++;
           else episode.questionBudget.dailyDelivered++;
         }
@@ -78,20 +92,22 @@ export function validateRetrospectiveCommand(command: RetrospectiveCommand, even
     if (!Number.isFinite(Date.parse(event.timestamp)) || event.version !== 1 || !Number.isInteger(event.ordinal) || event.ordinal < 0) return { status: "failed", code: "validation_error" };
     const action = event.action;
     if (action.type === "question_closed" && action.reason === "new_day" && (!action.localDate || !/^\d{4}-\d{2}-\d{2}$/.test(action.localDate))) return { status: "failed", code: "validation_error" };
-    if (action.type === "response_delivery" && action.questionId && (!events.some((old) => old.action.type === "question_generated" && old.action.question.questionId === action.questionId && old.episodeId === event.episodeId) || (before?.questionBudget.weeklySession?.consent.granted && action.sessionId !== before.questionBudget.weeklySession.sessionId))) return { status: "failed", code: "validation_error" };
+    if (action.type === "response_delivery" && action.questionId && (!events.some((old) => old.action.type === "question_generated" && old.action.question.questionId === action.questionId && old.episodeId === event.episodeId))) return { status: "failed", code: "validation_error" };
     if (action.type === "episode_selected" || action.type === "episode_updated") {
       if (!workRetrospectiveEpisodeSchema.safeParse(action.episode).success || !sameScope(action.episode, command.scope) || action.episode.episodeId !== command.episodeId) return { status: "forbidden" };
       if (action.type === "episode_updated" && !before) return { status: "not_found" };
       if (before && action.type === "episode_selected") return { status: "stale" };
       if (action.type === "episode_selected" && (action.episode.pendingQuestion || action.episode.questionBudget.dailyDelivered !== 0 || action.episode.questionBudget.weeklySession)) return { status: "failed", code: "validation_error" };
     } else if (!before) return { status: "not_found" };
-    if (action.type === "weekly_session_started" && (!action.consent.granted || before?.questionBudget.weeklySession || projectRetrospectiveEvents(accumulated).some((episode) => episode.questionBudget.weeklySession))) return { status: "failed", code: "validation_error" };
+    if (action.type === "weekly_session_started" && (!action.consent.granted || action.consent.sourceRef.messageId !== event.sourceMessageId
+      || projectRetrospectiveEvents(accumulated).some((episode) => episode.questionBudget.weeklySession && (!action.weekKey || episode.questionBudget.weeklySession.weekKey === action.weekKey)))) return { status: "failed", code: "validation_error" };
     if (action.type === "question_generated") {
       if (!retrospectiveQuestionSchema.safeParse(action.question).success || action.question.sourceTurn.messageId !== event.sourceMessageId) return { status: "failed", code: "validation_error" };
       if (action.question.target.episodeId !== command.episodeId || action.question.target.revision !== event.expectedRevision) return { status: "stale" };
       const all = projectRetrospectiveEvents(accumulated);
       const budget = before!.questionBudget;
-      const weekly = budget.weeklySession;
+      const weekly = all.map((episode) => episode.questionBudget.weeklySession).find((session) => session?.consent.granted && (!session.localDate || session.localDate === budget.localDate));
+      if (weekly?.closed) return { status: "failed", code: "validation_error" };
       const count = weekly?.consent.granted ? all.filter((e) => e.questionBudget.weeklySession?.sessionId === weekly.sessionId).reduce((sum, e) => sum + (e.questionBudget.weeklySession?.delivered ?? 0), 0) : all.filter((e) => e.questionBudget.localDate === budget.localDate).reduce((sum, e) => sum + e.questionBudget.dailyDelivered, 0);
       if (Date.parse(event.timestamp) >= Date.parse(before!.period.end) || before!.pendingQuestion || before!.status !== "active" || count >= (weekly?.consent.granted ? retrospectiveWeeklyQuestionLimit : retrospectiveDailyQuestionLimit)) return { status: "failed", code: "validation_error" };
       const bound = [...before!.messageRefs.map((ref) => ({ type: "message" as const, ...ref })), ...before!.activityRefs.map((ref) => ({ type: "activity" as const, ...ref }))];

@@ -30,8 +30,10 @@ import type { ActivityTransactionExtractor } from "../application/activity-trans
 import { CollectActivityService } from "../application/activity-collection.js";
 import { ActivityCorrectionService } from "../application/activity-correction.js";
 import { RecentOwnActivitiesService } from "../application/recent-own-activities.js";
-import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryActivityMutationStore, createInMemoryRecentOwnActivityReadStore } from "../application/in-memory-activity-collection-store.js";
+import { createInMemoryActivityCollectionState, createInMemoryActivityCollectionStore, createInMemoryActivityMutationStore, createInMemoryRecentOwnActivityReadStore, createInMemoryOwnActivityReadStore } from "../application/in-memory-activity-collection-store.js";
 import { createInMemoryLinkedActivityTransactionStore } from "../application/linked-activity-transaction-store.js";
+import { WeeklyActivitySummaryService } from "../application/weekly-activity-summary.js";
+import { CycleActivitySummaryService } from "../application/cycle-activity-summary.js";
 import { AssistantService, type AssistantAgentRunner } from "../application/assistant-service.js";
 import { createRuntimeRetrospectiveTouchPolicy } from "./retrospective-scheduling.js";
 import { createRetrospectiveDelivery } from "../application/retrospective-delivery.js";
@@ -145,6 +147,9 @@ export function createInMemoryRuntime(input: {
   const assistantChat = input.assistantAgentRunner ? new AssistantService(input.assistantAgentRunner, {
     documentStore, conversationStore, ingestionService, participantStore: profileStore,
     requestIntegrityGuard: async () => ({ status: "allowed" }), clock,
+    groupPeriods: createInMemoryTenantDirectoryStore(world.tenantDirectories),
+    readWeeklyActivities: (request) => new WeeklyActivitySummaryService(createInMemoryOwnActivityReadStore(activities), clock).summarize(request),
+    readCycleActivities: (request) => new CycleActivitySummaryService(createInMemoryOwnActivityReadStore(activities), clock).summarize(request),
     ...(activityTransaction ? { processCurrentActivityTurn: (command: Parameters<ActivityTransactionService["process"]>[0]) => activityTransaction.process(command) } : {}),
     ...input.assistantDeps,
     workRetrospective: { service: retrospective, policies: retrospectivePolicies },
