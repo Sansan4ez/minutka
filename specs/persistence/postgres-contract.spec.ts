@@ -194,7 +194,7 @@ describe("PostgreSQL storage contracts", () => {
     expect(await restarted.readEvents({ scope, limit: 10, period: { start: input.timestamp, end: input.timestamp } })).toEqual(input.retrospectiveEvents);
     await restarted.appendTurn(input);
     await expect(restarted.appendTurn({ ...input, agentResponse: "changed" })).rejects.toMatchObject({ code: "persistence_conflict" });
-    const delivery = { ...event, eventId: "retro_delivery", ordinal: 2, action: { type: "response_delivery" as const, responseMessageId: "response", status: "delivered" as const, localDate: "2026-08-26" } };
+    const delivery = { ...event, eventId: "retro_delivery", ordinal: 2, action: { type: "response_delivery" as const, responseMessageId: input.messageId, status: "delivered" as const, localDate: "2026-08-26" } };
     await restarted.appendDeliveryEvents({ scope, sourceMessageId: input.messageId, events: [delivery] });
     await restarted.appendDeliveryEvents({ scope, sourceMessageId: input.messageId, events: [delivery] });
     await restarted.appendTurn(input);

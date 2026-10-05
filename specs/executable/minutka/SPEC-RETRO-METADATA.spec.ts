@@ -28,7 +28,7 @@ describe("canonical retrospective metadata", () => {
     await store.appendTurn(turn); await store.appendTurn(structuredClone(turn));
     await expect(store.appendTurn({ ...turn, userText: "different" })).rejects.toMatchObject({ code: "persistence_conflict" });
     expect(world.messages).toHaveLength(1);
-    const delivery: WorkRetrospectiveEvent = { ...event, eventId: "delivery", ordinal: 2, action: { type: "response_delivery", responseMessageId: "response1", questionId: "question_a", status: "failed", localDate: "2026-08-26" } };
+    const delivery: WorkRetrospectiveEvent = { ...event, eventId: "delivery", ordinal: 2, action: { type: "response_delivery", responseMessageId: turn.messageId, questionId: "question_a", status: "failed", localDate: "2026-08-26" } };
     const request = { scope, sourceMessageId: "m1", events: [delivery] };
     await store.appendDeliveryEvents(request); await store.appendDeliveryEvents(request);
     await store.appendTurn(turn);
