@@ -1,4 +1,3 @@
-import { CommanderError } from "commander";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { FinalReportArmingService } from "../application/final-report-arming.js";
@@ -12,44 +11,25 @@ import { createPostgresProfileStore } from "../infrastructure/postgres/postgres-
 import { createPostgresScheduleStore } from "../infrastructure/postgres/postgres-schedule-store.js";
 import { runArmFinalReportsCommand } from "./arm-final-reports-command.js";
 
+loadDotEnv();
+const config = postgresConfigFromEnv(process.env);
+const pool = createPostgresPool(config);
+const terminal = createInterface({ input: stdin, output: stdout });
 try {
-  await runArmFinalReportsCommand(process.argv.slice(2), () => {
-    loadDotEnv();
-    const config = postgresConfigFromEnv(process.env);
-    const pool = createPostgresPool(config);
-    let terminal: ReturnType<typeof createInterface> | undefined;
-    return {
-      prepare: async () => {
-        const status = await migrationStatus(pool);
-        if (status.pending.length) {
-          throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
-        }
-      },
-      get service() {
-        const profileStore = createPostgresProfileStore(pool, config.inviteCodePepper);
-        return new FinalReportArmingService(
-          profileStore,
-          new ScheduleManagementService(createPostgresScheduleStore(pool), profileStore, systemClock),
-        );
-      },
-      readConfirmation: () => {
-        terminal ??= createInterface({ input: stdin, output: stdout });
-        return terminal.question("");
-      },
-      write: (text) => stdout.write(text),
-      close: async () => {
-        try {
-          terminal?.close();
-        } finally {
-          await pool.end();
-        }
-      },
-    };
-  });
-} catch (error) {
-  // Commander already printed syntax errors; avoid a duplicate message/stack.
-  if (!(error instanceof CommanderError)) {
-    console.error(error instanceof Error ? error.message : "final report command failed");
+  const status = await migrationStatus(pool);
+  if (status.pending.length) {
+    throw new Error(`database migrations are pending: ${status.pending.join(", ")}; run npm run db:migrate`);
   }
-  process.exitCode = error instanceof CommanderError ? error.exitCode : 1;
+  const profileStore = createPostgresProfileStore(pool, config.inviteCodePepper);
+  await runArmFinalReportsCommand(process.argv.slice(2), {
+    service: new FinalReportArmingService(
+      profileStore,
+      new ScheduleManagementService(createPostgresScheduleStore(pool), profileStore, systemClock),
+    ),
+    readConfirmation: () => terminal.question(""),
+    write: (text) => stdout.write(text),
+  });
+} finally {
+  terminal.close();
+  await pool.end();
 }
