@@ -1,3 +1,4 @@
+import { createPostgresRetrospectiveLifecycle } from "../infrastructure/postgres/postgres-retrospective-lifecycle.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { ResearchScopePurgeService } from "../application/research-scope-purge.js";
@@ -23,6 +24,7 @@ try {
     service: new ResearchScopePurgeService(
       createPostgresResearchScopePurgeStore(pool),
       createMinioEmployeeObjectDeletionStore({ client: minioClient, bucket: minioConfig.bucket }),
+      createPostgresRetrospectiveLifecycle(pool, minioClient, minioConfig.bucket),
     ),
     readConfirmation: () => terminal.question(""),
     write: (text) => stdout.write(text),

@@ -48,13 +48,14 @@ and method versions, candidates and coverage. Owner namespace comes from
 transport account. No client delivery or public presigned URL is stored.
 
 Read uses short-lived content-store presigning plus injected `loadContent`; offline
-specs resolve the in-memory content URL. Storage adapters and migrations do not
-change. Restart verification recreates the service while retaining its stores.
+specs resolve the in-memory content URL. Private research owners are supported by migration `0084_research_artifact_owners.sql`.
+Ordinary employee owners retain existence validation and cascading artifact deletion. Restart verification recreates the service while retaining its stores.
 
 `contributors` includes **all model-visible subjects**, not just cited subjects.
 `episodeRefs` includes all contributing episode identities/revisions. Purge must
 invalidate/delete the entire artifact if any contributor is affected; then
-sanitize/recompute from current typed research reads. Consumers should enumerate
+sanitize/recompute from current typed research reads. Lifecycle deletion enumerates **all** generated references, including inactive history,
+and removes every physical CAS object version before deleting its indexes. Consumers should enumerate
 active generated references in the scoped private owner namespace, read their
 manifest, and preserve immutable versions rather than overwrite an artifact.
 
@@ -62,6 +63,23 @@ Coverage counts unique `(subjectKey, threadId, episodeId)` snapshots at latest
 revision and unique current activity IDs; clarification messages add neither
 independent episodes nor hours. Bucket hours are observed estimates, not savings
 or a full time balance. Existing company report aggregation/publish is untouched.
+
+## Lifecycle
+
+`RetrospectiveLifecycle` is operator-only and scoped to company, group or subject.
+Employee deletion and scope purge runtimes compose the PostgreSQL/MinIO adapter;
+canonical message metadata and episode projections cascade with participants.
+Preview and results include derived counts. No real purge is run by tests.
+Policy is currently injected in-memory, not persisted: its adapter supplies scoped
+`purge`; PostgreSQL policy count is zero until a durable policy store exists.
+
+Typed recommendation reads revalidate checked candidates against current sources
+and expose stale status after correction/supersession. Publish also revalidates.
+`recompute` generates a new version/previousArtifactId without inheriting review.
+Episode replay uses structural equality (JSONB ordering is not semantic), preserves
+consent and delivered budgets, and sanitizes statement/question text with the
+existing research-secret filter. Research export includes sanitized canonical
+metadata as an optional additive v2 field; no raw text is copied to audit.
 
 ## Offline verification
 

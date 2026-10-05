@@ -124,6 +124,22 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("SPEC-RETRO-LIFECYCLE research owners are durable without fake participants; employee cascade remains", async () => {
+    const { recommendationArtifactOwner } = await import("../../src/application/retrospective-recommendations.js");
+    const owner = recommendationArtifactOwner({ companyId: "company_persistence_default", groupId: "group_persistence_default" });
+    const digest = "a".repeat(64);
+    await pool.query("INSERT INTO minutka_private.artifact_contents(user_id,content_digest,size_bytes) VALUES($1,$2,10) ON CONFLICT DO NOTHING", [owner, digest]);
+    await pool.query("INSERT INTO minutka_private.artifacts(user_id,artifact_id,delivery_key,content_digest,original_file_name,source,status) VALUES($1,'lifecycle','lifecycle',$2,'test.json',$3::jsonb,'active') ON CONFLICT DO NOTHING", [owner, digest, JSON.stringify({ kind: "generated", generatorId: "retrospective-recommendations/v1", deliveryKey: "lifecycle" })]);
+    expect((await pool.query("SELECT artifact_id FROM minutka_private.artifacts WHERE user_id=$1", [owner])).rows).toHaveLength(1);
+    const { createPostgresRetrospectiveLifecycle } = await import("../../src/infrastructure/postgres/postgres-retrospective-lifecycle.js");
+    const fakeClient = {} as import("minio").Client;
+    const lifecycle = createPostgresRetrospectiveLifecycle(pool, fakeClient, "offline");
+    expect(await lifecycle.preview({ companyId: "company_persistence_default", groupId: "group_persistence_default" })).toMatchObject({ recommendationVersions: 1, retrospectivePolicies: 0 });
+    await expect(pool.query("INSERT INTO minutka_private.artifact_contents(user_id,content_digest,size_bytes) VALUES('missing_employee',$1,10)", [digest])).rejects.toMatchObject({ code: "23503" });
+    await pool.query("DELETE FROM minutka_private.artifacts WHERE user_id=$1", [owner]);
+    await pool.query("DELETE FROM minutka_private.artifact_contents WHERE user_id=$1", [owner]);
+  });
+
   it("SPEC-RETRO-TRANSACTION durable reservations, restart outcomes and purge", async () => {
     const { createPostgresLinkedActivityTransactionStore } = await import("../../src/infrastructure/postgres/postgres-linked-activity-transaction-store.js");
     const employeeId = "retro_transaction_owner";

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RetrospectiveLifecycle, RetrospectiveDeletionCounts } from "./retrospective-lifecycle.js";
 import type { SafeAuditMetadata } from "./audit-event-store.js";
 import type { EmployeeObjectDeletionStore } from "./employee-data-deletion.js";
 import type { EmployeePersonalDataDeletionCounts } from "./profile-store.js";
@@ -32,14 +33,14 @@ export type ResearchScopeDescriptor = { kind: "company" | "group"; companyId: st
 
 export type ResearchScopePurgePreview = {
   scope: ResearchScopeDescriptor;
-  counts: ResearchScopePurgeCounts;
+  counts: ResearchScopePurgeCounts & Partial<RetrospectiveDeletionCounts>;
   /** The exact line the operator must type before the irreversible purge runs. */
   confirmation: string;
 };
 
 export type ResearchScopePurgeResult = {
   scope: ResearchScopeDescriptor;
-  deleted: ResearchScopePurgeCounts & { minioObjectVersions: number };
+  deleted: ResearchScopePurgeCounts & Partial<RetrospectiveDeletionCounts> & { minioObjectVersions: number };
   preserved: {
     anonymousPurgeAudit: true;
     tenantReferenceDirectories: "kept";
@@ -93,11 +94,12 @@ export class ResearchScopePurgeService {
   constructor(
     private readonly store: ResearchScopePurgeStore,
     private readonly objects: EmployeeObjectDeletionStore,
+    private readonly retrospective?: RetrospectiveLifecycle,
   ) {}
 
   async preview(input: ResearchScopePurgeInput): Promise<ResearchScopePurgePreview> {
     const scope = parseScope(input);
-    const counts = await this.store.countScope(scope);
+    const counts = { ...await this.store.countScope(scope), ...await this.retrospective?.preview(scope) };
     if (!counts.participants) throw new Error("research_scope_not_found");
     return { scope: describeResearchScope(scope), counts, confirmation: researchScopePurgeConfirmation(scope) };
   }
@@ -107,14 +109,15 @@ export class ResearchScopePurgeService {
     const employeeIds = await this.store.listScopeEmployeeIds(scope);
     if (!employeeIds.length) throw new Error("research_scope_not_found");
 
-    let minioObjectVersions = 0;
+    const derivedCounts = await this.retrospective?.preview(scope);
+    let minioObjectVersions = (await this.retrospective?.purge(scope))?.deletedObjectVersions ?? 0;
     for (const employeeId of employeeIds) {
       minioObjectVersions += (await this.objects.deleteByEmployee(employeeId)).deletedObjectVersions;
     }
     const deleted = await this.store.purgeScope({ ...scope, deletedObjectVersions: minioObjectVersions });
     return {
       scope: describeResearchScope(scope),
-      deleted: { ...deleted, minioObjectVersions },
+      deleted: { ...deleted, ...derivedCounts, minioObjectVersions },
       preserved: {
         anonymousPurgeAudit: true,
         tenantReferenceDirectories: "kept",

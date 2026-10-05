@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { sanitizeResearchText } from "./research-trace-store.js";
 import type { ConversationTurn } from "./conversation-store.js";
 import { PersistenceError } from "./persistence-error.js";
 import type { RetrospectiveReadRequest } from "./work-retrospective-store.js";
@@ -18,8 +19,15 @@ export type TurnMetadata = {
 };
 export function metadataFor(turn: ConversationTurn): TurnMetadata | null {
   if (turn.origin === undefined && turn.retrospectiveEvents === undefined) return null;
-  return structuredClone({ version: 1, ...(turn.origin === undefined ? {} : { origin: turn.origin }),
+  return sanitizeRetrospectiveMetadata({ version: 1, ...(turn.origin === undefined ? {} : { origin: turn.origin }),
     ...(turn.retrospectiveEvents === undefined ? {} : { retrospectiveEvents: turn.retrospectiveEvents }) });
+}
+/** Sanitize text values recursively, without altering JSON syntax or recording raw text in audit. */
+export function sanitizeRetrospectiveMetadata<T>(value: T): T {
+  const visit = (item: unknown): unknown => typeof item === "string" ? sanitizeResearchText(item)
+    : Array.isArray(item) ? item.map(visit)
+    : item && typeof item === "object" ? Object.fromEntries(Object.entries(item).map(([key, val]) => [key, typeof val === "string" ? (["text", "quote", "statement", "reason"].includes(key) ? sanitizeResearchText(val) : val) : visit(val)])) : item;
+  return visit(value) as T;
 }
 export function sameScope(a: RetrospectiveScope, b: RetrospectiveScope): boolean {
   return a.employeeId === b.employeeId && a.companyId === b.companyId && a.groupId === b.groupId
@@ -59,12 +67,12 @@ export function mergeDeliveryEvents(turn: ConversationTurn, metadata: TurnMetada
       if (!isDeepStrictEqual(existing, event)) throw new PersistenceError("persistence_conflict");
     } else merged.push(structuredClone(event));
   }
-  return { ...metadata!, version: 1, deliveryEvents: merged };
+  return sanitizeRetrospectiveMetadata({ ...metadata!, version: 1, deliveryEvents: merged });
 }
 export function selectEvents(events: WorkRetrospectiveEvent[], request: RetrospectiveReadRequest & { episodeId?: string }): WorkRetrospectiveEvent[] {
   return events.filter((event) => sameScope(event, request.scope)
     && (!request.episodeId || event.episodeId === request.episodeId)
     && (!request.period || (Date.parse(event.timestamp) >= Date.parse(request.period.start) && Date.parse(event.timestamp) <= Date.parse(request.period.end))))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sourceMessageId.localeCompare(b.sourceMessageId) || a.ordinal - b.ordinal)
-    .slice(0, Math.max(0, request.limit)).map((event) => structuredClone(event));
+    .slice(0, Math.max(0, request.limit)).map((event) => sanitizeRetrospectiveMetadata(event));
 }

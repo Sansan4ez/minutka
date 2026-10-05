@@ -1,3 +1,4 @@
+import { createPostgresRetrospectiveLifecycle } from "../infrastructure/postgres/postgres-retrospective-lifecycle.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { EmployeeDataDeletionService } from "../application/employee-data-deletion.js";
@@ -39,6 +40,7 @@ try {
   const deletion = new EmployeeDataDeletionService(
     createPostgresProfileStore(pool, config.inviteCodePepper),
     createMinioEmployeeObjectDeletionStore({ client: minioClient, bucket: minioConfig.bucket }),
+    createPostgresRetrospectiveLifecycle(pool, minioClient, minioConfig.bucket),
   );
   stdout.write(`${JSON.stringify(await deletion.deleteEmployeeData({ employeeId }), null, 2)}\n`);
 } finally {

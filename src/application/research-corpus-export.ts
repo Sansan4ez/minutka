@@ -1,3 +1,4 @@
+import { sanitizeRetrospectiveMetadata, type TurnMetadata } from "./retrospective-event-store.js";
 import type { PersonalActivityRecord } from "./activity-collection.js";
 import type { AuditEventStore } from "./audit-event-store.js";
 import type { EvaluationCaseRecord, EvaluationCaseStore } from "./research-evaluation.js";
@@ -16,6 +17,7 @@ export type ResearchCorpusMessage = {
   userText: string;
   agentResponse: string;
   timestamp: string;
+  metadata?: TurnMetadata;
   trace: { status: "present"; traceId: string; requestId: string } | { status: "missing" };
   feedback: Array<{ feedbackId: string; rating: FeedbackRating; createdAt: string; updatedAt: string }>;
 };
@@ -50,6 +52,7 @@ export type ResearchCorpusSource = {
     userText: string;
     agentResponse: string;
     timestamp: string;
+    metadata?: TurnMetadata;
   }>>;
   listActivities(scope: ResearchCorpusScope): Promise<Array<Omit<PersonalActivityRecord, "employeeId">>>;
   listFeedback(scope: ResearchCorpusScope): Promise<Array<{
@@ -97,6 +100,7 @@ export class ResearchCorpusExportService {
           const trace = tracesByMessage.get(message.messageId);
           return {
             ...message,
+            ...(message.metadata ? { metadata: sanitizeRetrospectiveMetadata(message.metadata) } : {}),
             userText: sanitizeResearchText(message.userText),
             agentResponse: sanitizeResearchText(message.agentResponse),
             trace: trace ? { status: "present", traceId: trace.traceId, requestId: trace.requestId } : { status: "missing" },

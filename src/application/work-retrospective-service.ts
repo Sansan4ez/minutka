@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { sanitizeRetrospectiveMetadata } from "./retrospective-event-store.js";
 import type { ConversationStore, ConversationTurn } from "./conversation-store.js";
 import { sameScope, type RetrospectiveEventStore } from "./retrospective-event-store.js";
 import { retrospectiveQuestionSchema, workRetrospectiveEpisodeSchema, type RetrospectiveCommand, type RetrospectiveOutcome, type WorkRetrospectiveStore, type WorkRetrospectiveUseCases } from "./work-retrospective-store.js";
@@ -20,7 +22,7 @@ export function projectRetrospectiveEvents(events: WorkRetrospectiveEvent[]): Wo
     let episode = episodes.get(event.episodeId);
     if (action.type === "episode_selected" || action.type === "episode_updated") {
       const previous = episode;
-      episode = structuredClone(action.episode);
+      episode = sanitizeRetrospectiveMetadata(action.episode);
       if (previous) { episode.questionBudget = previous.questionBudget; episode.pendingQuestion = previous.pendingQuestion; }
       episodes.set(event.episodeId, episode);
     }
@@ -63,7 +65,7 @@ export function projectRetrospectiveEvents(events: WorkRetrospectiveEvent[]): Wo
 export function validateRetrospectiveCommand(command: RetrospectiveCommand, events: WorkRetrospectiveEvent[]): RetrospectiveOutcome<WorkRetrospectiveEpisode> {
   if (command.events.some((event) => !sameScope(event, command.scope))) return { status: "forbidden" };
   const current = projectRetrospectiveEvents(events).find((episode) => episode.episodeId === command.episodeId);
-  const replay = command.events.every((event) => events.some((old) => old.sourceMessageId === event.sourceMessageId && old.ordinal === event.ordinal && JSON.stringify(old) === JSON.stringify(event)));
+  const replay = command.events.every((event) => events.some((old) => old.sourceMessageId === event.sourceMessageId && old.ordinal === event.ordinal && isDeepStrictEqual(sanitizeRetrospectiveMetadata(old), sanitizeRetrospectiveMetadata(event))));
   if (command.events.length && replay && current) return { status: "replayed", value: current };
   if (command.events.some((event) => !sameScope(event, command.scope) || event.episodeId !== command.episodeId)) return { status: "forbidden" };
   if ((current?.revision ?? 0) !== command.expectedRevision) return { status: "stale" };

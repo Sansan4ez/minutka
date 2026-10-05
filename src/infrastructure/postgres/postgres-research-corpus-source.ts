@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { TurnMetadata } from "../../application/retrospective-event-store.js";
 import type { ResearchCorpusSource } from "../../application/research-corpus-export.js";
 import type { ResearchEvidenceRef, ResearchSubject } from "../../application/research-identity-projection.js";
 import type { PersonalActivityRecord } from "../../application/activity-collection.js";
@@ -7,7 +8,7 @@ import type { ActivityRevisionRecord, ActivityStatus } from "../../application/a
 import { canonicalActivityRevisionChangedAtSql } from "./postgres-activity-revision-projection.js";
 
 type SubjectRow = { company_id: string; group_id: string; subject_key: string; role_id: string | null; message_ids: string[]; activity_ids: string[]; trace_ids: string[] };
-type MessageRow = { message_id: string; subject_key: string; user_text: string; agent_response: string; created_at: Date };
+type MessageRow = { message_id: string; subject_key: string; user_text: string; agent_response: string; created_at: Date; metadata: TurnMetadata | null };
 type ActivityRow = {
   activity_id: string; subject_key: string; source_message_id: string | null; company_id: string; group_id: string; role_id: string;
   task_category: PersonalActivityRecord["taskCategory"] | null;
@@ -53,14 +54,14 @@ export function createPostgresResearchCorpusSource(pool: Pool): ResearchCorpusSo
     async listMessages({ companyId, groupId }) {
       try {
         const result = await pool.query<MessageRow>(
-          `SELECT message.message_id, message.subject_key, message.user_text, message.agent_response, message.created_at
+          `SELECT message.message_id, message.subject_key, message.user_text, message.agent_response, message.created_at, message.metadata
            FROM minutka_private.messages message
            JOIN minutka_private.participants participant ON participant.subject_key=message.subject_key
            WHERE participant.company_id=$1 AND participant.group_id=$2
            ORDER BY message.created_at, message.message_id`,
           [companyId, groupId],
         );
-        return result.rows.map((row) => ({ messageId: row.message_id, subjectKey: row.subject_key, userText: row.user_text, agentResponse: row.agent_response, timestamp: row.created_at.toISOString() }));
+        return result.rows.map((row) => ({ messageId: row.message_id, subjectKey: row.subject_key, userText: row.user_text, agentResponse: row.agent_response, timestamp: row.created_at.toISOString(), ...(row.metadata ? { metadata: row.metadata } : {}) }));
       } catch (error) { throw mapPostgresError(error); }
     },
     async listActivities({ companyId, groupId }) {

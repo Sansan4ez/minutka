@@ -35,6 +35,16 @@ export class InMemoryWorkRetrospectivePolicyStore implements WorkRetrospectivePo
       this.policies.set(JSON.stringify([parsed.companyId, parsed.groupId]), parsed);
     }
   }
+  /** Operator lifecycle operation; never exposed as an agent action. */
+  async purge(scope: { companyId: string; groupId?: string }): Promise<number> {
+    let deleted = 0;
+    for (const [key, policy] of this.policies) {
+      if (policy.companyId === scope.companyId && (!scope.groupId || policy.groupId === scope.groupId)) {
+        this.policies.delete(key); deleted++;
+      }
+    }
+    return deleted;
+  }
   async read(request: RetrospectivePolicyRequest): Promise<WorkRetrospectivePolicy | undefined> {
     const policy = this.policies.get(JSON.stringify([request.companyId, request.groupId]));
     return policy ? structuredClone(policy) : undefined;

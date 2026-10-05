@@ -144,6 +144,13 @@ export class RetrospectiveRecommendationService {
     } catch { return { status: "failed", code: "validation_error" }; }
   }
 
+  /** Recompute is a new generation/version; review never carries across changed evidence. */
+  async recompute(scope: ResearchEvidenceScope, previous: RecommendationArtifact): Promise<RecommendationOutcome<RecommendationArtifact>> {
+    if (!sameScope(scope, previous.scope)) return { status: "forbidden" };
+    const result = await this.build(scope);
+    return result.status === "applied" ? { status: "applied", value: { ...result.value, version: previous.version + 1, previousArtifactId: previous.artifactId } } : result;
+  }
+
   async save(scope: ResearchEvidenceScope, artifact: RecommendationArtifact): Promise<RecommendationOutcome<{ artifactId: string }>> {
     if (!sameScope(scope, artifact.scope)) return { status: "forbidden" };
     try {
@@ -171,7 +178,13 @@ export class RetrospectiveRecommendationService {
       const artifact = recommendationArtifactSchema.parse(JSON.parse(await this.deps.loadContent(url)));
       if (!sameScope(scope, artifact.scope)) return { status: "forbidden" };
       if (artifact.schemaVersion !== recommendationArtifactSchemaVersion || artifact.artifactId !== artifactId) return { status: "failed", code: "validation_error" };
-      return { status: "applied", value: artifact };
+      const input = normalizeInput(scope, await this.deps.research.read(scope));
+      const stale = artifact.episodeRefs.some(ref => !input.episodes.some(e => e.subjectKey === ref.subjectKey && e.threadId === ref.threadId && e.episodeId === ref.episodeId && e.revision === ref.revision));
+      return { status: "applied", value: { ...artifact, candidates: artifact.candidates.map(candidate => {
+        if (candidate.status !== "checked" || (!stale && supported(candidate, input))) return candidate;
+        const { review: _review, ...rest } = candidate;
+        return { ...rest, status: "stale" as const };
+      }) } };
     } catch { return { status: "failed", code: "storage_error" }; }
   }
   private id(): string { return (this.deps.id ?? randomUUID)(); }
