@@ -30,7 +30,7 @@ export function metadataFor(turn: ConversationTurn): TurnMetadata | null {
 export function sanitizeRetrospectiveMetadata<T>(value: T): T {
   const visit = (item: unknown): unknown => typeof item === "string" ? sanitizeResearchText(item)
     : Array.isArray(item) ? item.map(visit)
-    : item && typeof item === "object" ? Object.fromEntries(Object.entries(item).map(([key, val]) => [key, typeof val === "string" ? (["text", "quote", "statement", "reason"].includes(key) ? sanitizeResearchText(val) : val) : visit(val)])) : item;
+    : item && typeof item === "object" ? Object.fromEntries(Object.entries(item).map(([key, val]) => [key, typeof val === "string" ? (["text", "quote", "statement", "reason", "sign", "meaning", "reaction"].includes(key) ? sanitizeResearchText(val) : val) : visit(val)])) : item;
   return visit(value) as T;
 }
 export function sameScope(a: RetrospectiveScope, b: RetrospectiveScope): boolean {
