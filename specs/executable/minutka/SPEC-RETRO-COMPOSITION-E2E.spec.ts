@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ActivityCorrectionService } from "../../../src/application/activity-correction.js";
+import { PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +31,53 @@ const start = "2026-08-26T12:00:00.000Z";
 const scope = { employeeId: "e", companyId: "c", groupId: "g", subjectKey: "s", threadId: "t" };
 
 describe("default retrospective composition", () => {
+  it.each(["success", "stale", "foreign", "unknown"] as const)("SPEC-RETRO-CONTINUITY-01/02/03 durable bound correction: %s", async mode => {
+    let now = start;
+    const world = createInMemoryWorld(() => now);
+    world.tenantDirectories.groups = [{ id: "g", companyId: "c", period: { start: "2026-08-20", end: "2026-09-09" } }];
+    world.participants.push({ ...scope, roleId: "r", status: "profile_completed", createdAt: start, updatedAt: start });
+    world.profiles.push({ employeeId: "e", companyId: "c", groupId: "g", roleId: "r", preferredName: "Test", assistantName: "Test", addressForm: "formal", persona: "support", responseLength: "short", timezone: "Etc/UTC", createdAt: start, updatedAt: start });
+    const activities = createInMemoryActivityCollectionState();
+    const outcomes: unknown[] = [];
+    const make = () => createInMemoryRuntime({ world, activityState: activities, agentRunner: async () => "unused",
+      activityExtractor: async input => ({ status: "completed", decision: input.linkedContext
+        ? { kind: "linked", handle: input.linkedContext.boundTarget.activityRefs[0]!.activityId,
+          expectedRevision: input.linkedContext.boundTarget.activityRefs[0]!.revision, mode: "patch", correction: { routineLabel: input.currentText }, activities: [] }
+        : { kind: "collect", activities: [{ routineLabel: "Подготовил отчёт", durationRef: "duration_1" }] },
+        context: { currentTextCharacters: 0, staticRulesCharacters: 0, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: 0 } }),
+      assistantAgentRunner: async (_, context) => {
+        outcomes.push(await context.processCurrentActivityTurn({ mode: "record" }));
+        await context.workRetrospective!.update({ closeReason: "answered", question: { text: "Как проверили?", stage: "value" } });
+        return { text: "Как проверили?", executionTrace: [] };
+      } });
+    const chat = (runtime: ReturnType<typeof make>, text: string) => runtime.assistantChat!.chat({ userId: "e", threadId: "t", text });
+    const read = () => {
+      const conversations = createInMemoryConversationStore(world);
+      return createWorkRetrospectiveService(createInMemoryWorkRetrospectiveStore(conversations), conversations).readEpisodes({ scope, limit: 10 });
+    };
+    const runtime = make();
+    await chat(runtime, "Подготовил отчёт за полчаса");
+    expect(outcomes[0]).toMatchObject({ status: "completed", operation: "collect" });
+    const activityId = activities.activities[0]!.activityId;
+    if (mode === "stale") activities.activities[0]!.revision = 2;
+    if (mode === "foreign") activities.activities[0]!.groupId = "foreign";
+    const spy = mode === "unknown" ? vi.spyOn(ActivityCorrectionService.prototype, "correct").mockRejectedValue(new PersistenceOutcomeUnknownError()) : undefined;
+    try {
+      now = new Date(Date.parse(now) + 1000).toISOString();
+      await chat(runtime, "Проверил по шаблону");
+      expect(outcomes[1]).toMatchObject({ status: "linked", outcomes: [{ status: mode === "success" ? "completed" : mode === "unknown" ? "outcome_unknown" : "failed" }] });
+      expect(await read()).toMatchObject({ value: [{ activityRefs: [{ activityId, revision: mode === "success" ? 2 : 1 }], messageRefs: mode === "success" ? expect.arrayContaining([{ messageId: world.messages.at(-1)!.id }]) : expect.any(Array) }] });
+      if (mode === "success") {
+        now = new Date(Date.parse(now) + 1000).toISOString();
+        await chat(make(), "Сверил итоговые поля");
+        expect(outcomes[2]).toMatchObject({ status: "linked", outcomes: [{ status: "completed", revision: 3 }] });
+        expect(await read()).toMatchObject({ value: [{ activityRefs: [{ activityId, revision: 3 }] }] });
+      }
+      expect(activities.activities).toHaveLength(1);
+      expect(activities.activities[0]).toMatchObject({ revision: mode === "success" ? 3 : mode === "stale" ? 2 : 1, durationBucket: "15_30m",
+        routineLabel: mode === "success" ? "Сверил итоговые поля" : "Подготовил отчёт" });
+    } finally { spy?.mockRestore(); }
+  });
   it("SPEC-RETRO-COMPOSITION-E2E-01/02/03 canonical fact, delivery, restart, weekly scheduler and checked report", async () => {
     let now = start;
     const world = createInMemoryWorld(() => now);

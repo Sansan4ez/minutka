@@ -590,6 +590,7 @@ export class AssistantService {
       });
       const bindFacts = (outcome: ActivityTransactionServiceResult): void => {
         if ((outcome.status === "completed" || outcome.status === "partial") && outcome.operation === "collect") retrospective?.bindCollectedActivities(outcome.activityIds);
+        if (outcome.status === "completed" && outcome.operation === "correct") retrospective?.bindCorrectedActivity(outcome.handle, outcome.revision);
         if (outcome.status === "linked") for (const part of outcome.outcomes) bindFacts(part);
       };
       bindFacts(result);

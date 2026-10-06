@@ -51,6 +51,15 @@ export async function createWorkRetrospectiveRequest(input: {
     availability,
     historicalAvailable: !!policy.policy && "value" in read,
     bindCollectedActivities(ids: string[]) { for (const activityId of ids) if (!activityRefs.some((ref) => ref.activityId === activityId)) activityRefs.push({ activityId, revision: 1 }); },
+    bindCorrectedActivity(activityId: string, revision: number) {
+      // Only application-confirmed mutations of an already bound target advance it.
+      const bound = activityRefs.find((ref) => ref.activityId === activityId)
+        ?? episode?.activityRefs.find((ref) => ref.activityId === activityId);
+      if (!bound || revision <= bound.revision) return;
+      const staged = activityRefs.find((ref) => ref.activityId === activityId);
+      if (staged) staged.revision = revision;
+      else activityRefs.push({ activityId, revision });
+    },
     scheduled: input.scheduled,
     context: "value" in context ? context.value : "{}",
     async update(raw: RetrospectiveUpdate) {
@@ -72,9 +81,13 @@ export async function createWorkRetrospectiveRequest(input: {
           status: "active", revision: 0, questionBudget: { localDate, dailyDelivered: 0 } };
         add({ type: "episode_selected", episode });
       }
-      if (command.statement || command.selectedStep || command.indicator || activityRefs.some((ref) => !episode!.activityRefs.some((old) => old.activityId === ref.activityId))) {
+      if (command.statement || command.selectedStep || command.indicator || activityRefs.some((ref) => !episode!.activityRefs.some((old) => old.activityId === ref.activityId && old.revision === ref.revision))) {
         const updated = structuredClone(episode);
-        for (const ref of activityRefs) if (!updated.activityRefs.some((old) => old.activityId === ref.activityId)) updated.activityRefs.push(ref);
+        for (const ref of activityRefs) {
+          const old = updated.activityRefs.find((value) => value.activityId === ref.activityId);
+          if (old) old.revision = ref.revision;
+          else updated.activityRefs.push({ ...ref });
+        }
         const sourceRefs = [{ type: "message" as const, messageId }];
         if (!updated.messageRefs.some((ref) => ref.messageId === messageId)) updated.messageRefs.push({ messageId });
         if (command.statement) updated.statements[command.statement.stage].push({ statementId: randomUUID(), text: command.statement.text, kind: command.statement.kind, sourceRefs });
