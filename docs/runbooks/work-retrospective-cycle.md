@@ -111,7 +111,7 @@ npm run company-report -- publish --company <c> --group <g> \
 
 [Gate receipt](../researches/work-retrospective-gate.md): final source tree на baseline `492bb80` + atomic `.15` changes — 1300 executable / 127 retrospective / 8 E2E / 63 isolated PostgreSQL tests passed, LSP clean. Local dev migrations 0081–0084 применены, pending=[]; production не затронут. Старый composition E2E перенесён в `SPEC-RETRO-E2E.spec.ts`.
 
-**Gate не green:** dev API startup blocked без `PRIVACY_POLICY_V6_URL`; live HTTP CLI/Telegram smoke не выполнялись. Не подставлять example privacy URL и не принимать consent за сотрудника. После предоставления реального immutable snapshot и разрешённого test owner проверить:
+**Итог: `.15` закрыта по решению оператора.** На HEAD `ace8dcd64a7cdfd1608cff10f6db0d7a2ca0b3e5` dev API и HTTP CLI business gate PASS: одна activity, corrections revision 1→2→3 с изменением duration bucket и restart, canonical refs актуальны. Initial 503 и stale-ref bugs исправлены. Privacy config настроен оператором. Telegram smoke исключён из acceptance `.15`, **не выполнялся**, остаётся предпусковой проверкой `.16`; это не Telegram PASS. Пример HTTP CLI:
 
 ```bash
 # Private dev env, employee-scoped MINUTKA_API_TOKEN; не service/admin token.
@@ -119,7 +119,7 @@ npm run cli -- employee profile
 npm run cli -- employee chat --thread <test-thread> --text 'Подготовил отчёт за полчаса'
 ```
 
-Команды CLI parser/SDK проверены in-process fixture, но эти **HTTP вызовы пока blocked**, не validated dev pass. API запускать без polling до отдельного Telegram smoke; для shell нужен разрешённый test chat. Затем настоящая доставка → контролируемый restart → короткий ответ на сохранённый вопрос → отказ. Подтвердить canonical delivery, budget, одну activity с сохранённой длительностью и прекращение вопросов. Полный checklist/ограничения — в receipt. `.16` не claim до pass внешнего gate и отдельного private launch manifest.
+HTTP CLI profile/chat, bound corrections, restart и refusal проверены на разрешённом dev employee. Повторять полный business scenario через Telegram не требуется. Перед живым `.16` проверить только Telegram transport: разрешённая chat/employee/thread binding, actual send и durable delivery receipt, delivered budget и proactive routing. Для запуска `.16` отдельно нужны private launch manifest и operational permission; закрытие `.15` их не заменяет. Полные результаты и ограничения — в receipt.
 
 ## 7. Остановка, журнал и полный анализ
 

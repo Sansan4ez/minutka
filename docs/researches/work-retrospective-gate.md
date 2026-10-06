@@ -2,7 +2,9 @@
 
 ## Outcome и проверенная ревизия
 
-**Offline / isolated PostgreSQL / dev CLI activity gate: PASS. Причины initial 503 и stale refs исправлены и проверены. Telegram transport delivery: NOT RUN (не prerequisite проверки сохранения activities через общий runtime). `.15` пока open по отдельному transport acceptance; `.16` не запускать автоматически.**
+**Offline / isolated PostgreSQL / dev CLI activity gate: PASS. Причины initial 503 и stale refs исправлены и проверены. Telegram transport delivery: NOT RUN (не prerequisite проверки сохранения activities через общий runtime). **`.15` CLOSED по явному решению оператора:** Telegram smoke исключён из acceptance этого gate и перенесён в предпусковую проверку `.16`. Это waiver, не Telegram PASS. `.16` не запускать автоматически.
+
+Закрытие подтверждает проверенный source HEAD `ace8dcd64a7cdfd1608cff10f6db0d7a2ca0b3e5`: 1300 executable / 8 E2E / 63 isolated persistence passed, changed TS LSP clean. Ниже initial BLOCKED результаты — хронологические записи, superseded итогом CLI business gate; Telegram фактически NOT RUN.**
 
 Проверенная база: `492bb80c4a5063e797d84d156aba578c612a60ff`, плюс изменения атомарного коммита `mnt-hf3h.15`, содержащего этот receipt. Точный implementation HEAD после commit: `git log -1 --format=%H -- specs/executable/minutka/SPEC-RETRO-E2E.spec.ts`. Не выдаём результаты baseline за проверку неизменённого final HEAD: проверки выполнены на final source tree перед commit, далее меняются только docs/beads.
 
