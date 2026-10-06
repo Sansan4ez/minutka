@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { runMinutkaCli } from "../../../src/client/cli/minutka-cli.js";
+import { InMemoryWorkRetrospectivePolicyStore } from "../../../src/application/work-retrospective-policy.js";
 import { ActivityCorrectionService } from "../../../src/application/activity-correction.js";
 import { PersistenceOutcomeUnknownError } from "../../../src/application/persistence-error.js";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -17,8 +19,8 @@ import { createInMemoryWorld } from "../../../src/application/in-memory-world.js
 import { createInMemoryActivityCollectionState } from "../../../src/application/in-memory-activity-collection-store.js";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { PersonalAssistantService } from "../../../src/application/personal-assistant-service.js";
-import { ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
-import { createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
+import { EmployeeMinutkaClient, ServiceMinutkaClient } from "../../../src/client/sdk/minutka-client.js";
+import { createInProcessEmployeeTransport, createInProcessServiceTransport } from "../../../src/server/http/in-process-transport.js";
 import { createTelegramShell } from "../../../src/telegram/telegram-shell.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
 import { SchedulerService } from "../../../src/application/scheduler-service.js";
@@ -31,7 +33,73 @@ const start = "2026-08-26T12:00:00.000Z";
 const scope = { employeeId: "e", companyId: "c", groupId: "g", subjectKey: "s", threadId: "t" };
 
 describe("default retrospective composition", () => {
-  it.each(["success", "stale", "foreign", "unknown"] as const)("SPEC-RETRO-CONTINUITY-01/02/03 durable bound correction: %s", async mode => {
+  it.each([true, false])("SPEC-RETRO-E2E-01/03 CLI short answer and refusal preserve facts; enabled=%s (not live Telegram)", async enabled => {
+    let now = start;
+    const world = createInMemoryWorld(() => now);
+    world.tenantDirectories.groups = [{ id: "g", companyId: "c", period: { start: "2026-08-20", end: "2026-09-09" } }];
+    world.participants.push({ ...scope, roleId: "r", status: "profile_completed", createdAt: start, updatedAt: start });
+    world.profiles.push({ employeeId: "e", companyId: "c", groupId: "g", roleId: "r", preferredName: "Test", assistantName: "Test", addressForm: "formal", persona: "support", responseLength: "short", timezone: "Etc/UTC", createdAt: start, updatedAt: start });
+    const activities = createInMemoryActivityCollectionState();
+    let turn = 0;
+    const make = () => createInMemoryRuntime({ world, activityState: activities, agentRunner: async () => "unused",
+      workRetrospectivePolicies: new InMemoryWorkRetrospectivePolicyStore([{ companyId: "c", groupId: "g", enabled, methodVersion: "v1", period: { start, end: "2026-09-09T23:59:59.000Z" } }]),
+      activityExtractor: async input => ({ status: "completed", decision: input.linkedContext
+        ? { kind: "linked", handle: input.linkedContext.boundTarget.activityRefs[0]!.activityId, expectedRevision: input.linkedContext.boundTarget.activityRefs[0]!.revision, mode: "patch", correction: { routineLabel: "Подготовил отчёт по шаблону" }, activities: [] }
+        : { kind: "collect", activities: [{ routineLabel: "Подготовил отчёт", durationRef: "duration_1" }] },
+        context: { currentTextCharacters: 0, staticRulesCharacters: 0, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: 0 } }),
+      assistantAgentRunner: async (_, context) => {
+        if (turn === 0 || (enabled && turn === 1)) await context.processCurrentActivityTurn({ mode: "record" });
+        if (enabled) await context.workRetrospective!.update(turn === 2 ? { closeReason: "declined" } : {
+          ...(turn === 0 ? { statement: { text: "Подготовил отчёт", stage: "actions", kind: "employee_fact" } } : { closeReason: "answered" }),
+          question: { text: "По шаблону?", stage: "actions" },
+        });
+        else expect(context.workRetrospective).toBeUndefined();
+        turn++;
+        return { text: enabled && turn < 3 ? "По шаблону?" : "Принято", executionTrace: [] };
+      } });
+    for (const text of ["Подготовил отчёт за полчаса", "Первое", "Не хочу продолжать"]) {
+      const runtime = make();
+      const assistant = new PersonalAssistantService(runtime.service, runtime.assistantChat!, createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore({ now: () => now }), clock: { now: () => now }, limits: { maximumBytes: 1000000, timeoutMs: 1000 } }));
+      const client = new EmployeeMinutkaClient(createInProcessEmployeeTransport(assistant, { kind: "employee", employeeId: "e" }));
+      const result = await runMinutkaCli(client, ["employee", "chat", "--thread", "t", "--text", text]);
+      expect(result.stderr).toEqual([]);
+      expect(result.exitCode).toBe(0);
+      now = new Date(Date.parse(now) + 1000).toISOString();
+    }
+    expect(activities.activities).toHaveLength(1);
+    expect(activities.activities[0]).toMatchObject({ durationBucket: "15_30m", revision: enabled ? 2 : 1 });
+    const canonical = createInMemoryConversationStore(world);
+    const read = await createInMemoryWorkRetrospectiveStore(canonical).readEpisodes({ scope, limit: 10 });
+    if (enabled) {
+      expect(read).toMatchObject({ value: [{ statements: { actions: [{ text: "Подготовил отчёт" }] } }] });
+      if ("value" in read) expect(read.value[0]!.pendingQuestion).toBeUndefined();
+    } else {
+      expect(world.messages.flatMap(m => m.metadata?.retrospectiveEvents ?? [])).toEqual([]);
+    }
+  });
+
+  it("SPEC-RETRO-E2E-04 failed Telegram transport cannot count as delivered after restart", async () => {
+    const world = createInMemoryWorld(() => start);
+    world.tenantDirectories.groups = [{ id: "g", companyId: "c", period: { start: "2026-08-20", end: "2026-09-09" } }];
+    world.participants.push({ ...scope, roleId: "r", status: "profile_completed", createdAt: start, updatedAt: start });
+    world.profiles.push({ employeeId: "e", companyId: "c", groupId: "g", roleId: "r", preferredName: "Test", assistantName: "Test", addressForm: "formal", persona: "support", responseLength: "short", timezone: "Etc/UTC", createdAt: start, updatedAt: start });
+    const runtime = createInMemoryRuntime({ world, agentRunner: async () => "unused", assistantAgentRunner: async (_, context) => {
+      await context.workRetrospective!.update({ question: { text: "Как проверили?", stage: "value" } });
+      return { text: "Как проверили?", executionTrace: [] };
+    } });
+    const assistant = new PersonalAssistantService(runtime.service, runtime.assistantChat!, createInMemoryArtifactStore({ contentStore: createInMemoryArtifactContentStore({ now: () => start }), clock: { now: () => start }, limits: { maximumBytes: 1000000, timeoutMs: 1000 } }));
+    const shell = createTelegramShell({ client: new ServiceMinutkaClient(createInProcessServiceTransport(assistant, { kind: "service", serviceId: "spec" })),
+      sessionStore: runtime.telegramSessionStore, pendingActionGroupStore: runtime.pendingActionGroupStore, privacyExplanation: "Test",
+      recordResponseDelivery: receipt => runtime.responseDelivery.record(receipt),
+      replyPort: { async sendMessage() { throw new Error("test transport unavailable"); }, async editReplyMarkup() {}, async sendChatAction() {}, async answerCallbackQuery() {} } });
+    await runtime.telegramSessionStore.claim({ identity: { chatId: "chat" }, session: { employeeId: "e", threadId: "t", createdAt: start, updatedAt: start } });
+    await runtime.telegramSessionStore.markConsentAccepted({ identity: { chatId: "chat" }, employeeId: "e", acceptedAt: start });
+    await expect(shell.handleText("chat", "Сделал отчёт")).rejects.toThrow("test transport unavailable");
+    const canonical = createInMemoryConversationStore(world);
+    expect(await createInMemoryWorkRetrospectiveStore(canonical).readEpisodes({ scope, limit: 10 })).toMatchObject({ value: [{ questionBudget: { dailyDelivered: 0 } }] });
+    expect(world.messages.flatMap(m => m.metadata?.retrospectiveEvents ?? []).some(e => e.action.type === "response_delivery" && e.action.status === "delivered")).toBe(false);
+  });
+  it.each(["success", "stale", "foreign", "unknown"] as const)("SPEC-RETRO-E2E-02 continuity after restart, stale/foreign/unknown correction: %s", async mode => {
     let now = start;
     const world = createInMemoryWorld(() => now);
     world.tenantDirectories.groups = [{ id: "g", companyId: "c", period: { start: "2026-08-20", end: "2026-09-09" } }];
@@ -78,7 +146,7 @@ describe("default retrospective composition", () => {
         routineLabel: mode === "success" ? "Сверил итоговые поля" : "Подготовил отчёт" });
     } finally { spy?.mockRestore(); }
   });
-  it("SPEC-RETRO-COMPOSITION-E2E-01/02/03 canonical fact, delivery, restart, weekly scheduler and checked report", async () => {
+  it("SPEC-RETRO-E2E-01 full cycle: facts, four stages, step, week2, final and operator publish", async () => {
     let now = start;
     const world = createInMemoryWorld(() => now);
     world.tenantDirectories.groups = [{ id: "g", companyId: "c", period: { start: "2026-08-20", end: "2026-09-09" } }];
@@ -90,6 +158,8 @@ describe("default retrospective composition", () => {
     let weekly = false;
     let reportFacts = false;
     let weeklyCount = 0;
+    let stage = 0;
+    let followUp = false;
     let summary: Awaited<ReturnType<Parameters<import("../../../src/application/assistant-service.js").AssistantAgentRunner>[1]["readCycleActivities"]>> | undefined;
     const make = (previous?: ReturnType<typeof createInMemoryRuntime>) => {
       const runtime = createInMemoryRuntime({ world, activityState: activities,
@@ -110,6 +180,20 @@ describe("default retrospective composition", () => {
             summary = await context.readCycleActivities();
             return { text: "Продолжим?", executionTrace: [] };
           }
+          if (followUp) {
+            summary = await context.readCycleActivities();
+            await context.workRetrospective!.update({ statement: { text: "Попробовал проверку: пропусков не было", stage: "value", kind: "employee_fact" } });
+            return { text: "Результат сохранён", executionTrace: [] };
+          }
+          if (stage > 0) {
+            const stages = ["value", "future", "indicators"] as const;
+            const current = stages[stage - 1]!;
+            await context.workRetrospective!.update({ closeReason: "answered", statement: { text: "Ответ сотрудника", stage: current, kind: current === "future" ? "intention" : "employee_interpretation" },
+              ...(current === "future" ? { selectedStep: "Проверять отчёт", followUpConsent: true } : {}),
+              ...(current === "indicators" ? { indicator: { sign: "Пропущенное поле", meaning: "Неполный отчёт", reaction: "Поправить список" } } : { question: { text: "Следующий этап?", stage: stages[stage]! } }) });
+            stage++;
+            return { text: current === "indicators" ? "Итог сохранён" : "Следующий этап?", executionTrace: [] };
+          }
           if (weekly) {
             await context.workRetrospective!.update({ ...(weeklyCount === 0 ? { weeklyConsent: true } : { closeReason: "answered" }), question: { text: "Что изменилось?", stage: "value" } });
             weeklyCount++;
@@ -118,13 +202,14 @@ describe("default retrospective composition", () => {
           expect(await context.processCurrentActivityTurn({ mode: "record" })).toMatchObject({ status: first ? "completed" : "linked" });
           if (first) {
             first = false;
-            await context.workRetrospective!.update({ selectedStep: "Проверять отчёт", followUpConsent: true, question: { text: "По шаблону или с нуля?", stage: "actions" } });
+            await context.workRetrospective!.update({ statement: { text: "Подготовил отчёт", stage: "actions", kind: "employee_fact" }, question: { text: "По шаблону или с нуля?", stage: "actions" } });
             return { text: "По шаблону или с нуля?", executionTrace: [] };
           }
           const bound = JSON.parse(await context.workRetrospective!.read());
           expect(bound.active.question.text).toBe("По шаблону или с нуля?");
-          await context.workRetrospective!.update({ closeReason: "answered" });
-          return { text: "Принято", executionTrace: [] };
+          await context.workRetrospective!.update({ closeReason: "answered", question: { text: "Как поняли, что результат подходит?", stage: "value" } });
+          stage = 1;
+          return { text: "Как поняли, что результат подходит?", executionTrace: [] };
         } });
       const assistant = new PersonalAssistantService(runtime.service, runtime.assistantChat!, createInMemoryArtifactStore({ clock: { now: () => now }, contentStore: createInMemoryArtifactContentStore({ now: () => now }), limits: { maximumBytes: 1000000, timeoutMs: 1000 } }));
       const transport = createInProcessServiceTransport(assistant, { kind: "service", serviceId: "spec" });
@@ -152,13 +237,22 @@ describe("default retrospective composition", () => {
     expect(sends).toHaveLength(2);
     expect(world.messages.at(-1)?.metadata?.scheduledProvenance?.retrospectiveTouch?.preservePendingQuestion).toBe(true);
     await restarted.shell.handleText("chat", "Первое");
-    expect(sends.at(-1)).toBe("Принято");
+    expect(sends.at(-1)).toBe("Как поняли, что результат подходит?");
     expect(activities.activities).toHaveLength(1);
     expect(activities.activities[0]).toMatchObject({ revision: 2, routineLabel: "Подготовил отчёт по шаблону", durationBucket: "15_30m" });
     expect(await episodes.readEpisodes({ scope: { ...scope, groupId: "foreign" }, limit: 10 })).not.toMatchObject({ value: [{ pendingQuestion: expect.anything() }] });
-    // E2E-02: week-two consent comes from a real reply, not the scheduled invitation.
+    for (const text of ["Коллега принял отчёт", "Буду проверять по списку", "Если поле пропущено, дополню список"]) {
+      now = new Date(Date.parse(now) + 1000).toISOString();
+      await restarted.shell.handleText("chat", text);
+    }
+    expect(activities.activities).toHaveLength(1);
+    expect(await episodes.readEpisodes({ scope, limit: 10 })).toMatchObject({ value: [{ statements: {
+      actions: [{ kind: "employee_fact" }], value: [{ kind: "employee_interpretation" }], future: [{ kind: "intention" }], indicators: [{ kind: "employee_interpretation" }],
+    }, selectedStep: { text: "Проверять отчёт" }, indicator: { sign: "Пропущенное поле" }, followUpConsent: { granted: true } }] });
+    // Week-two consent comes from a real reply, not the scheduled invitation.
     now = "2026-08-31T12:00:00.000Z";
     weekly = true;
+    stage = 0;
     for (let index = 0; index < 8; index++) {
       await restarted.shell.handleText("chat", index === 0 ? "Да, продолжим недельный разбор" : "Продолжим");
       now = new Date(Date.parse(now) + 1000).toISOString();
@@ -170,12 +264,23 @@ describe("default retrospective composition", () => {
     await restarted.scheduler.saveDailySchedule("e", { id: "weekly", processId: "weekly_summary", timeOfDay: "17:00", timezone: "Etc/UTC", enabled: true });
     now = "2026-08-31T17:00:00.000Z";
     await restarted.scheduler.tick();
-    expect(summary).toMatchObject({ activityCount: 1, retrospective: { episodes: [{ intentions: [{ text: "Проверять отчёт" }], followUp: { step: { text: "Проверять отчёт" } } }] } });
+    expect(summary).toMatchObject({ activityCount: 1, retrospective: { episodes: [{ intentions: expect.arrayContaining([expect.objectContaining({ text: "Проверять отчёт" })]), followUp: { step: { text: "Проверять отчёт" } } }] } });
     const delivered = sends.length;
     now = "2026-08-31T19:00:00.000Z";
     await make(restarted.runtime).scheduler.tick();
     expect(sends).toHaveLength(delivered);
-    // E2E-03: collect aggregate evidence via commands, never seed a checked artifact.
+    weekly = false;
+    followUp = true;
+    now = "2026-09-02T12:00:00.000Z";
+    await make(restarted.runtime).shell.handleText("chat", "Попробовал проверку: пропусков не было");
+    expect(summary).toMatchObject({ retrospective: { episodes: [{ followUp: { step: { text: "Проверять отчёт" }, indicator: { sign: "Пропущенное поле" } } }] } });
+    expect(activities.activities).toHaveLength(1);
+    await restarted.scheduler.saveDailySchedule("e", { id: "final", processId: "final_report", timeOfDay: "17:00", timezone: "Etc/UTC", enabled: true });
+    now = "2026-09-09T17:00:00.000Z";
+    await restarted.scheduler.tick();
+    expect(summary).toMatchObject({ retrospective: { episodes: [{ confirmed: expect.arrayContaining([expect.objectContaining({ text: "Попробовал проверку: пропусков не было" })]) }] } });
+    followUp = false;
+    // Collect aggregate evidence via commands, never seed a checked artifact.
     reportFacts = true;
     now = "2026-09-01T12:00:00.000Z";
     world.participants.push({ ...world.participants[0]!, employeeId: "e2", subjectKey: "s2" });
@@ -249,11 +354,11 @@ describe("default retrospective composition", () => {
     const cited = currentEvidence.episodes.find(e => e.subjectKey === "s2")!.activityRefs.at(-1)!;
     const target = activities.activities.find(a => a.activityId === cited.activityId)!;
     await new ActivityCorrectionService(createInMemoryActivityMutationStore(activities), { now: () => "2026-09-03T13:00:00.000Z" }).correct({ employeeId: "e2", companyId: "c", groupId: "g", sourceMessageId: "correction" }, { handle: target.activityId, expectedRevision: 1, mode: "patch", correction: { routineLabel: "Исправленный отчёт" } });
-    // A canonical clarification advances the episode too; old operator acceptance is stale.
-    now = "2026-09-03T14:00:00.000Z";
-    await restarted.runtime.assistantChat!.chat({ userId: "e2", threadId: "research", text: "Подготовил отчёт: уточнение способа" });
+    // Message-only provenance and an unchanged episode: activity-only correction must invalidate approval.
+    expect((await research.read(reportScope)).episodes).toEqual(currentEvidence.episodes);
     now = "2026-09-10T12:00:00.000Z";
     expect((await reporting.buildReport(reportScope)).client.recommendations).toEqual([]);
+    expect(await publishing.publishClientReport({ ...reportScope, findings: { schemaVersion: "minutka-report-preflight-findings/v1", scope: "c/g", reportVersion: hashClientReport(report.client), findings: [] }, operatorDecision: "publish" })).toMatchObject({ ok: false, reason: "stale_findings" });
     expect(generations).toBe(beforeGeneration);
   });
 });

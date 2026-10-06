@@ -107,6 +107,20 @@ npm run company-report -- publish --company <c> --group <g> \
 
 Компании передаётся **только** успешный client artifact: без corpus, quotes, source refs, traces, subject keys, operator identity, личных обещаний/эмоциональных оценок. Не передавать internal DTO, recommendation artifact или findings. Публикация не доказывает ROI/API-доступ/реализуемость интеграции; неизвестное и ограничения остаются. Уже переданный документ не отзывается автоматически.
 
+## Integration gate `.15`: dev receipt и остающийся smoke
+
+[Gate receipt](../researches/work-retrospective-gate.md): final source tree на baseline `492bb80` + atomic `.15` changes — 1300 executable / 127 retrospective / 8 E2E / 63 isolated PostgreSQL tests passed, LSP clean. Local dev migrations 0081–0084 применены, pending=[]; production не затронут. Старый composition E2E перенесён в `SPEC-RETRO-E2E.spec.ts`.
+
+**Gate не green:** dev API startup blocked без `PRIVACY_POLICY_V6_URL`; live HTTP CLI/Telegram smoke не выполнялись. Не подставлять example privacy URL и не принимать consent за сотрудника. После предоставления реального immutable snapshot и разрешённого test owner проверить:
+
+```bash
+# Private dev env, employee-scoped MINUTKA_API_TOKEN; не service/admin token.
+npm run cli -- employee profile
+npm run cli -- employee chat --thread <test-thread> --text 'Подготовил отчёт за полчаса'
+```
+
+Команды CLI parser/SDK проверены in-process fixture, но эти **HTTP вызовы пока blocked**, не validated dev pass. API запускать без polling до отдельного Telegram smoke; для shell нужен разрешённый test chat. Затем настоящая доставка → контролируемый restart → короткий ответ на сохранённый вопрос → отказ. Подтвердить canonical delivery, budget, одну activity с сохранённой длительностью и прекращение вопросов. Полный checklist/ограничения — в receipt. `.16` не claim до pass внешнего gate и отдельного private launch manifest.
+
 ## 7. Остановка, журнал и полный анализ
 
 При утечке, потере фактов, дублях времени немедленно приостановить проблемный путь и сообщить оператору. Новые приглашения ограничены existing process availability/end period; scheduled touches управляются существующими owner-managed schedules. Нет универсального dynamic chat switch; не выдумывать group enable/disable или менять каталог/период для обхода проблемы. При завершении периода pending закрывается, факты и исторические summaries сохраняются. Не продлевать цикл/не менять cadence без оператора.

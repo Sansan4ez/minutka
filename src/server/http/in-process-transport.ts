@@ -32,11 +32,12 @@ function personal(application: InProcessApplication): PersonalAssistantService {
 /** Spec/local employee adapter: binds its principal before calling the application service. */
 export class InProcessEmployeeMinutkaTransport implements EmployeeMinutkaTransport {
   constructor(private readonly application: InProcessApplication, private readonly principal: AuthenticatedPrincipal) {}
-  chat(input: ChatRequest) {
+  async chat(input: ChatRequest) {
     const ownerId = employeeId(this.principal);
-    return this.application instanceof PersonalAssistantService
-      ? this.application.chat({ ...input, userId: ownerId })
-      : this.application.chat({ ...input, employeeId: ownerId });
+    if (!(this.application instanceof PersonalAssistantService)) return this.application.chat({ ...input, employeeId: ownerId });
+    // Match the HTTP/service DTO: application-only trace fields are not transport fields.
+    const { messageId, response, selectedProcessIds, pendingActions, effect } = await this.application.chat({ ...input, userId: ownerId });
+    return { messageId, response, selectedProcessIds, pendingActions, effect };
   }
   openInvite(input: OpenInviteRequest) { return this.application.openInvite(input); }
   acceptConsent(input: AcceptEmployeeConsentRequest) { return this.application.acceptConsent({ ...input, employeeId: employeeId(this.principal) }); }
