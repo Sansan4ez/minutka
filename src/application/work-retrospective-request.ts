@@ -59,6 +59,15 @@ export async function createWorkRetrospectiveRequest(input: {
       const staged = activityRefs.find((ref) => ref.activityId === activityId);
       if (staged) staged.revision = revision;
       else activityRefs.push({ activityId, revision });
+      // A confirmed correction must advance canonical refs even when the model
+      // never calls retrospective.update on this turn.
+      if (episode?.activityRefs.some((ref) => ref.activityId === activityId)) {
+        const updated = structuredClone(episode);
+        updated.activityRefs.find((ref) => ref.activityId === activityId)!.revision = revision;
+        if (!updated.messageRefs.some((ref) => ref.messageId === messageId)) updated.messageRefs.push({ messageId });
+        add({ type: "episode_updated", episode: updated });
+        episode = updated;
+      }
     },
     scheduled: input.scheduled,
     context: "value" in context ? context.value : "{}",

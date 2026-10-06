@@ -115,7 +115,11 @@ describe("default retrospective composition", () => {
         context: { currentTextCharacters: 0, staticRulesCharacters: 0, durationReferencesCharacters: 0, recentCandidatesCharacters: 0, promptCharacters: 0 } }),
       assistantAgentRunner: async (_, context) => {
         outcomes.push(await context.processCurrentActivityTurn({ mode: "record" }));
-        await context.workRetrospective!.update({ closeReason: "answered", question: { text: "Как проверили?", stage: "value" } });
+        // The successful correction turn intentionally omits the model's
+        // retrospective update; durable activity refs still must advance.
+        if (!(mode === "success" && outcomes.length === 2)) {
+          await context.workRetrospective!.update({ closeReason: "answered", question: { text: "Как проверили?", stage: "value" } });
+        }
         return { text: "Как проверили?", executionTrace: [] };
       } });
     const chat = (runtime: ReturnType<typeof make>, text: string) => runtime.assistantChat!.chat({ userId: "e", threadId: "t", text });

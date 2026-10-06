@@ -173,10 +173,13 @@ describe("PostgreSQL storage contracts", () => {
     await issueProfileReadyParticipant(pool, employeeId, "retro_transaction_invite");
     const participant = await createPostgresProfileStore(pool, config.inviteCodePepper).getParticipant(employeeId);
     const { turn, scope } = retrospectiveMetadataFixture(employeeId, participant!.subjectKey, participant!.companyId, participant!.groupId);
-    await createPostgresConversationStore(pool).appendTurn(turn);
+    // Real first-turn ordering: reservation precedes canonical conversation append.
+    expect((await pool.query("SELECT thread_id FROM minutka_private.threads WHERE employee_id=$1", [employeeId])).rows).toEqual([]);
     const key = { ...scope, sourceMessageId: turn.messageId, ordinal: 0 };
     const store = createPostgresLinkedActivityTransactionStore(pool);
     expect(await store.claim(key)).toEqual({ status: "claimed" });
+    expect((await pool.query("SELECT message_id FROM minutka_private.messages WHERE employee_id=$1", [employeeId])).rows).toEqual([]);
+    await createPostgresConversationStore(pool).appendTurn(turn);
     const restarted = createPostgresLinkedActivityTransactionStore(pool);
     expect(await restarted.claim(key)).toEqual({ status: "existing" });
     const outcome = { status: "failed" as const, phase: "write" as const, code: "persistence_conflict" as const };

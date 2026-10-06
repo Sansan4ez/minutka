@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { withTransaction } from "./postgres-pool.js";
 import type { ActivityTransactionServiceResult } from "../../application/activity-transaction-service.js";
 import type { LinkedActivityTransactionKey, LinkedActivityTransactionStore } from "../../application/linked-activity-transaction-store.js";
 
@@ -7,7 +8,12 @@ const selection = "employee_id=$1 AND company_id=$2 AND group_id=$3 AND subject_
 export function createPostgresLinkedActivityTransactionStore(pool: Pool): LinkedActivityTransactionStore {
   return {
     async claim(key) {
-      const inserted = await pool.query(`INSERT INTO minutka_private.linked_activity_transactions(employee_id,company_id,group_id,subject_key,thread_id,source_message_id,ordinal) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING ordinal`, values(key));
+      // The first factual turn reserves before conversation append creates its
+      // thread. Establish that FK parent atomically with the reservation.
+      const inserted = await withTransaction(pool, async (client) => {
+        await client.query(`INSERT INTO minutka_private.threads(employee_id,thread_id,created_at,updated_at) VALUES ($1,$2,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT (employee_id,thread_id) DO NOTHING`, [key.employeeId, key.threadId]);
+        return client.query(`INSERT INTO minutka_private.linked_activity_transactions(employee_id,company_id,group_id,subject_key,thread_id,source_message_id,ordinal) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING ordinal`, values(key));
+      });
       if (inserted.rowCount) return { status: "claimed" };
       const existing = await pool.query<{ outcome: ActivityTransactionServiceResult | null }>(`SELECT outcome FROM minutka_private.linked_activity_transactions WHERE ${selection}`, values(key));
       const outcome = existing.rows[0]?.outcome;

@@ -2,7 +2,7 @@
 
 ## Outcome и проверенная ревизия
 
-**Offline / isolated PostgreSQL: PASS. Dev HTTP: частичный smoke PASS после настройки и restart, два initial 503 остаются ограничением. Live Telegram: NOT RUN. Общий gate не green; `.16` не запускать.**
+**Offline / isolated PostgreSQL / dev CLI activity gate: PASS. Причины initial 503 и stale refs исправлены и проверены. Telegram transport delivery: NOT RUN (не prerequisite проверки сохранения activities через общий runtime). `.15` пока open по отдельному transport acceptance; `.16` не запускать автоматически.**
 
 Проверенная база: `492bb80c4a5063e797d84d156aba578c612a60ff`, плюс изменения атомарного коммита `mnt-hf3h.15`, содержащего этот receipt. Точный implementation HEAD после commit: `git log -1 --format=%H -- specs/executable/minutka/SPEC-RETRO-E2E.spec.ts`. Не выдаём результаты baseline за проверку неизменённого final HEAD: проверки выполнены на final source tree перед commit, далее меняются только docs/beads.
 
@@ -59,6 +59,27 @@ F1 sanitizer regression: `SPEC-RETRO-METADATA` и canonical metadata/context/exp
 - Dev API оставлен запущенным с `TELEGRAM_MODE=disabled`; стартовые scheduled попытки без Telegram transport завершались failure, реальных sends не было.
 
 Live full factual→bound correction цепочка пока не подтверждена HTTP: active episode открыт после уточнения и не содержит bound activity ref предыдущего thread. Не утверждаем no-double-time bound correction pass по этому live smoke; эта гарантия подтверждена offline E2E. Для завершения gate нужен свежий связанный factual эпизод и реальный Telegram smoke. Temporary private operational receipts/logs: `/tmp/minutka-15-dev-period.json`, `/tmp/minutka-15-cli-*.log`.
+
+## Итог CLI business gate после live исправлений
+
+По запросу оператора завершён shared-runtime сценарий без Telegram. Выявлены два конкретных integration misfit:
+
+1. Reservation `linked_activity_transactions` ссылалась на thread, который ещё не существовал на первом factual turn. FK insert failure попадал в conservative `outcome_unknown`, давал HTTP 503 до extractor и до сохранения фактов. PostgreSQL adapter теперь атомарно создаёт thread + reservation. Persistence fixture изменён: claim вызывается **до** canonical append. Никакие миграции/ослабления FK не нужны.
+2. При подтверждённой correction model могла не вызвать retrospective update. Тогда activity переходила на revision 2, а canonical episode ref оставался revision 1; следующая correction отклонялась. `bindCorrectedActivity` теперь staging canonical episode update и provenance независимо от model call. E2E success case намеренно пропускает update на correction turn, затем проверяет следующую correction после restart.
+
+Fresh HTTP CLI thread `retro-gate-dev-final`, реальная модель и PostgreSQL:
+
+| Шаг | Результат |
+|---|---|
+| Рассказ о проверке бюджета проекта Запад за 20 минут | exit 0, один факт revision 1, bucket `15_30m`, bound episode |
+| Уточнение той же работы на 45 минут | exit 0, тот же activity ID revision 2, bucket `30_60m`, canonical ref revision 2; model не вызывала retrospective update |
+| Контролируемый restart dev API, уточнение на 70 минут | exit 0, тот же activity ID revision 3, bucket `1_2h`, canonical ref revision 3 |
+
+Итог: **ровно одна activity**, время заменено, не суммировано, сохранение и correction не зависят от Telegram. Successful corrections возвращают `business_write_committed`. Старые failed-request receipts сохранены как диагностическая история, не считаются текущим blocker. Dev API работает на final source tree с polling disabled.
+
+Final validation: E2E 8/8; executable 140 files, **1300/1300**; isolated TEST PostgreSQL **63/63**, включая first-turn regression; LSP diagnostics четырёх changed TS files clean. Проверки выполнялись на baseline `86b6b01` + source diff атомарного коммита этого дополнения. Точный implementation commit: `git log -1 --format=%H -- src/infrastructure/postgres/postgres-linked-activity-transaction-store.ts`.
+
+Telegram full business replay из checklist **не требуется**: оставшийся transport smoke ограничен binding chat/employee/thread, actual send receipt, delivered budget и proactive routing. Это не незавершённая проверка activity-сохранения. Старые инструкции ниже о повторении full chain в Telegram superseded этим уточнением. Отдельный `.16` live cycle не запускался.
 
 ## Что нужно оператору для завершения внешнего gate
 
