@@ -60,6 +60,40 @@ describe("Retrospective client publication", () => {
     const h = setup(); const findings = await h.file(); h.artifact.version = 2; h.artifact.artifactId = "artifact2";
     expect(await h.publishing.publishClientReport({ ...scope, findings, operatorDecision: "publish" })).toMatchObject({ reason: "stale_findings" });
   });
+  it.each(["correction", "supersession", "purge"] as const)("SPEC-RETRO-INVALIDATION-01/02: message-only %s invalidates old findings without episode writes", async (mutation) => {
+    const h = setup();
+    for (const e of h.input.episodes) for (const s of e.statements.actions)
+      s.sourceRefs = s.sourceRefs.filter((ref) => ref.type === "message");
+    const episodes = structuredClone(h.input.episodes);
+    const findings = await h.file();
+    if (mutation === "correction") h.input.evidence.activities[0]!.revision = 2;
+    if (mutation === "supersession") h.input.evidence.activities[0]!.status = "superseded";
+    if (mutation === "purge") h.input.evidence.activities.splice(0, 1);
+    expect(h.input.episodes).toEqual(episodes);
+    expect((await h.reporting.buildReport(scope)).client.recommendations).toEqual([]);
+    expect(await h.publishing.publishClientReport({ ...scope, findings, operatorDecision: "publish" })).toMatchObject({ reason: "stale_findings" });
+    expect(h.world.auditEvents.some((e) => e.type === "client_report_published")).toBe(false);
+  });
+  it("SPEC-RETRO-INVALIDATION-03: fresh checked version and preflight allow deterministic publication", async () => {
+    const h = setup();
+    for (const e of h.input.episodes) for (const s of e.statements.actions)
+      s.sourceRefs = s.sourceRefs.filter((ref) => ref.type === "message");
+    const oldFindings = await h.file();
+    h.input.evidence.activities[0]!.revision = 2;
+    expect((await h.reporting.buildReport(scope)).client.recommendations).toEqual([]);
+    // Simulate the new checked artifact from recompute/check (covered by candidate specs).
+    h.input.episodes[0]!.activityRefs[0]!.revision = 2;
+    h.input.episodes[0]!.revision++;
+    h.artifact.episodeRefs[0]!.revision++;
+    for (const claim of [h.artifact.candidates[0]!.operation, h.artifact.candidates[0]!.opportunity,
+      h.artifact.candidates[0]!.known.method!, h.artifact.candidates[0]!.known.criterion!, ...h.artifact.candidates[0]!.facts])
+      claim.refs[0]!.revision = h.input.episodes[0]!.revision;
+    h.artifact.version++;
+    h.artifact.artifactId = "fresh_checked_artifact";
+    expect(await h.publishing.publishClientReport({ ...scope, findings: oldFindings, operatorDecision: "publish" })).toMatchObject({ reason: "stale_findings" });
+    expect((await h.reporting.buildReport(scope)).client.recommendations).toHaveLength(1);
+    expect(await h.publishing.publishClientReport({ ...scope, findings: await h.file(), operatorDecision: "publish" })).toMatchObject({ ok: true });
+  });
   it("SPEC-RETRO-PUBLISH-05: group-off keeps v2", async () => {
     const report = await setup(false).reporting.buildReport(scope);
     expect(report.client.schemaVersion).toBe("minutka-client-report.v2");

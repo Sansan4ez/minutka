@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryArtifactStore } from "../../../src/application/in-memory-artifact-store.js";
 import { createInMemoryArtifactContentStore } from "../../../src/application/in-memory-artifact-content-store.js";
-import { RetrospectiveRecommendationService, createRecommendationResearchRead, type RecommendationInput, type RecommendationProposal, type RecommendationArtifact } from "../../../src/application/retrospective-recommendations.js";
+import { RetrospectiveRecommendationService, createRecommendationResearchRead, currentCheckedRecommendations, type RecommendationInput, type RecommendationProposal, type RecommendationArtifact } from "../../../src/application/retrospective-recommendations.js";
 import { buildRetrospectiveRecommendationPrompt } from "../../../src/mastra/retrospective-recommendation-generator.js";
 import { durationBucketHours } from "../../../src/application/company-reporting.js";
 
@@ -116,6 +116,55 @@ describe("Private retrospective recommendation candidates", () => {
     expect(await restarted.read(scope, checked.value.artifactId)).toEqual({ status: "applied", value: checked.value });
     expect(await restarted.read(scope, artifact.artifactId)).toEqual({ status: "applied", value: artifact });
     expect((await restarted.read({ ...scope, groupId: "group_b" }, artifact.artifactId)).status).toBe("not_found");
+  });
+
+  it.each(["correction", "supersession", "purge", "foreign_subject"] as const)("SPEC-RETRO-INVALIDATION-01/02: message-only %s blocks read/check/save/current approval", async (mutation) => {
+    const input = fixture();
+    input.episodes[0]!.statements.actions[0]!.sourceRefs = [{ type: "message", messageId: "message_1" }];
+    const { service } = setup(input);
+    const draft = await build(service);
+    const review = { operatorId: "operator", decisions: { [draft.candidates[0]!.candidateId]: "checked" as const } };
+    const checked = await service.check(scope, draft, review);
+    if (checked.status !== "applied") throw new Error("check failed");
+    expect((await service.save(scope, checked.value)).status).toBe("applied");
+    const episodes = structuredClone(input.episodes);
+    if (mutation === "correction") input.evidence.activities[0]!.revision = 2;
+    if (mutation === "supersession") input.evidence.activities[0]!.status = "superseded";
+    if (mutation === "purge") input.evidence.activities = [];
+    if (mutation === "foreign_subject") input.evidence.activities[0]!.subjectKey = "other_subject";
+    expect(input.episodes).toEqual(episodes);
+    expect(currentCheckedRecommendations(scope, checked.value, input)).toEqual([]);
+    expect((await service.save(scope, checked.value)).status).toBe("stale");
+    const read = await service.readLatest(scope);
+    expect(read.status === "applied" && read.value.candidates[0]).toMatchObject({ status: "stale" });
+    expect(read.status === "applied" && read.value.candidates[0]).not.toHaveProperty("review");
+    const rechecked = await service.check(scope, checked.value, review);
+    expect(rechecked.status === "applied" && rechecked.value.candidates[0]!.status).toBe("stale");
+    expect((await build(service)).candidates[0]!.status).toBe("rejected");
+  });
+
+  it("SPEC-RETRO-INVALIDATION-03: recompute needs fresh review; current publish validation never generates", async () => {
+    const input = fixture();
+    input.episodes[0]!.statements.actions[0]!.sourceRefs = [{ type: "message", messageId: "message_1" }];
+    let generations = 0;
+    const { service } = setup(input, async () => { generations++; return [proposal(input)]; });
+    const draft = await build(service);
+    const checked = await service.check(scope, draft, { operatorId: "op", decisions: { [draft.candidates[0]!.candidateId]: "checked" } });
+    if (checked.status !== "applied") throw new Error("check failed");
+    input.evidence.activities[0]!.revision = 2;
+    expect(currentCheckedRecommendations(scope, checked.value, input)).toEqual([]);
+    input.episodes[0]!.activityRefs[0]!.revision = 2;
+    input.episodes[0]!.revision++;
+    const recomputed = await service.recompute(scope, checked.value);
+    if (recomputed.status !== "applied") throw new Error("recompute failed");
+    expect(recomputed.value.candidates[0]).toMatchObject({ status: "draft" });
+    expect(recomputed.value.candidates[0]).not.toHaveProperty("review");
+    expect(currentCheckedRecommendations(scope, recomputed.value, input)).toEqual([]);
+    const reviewed = await service.check(scope, recomputed.value, { operatorId: "op", decisions: { [recomputed.value.candidates[0]!.candidateId]: "checked" } });
+    if (reviewed.status !== "applied") throw new Error("check failed");
+    expect((await service.save(scope, reviewed.value)).status).toBe("applied");
+    expect(currentCheckedRecommendations(scope, reviewed.value, input)).toHaveLength(1);
+    expect(generations).toBe(2);
   });
 
   it("typed research adapter strips employee identity and rejects cross-group discovery", async () => {

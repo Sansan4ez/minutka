@@ -237,8 +237,15 @@ function supported(p: RecommendationProposal, input: RecommendationInput): boole
     if (!sameScope(input.scope, ref)) return false;
     const episode = input.episodes.find((e) => e.subjectKey === ref.subjectKey && e.threadId === ref.threadId && e.episodeId === ref.episodeId && e.revision === ref.revision);
     const statement = episode && Object.values(episode.statements).flat().find((s) => s.statementId === ref.statementId && s.kind === "employee_fact" && s.text === ref.quote);
-    return !!statement && statement.sourceRefs.length > 0 && statement.sourceRefs.every((source) => source.type === "message"
+    // Runtime statements can have message-only provenance. The linked activities of
+    // their episode are still dependencies: correction/purge must invalidate review
+    // without requiring a separate episode write.
+    const activeActivity = (activityId: string, revision: number): boolean => input.evidence.activities.some((a) =>
+      sameScope(input.scope, a) && a.subjectKey === ref.subjectKey && a.activityId === activityId
+      && (a.revision ?? 1) === revision && (!a.status || a.status === "active"));
+    return !!episode && episode.activityRefs.every((source) => activeActivity(source.activityId, source.revision))
+      && !!statement && statement.sourceRefs.length > 0 && statement.sourceRefs.every((source) => source.type === "message"
       ? !!input.evidence.messages.find((m) => m.subjectKey === ref.subjectKey && m.messageId === source.messageId && m.userText.includes(ref.quote))
-      : !!input.evidence.activities.find((a) => a.subjectKey === ref.subjectKey && a.activityId === source.activityId && (a.revision ?? 1) === source.revision && (!a.status || a.status === "active")));
+      : activeActivity(source.activityId, source.revision));
   }));
 }
