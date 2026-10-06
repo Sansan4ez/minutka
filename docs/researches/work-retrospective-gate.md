@@ -2,7 +2,7 @@
 
 ## Outcome и проверенная ревизия
 
-**Offline / isolated PostgreSQL: PASS. Dev HTTP / live Telegram: BLOCKED. Общий gate не green; `.16` не запускать.**
+**Offline / isolated PostgreSQL: PASS. Dev HTTP: частичный smoke PASS после настройки и restart, два initial 503 остаются ограничением. Live Telegram: NOT RUN. Общий gate не green; `.16` не запускать.**
 
 Проверенная база: `492bb80c4a5063e797d84d156aba578c612a60ff`, плюс изменения атомарного коммита `mnt-hf3h.15`, содержащего этот receipt. Точный implementation HEAD после commit: `git log -1 --format=%H -- specs/executable/minutka/SPEC-RETRO-E2E.spec.ts`. Не выдаём результаты baseline за проверку неизменённого final HEAD: проверки выполнены на final source tree перед commit, далее меняются только docs/beads.
 
@@ -46,10 +46,24 @@ Persistence выдаёт existing pg deprecation warning про concurrent query
 
 F1 sanitizer regression: `SPEC-RETRO-METADATA` и canonical metadata/context/export fixtures. F2: E2E continuity success до revision 3 после restart, stale/foreign/unknown не двигают ref. F3: message-only provenance, unchanged episode после standalone correction, stale findings. Refusal, partial/replay, purge/recompute, 6000 context и 4/8 budgets дополнительно покрываются полной retrospective regression; это не новое ревью.
 
+## Дополнение: разрешённый dev CLI smoke
+
+Оператор предоставил privacy URL, разрешил обоих test employees и изменение периода их dev test group. Использован `emp_pilotrun_one`; employee token подставлялся только в child env, без изменения credentials в `.env`. Период группы изменён с 01–31.08 на **07–20.10.2026** (14 дней от локальной даты сотрудника; shared test group, не production). Это не launch `.16`.
+
+- Dev API startup и `npm run cli -- employee profile`: exit 0.
+- Первый factual HTTP turn в `retro-gate-dev-smoke`: exit 0, одна canonical activity `15_30m`, revision 1. При старом completed period retrospective корректно не открылся.
+- После обновления периода два HTTP turns нового `retro-gate-dev-active` вернули 503 с uncertain-outcome response. До следующего действия проверены canonical messages и activities: сообщений нового thread нет, новых factual записей нет. Слепой retry factual рассказа не выполнялся. Причина этих двух сбоев **не установлена**; успешные последующие вызовы их не маскируют.
+- Direct штатный Postgres runtime с настоящей моделью сохранил episode/value/question через тот же AssistantService; это diagnostic application call, не HTTP pass.
+- Контролируемый restart dev API, затем HTTP CLI «Сверил цифры.»: exit 0, модель продолжила сохранённый episode и задала вопрос этапа future. Refusal «Не хочу продолжать разбор. Остановимся.»: exit 0, episode `declined`, pending отсутствует.
+- Итог PostgreSQL: три canonical turns active thread, одна сегодняшняя factual activity сотрудника; CLI delivery budget **0**, как ожидается без Telegram receipt. Старые fixtures activities не удалялись, consent не принимался вместо сотрудника.
+- Dev API оставлен запущенным с `TELEGRAM_MODE=disabled`; стартовые scheduled попытки без Telegram transport завершались failure, реальных sends не было.
+
+Live full factual→bound correction цепочка пока не подтверждена HTTP: active episode открыт после уточнения и не содержит bound activity ref предыдущего thread. Не утверждаем no-double-time bound correction pass по этому live smoke; эта гарантия подтверждена offline E2E. Для завершения gate нужен свежий связанный factual эпизод и реальный Telegram smoke. Temporary private operational receipts/logs: `/tmp/minutka-15-dev-period.json`, `/tmp/minutka-15-cli-*.log`.
+
 ## Что нужно оператору для завершения внешнего gate
 
-1. Предоставить действительный публичный immutable `PRIVACY_POLICY_V6_URL`, соответствующий `docs/product/privacy-v6.html`; сохранить в private dev env. Не подставлять example URL. Проверенный pinned Git URL текущего локального HEAD недоступен (HTTP 404); snapshot этим способом не подтверждён.
-2. Выбрать разрешённый dev test employee/chat/thread и подтвердить active group period, current consent и профиль. Existing CLI env token не соответствует employee/admin principal; для employee CLI выбрать его scoped token приватно, не печатать token и не применять service token к employee plane.
+1. Выполнено оператором: `PRIVACY_POLICY_V6_URL` настроен, runtime config и startup проходят; публичное содержимое snapshot отдельно не сравнивалось. Требование: действительный публичный immutable URL соответствует `docs/product/privacy-v6.html`, хранится в private dev env. Не подставлять example URL. Проверенный pinned Git URL текущего локального HEAD недоступен (HTTP 404); snapshot этим способом не подтверждён.
+2. Test employee и dev period разрешены/проверены; для реального Telegram подтвердить test chat/thread и consent. Existing CLI env token не соответствует employee/admin principal; для employee CLI выбрать его scoped token приватно, не печатать token и не применять service token к employee plane.
 3. Поднять dev API; `npm run cli -- employee profile`, затем `npm run cli -- employee chat --thread <test-thread> --text 'Подготовил отчёт за полчаса'`. Реальное model поведение и PostgreSQL continuity ещё не проверены через HTTP. Не принимать согласие вместо сотрудника.
 4. Telegram smoke на том же разрешённом test owner: рассказ выше → дождаться доставленного вопроса → короткий ответ по смыслу вопроса → проверить одну activity/неизменённую длительность; затем «Не хочу продолжать» → итог без новых вопросов, факты сохранены.
 5. Перед коротким ответом сделать контролируемый restart dev runtime; проверить восстановленные pending, refs и delivered budget. Отдельно подтвердить успешную proactive delivery и отсутствие competing evening после weekly/final. Реальная доставка не заменяется CLI.
