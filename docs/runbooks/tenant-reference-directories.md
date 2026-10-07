@@ -96,6 +96,24 @@ SQL
 
 Research readers всегда задают одновременно `company_id` и `group_id`. Их DTO содержит только `subjectKey`, `roleId` и evidence refs; ФИО, `employeeId`, invite code и Telegram identifiers в эту проекцию не входят. `subjectKey` служит корреляцией и однозначным lookup для purge/sanitize, но не credential: employee API и agent tools его не принимают.
 
+## Новый цикл для уже подключённого сотрудника
+
+Старый participant и его company/group/subject остаются неизменными: FK канонического corpus не позволяют переименовать историческое участие. Создайте новую группу и новый invite/participant через admin API. Новую ссылку сотруднику рассылать не нужно.
+
+Операторская команда переключает существующую Telegram-сессию на новое участие атомарно, сохраняет исходное согласие (version/date/source), профиль или незавершённый onboarding draft и настройки трёх регулярных касаний. Создаёт новый пустой thread и private lineage receipt, отключает все старые расписания и отзывает старый invite. Corpus, summaries, задачи, документы и старые исследовательские эпизоды **не копируются**. Одноразовые final/reminders не переносятся. Старые групповые данные остаются доступными исследовательскому контуру по прежнему scope; старая личная переписка не подключается к новому model context.
+
+Остановите runtime на время операции (никаких одновременных сообщений/scheduler). Загрузите production env приватно, не печатая secrets:
+
+```bash
+PARTICIPATION_TRANSITION_RUNTIME_STOPPED=true node --import tsx \
+  src/runtime/transition-participation.ts \
+  <company> <old-group> <new-group> <old-employee> <new-employee>
+```
+
+Точное подтверждение: `TRANSITION <old-employee> <new-employee>`. Pending schedule fire блокирует переход: сначала оператор разбирает его штатный outcome, не удаляет ledger. Target должен быть пустым `invite_issued` участием той же компании; никакого переноса между компаниями. Повтор точной пары возвращает `already_applied` по durable receipt. Исходное согласие переносится как ранее данное, новое принятие не симулируется; при изменении privacy version обычный runtime по-прежнему запросит re-consent.
+
+После операции запустите runtime; проверьте новую Telegram owner/thread binding, исходные consent timestamps, старые schedules disabled и новые local time/days/enabled, сохранность старого scope. Health/smoke не доказывают фактическую Telegram delivery. У незавершённого onboarding сохраняется прежний статус; истёкший draft обрабатывается обычными retention/expiry правилами. Новое участие не создаёт факты задним числом: начало периода раньше переключения не доказывает полный live цикл.
+
 ## Generic mapping типов систем
 
 Словарь систем (`activitySystems` в `src/domain/insights.ts`) — **глобальный и закрытый**: он описывает *типы* систем, а не продукты компании. До первого сбора оператор берёт у компании короткий inventory типов систем — без секретов, доступов и внутренних названий — и фиксирует mapping в этой таблице. Точные бренды и внутренние названия остаются в переписке оператора и в строку активности не попадают.

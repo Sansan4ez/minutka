@@ -138,6 +138,59 @@ describe("PostgreSQL storage contracts", () => {
     await Promise.all([pool.end(), migrationPool.end()]);
   });
 
+  it("participation transition preserves history and consent, switches session, stops duplicate schedules and replays", async () => {
+    const { ParticipationTransitionService } = await import("../../src/application/participation-transition.js");
+    const { createPostgresParticipationTransitionStore } = await import("../../src/infrastructure/postgres/postgres-participation-transition-store.js");
+    await migrationPool.query("INSERT INTO minutka_reference.training_groups(id,company_id,name,period) VALUES('transition_group','company_persistence_default','New cycle',daterange('2026-10-05','2026-10-19','[)')) ON CONFLICT DO NOTHING");
+    await issueProfileReadyParticipant(pool, "transition_old", "transition_old_invite");
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId: "transition_new", inviteCode: "transition_new_invite", companyId: "company_persistence_default", groupId: "transition_group", issuedAt: now });
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
+    const identity = { chatId: "transition_chat", userId: "transition_user" };
+    await sessions.claim({ identity, session: { employeeId: "transition_old", threadId: "old_thread", createdAt: now, updatedAt: now } });
+    await sessions.markConsentAccepted({ identity, employeeId: "transition_old", acceptedAt: now });
+    await pool.query("INSERT INTO minutka_private.threads(employee_id,thread_id,created_at,updated_at) VALUES('transition_old','old_thread',$1,$1)", [now]);
+    await pool.query("INSERT INTO minutka_private.process_schedules(schedule_id,user_id,process_id,time_of_day,timezone,enabled,next_fire_at) VALUES('transition_schedule','transition_old','morning_planning','08:30','Etc/UTC',true,$1)", [now]);
+    const input = { companyId: "company_persistence_default", sourceGroupId: "group_persistence_default", targetGroupId: "transition_group", sourceEmployeeId: "transition_old", targetEmployeeId: "transition_new" };
+    const service = new ParticipationTransitionService(createPostgresParticipationTransitionStore(pool));
+    await pool.query("INSERT INTO minutka_private.schedule_fires(schedule_id,user_id,process_id,scheduled_for) VALUES('transition_schedule','transition_old','morning_planning',$1)", [now]);
+    await expect(service.transition(input)).rejects.toThrow("pending_schedule_fire");
+    expect((await sessions.getByIdentity(identity))?.employeeId).toBe("transition_old");
+    expect(await profiles.getProfile("transition_new")).toBeUndefined();
+    await pool.query("DELETE FROM minutka_private.schedule_fires WHERE user_id='transition_old'");
+    await expect(service.transition({ ...input, companyId: "foreign" })).rejects.toThrow("participation_scope_mismatch");
+    const result = await service.transition(input);
+    expect(result.status).toBe("applied");
+    expect(result.threadId).not.toBe("old_thread");
+    expect((await sessions.getByIdentity(identity))?.employeeId).toBe("transition_new");
+    expect(await profiles.getConsent("transition_new")).toMatchObject({ acceptedAt: now, privacyVersion: "privacy-v2" });
+    expect(await profiles.getProfile("transition_new")).toMatchObject({ preferredName: "Manager", groupId: "transition_group" });
+    expect(await profiles.getParticipant("transition_old")).toMatchObject({ groupId: "group_persistence_default" });
+    expect((await pool.query("SELECT enabled FROM minutka_private.process_schedules WHERE user_id='transition_old'")).rows).toEqual([{ enabled: false }]);
+    expect((await pool.query("SELECT enabled,next_fire_at FROM minutka_private.process_schedules WHERE user_id='transition_new'")).rows[0].enabled).toBe(true);
+    expect((await pool.query("SELECT 1 FROM minutka_private.threads WHERE employee_id='transition_old' AND thread_id='old_thread'")).rowCount).toBe(1);
+    expect(await service.transition(input)).toEqual({ status: "already_applied", threadId: result.threadId });
+    expect(await profiles.openInvite({ inviteCode: "transition_old_invite", openedAt: now, explanationShownAt: now })).toBeUndefined();
+  });
+
+  it("participation transition retains incomplete onboarding and does not invent a profile", async () => {
+    const { ParticipationTransitionService } = await import("../../src/application/participation-transition.js");
+    const { createPostgresParticipationTransitionStore } = await import("../../src/infrastructure/postgres/postgres-participation-transition-store.js");
+    const profiles = createPostgresProfileStore(pool, config.inviteCodePepper);
+    await profiles.issueInvite({ employeeId: "transition_draft_old", inviteCode: "transition_draft_invite", companyId: "company_persistence_default", groupId: "group_persistence_default", issuedAt: now });
+    await profiles.acceptConsent({ employeeId: "transition_draft_old", privacyVersion: "privacy-v2", acceptedAt: now, explanationShownAt: now, source: "test" });
+    await profiles.issueInvite({ employeeId: "transition_draft_new", inviteCode: "transition_draft_new_invite", companyId: "company_persistence_default", groupId: "transition_group", issuedAt: now });
+    await pool.query("INSERT INTO minutka_private.onboarding_drafts(employee_id,status,pending_field,revision,created_at,updated_at,expires_at) VALUES('transition_draft_old','collecting','roleId',3,$1,$1,'2027-01-01')", [now]);
+    const sessions = createPostgresTelegramSessionStore(pool, config.telegramIdentityPepper, createSecretBox(config.integrationEncryptionKey));
+    const identity = { chatId: "draft_transition_chat", userId: "draft_transition_user" };
+    await sessions.claim({ identity, session: { employeeId: "transition_draft_old", threadId: "draft_thread", createdAt: now, updatedAt: now } });
+    await sessions.markConsentAccepted({ identity, employeeId: "transition_draft_old", acceptedAt: now });
+    await new ParticipationTransitionService(createPostgresParticipationTransitionStore(pool)).transition({ companyId: "company_persistence_default", sourceGroupId: "group_persistence_default", targetGroupId: "transition_group", sourceEmployeeId: "transition_draft_old", targetEmployeeId: "transition_draft_new" });
+    expect(await profiles.getProfile("transition_draft_new")).toBeUndefined();
+    expect(await profiles.getParticipant("transition_draft_new")).toMatchObject({ status: "consent_accepted" });
+    expect((await pool.query("SELECT pending_field,revision FROM minutka_private.onboarding_drafts WHERE employee_id='transition_draft_new'")).rows).toEqual([{ pending_field: "roleId", revision: 3 }]);
+  });
+
   it("SPEC-RETRO-COMPOSITION-E2E-05 operator preview is read-only on migrated TEST storage", async () => {
     const { runResearchScopePurgeCommand } = await import("../../src/runtime/research-scope-purge-command.js");
     await issueProfileReadyParticipant(pool, "preview_test_owner", "preview_test_invite");
